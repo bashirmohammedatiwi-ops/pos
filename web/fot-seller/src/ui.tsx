@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { money, moneyIq, moneyK, type WeekSummary } from './api';
+import { money, moneyIq, moneyK, pieces, type WeekSummary } from './api';
 import type { DayBucket, HourBand } from './insights';
 
 export function IconHome() {
@@ -406,7 +406,7 @@ export function HourBands({ rows }: { rows: HourBand[] }) {
           <p className="kicker">{r.hint}</p>
           <h3 className="text-base font-extrabold">{r.label}</h3>
           <p className="num mt-2 text-lg font-extrabold text-gold">{moneyIq(r.commission)}</p>
-          <p className="mt-1 text-xs font-bold text-muted">{r.count} حركة</p>
+          <p className="mt-1 text-xs font-bold text-muted">{r.count} حركة · {pieces(r.qty)}</p>
         </article>
       ))}
     </div>

@@ -86,6 +86,18 @@ function scrub(value) {
   return out;
 }
 
+function fixGoal(goal) {
+  if (!goal || typeof goal !== 'object') return goal;
+  const sold = Number(goal.sold ?? goal.Sold ?? 0);
+  const target = Number(goal.weeklyTarget ?? goal.WeeklyTarget ?? 0);
+  const percent = target > 0 ? Math.round((sold / target) * 1000) / 10 : 0;
+  return { ...goal, sold, weeklyTarget: target, percent, Percent: percent };
+}
+
+function fixGoals(list) {
+  return (list || []).map(fixGoal);
+}
+
 function send(res, status, body) {
   const json = typeof body === 'string' ? body : JSON.stringify(scrub(body));
   res.writeHead(status, {
@@ -279,7 +291,7 @@ const server = http.createServer(async (req, res) => {
         week: pack?.week || pack?.Week || {},
         balanceDue: snap.balanceDue ?? snap.BalanceDue ?? 0,
         malls: [],
-        goals: pack?.goals || pack?.Goals || [],
+        goals: fixGoals(pack?.goals || pack?.Goals || []),
       });
       return;
     }
@@ -288,7 +300,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/goals') {
-      send(res, 200, pack?.goals || pack?.Goals || []);
+      send(res, 200, fixGoals(pack?.goals || pack?.Goals || []));
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/commission-lines') {
@@ -314,7 +326,7 @@ const server = http.createServer(async (req, res) => {
         send(res, 404, { error: 'الهدف غير مربوط بك' });
         return;
       }
-      send(res, 200, row);
+      send(res, 200, fixGoal(row));
       return;
     }
 

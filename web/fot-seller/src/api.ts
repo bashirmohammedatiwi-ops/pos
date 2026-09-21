@@ -120,15 +120,19 @@ export const api = {
       body: JSON.stringify({ salesmanId, pin }),
     }),
   me: () => request<SellerMe>('/api/seller/me'),
-  dashboard: (weekStart?: string) => request<Dashboard>(`/api/seller/dashboard${weekQs(weekStart)}`),
+  dashboard: async (weekStart?: string) => {
+    const d = await request<Dashboard>(`/api/seller/dashboard${weekQs(weekStart)}`);
+    return { ...d, goals: (d.goals ?? []).map(withGoalProgress) };
+  },
   weeks: () => request<WeekSummary[]>('/api/seller/weeks?count=12'),
-  goals: (weekStart?: string) => request<GoalRow[]>(`/api/seller/goals${weekQs(weekStart)}`),
+  goals: async (weekStart?: string) =>
+    (await request<GoalRow[]>(`/api/seller/goals${weekQs(weekStart)}`)).map(withGoalProgress),
   groups: () => request<GroupRow[]>('/api/seller/commission-groups'),
   products: () => request<ProductRow[]>('/api/seller/commission-products'),
   commissionLines: (weekStart?: string, sectionId?: number) =>
     request<CommissionBundle>(`/api/seller/commission-lines${weekQs(weekStart)}${sectionId == null ? '' : `${weekStart ? '&' : '?'}sectionId=${sectionId}`}`),
-  goalLines: (ruleId: number, weekStart?: string) =>
-    request<GoalDetail>(`/api/seller/goals/${ruleId}/lines${weekQs(weekStart)}`),
+  goalLines: async (ruleId: number, weekStart?: string) =>
+    withGoalProgress(await request<GoalDetail>(`/api/seller/goals/${ruleId}/lines${weekQs(weekStart)}`)),
 };
 
 export function money(n: number) {
@@ -228,8 +232,21 @@ export function targetKind(type: string) {
   return type === 'amount' ? 'هدف مبلغ' : 'هدف كمية';
 }
 
+export function pieces(n: number) {
+  return `${money(Math.round(Number(n) || 0))} قطعة`;
+}
+
+export function goalPercent(sold: number, target: number) {
+  if (!(target > 0)) return sold > 0 ? 100 : 0;
+  return (Number(sold) / Number(target)) * 100;
+}
+
+export function withGoalProgress<T extends GoalRow>(goal: T): T {
+  return { ...goal, percent: goalPercent(goal.sold, goal.weeklyTarget) };
+}
+
 export function goalValue(type: string, n: number) {
-  return type === 'amount' ? moneyIq(n) : money(n);
+  return type === 'amount' ? moneyIq(n) : pieces(n);
 }
 
 export function goalTone(percent: number): 'ok' | 'goal' | 'warn' {

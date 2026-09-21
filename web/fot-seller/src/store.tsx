@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  api, deltaPct, setSeller,
+  api, deltaPct, setSeller, withGoalProgress,
   type CommissionLine, type Dashboard, type WeekSummary,
 } from './api';
 import { scrubSellerPayload } from './privacy';
@@ -8,16 +8,23 @@ import { useWeek } from './week';
 
 const CACHE_KEY = 'fot_seller_cache';
 
+function remapDash(d: Dashboard | null): Dashboard | null {
+  if (!d) return null;
+  return { ...d, goals: (d.goals ?? []).map(withGoalProgress) };
+}
+
 function readCache() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? scrubSellerPayload(JSON.parse(raw) as {
+    if (!raw) return null;
+    const parsed = scrubSellerPayload(JSON.parse(raw) as {
       weekStart?: string;
       dash: Dashboard | null;
       weeks: WeekSummary[];
       lines: CommissionLine[];
       updatedAt: number | null;
-    }) : null;
+    });
+    return { ...parsed, dash: remapDash(parsed.dash) };
   } catch {
     return null;
   }

@@ -27,6 +27,8 @@ export function Goals() {
   const avg = rows.length ? rows.reduce((s, g) => s + g.percent, 0) / rows.length : 0;
   const late = rows.filter(g => g.percent < 80).length;
   const near = rows.filter(g => g.percent >= 80 && g.percent < 100).length;
+  const qtySold = rows.filter(g => g.targetType !== 'amount').reduce((s, g) => s + g.sold, 0);
+  const qtyTarget = rows.filter(g => g.targetType !== 'amount').reduce((s, g) => s + g.weeklyTarget, 0);
 
   async function openGoal(g: GoalRow) {
     setBusy(true);
@@ -51,6 +53,11 @@ export function Goals() {
           <p className="mt-2 text-sm font-bold leading-6 text-muted">
             {rows.length ? `${hit} تحقق · ${near} قريب · ${late} يحتاج تركيز` : 'الأهداف المربوطة باسمك تظهر هنا'}
           </p>
+          {qtyTarget > 0 && (
+            <p className="mt-2 text-sm font-extrabold text-goal">
+              القطع: {goalValue('quantity', qtySold)} من {goalValue('quantity', qtyTarget)}
+            </p>
+          )}
           <p className="mt-2 text-xs font-extrabold text-goal">اضغط الهدف لرؤية المنتجات والفواتير والوقت</p>
         </div>
       </section>
@@ -89,12 +96,15 @@ export function Goals() {
                   </div>
                   <Badge tone={tone === 'goal' ? 'goal' : tone}>{goalLabel(g.percent)}</Badge>
                 </div>
-                <div className="mt-3">
-                  <p className="text-sm font-bold text-muted">
-                    <span className="num font-extrabold text-ink">{goalValue(g.targetType, g.sold)}</span>
-                    <span> من </span>
-                    <span className="num">{goalValue(g.targetType, g.weeklyTarget)}</span>
-                  </p>
+                <div className="goal-metrics">
+                  <div>
+                    <p className="text-[11px] font-extrabold text-muted">المتحقق</p>
+                    <p className="num mt-1 text-lg font-black text-gold">{goalValue(g.targetType, g.sold)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-extrabold text-muted">الهدف</p>
+                    <p className="num mt-1 text-lg font-black">{goalValue(g.targetType, g.weeklyTarget)}</p>
+                  </div>
                 </div>
                 <div className="mt-2"><Track value={g.percent} tone={tone} /></div>
                 {remain > 0

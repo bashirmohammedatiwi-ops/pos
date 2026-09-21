@@ -15,6 +15,7 @@ export type DayBucket = {
   weekday: string;
   commission: number;
   count: number;
+  qty: number;
 };
 
 export type ProductRank = {
@@ -40,13 +41,14 @@ export type HourBand = {
   hint: string;
   commission: number;
   count: number;
+  qty: number;
 };
 
 const BANDS: HourBand[] = [
-  { key: 'morning', label: 'الصباح', hint: 'حتى الظهر', commission: 0, count: 0 },
-  { key: 'afternoon', label: 'الظهر', hint: 'حتى العصر', commission: 0, count: 0 },
-  { key: 'evening', label: 'المساء', hint: 'حتى الليل', commission: 0, count: 0 },
-  { key: 'night', label: 'الليل', hint: 'بعد 9', commission: 0, count: 0 },
+  { key: 'morning', label: 'الصباح', hint: 'حتى الظهر', commission: 0, count: 0, qty: 0 },
+  { key: 'afternoon', label: 'الظهر', hint: 'حتى العصر', commission: 0, count: 0, qty: 0 },
+  { key: 'evening', label: 'المساء', hint: 'حتى الليل', commission: 0, count: 0, qty: 0 },
+  { key: 'night', label: 'الليل', hint: 'بعد 9', commission: 0, count: 0, qty: 0 },
 ];
 
 export function hourBand(iso: string): HourBand['key'] {
@@ -67,9 +69,11 @@ export function groupDays(lines: CommissionLine[]): DayBucket[] {
       weekday: weekdayShort(line.occurredAt),
       commission: 0,
       count: 0,
+      qty: 0,
     };
     row.commission += line.commissionAmount;
     row.count += 1;
+    row.qty += Number(line.quantity) || 0;
     map.set(key, row);
   }
   return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -118,6 +122,7 @@ export function groupHours(lines: CommissionLine[]): HourBand[] {
     if (!row) continue;
     row.commission += line.commissionAmount;
     row.count += 1;
+    row.qty += Number(line.quantity) || 0;
   }
   return rows;
 }
@@ -128,7 +133,7 @@ export function lineText(line: CommissionLine) {
     `العمولة: ${moneyIq(line.commissionAmount)}`,
     `الفاتورة: ${receiptLabel(line.receiptNumber)}`,
     `الوقت: ${stampLabel(line.occurredAt)}`,
-    `الكمية: ${line.quantity}`,
+    `الكمية: ${line.quantity} قطعة`,
   ].filter(Boolean).join('\n');
 }
 
@@ -158,6 +163,7 @@ export function buildInsights(lines: CommissionLine[]) {
     peakHour: peakHour?.commission ? peakHour : undefined,
     invoiceCount: receipts.length,
     itemCount: lines.length,
+    pieceCount: lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0),
   };
 }
 

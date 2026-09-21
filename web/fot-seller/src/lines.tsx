@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
-import { clockLabel, dayLabel, moneyIq, receiptLabel, stampLabel } from './api';
+import { clockLabel, dayLabel, moneyIq, pieces, receiptLabel, stampLabel } from './api';
 import type { CommissionLine, GoalLine } from './api';
 import { lineText, type ReceiptGroup } from './insights';
 import { Empty, Sheet, useToast } from './ui';
 
 export function LineCard({
-  name, amount, receipt, at, onClick,
+  name, amount, receipt, at, qty, onClick,
 }: {
-  name: string; amount?: string; receipt?: number | null; at: string; onClick: () => void;
+  name: string; amount?: string; receipt?: number | null; at: string; qty?: number; onClick: () => void;
 }) {
   return (
     <button type="button" className="line-card" onClick={onClick}>
@@ -15,6 +15,7 @@ export function LineCard({
       <span className="min-w-0">
         <span className="block truncate text-[15px] font-extrabold leading-6">{name}</span>
         <span className="line-meta">
+          {qty != null && <span className="qty-chip">{qty} قطعة</span>}
           <span className="chip-soft">{receiptLabel(receipt)}</span>
           <span className="chip-soft">{stampLabel(at)}</span>
         </span>
@@ -41,6 +42,7 @@ export function CommissionList({
           amount={moneyIq(l.commissionAmount)}
           receipt={l.receiptNumber}
           at={l.occurredAt}
+          qty={l.quantity}
           onClick={() => onOpen(l)}
         />
       ))}
@@ -60,6 +62,7 @@ export function ReceiptList({
     <div className="line-stack">
       {groups.map(g => {
         const open = openId === g.id;
+        const qty = g.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0);
         return (
           <div key={g.id} className="receipt-box">
             <button type="button" className="receipt-card" onClick={() => setOpenId(open ? null : g.id)}>
@@ -67,6 +70,7 @@ export function ReceiptList({
               <span className="min-w-0">
                 <span className="block truncate text-[15px] font-extrabold">{receiptLabel(g.receiptNumber)}</span>
                 <span className="line-meta">
+                  <span className="qty-chip">{qty} قطعة</span>
                   <span className="chip-soft">{stampLabel(g.at)}</span>
                   <span className="chip-soft">{g.count} منتج</span>
                 </span>
@@ -82,6 +86,7 @@ export function ReceiptList({
                     amount={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
+                    qty={l.quantity}
                     onClick={() => onOpen(l)}
                   />
                 ))}
@@ -107,9 +112,10 @@ export function GoalLineList({
         <LineCard
           key={`${l.receiptNumber ?? 'x'}-${l.occurredAt}-${i}`}
           name={l.productName}
-          amount={`${l.quantity}`}
+          amount={pieces(l.quantity)}
           receipt={l.receiptNumber}
           at={l.occurredAt}
+          qty={l.quantity}
           onClick={() => onOpen(l)}
         />
       ))}
@@ -158,7 +164,7 @@ export function CommissionSheet({
           <Detail label="التاريخ" value={dayLabel(line.occurredAt)} />
           <Detail label="الوقت" value={clockLabel(line.occurredAt) || '—'} />
           {line.groupName && <Detail label="المجموعة" value={line.groupName} />}
-          <Detail label="الكمية" value={String(line.quantity)} />
+          <Detail label="عدد القطع" value={pieces(line.quantity)} />
           <button type="button" className="copy-btn" onClick={() => void copy()}>نسخ تفاصيل الحركة</button>
           {invoice.length > 0 && (
             <div>
@@ -171,6 +177,7 @@ export function CommissionSheet({
                     amount={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
+                    qty={l.quantity}
                     onClick={() => onOpen?.(l)}
                   />
                 ))}
@@ -188,6 +195,7 @@ export function CommissionSheet({
                     amount={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
+                    qty={l.quantity}
                     onClick={() => onOpen?.(l)}
                   />
                 ))}
@@ -212,7 +220,7 @@ export function GoalLineSheet({
         <div className="detail-grid">
           <div className="detail-hero goal">
             <p className="kicker">حركة الهدف</p>
-            <p className="num mt-1 text-[32px] font-extrabold text-goal">{line.quantity}</p>
+            <p className="num mt-1 text-[32px] font-extrabold text-goal">{pieces(line.quantity)}</p>
           </div>
           <Detail label="المنتج" value={line.productName} />
           <Detail label="رقم الفاتورة" value={receiptLabel(line.receiptNumber)} />

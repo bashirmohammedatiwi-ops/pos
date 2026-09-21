@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { commissionCsv, downloadText, moneyIq } from '../api';
+import { commissionCsv, downloadText, moneyIq, pieces } from '../api';
 import type { CommissionLine } from '../api';
 import { groupDays, groupHours, groupReceipts, hourBand, rankProducts } from '../insights';
 import { CommissionList, CommissionSheet, ReceiptList } from '../lines';
@@ -69,6 +69,24 @@ export function Products() {
         </button>
       </section>
 
+      <section className="piece-board">
+        <div className="piece-board-main">
+          <p className="kicker">عدد القطع</p>
+          <p className="piece-num num">{Math.round(sorted.reduce((s, l) => s + l.quantity, 0))}</p>
+          <p className="piece-unit">قطعة في هذا العرض</p>
+        </div>
+        <div className="piece-board-side">
+          <div>
+            <p>الحركات</p>
+            <strong className="num">{sorted.length}</strong>
+          </div>
+          <div>
+            <p>الفواتير</p>
+            <strong className="num">{receipts.length}</strong>
+          </div>
+        </div>
+      </section>
+
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
       <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو رقم الفاتورة" />
 
@@ -127,7 +145,7 @@ export function Products() {
                 <Medal rank={i + 1} />
                 <div className="min-w-0">
                   <p className="truncate font-extrabold">{p.name}</p>
-                  <p className="text-xs font-bold text-muted">{p.count} حركة · كمية {p.qty}</p>
+                  <p className="text-xs font-bold text-muted">{p.count} حركة · {pieces(p.qty)}</p>
                 </div>
                 <p className="num text-sm font-extrabold text-gold">{moneyIq(p.commission)}</p>
               </button>

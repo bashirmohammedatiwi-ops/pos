@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { commissionCsv, downloadText, greeting, goalLabel, goalTone, moneyIq, shareText, weekRange, weekReport } from '../api';
+import { commissionCsv, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, shareText, weekRange, weekReport } from '../api';
 import type { CommissionLine } from '../api';
 import { buildInsights } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
@@ -78,11 +78,28 @@ export function Home() {
           <p className="mt-2 text-xs font-extrabold text-muted">{insights.itemCount} حركة · {insights.invoiceCount} فاتورة — اضغط للتفاصيل</p>
         </Link>
         <div className="hero-pills">
-          <span className="pill">{insights.invoiceCount} فاتورة</span>
           <span className="pill">{dash.goals.length ? `${hit}/${dash.goals.length} أهداف` : 'لا أهداف'}</span>
           {dash.balanceDue > 0 && <span className="pill">مستحق {moneyIq(dash.balanceDue)}</span>}
         </div>
       </section>
+
+      <Link to="/products" className="piece-board stat-link">
+        <div className="piece-board-main">
+          <p className="kicker">عدد القطع هذا الأسبوع</p>
+          <p className="piece-num num">{Math.round(insights.pieceCount)}</p>
+          <p className="piece-unit">قطعة مباعة</p>
+        </div>
+        <div className="piece-board-side">
+          <div>
+            <p>الحركات</p>
+            <strong className="num">{insights.itemCount}</strong>
+          </div>
+          <div>
+            <p>الفواتير</p>
+            <strong className="num">{insights.invoiceCount}</strong>
+          </div>
+        </div>
+      </Link>
 
       {dash.seller.mustChangePin && (
         <div className="card border-warn/30 bg-warn-soft px-4 py-3 text-sm font-extrabold text-warn">
@@ -123,9 +140,9 @@ export function Home() {
           tone="amber"
         />
         <InsightTile
-          kicker="الفواتير"
-          title={`${insights.invoiceCount} فاتورة`}
-          value={`${insights.itemCount} منتج`}
+          kicker="قطع الأسبوع"
+          title={pieces(insights.pieceCount)}
+          value={`${insights.itemCount} حركة`}
         />
       </div>
 
@@ -166,7 +183,7 @@ export function Home() {
               <Medal rank={i + 1} />
               <div className="min-w-0">
                 <p className="truncate font-extrabold">{p.name}</p>
-                <p className="text-xs font-bold text-muted">{p.count} حركة · كمية {p.qty}</p>
+                <p className="text-xs font-bold text-muted">{p.count} حركة · {pieces(p.qty)}</p>
               </div>
               <p className="num text-sm font-extrabold text-gold">{moneyIq(p.commission)}</p>
             </div>
@@ -191,6 +208,9 @@ export function Home() {
                   <Ring value={g.percent} size={52} tone={goalTone(g.percent)} />
                   <div className="min-w-0">
                     <p className="truncate font-extrabold">{g.ruleName}</p>
+                    <p className="mt-1 text-xs font-extrabold text-gold">
+                      {goalValue(g.targetType, g.sold)} من {goalValue(g.targetType, g.weeklyTarget)}
+                    </p>
                     <div className="mt-2"><Track value={g.percent} tone={goalTone(g.percent)} /></div>
                   </div>
                   <span className="text-xs font-extrabold text-muted">{goalLabel(g.percent)}</span>

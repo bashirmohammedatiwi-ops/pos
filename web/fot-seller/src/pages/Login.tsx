@@ -72,10 +72,10 @@ export function Login() {
           <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-teal-100">FOT SELLER</p>
           <h2 className="display mt-3 text-4xl font-black leading-tight">مساحتك الخاصة<br />للعمولة والأهداف</h2>
           <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/80">
-            شاهد عمولتك كاملة، تقدّم أهدافك، وتفاصيل كل فاتورة ووقتها.
+            عمولتك كاملة، عدد القطع، تقدّم أهدافك، وتفاصيل كل فاتورة ووقتها.
           </p>
           <div className="mt-8 grid grid-cols-3 gap-2 text-center">
-            {['عمولة', 'أهداف', 'فواتير'].map(x => (
+            {['عمولة', 'قطع', 'أهداف'].map(x => (
               <div key={x} className="rounded-2xl bg-white/10 px-2 py-3 text-xs font-extrabold">{x}</div>
             ))}
           </div>
@@ -88,7 +88,7 @@ export function Login() {
             {step === 'id' ? 'مساحة البائع' : `أهلاً ${name.split(' ')[0]}`}
           </h1>
           <p className="mt-2 text-center text-sm font-bold leading-6 text-muted">
-            {step === 'id' ? 'عمولتك كاملة · أهدافك · تفاصيل الفاتورة والوقت' : 'أدخل الرمز السرّي من الإدارة'}
+            {step === 'id' ? 'عمولتك · قطعك · أهدافك · الفاتورة والوقت' : 'أدخل الرمز السرّي من الإدارة'}
           </p>
 
           {step === 'id' ? (

@@ -155,14 +155,16 @@ public sealed class SellerPortalRepository(
         var list = new List<SellerGoalDto>();
         foreach (var ruleId in ruleIds)
         {
-            var breakdown = await targets.GetBreakdownAsync(ruleId, start, end.AddDays(1), ct);
+            var breakdown = await targets.GetBreakdownAsync(ruleId, start, end, ct);
             var row = breakdown.Salesmen.FirstOrDefault(s => s.SalesmanId == salesmanId);
             if (row is null) continue;
             var isAmount = string.Equals(breakdown.TargetType, "amount", StringComparison.OrdinalIgnoreCase);
             var sold = isAmount ? row.Amount : row.Quantity;
+            var weekly = row.WeeklyTarget;
+            var percent = weekly > 0 ? Math.Round(sold / weekly * 100m, 1) : 0;
             list.Add(new SellerGoalDto(
                 breakdown.RuleId, breakdown.RuleName, breakdown.TargetType,
-                sold, row.WeeklyTarget, row.WeeklyPercent));
+                sold, weekly, percent));
         }
         return list.OrderByDescending(g => g.Percent).ToList();
     }
