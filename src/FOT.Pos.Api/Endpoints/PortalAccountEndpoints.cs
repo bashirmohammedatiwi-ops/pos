@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FOT.Pos.Api;
 using FOT.Pos.Infrastructure.Repositories;
 using FOT.Pos.Shared.Dtos;
 
@@ -34,6 +35,32 @@ public static class PortalAccountEndpoints
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.SetSellerActiveAsync(id, active, default);
             return row is null ? Results.NotFound(new { error = "لا يوجد حساب لهذا البائع" }) : Results.Ok(row);
+        });
+
+        g.MapGet("/web-status", async (HttpContext http, PortalAccountRepository repo, SellerWebPublisher web) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var sellers = await repo.ListSellersAsync(default);
+            var withAccount = sellers.Count(s => s.HasAccount);
+            var active = sellers.Count(s => s.HasAccount && s.IsActive);
+            var probeId = sellers.FirstOrDefault(s => s.HasAccount)?.SalesmanId
+                ?? sellers.FirstOrDefault()?.SalesmanId;
+            var probe = probeId is null
+                ? new PortalWebProbeDto(false, "لا يوجد بائعون في نقطة البيع", web.PublicUrl, null)
+                : await web.ProbeAsync(probeId.Value, default);
+            return Results.Ok(new PortalWebStatusDto(
+                withAccount, active, true, probe.VisibleOnWeb, probe.Message, web.PublicUrl, probe.StatusCode));
+        });
+
+        g.MapPost("/sellers/{id:long}/publish", async (HttpContext http, long id, PortalAccountRepository repo, SellerWebPublisher web) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var current = (await repo.ListSellersAsync(default)).FirstOrDefault(s => s.SalesmanId == id);
+            if (current is null) return Results.NotFound(new { error = "البائع غير موجود" });
+            var row = current.HasAccount ? current : await repo.IssueSellerPinAsync(id, default);
+            if (row is null) return Results.NotFound(new { error = "البائع غير موجود" });
+            var probe = await web.ProbeAsync(id, default);
+            return Results.Ok(new PortalPublishResult(row, true, probe.VisibleOnWeb, probe.Message, web.PublicUrl));
         });
 
         g.MapGet("/managers", async (HttpContext http, PortalAccountRepository repo) =>

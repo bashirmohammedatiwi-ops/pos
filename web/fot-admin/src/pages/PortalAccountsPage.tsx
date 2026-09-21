@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, formatDate, formatDateOnly, formatNum } from '@/api/client';
-import type { PortalManagerAccountDto, PortalSellerAccountDto } from '@/api/types';
+import type { PortalManagerAccountDto, PortalPublishResult, PortalSellerAccountDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 import { useToast } from '@/components/Toast';
 import { Btn, Input, Modal } from '@/components/ui';
 import { ClassicListShell, ClassicSummaryFooter, FilterField } from '@/components/classic/ClassicListLayout';
-import { FilterChip, InfoNote, MetricBar, SegmentedTabs, SoftChip, StatusChip } from '@/components/workspace';
+import { FilterChip, MetricBar, SegmentedTabs, SoftChip, StatusChip } from '@/components/workspace';
 import { copyText } from '@/lib/clipboard';
 import { downloadCsv } from '@/utils/exportCsv';
 
@@ -84,6 +84,28 @@ export function PortalAccountsPage() {
 
   const sellersQ = useQuery({ queryKey: ['portal-sellers'], queryFn: api.portalSellers });
   const managersQ = useQuery({ queryKey: ['portal-managers'], queryFn: api.portalManagers });
+  const webQ = useQuery({
+    queryKey: ['portal-web-status'],
+    queryFn: api.portalWebStatus,
+    refetchInterval: 20_000,
+    retry: 1,
+  });
+
+  function afterPublish(res: PortalPublishResult) {
+    putSeller(res.account);
+    markSeller(res.account.salesmanId);
+    void qc.invalidateQueries({ queryKey: ['portal-sellers'] });
+    void qc.invalidateQueries({ queryKey: ['portal-web-status'] });
+    if (res.savedOnShop && res.visibleOnWeb) {
+      toast.success(`نُشر على الويب — ${res.account.name}${res.account.pinDisplay ? ` · ${res.account.pinDisplay}` : ''}`);
+    } else if (res.savedOnShop) {
+      toast.success(`حُفظ في نقطة البيع — ${res.account.name}`);
+      toast.error(res.message);
+    } else {
+      toast.error(res.message);
+    }
+    if (res.account.pinDisplay) void copySecret(res.account.pinDisplay);
+  }
 
   async function copySecret(value: string) {
     try {
@@ -113,14 +135,21 @@ export function PortalAccountsPage() {
   }
 
   const issue = useMutation({
-    mutationFn: api.issueSellerPin,
-    onSuccess: row => {
-      putSeller(row);
-      markSeller(row.salesmanId);
-      toast.success(`حُفظ على السيرفر — رمز ${row.name}: ${row.pinDisplay}`);
-      if (row.pinDisplay) void copySecret(row.pinDisplay);
-      void qc.invalidateQueries({ queryKey: ['portal-sellers'] });
+    mutationFn: async (id: number) => {
+      try {
+        return await api.publishSellerToWeb(id);
+      } catch {
+        const account = await api.issueSellerPin(id);
+        return {
+          account,
+          savedOnShop: true,
+          visibleOnWeb: false,
+          message: 'حُفظ في نقطة البيع — حدّث خادم نقطة البيع لفحص الويب',
+          webUrl: 'http://187.124.23.65:4701',
+        } satisfies PortalPublishResult;
+      }
     },
+    onSuccess: afterPublish,
     onError: (e: Error) => toast.error(e.message),
   });
   const issueMissing = useMutation({
@@ -131,6 +160,7 @@ export function PortalAccountsPage() {
         ? `وُلّد ${formatNum(res.issued)} حساباً وحُفظت على سيرفر نقطة البيع`
         : 'كل البائعين لديهم حساب على السيرفر');
       void qc.invalidateQueries({ queryKey: ['portal-sellers'] });
+      void qc.invalidateQueries({ queryKey: ['portal-web-status'] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -140,6 +170,7 @@ export function PortalAccountsPage() {
       putSeller(row);
       toast.success(row.isActive ? 'تم تفعيل الحساب على السيرفر' : 'تم إيقاف الحساب على السيرفر');
       void qc.invalidateQueries({ queryKey: ['portal-sellers'] });
+      void qc.invalidateQueries({ queryKey: ['portal-web-status'] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -219,8 +250,8 @@ export function PortalAccountsPage() {
     }
     setConfirm({
       title: `إعادة رمز ${s.name}`,
-      body: 'سيُحفظ رمز جديد على سيرفر نقطة البيع، والرمز الحالي لن يعمل.',
-      ok: 'توليد وحفظ',
+      body: 'سيُحفظ رمز جديد في نقطة البيع ويُفحص ظهوره على ويب البائعين. الرمز الحالي لن يعمل.',
+      ok: 'توليد ونشر',
       run: () => issue.mutate(s.salesmanId),
     });
   }
@@ -287,9 +318,22 @@ export function PortalAccountsPage() {
   return (
     <ClassicListShell
       banner={
-        <InfoNote strip>
-          الحساب يُحفظ على سيرفر نقطة البيع فور التوليد. الرمز يبقى ظاهراً هنا لأن الموظفين ينسونه، ولا يظهر داخل تطبيق البائع.
-        </InfoNote>
+        <div className={`border-b px-4 py-2.5 text-[13px] font-bold leading-6 ${
+          webQ.data?.visibleOnWeb
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+            : webQ.data?.savedOnShop
+              ? 'border-amber-200 bg-amber-50 text-amber-950'
+              : 'border-slate-200 bg-slate-50 text-slate-700'
+        }`}>
+          {webQ.isLoading
+            ? 'جاري فحص وصول الحسابات إلى ويب البائعين…'
+            : webQ.data
+              ? `${webQ.data.visibleOnWeb ? 'الويب متصل' : 'الويب لا يصل للمحل'} — ${webQ.data.message} · محفوظ في نقطة البيع: ${formatNum(webQ.data.sellerAccounts)} حساباً`
+              : 'توليد الرمز يحفظه في نقطة البيع ثم يتحقق من ظهوره على ويب البائعين.'}
+          {webQ.data?.webUrl ? (
+            <a className="ms-2 underline" href={webQ.data.webUrl} target="_blank" rel="noreferrer">فتح الويب</a>
+          ) : null}
+        </div>
       }
       filters={
         <div className="space-y-3">
@@ -351,8 +395,8 @@ export function PortalAccountsPage() {
           </>
         ) : undefined,
       }}
-      onRefresh={() => { void sellersQ.refetch(); void managersQ.refetch(); }}
-      refreshing={sellersQ.isFetching || managersQ.isFetching}
+      onRefresh={() => { void sellersQ.refetch(); void managersQ.refetch(); void webQ.refetch(); }}
+      refreshing={sellersQ.isFetching || managersQ.isFetching || webQ.isFetching}
       footer={
         <ClassicSummaryFooter
           total={tab === 'sellers' ? sellers.length : filteredManagers.length}
@@ -400,7 +444,7 @@ export function PortalAccountsPage() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <Btn onClick={() => askIssue(selectedSeller)} disabled={issue.isPending}>
-                    {selectedSeller.hasAccount ? 'إعادة الرمز وحفظه' : 'توليد حساب وحفظه'}
+                    {selectedSeller.hasAccount ? 'إعادة الرمز ونشره على الويب' : 'توليد الحساب ونشره على الويب'}
                   </Btn>
                   {selectedSeller.hasAccount && (
                     <Btn variant="secondary" onClick={() => setSeller.mutate({ id: selectedSeller.salesmanId, active: !selectedSeller.isActive })}>

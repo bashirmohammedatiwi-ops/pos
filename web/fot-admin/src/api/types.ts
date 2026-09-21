@@ -29,6 +29,24 @@ export interface PortalBulkIssueResult {
   sellers: PortalSellerAccountDto[];
 }
 
+export interface PortalWebStatusDto {
+  sellerAccounts: number;
+  activeSellers: number;
+  savedOnShop: boolean;
+  visibleOnWeb: boolean;
+  message: string;
+  webUrl: string;
+  statusCode?: number | null;
+}
+
+export interface PortalPublishResult {
+  account: PortalSellerAccountDto;
+  savedOnShop: boolean;
+  visibleOnWeb: boolean;
+  message: string;
+  webUrl: string;
+}
+
 export interface LoginResponse {
   token: string;
   user: UserDto;

@@ -87,6 +87,21 @@ public partial record PortalManagerAccountDto(
 public record CreateManagerAccountRequest(string Username, string DisplayName);
 public record UpdateManagerAccountRequest(string DisplayName);
 public record PortalBulkIssueResult(int Issued, IReadOnlyList<PortalSellerAccountDto> Sellers);
+public record PortalWebProbeDto(bool VisibleOnWeb, string Message, string WebUrl, int? StatusCode);
+public record PortalWebStatusDto(
+    int SellerAccounts,
+    int ActiveSellers,
+    bool SavedOnShop,
+    bool VisibleOnWeb,
+    string Message,
+    string WebUrl,
+    int? StatusCode);
+public record PortalPublishResult(
+    PortalSellerAccountDto Account,
+    bool SavedOnShop,
+    bool VisibleOnWeb,
+    string Message,
+    string WebUrl);
 
 public record DashboardStatsDto(
     int ActiveOffers,

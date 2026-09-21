@@ -84,7 +84,9 @@ import type {
   ReceiptSearchResult,
   DiscountQrPersonDto,
   DiscountQrReceiptDto,
+  PortalPublishResult,
   PortalSellerAccountDto,
+  PortalWebStatusDto,
   PortalManagerAccountDto,
   PortalBulkIssueResult,
   ReceiptSummary,
@@ -402,6 +404,9 @@ export const api = {
     request<PortalBulkIssueResult>('/api/portal-accounts/sellers/issue-missing', { method: 'POST' }),
   setSellerPortalActive: (id: number, active: boolean) =>
     request<PortalSellerAccountDto>(`/api/portal-accounts/sellers/${id}/active${qs({ active })}`, { method: 'POST' }),
+  portalWebStatus: () => request<PortalWebStatusDto>('/api/portal-accounts/web-status'),
+  publishSellerToWeb: (id: number) =>
+    request<PortalPublishResult>(`/api/portal-accounts/sellers/${id}/publish`, { method: 'POST' }),
   portalManagers: () => request<PortalManagerAccountDto[]>('/api/portal-accounts/managers'),
   createPortalManager: (username: string, displayName: string) =>
     request<PortalManagerAccountDto>('/api/portal-accounts/managers', {

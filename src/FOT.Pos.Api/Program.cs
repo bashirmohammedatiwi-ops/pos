@@ -56,6 +56,11 @@ else
 
 builder.Host.UseSerilog();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHttpClient(SellerWebPublisher.ClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(6);
+});
+builder.Services.AddSingleton<SellerWebPublisher>();
 builder.Services.AddSingleton<FOT.Pos.Infrastructure.Edari.IEdariRealtimeNotifier, PosHubEdariRealtimeNotifier>();
 if (!exportOpenApi)
 {
