@@ -44,6 +44,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (j.error) msg = j.error;
     } catch { /* raw */ }
     const authCall = path.startsWith('/auth/seller-login') || path.startsWith('/auth/seller-lookup');
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new Error('تعذر الاتصال بنقطة البيع في المحل — اربط السيرفر بنفق المحل');
+    }
+    if (res.status === 404 && authCall) {
+      throw new Error(path.includes('lookup') ? 'لا بائع بهذا الرقم' : 'تعذر الدخول');
+    }
     if (res.status === 401) {
       if (!authCall && token) {
         setToken(null);
@@ -53,6 +59,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       throw new Error('الرمز غير صحيح');
     }
     throw new Error(msg || 'تعذر الاتصال');
+  }
+  if (text && text.trimStart().startsWith('<')) {
+    throw new Error('واجهة المحل لا ترد على طلب البائع — حدّث خادم نقطة البيع');
   }
   return text ? JSON.parse(text) as T : {} as T;
 }
@@ -142,12 +151,35 @@ export function deltaPct(current: number, previous: number) {
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
+export function moneyK(n: number) {
+  const v = Math.abs(Math.round(Number(n) || 0));
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}m`;
+  if (v >= 1000) return `${Math.round(v / 1000)}k`;
+  return money(v);
+}
+
 export function commissionLabel(type: string, value: number) {
   return type === 'percentage' ? `${value}%` : moneyIq(value);
 }
 
 export function targetKind(type: string) {
-  return type === 'amount' ? 'مبلغ' : 'كمية';
+  return type === 'amount' ? 'هدف مبلغ' : 'هدف كمية';
+}
+
+export function goalValue(type: string, n: number) {
+  return type === 'amount' ? moneyIq(n) : money(n);
+}
+
+export function goalTone(percent: number): 'ok' | 'goal' | 'warn' {
+  if (percent >= 100) return 'ok';
+  if (percent >= 80) return 'goal';
+  return 'warn';
+}
+
+export function goalLabel(percent: number) {
+  if (percent >= 100) return 'تحقق';
+  if (percent >= 80) return 'قريب';
+  return 'تركيز';
 }
 
 export function tick(ms = 10) {
@@ -172,12 +204,12 @@ export async function shareText(title: string, text: string): Promise<'shared' |
 }
 
 export function weekReport(dash: Dashboard) {
+  const hit = dash.goals.filter(g => g.percent >= 100).length;
   return [
     `${dash.seller.name} — أسبوع ${weekRange(dash.week.weekStart, dash.week.weekEnd)}`,
-    `المبيعات: ${moneyIq(dash.week.salesAmount)}`,
     `العمولة: ${moneyIq(dash.week.commissionAmount)}`,
-    `الفواتير: ${dash.week.receiptCount}`,
-    `المولات: ${dash.week.mallCount || dash.malls.length}`,
     `المستحق: ${moneyIq(dash.balanceDue)}`,
+    `المولات: ${dash.week.mallCount || dash.malls.length}`,
+    dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
   ].join('\n');
 }

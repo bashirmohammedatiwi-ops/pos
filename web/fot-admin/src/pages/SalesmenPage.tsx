@@ -152,7 +152,8 @@ export function SalesmenPage() {
             <InfoNote strip>
               بائعو Edari (1–250) — إن كانت الأسماء خاطئة نفّذ ↻ Edari.
               <Link to="/commissions" className="mx-1 font-semibold underline">عمولات</Link>
-              <Link to="/targets" className="font-semibold underline">أهداف</Link>
+              <Link to="/targets" className="mx-1 font-semibold underline">أهداف</Link>
+              <Link to="/portal-accounts" className="font-semibold underline">حسابات الويب</Link>
             </InfoNote>
           ) : undefined
         }

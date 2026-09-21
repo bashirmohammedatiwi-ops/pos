@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
-import { IconCloud, IconPackage, IconPercent, IconReceipt, IconTarget, IconTrendUp } from '@/components/icons';
+import { IconCloud, IconPackage, IconPercent, IconReceipt, IconSparkle, IconTarget, IconTrendUp } from '@/components/icons';
 
 const LINKS = [
   { to: '/receipts', label: 'الفواتير', icon: IconReceipt },
   { to: '/products', label: 'المنتجات', icon: IconPackage },
   { to: '/offers', label: 'العروض', icon: IconPercent },
   { to: '/targets', label: 'الأهداف', icon: IconTarget },
+  { to: '/portal-accounts', label: 'حسابات الويب', icon: IconSparkle },
   { to: '/reports', label: 'التقارير', icon: IconTrendUp },
   { to: '/edari', label: 'Edari', icon: IconCloud },
 ] as const;

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { commissionLabel } from '../api';
 import { useSeller } from '../store';
-import { Badge, Empty, ErrorBox, Skeleton } from '../ui';
+import { Empty, ErrorBox, Skeleton } from '../ui';
 
 const PAGE = 40;
 
@@ -28,9 +28,36 @@ export function Products() {
   return (
     <div className="fade-up space-y-4">
       <header>
+        <p className="kicker">نسبك المعتمدة</p>
         <h1 className="text-[26px] font-extrabold">عمولتي</h1>
         <p className="mt-1 text-sm font-bold text-muted">{groups.length} مجموعة · {list.length} منتج</p>
       </header>
+
+      {groups.length > 0 && (
+        <div className="group-mosaic">
+          <button
+            type="button"
+            className={`card group-tile ${groupId === 'all' ? 'on' : ''}`}
+            onClick={() => { setGroupId('all'); setShown(PAGE); }}
+          >
+            <p className="text-sm font-extrabold">كل المجموعات</p>
+            <p className="mt-2 text-xl font-extrabold text-gold">{groups.length}</p>
+            <p className="mt-1 text-[11px] font-bold text-muted">عرض الكل</p>
+          </button>
+          {groups.slice(0, 7).map(g => (
+            <button
+              key={g.id}
+              type="button"
+              className={`card group-tile ${groupId === g.id ? 'on' : ''}`}
+              onClick={() => { setGroupId(g.id); setShown(PAGE); }}
+            >
+              <p className="truncate text-sm font-extrabold">{g.name}</p>
+              <p className="mt-2 text-xl font-extrabold text-gold">{commissionLabel(g.commissionType, g.commissionValue)}</p>
+              <p className="mt-1 text-[11px] font-bold text-muted">{g.productCount} منتج</p>
+            </button>
+          ))}
+        </div>
+      )}
 
       <input
         value={q}
@@ -39,19 +66,20 @@ export function Products() {
         className="field"
       />
 
-      <div className="week-scroll">
-        <button type="button" className={`chip ${groupId === 'all' ? 'chip-on' : ''}`} onClick={() => { setGroupId('all'); setShown(PAGE); }}>الكل</button>
-        {groups.map(g => (
-          <button
-            key={g.id}
-            type="button"
-            className={`chip ${groupId === g.id ? 'chip-on' : ''}`}
-            onClick={() => { setGroupId(g.id); setShown(PAGE); }}
-          >
-            {g.name} · {commissionLabel(g.commissionType, g.commissionValue)}
-          </button>
-        ))}
-      </div>
+      {groups.length > 7 && (
+        <div className="week-scroll">
+          {groups.slice(7).map(g => (
+            <button
+              key={g.id}
+              type="button"
+              className={`chip ${groupId === g.id ? 'chip-on' : ''}`}
+              onClick={() => { setGroupId(g.id); setShown(PAGE); }}
+            >
+              {g.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {selected && (
         <div className="banner">
@@ -59,25 +87,19 @@ export function Products() {
             <p className="font-extrabold">{selected.name}</p>
             <p className="mt-1 text-sm font-bold text-muted">{selected.productCount} منتج في المجموعة</p>
           </div>
-          <Badge tone={selected.commissionType === 'percentage' ? 'gold' : 'ok'}>
-            {commissionLabel(selected.commissionType, selected.commissionValue)}
-          </Badge>
+          <div className="rate-orb"><span>{commissionLabel(selected.commissionType, selected.commissionValue)}</span></div>
         </div>
       )}
 
       {loading && !products.length && <Skeleton />}
-      <div className="space-y-2.5">
+      <div className="stack-grid">
         {visible.map((p, i) => (
-          <article key={`${p.groupId}-${p.barcode || p.articleId || i}`} className="card px-4 py-3.5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="font-extrabold leading-6">{p.name || p.barcode || 'منتج'}</h2>
-                <p className="mt-1 text-sm font-bold text-muted">{p.groupName}{p.barcode ? ` · ${p.barcode}` : ''}</p>
-              </div>
-              <Badge tone={p.commissionType === 'percentage' ? 'gold' : 'ok'}>
-                {commissionLabel(p.commissionType, p.commissionValue)}
-              </Badge>
+          <article key={`${p.groupId}-${p.barcode || p.articleId || i}`} className="card product-card">
+            <div>
+              <h2 className="font-extrabold leading-6">{p.name || p.barcode || 'منتج'}</h2>
+              <p className="mt-1 text-sm font-bold text-muted">{p.groupName}{p.barcode ? ` · ${p.barcode}` : ''}</p>
             </div>
+            <div className="rate-orb"><span>{commissionLabel(p.commissionType, p.commissionValue)}</span></div>
           </article>
         ))}
         {!loading && !list.length && <Empty title="لا مواد مطابقة" hint="جرّب بحثاً آخر أو مجموعة مختلفة" />}

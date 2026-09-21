@@ -23,6 +23,19 @@ const titles: Record<string, string> = {
   '/products': 'العمولة',
 };
 
+function NavItems() {
+  return (
+    <>
+      {links.map(l => (
+        <NavLink key={l.to} to={l.to} end={'end' in l ? l.end : false} className={({ isActive }) => isActive ? 'on' : ''}>
+          <l.icon />
+          {l.label}
+        </NavLink>
+      ))}
+    </>
+  );
+}
+
 function Shell() {
   const nav = useNavigate();
   const loc = useLocation();
@@ -64,44 +77,49 @@ function Shell() {
   }
 
   return (
-    <div className="phone pb-24" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-      <header className="topbar">
-        <div className="flex items-center gap-3">
-          <Avatar name={seller?.name || 'بائع'} dark onClick={() => setProfile(true)} />
-          <div>
-            <p className="text-[10px] font-extrabold tracking-[0.28em] text-gold">FOT SELLER</p>
-            <p className="text-sm font-extrabold">{titles[loc.pathname] || seller?.name || 'البائع'}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" disabled={loading} className="icon-btn" aria-label="تحديث" onClick={() => void reload()}>
-            <IconRefresh />
-          </button>
-          <button type="button" className="icon-btn" aria-label="خروج" onClick={() => setAskOut(true)}>
-            <IconOut />
-          </button>
-        </div>
-      </header>
+    <div className="app" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+      <div className="app-body">
+        <aside className="side">
+          <p className="mb-1 px-2 text-[11px] font-extrabold tracking-[0.22em] text-gold">FOT SELLER</p>
+          <p className="mb-5 px-2 text-sm font-extrabold">{seller?.name || 'البائع'}</p>
+          <NavItems />
+        </aside>
 
-      <div className="pull" style={{ height: pull }}>{pull > 48 ? 'أفلت للتحديث' : 'اسحب للتحديث'}</div>
+        <div className="workspace">
+          <header className="topbar">
+            <div className="flex items-center gap-3">
+              <Avatar name={seller?.name || 'بائع'} onClick={() => setProfile(true)} />
+              <div>
+                <p className="text-[10px] font-extrabold tracking-[0.22em] text-gold">FOT SELLER</p>
+                <p className="text-sm font-extrabold">{titles[loc.pathname] || seller?.name || 'البائع'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={loading} className="icon-btn" aria-label="تحديث" onClick={() => void reload()}>
+                <IconRefresh />
+              </button>
+              <button type="button" className="icon-btn" aria-label="خروج" onClick={() => setAskOut(true)}>
+                <IconOut />
+              </button>
+            </div>
+          </header>
 
-      <main className="px-4 py-4">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/malls" element={<Malls />} />
-          <Route path="/goals" element={<Goals />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+          <div className="pull" style={{ height: pull }}>{pull > 48 ? 'أفلت للتحديث' : 'اسحب للتحديث'}</div>
+
+          <main className="main">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/malls" element={<Malls />} />
+              <Route path="/goals" element={<Goals />} />
+              <Route path="/products" element={<Products />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+        </div>
+      </div>
 
       <nav className="dock">
-        {links.map(l => (
-          <NavLink key={l.to} to={l.to} end={'end' in l ? l.end : false} className={({ isActive }) => isActive ? 'on' : ''}>
-            <l.icon />
-            {l.label}
-          </NavLink>
-        ))}
+        <NavItems />
       </nav>
 
       <Sheet open={profile} title={seller?.name || 'حسابي'} onClose={() => setProfile(false)}>
@@ -110,8 +128,8 @@ function Shell() {
           {dash && (
             <div className="grid grid-cols-2 gap-2.5">
               <div className="card p-3.5">
-                <p className="text-[11px] font-extrabold text-gold">أسبوع {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
-                <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.week.salesAmount)}</p>
+                <p className="text-[11px] font-extrabold text-gold">عمولة {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
+                <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.week.commissionAmount)}</p>
               </div>
               <div className="card p-3.5">
                 <p className="text-[11px] font-extrabold text-gold">المستحق</p>

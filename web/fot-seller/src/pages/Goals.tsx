@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { money, pct, targetKind } from '../api';
+import { goalLabel, goalTone, goalValue, pct, targetKind } from '../api';
 import { useSeller } from '../store';
-import { Badge, Bar, Empty, ErrorBox, Ring, Skeleton } from '../ui';
+import { Badge, Empty, ErrorBox, Ring, Skeleton, Track } from '../ui';
 import { WeekBar } from '../week';
 
 type Filter = 'all' | 'done' | 'near' | 'late';
@@ -20,57 +20,63 @@ export function Goals() {
 
   const hit = rows.filter(g => g.percent >= 100).length;
   const avg = rows.length ? rows.reduce((s, g) => s + g.percent, 0) / rows.length : 0;
-  const remainAll = rows.reduce((s, g) => s + Math.max(0, g.weeklyTarget - g.sold), 0);
+  const late = rows.filter(g => g.percent < 80).length;
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
     <div className="fade-up space-y-4">
-      <header>
-        <h1 className="text-[26px] font-extrabold">أهدافي</h1>
-        <p className="mt-1 text-sm font-bold text-muted">
-          {rows.length ? `${hit} من ${rows.length} تحقق` : 'الأهداف المربوطة باسمك'}
-        </p>
-      </header>
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
-      {rows.length > 0 && (
-        <div className="card flex items-center justify-between p-4">
-          <div>
-            <p className="font-extrabold">إنجاز الأسبوع</p>
-            <p className="mt-1 text-sm font-bold text-muted">{pct(avg)} متوسط التقدم</p>
-            {remainAll > 0 && <p className="mt-1 text-sm font-extrabold text-terracotta">المتبقي {money(remainAll)}</p>}
+      <section className="card goal-hero">
+        <Ring value={avg} size={128} tone="goal" label="إنجاز" />
+        <div>
+          <p className="kicker">لوحة الأهداف</p>
+          <h1 className="text-[26px] font-extrabold">أهدافي</h1>
+          <p className="mt-2 text-sm font-bold leading-6 text-muted">
+            {rows.length ? `${hit} من ${rows.length} تحقق · ${late} يحتاج تركيز` : 'الأهداف المربوطة باسمك تظهر هنا'}
+          </p>
+          <div className="goal-meta">
+            <span className="chip-soft">متوسط {pct(avg)}</span>
+            <span className="chip-soft">{rows.length} هدف</span>
           </div>
-          <Ring value={avg} />
         </div>
-      )}
+      </section>
+
+      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+
       <div className="flex flex-wrap gap-2">
         {([['all', 'الكل'], ['done', 'تحقق'], ['near', 'قريب'], ['late', 'تركيز']] as const).map(([k, label]) => (
           <button key={k} type="button" className={`chip ${filter === k ? 'chip-on' : ''}`} onClick={() => setFilter(k)}>{label}</button>
         ))}
       </div>
+
       {loading && !rows.length && <Skeleton />}
-      <div className="space-y-3">
+      <div className="stack-grid">
         {list.map(g => {
           const remain = Math.max(0, g.weeklyTarget - g.sold);
-          const tone = g.percent >= 100 ? 'ok' : g.percent >= 80 ? 'gold' : 'warn';
-          const label = g.percent >= 100 ? 'تحقق' : g.percent >= 80 ? 'قريب' : 'يحتاج تركيز';
+          const tone = goalTone(g.percent);
           return (
-            <article key={g.ruleId} className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-extrabold">{g.ruleName}</h2>
-                  <p className="mt-1 text-sm font-bold text-muted">{targetKind(g.targetType)}</p>
+            <article key={g.ruleId} className="card goal-card">
+              <Ring value={g.percent} size={104} tone={tone} />
+              <div className="min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-extrabold leading-6">{g.ruleName}</h2>
+                    <p className="mt-1 text-sm font-bold text-muted">{targetKind(g.targetType)}</p>
+                  </div>
+                  <Badge tone={tone === 'goal' ? 'goal' : tone}>{goalLabel(g.percent)}</Badge>
                 </div>
-                <Badge tone={tone}>{label}</Badge>
+                <div className="mt-3 flex items-end justify-between gap-3">
+                  <p className="text-sm font-bold text-muted">
+                    <span className="num font-extrabold text-ink">{goalValue(g.targetType, g.sold)}</span>
+                    <span> من </span>
+                    <span className="num">{goalValue(g.targetType, g.weeklyTarget)}</span>
+                  </p>
+                </div>
+                <div className="mt-2"><Track value={g.percent} tone={tone} /></div>
+                {remain > 0
+                  ? <p className="mt-2 text-sm font-extrabold text-goal">المتبقي {goalValue(g.targetType, remain)}</p>
+                  : <p className="mt-2 text-sm font-extrabold text-ok">الهدف اكتمل</p>}
               </div>
-              <div className="mt-3 flex items-end justify-between">
-                <p className="text-sm font-bold text-muted">
-                  <span className="num font-extrabold text-ink">{money(g.sold)}</span> من <span className="num">{money(g.weeklyTarget)}</span>
-                </p>
-                <p className="num text-xl font-extrabold">{pct(g.percent)}</p>
-              </div>
-              <div className="mt-2"><Bar value={g.percent} max={100} tone={g.percent >= 100 ? 'ok' : 'terracotta'} /></div>
-              {remain > 0 && <p className="mt-2 text-sm font-extrabold text-muted">المتبقي {money(remain)}</p>}
             </article>
           );
         })}

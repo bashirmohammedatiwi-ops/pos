@@ -38,6 +38,24 @@ docker compose up -d --build
 
 افتح في جدار النار **4700–4703 فقط**.
 
+## إذا ظهر «لا بائع» أو 502
+
+ويب السيرفر لا يصل لواجهة المحل على `:5000`. الرمز المولَّد في لوحة التحكم صحيح، لكن السيرفر يحتاج نفقاً.
+
+من جهاز المحل (بعد تثبيت خادم 2.2.63):
+
+```powershell
+powershell -File scripts\Start-ShopTunnel.ps1 -VpsUser YOUR_SSH_USER
+```
+
+على الـ VPS في `deploy/.env`:
+
+```
+FOT_SHOP_API_URL=http://host.docker.internal:5000
+```
+
+ثم `docker compose up -d`. لا تفتح المنفذ 5000 على السيرفر للعامة.
+
 ## تشغيل محلي
 
 1. تأكد أن FOT POS API يعمل على `http://127.0.0.1:5000`

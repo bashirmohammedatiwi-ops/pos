@@ -128,12 +128,13 @@ public sealed class SellerPortalRepository(
             ORDER BY SUM(c.commission_amount) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        return (await conn.QueryRowsAsync<SellerMallDto>(new CommandDefinition(sql, new
+        var rows = (await conn.QueryRowsAsync<SellerMallDto>(new CommandDefinition(sql, new
         {
             salesmanId,
             start = start.Date,
             end = end.Date
         }, cancellationToken: ct))).ToList();
+        return rows.Select(r => r with { SalesAmount = 0 }).ToList();
     }
 
     public async Task<IReadOnlyList<SellerGoalDto>> ListGoalsAsync(
@@ -248,7 +249,8 @@ public sealed class SellerPortalRepository(
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<(decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, int MallCount)>(
             new CommandDefinition(sql, new { salesmanId, start = start.Date, end = end.Date }, cancellationToken: ct));
-        return new SellerWeekSummaryDto(start, end, isCurrent, row.SalesAmount, row.CommissionAmount, row.ReceiptCount, row.MallCount);
+        // Seller web must never receive sales totals — only commission and activity.
+        return new SellerWeekSummaryDto(start, end, isCurrent, 0, row.CommissionAmount, row.ReceiptCount, row.MallCount);
     }
 
     private async Task<decimal> BalanceDueAsync(long salesmanId, CancellationToken ct)

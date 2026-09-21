@@ -61,7 +61,7 @@ export function useSeller() {
 
 export function useWeekCompare(weeks: WeekSummary[], weekStart?: string) {
   return useMemo(() => {
-    if (!weeks.length) return { cur: undefined as WeekSummary | undefined, prev: undefined as WeekSummary | undefined, salesDelta: 0, commDelta: 0 };
+    if (!weeks.length) return { cur: undefined as WeekSummary | undefined, prev: undefined as WeekSummary | undefined, commDelta: 0 };
     const key = weekStart || weeks.find(w => w.isCurrent)?.weekStart.slice(0, 10);
     const idx = weeks.findIndex(w => w.weekStart.slice(0, 10) === key || w.weekStart === weekStart);
     const cur = idx >= 0 ? weeks[idx] : weeks[0];
@@ -69,7 +69,6 @@ export function useWeekCompare(weeks: WeekSummary[], weekStart?: string) {
     return {
       cur,
       prev,
-      salesDelta: prev ? deltaPct(cur.salesAmount, prev.salesAmount) : 0,
       commDelta: prev ? deltaPct(cur.commissionAmount, prev.commissionAmount) : 0,
     };
   }, [weeks, weekStart]);
