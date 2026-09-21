@@ -31,5 +31,5 @@ if command -v ufw >/dev/null 2>&1; then
 fi
 
 echo "VPS is ready for the shop tunnel on :4704."
-echo "On the shop PC double-click scripts/تشغيل-نفق-المحل.bat and leave it open."
+echo "On the shop PC double-click تشغيل-نفق-المحل.bat on the desktop and leave it open."
 echo "Then: cd deploy && ./up.sh"
