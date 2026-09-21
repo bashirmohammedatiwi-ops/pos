@@ -1,8 +1,8 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useRef, useState, type TouchEvent } from 'react';
-import { getSeller, getToken, moneyIq, setSeller, setToken, weekRange } from './api';
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import { ago, getSeller, getToken, moneyIq, setSeller, setToken, weekRange } from './api';
 import { SellerProvider, useSeller } from './store';
-import { Avatar, IconBox, IconGoal, IconHome, IconMall, IconOut, IconRefresh, Sheet } from './ui';
+import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconMall, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
 import { Goals } from './pages/Goals';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
@@ -36,13 +36,64 @@ function NavItems() {
   );
 }
 
+type Hit = { id: string; title: string; hint: string; to: string };
+
+function Finder({
+  open, onClose, hits, onPick,
+}: {
+  open: boolean; onClose: () => void; hits: Hit[]; onPick: (hit: Hit) => void;
+}) {
+  const [q, setQ] = useState('');
+  const [i, setI] = useState(0);
+  const list = useMemo(() => {
+    const needle = q.trim();
+    if (!needle) return hits.slice(0, 12);
+    return hits.filter(h => h.title.includes(needle) || h.hint.includes(needle)).slice(0, 12);
+  }, [hits, q]);
+
+  useEffect(() => { setI(0); }, [q, open]);
+
+  if (!open) return null;
+  return (
+    <div className="finder-bg" onClick={onClose}>
+      <div className="finder" onClick={e => e.stopPropagation()}>
+        <input
+          autoFocus
+          className="search-field"
+          placeholder="ابحث عن منتج أو مول أو هدف أو فاتورة"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') onClose();
+            if (e.key === 'ArrowDown') { e.preventDefault(); setI(v => Math.min(list.length - 1, v + 1)); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setI(v => Math.max(0, v - 1)); }
+            if (e.key === 'Enter' && list[i]) onPick(list[i]);
+          }}
+        />
+        <div className="finder-list">
+          {list.map((hit, idx) => (
+            <button key={hit.id} type="button" className={`finder-item ${idx === i ? 'on' : ''}`} onClick={() => onPick(hit)}>
+              <span>
+                <span className="block font-extrabold">{hit.title}</span>
+                <span className="text-xs font-bold text-muted">{hit.hint}</span>
+              </span>
+            </button>
+          ))}
+          {!list.length && <p className="px-2 py-6 text-center text-sm font-bold text-muted">لا نتيجة</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const nav = useNavigate();
   const loc = useLocation();
   const seller = getSeller();
-  const { dash, reload, loading, err } = useSeller();
+  const { dash, lines, reload, loading, err, updatedAt } = useSeller();
   const [askOut, setAskOut] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [finder, setFinder] = useState(false);
   const [pull, setPull] = useState(0);
   const startY = useRef(0);
 
@@ -53,6 +104,39 @@ function Shell() {
       nav('/login', { replace: true });
     }
   }, [err, nav]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setFinder(true);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const hits = useMemo<Hit[]>(() => {
+    const malls = (dash?.malls ?? []).map(m => ({
+      id: `m-${m.sectionId}-${m.sectionName}`,
+      title: m.sectionName,
+      hint: `مول · ${moneyIq(m.commissionAmount)}`,
+      to: '/malls',
+    }));
+    const goals = (dash?.goals ?? []).map(g => ({
+      id: `g-${g.ruleId}`,
+      title: g.ruleName,
+      hint: `هدف · ${Math.round(g.percent)}٪ إنجاز`,
+      to: '/goals',
+    }));
+    const items = lines.slice(0, 80).map(l => ({
+      id: `l-${l.id}`,
+      title: l.productName,
+      hint: `${l.receiptNumber ? `فاتورة #${l.receiptNumber}` : 'فاتورة'} · ${moneyIq(l.commissionAmount)}`,
+      to: '/products',
+    }));
+    return [...malls, ...goals, ...items];
+  }, [dash, lines]);
 
   function logout() {
     setToken(null);
@@ -80,8 +164,20 @@ function Shell() {
     <div className="app" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <div className="app-body">
         <aside className="side">
-          <p className="mb-1 px-2 text-[11px] font-extrabold tracking-[0.22em] text-gold">FOT SELLER</p>
-          <p className="mb-5 px-2 text-sm font-extrabold">{seller?.name || 'البائع'}</p>
+          <div className="side-brand">
+            <BrandMark />
+            <div>
+              <p className="text-[11px] font-extrabold tracking-[0.22em] text-gold">FOT SELLER</p>
+              <p className="text-sm font-extrabold">{seller?.name || 'البائع'}</p>
+            </div>
+          </div>
+          {dash && (
+            <div className="card seller-mini">
+              <p className="kicker">عمولة الأسبوع</p>
+              <p className="num mt-1 text-xl font-extrabold text-gold">{moneyIq(dash.week.commissionAmount)}</p>
+              <p className="mt-1 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
+            </div>
+          )}
           <NavItems />
         </aside>
 
@@ -95,7 +191,16 @@ function Shell() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button type="button" disabled={loading} className="icon-btn" aria-label="تحديث" onClick={() => void reload()}>
+              {updatedAt && (
+                <span className="hidden items-center gap-2 rounded-full bg-white px-2.5 py-1 text-[11px] font-extrabold text-muted sm:flex">
+                  <span className="sync-dot" />
+                  {ago(updatedAt)}
+                </span>
+              )}
+              <button type="button" className="icon-btn" aria-label="بحث" onClick={() => setFinder(true)}>
+                <IconSearch />
+              </button>
+              <button type="button" disabled={loading} className={`icon-btn ${loading ? 'spin' : ''}`} aria-label="تحديث" onClick={() => void reload()}>
                 <IconRefresh />
               </button>
               <button type="button" className="icon-btn" aria-label="خروج" onClick={() => setAskOut(true)}>
@@ -121,6 +226,20 @@ function Shell() {
       <nav className="dock">
         <NavItems />
       </nav>
+
+      <Finder
+        open={finder}
+        onClose={() => setFinder(false)}
+        hits={hits}
+        onPick={hit => {
+          setFinder(false);
+          const next = new URLSearchParams(loc.search);
+          if (hit.to === '/products') next.set('q', hit.title);
+          else next.delete('q');
+          const qs = next.toString();
+          nav(qs ? `${hit.to}?${qs}` : hit.to);
+        }}
+      />
 
       <Sheet open={profile} title={seller?.name || 'حسابي'} onClose={() => setProfile(false)}>
         <div className="space-y-3">

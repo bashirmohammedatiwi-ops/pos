@@ -2,9 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { greeting, goalLabel, goalTone, moneyIq, shareText, weekRange, weekReport } from '../api';
 import type { CommissionLine } from '../api';
+import { buildInsights } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller, useWeekCompare } from '../store';
-import { AreaChart, Delta, Donut, ErrorBox, HeroArt, IconShare, Legend, Ring, SectionHead, Skeleton, Track, useToast } from '../ui';
+import {
+  AreaChart, CountMoney, DayStrip, Delta, Donut, ErrorBox, HeroArt, HourBands, IconShare,
+  InsightTile, Legend, Medal, Ring, SectionHead, Skeleton, Track, useToast,
+} from '../ui';
 import { WeekBar } from '../week';
 
 export function Home() {
@@ -17,26 +21,27 @@ export function Home() {
     comm: weeks.reduce((s, w) => s + w.commissionAmount, 0),
     best: weeks.reduce((a, b) => a.commissionAmount >= b.commissionAmount ? a : b, weeks[0]),
   }), [weeks]);
+  const insights = useMemo(() => buildInsights(lines, dash?.malls ?? []), [lines, dash]);
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
-  if (loading || !dash) return <Skeleton rows={6} />;
+  if (loading || !dash) return <Skeleton rows={7} />;
 
   const commission = dash.week.commissionAmount;
   const hit = dash.goals.filter(g => g.percent >= 100).length;
   const goalAvg = dash.goals.length ? dash.goals.reduce((s, g) => s + g.percent, 0) / dash.goals.length : 0;
   const focus = [...dash.goals].sort((a, b) => a.percent - b.percent)[0];
   const topMalls = [...dash.malls].sort((a, b) => b.commissionAmount - a.commissionAmount).slice(0, 5);
-  const mallTotal = topMalls.reduce((s, m) => s + m.commissionAmount, 0);
   const donutItems = topMalls.map(m => ({ label: m.sectionName, value: m.commissionAmount }));
-  const legendItems = topMalls.map(m => ({
-    label: m.sectionName,
-    value: moneyIq(m.commissionAmount),
-    share: mallTotal > 0 ? (m.commissionAmount / mallTotal) * 100 : 0,
-  }));
-  const preview = lines.slice(0, 5);
+  const legendItems = topMalls.map(m => ({ label: m.sectionName, value: moneyIq(m.commissionAmount) }));
+  const preview = lines.slice(0, 6);
+  const allGoals = dash.goals.length > 0 && hit === dash.goals.length;
 
   async function share() {
-    const result = await shareText('تقرير الأسبوع', weekReport(dash!));
+    const extra = [
+      insights.bestProduct ? `أفضل منتج: ${insights.bestProduct.name} — ${moneyIq(insights.bestProduct.commission)}` : '',
+      insights.bestDay ? `أقوى يوم: ${insights.bestDay.label} — ${moneyIq(insights.bestDay.commission)}` : '',
+    ].filter(Boolean);
+    const result = await shareText('تقرير الأسبوع', weekReport(dash!, extra));
     if (result === 'copied') toast('تم نسخ التقرير');
     else if (result === 'shared') toast('تمت المشاركة');
     else if (result === 'fail') toast('تعذر النسخ');
@@ -45,11 +50,12 @@ export function Home() {
   return (
     <div className="fade-up space-y-4">
       <section className="hero">
+        <div className="hero-orbs" aria-hidden><i /><i /><i /></div>
         <HeroArt />
         <div className="hero-top">
           <div>
             <p className="kicker">{greeting()}</p>
-            <h1 className="mt-1 text-[26px] font-extrabold leading-tight">{dash.seller.name}</h1>
+            <h1 className="display mt-1 text-[28px] font-black leading-tight">{dash.seller.name}</h1>
             <p className="mt-1 text-sm font-bold text-muted">أسبوع {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
           </div>
           <button type="button" onClick={() => void share()} className="pill">
@@ -58,9 +64,9 @@ export function Home() {
         </div>
         <Link to="/products" className="hero-comm stat-link">
           <p className="text-sm font-extrabold text-gold">عمولة الأسبوع كاملة</p>
-          <div className="hero-num num">{moneyIq(commission)}</div>
+          <div className="hero-num"><CountMoney value={commission} /></div>
           <div className="mt-3">{compare.prev && <Delta value={compare.commDelta} />}</div>
-          <p className="mt-2 text-xs font-extrabold text-muted">{lines.length} منتج/فاتورة — اضغط للتفاصيل</p>
+          <p className="mt-2 text-xs font-extrabold text-muted">{insights.itemCount} حركة · {insights.invoiceCount} فاتورة — اضغط للتفاصيل</p>
         </Link>
         <div className="hero-pills">
           <span className="pill">{dash.week.mallCount || dash.malls.length} مول</span>
@@ -75,7 +81,43 @@ export function Home() {
         </div>
       )}
 
+      {allGoals && (
+        <div className="win-banner">
+          <Ring value={100} size={52} tone="ok" />
+          <div>
+            <p className="text-sm font-extrabold text-ok">كل أهداف الأسبوع تحققت</p>
+            <p className="text-xs font-bold text-muted">استمر بنفس الإيقاع — العمولة تُحسب كاملة</p>
+          </div>
+        </div>
+      )}
+
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+
+      <div className="insight-grid stagger">
+        <InsightTile
+          kicker="أقوى مول"
+          title={insights.topMall?.sectionName || '—'}
+          value={insights.topMall ? moneyIq(insights.topMall.commissionAmount) : '—'}
+        />
+        <InsightTile
+          kicker="أفضل منتج"
+          title={insights.bestProduct?.name || '—'}
+          value={insights.bestProduct ? moneyIq(insights.bestProduct.commission) : '—'}
+          tone="goal"
+        />
+        <InsightTile
+          kicker="أقوى يوم"
+          title={insights.bestDay?.label || '—'}
+          value={insights.bestDay ? moneyIq(insights.bestDay.commission) : '—'}
+          hint={insights.bestDay?.weekday}
+          tone="amber"
+        />
+        <InsightTile
+          kicker="الفواتير"
+          title={`${insights.invoiceCount} فاتورة`}
+          value={`${insights.itemCount} منتج`}
+        />
+      </div>
 
       {dash.balanceDue > 0 && (
         <div className="due-card">
@@ -87,10 +129,40 @@ export function Home() {
         </div>
       )}
 
+      {insights.days.length > 1 && (
+        <section className="card p-4">
+          <SectionHead title="إيقاع الأسبوع" kicker="عمولة كل يوم" />
+          <DayStrip days={insights.days} active={insights.bestDay?.key} />
+        </section>
+      )}
+
+      {lines.length > 0 && (
+        <section>
+          <SectionHead title="أوقات النشاط" kicker="حسب وقت الفاتورة" />
+          <HourBands rows={insights.hours} />
+        </section>
+      )}
+
       <section className="card p-4">
         <SectionHead title="آخر العمولات" kicker="منتج · فاتورة · وقت" to="/products" link="الكل" />
         <CommissionList lines={preview} onOpen={setOpen} empty="لا عمولة بعد هذا الأسبوع" />
       </section>
+
+      {insights.products.length > 0 && (
+        <section className="card p-4">
+          <SectionHead title="أقوى المنتجات" kicker="حسب العمولة" to="/products" link="التفاصيل" />
+          {insights.products.slice(0, 5).map((p, i) => (
+            <div key={p.name} className="rank-row">
+              <Medal rank={i + 1} />
+              <div className="min-w-0">
+                <p className="truncate font-extrabold">{p.name}</p>
+                <p className="text-xs font-bold text-muted">{p.count} حركة · كمية {p.qty}</p>
+              </div>
+              <p className="num text-sm font-extrabold text-gold">{moneyIq(p.commission)}</p>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="card board">
         <SectionHead title="أهداف الأسبوع" kicker="الإنجاز" to="/goals" link="التفاصيل" />
@@ -140,10 +212,10 @@ export function Home() {
         )}
 
         <section className="card p-4">
-          <SectionHead title="حصة العمولة" kicker="المولات" to="/malls" link="الكل" />
+          <SectionHead title="عمولة المولات" kicker="حسب المول فقط" to="/malls" link="الكل" />
           {topMalls.length ? (
             <div className="grid items-center gap-3 sm:grid-cols-[auto_1fr]">
-              <Donut items={donutItems} size={150} center="حصة" />
+              <Donut items={donutItems} size={150} center="المولات" />
               <Legend items={legendItems} />
             </div>
           ) : (

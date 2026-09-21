@@ -26,6 +26,7 @@ export function Goals() {
   const hit = rows.filter(g => g.percent >= 100).length;
   const avg = rows.length ? rows.reduce((s, g) => s + g.percent, 0) / rows.length : 0;
   const late = rows.filter(g => g.percent < 80).length;
+  const near = rows.filter(g => g.percent >= 80 && g.percent < 100).length;
 
   async function openGoal(g: GoalRow) {
     setBusy(true);
@@ -43,27 +44,37 @@ export function Goals() {
   return (
     <div className="fade-up space-y-4">
       <section className="card goal-hero">
-        <Ring value={avg} size={128} tone="goal" label="إنجاز" />
+        <Ring value={avg} size={132} tone="goal" label="إنجاز" />
         <div>
           <p className="kicker">لوحة الأهداف</p>
-          <h1 className="text-[26px] font-extrabold">أهدافي</h1>
+          <h1 className="display text-[28px] font-black">أهدافي</h1>
           <p className="mt-2 text-sm font-bold leading-6 text-muted">
-            {rows.length ? `${hit} من ${rows.length} تحقق · ${late} يحتاج تركيز` : 'الأهداف المربوطة باسمك تظهر هنا'}
+            {rows.length ? `${hit} تحقق · ${near} قريب · ${late} يحتاج تركيز` : 'الأهداف المربوطة باسمك تظهر هنا'}
           </p>
           <p className="mt-2 text-xs font-extrabold text-goal">اضغط الهدف لرؤية المنتجات والفواتير والوقت</p>
         </div>
       </section>
 
+      {rows.length > 0 && hit === rows.length && (
+        <div className="win-banner">
+          <Ring value={100} size={52} tone="ok" />
+          <div>
+            <p className="text-sm font-extrabold text-ok">أتممت كل الأهداف هذا الأسبوع</p>
+            <p className="text-xs font-bold text-muted">التفاصيل ما زالت متاحة بالضغط على أي هدف</p>
+          </div>
+        </div>
+      )}
+
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
 
       <div className="flex flex-wrap gap-2">
-        {([['all', 'الكل'], ['done', 'تحقق'], ['near', 'قريب'], ['late', 'تركيز']] as const).map(([k, label]) => (
+        {([['all', `الكل ${rows.length}`], ['done', `تحقق ${hit}`], ['near', `قريب ${near}`], ['late', `تركيز ${late}`]] as const).map(([k, label]) => (
           <button key={k} type="button" className={`chip ${filter === k ? 'chip-on' : ''}`} onClick={() => setFilter(k)}>{label}</button>
         ))}
       </div>
 
       {loading && !rows.length && <Skeleton />}
-      <div className="stack-grid">
+      <div className="stack-grid stagger">
         {list.map(g => {
           const remain = Math.max(0, g.weeklyTarget - g.sold);
           const tone = goalTone(g.percent);

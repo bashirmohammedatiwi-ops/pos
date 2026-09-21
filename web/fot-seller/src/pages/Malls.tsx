@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { api, moneyIq, moneyK, pct } from '../api';
+import { api, moneyIq, moneyK } from '../api';
 import type { CommissionLine, MallRow } from '../api';
 import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller } from '../store';
-import { Bar, Donut, Empty, ErrorBox, Legend, Sheet, Skeleton } from '../ui';
+import { Bar, Donut, Empty, ErrorBox, Legend, Medal, SearchField, Sheet, Skeleton } from '../ui';
 import { WeekBar } from '../week';
 
 export function Malls() {
@@ -26,11 +26,7 @@ export function Malls() {
   const totalComm = rows.reduce((s, r) => s + r.commissionAmount, 0);
   const max = Math.max(...list.map(r => r.commissionAmount), 1);
   const donutItems = list.slice(0, 6).map(r => ({ label: r.sectionName, value: r.commissionAmount }));
-  const legendItems = donutItems.map(r => ({
-    label: r.label,
-    value: moneyIq(r.value),
-    share: totalComm > 0 ? (r.value / totalComm) * 100 : 0,
-  }));
+  const legendItems = donutItems.map(r => ({ label: r.label, value: moneyIq(r.value) }));
 
   async function openMall(r: MallRow) {
     setOpen(r);
@@ -50,10 +46,11 @@ export function Malls() {
 
   return (
     <div className="fade-up space-y-4">
-      <header>
-        <p className="kicker">توزيع العمولة</p>
-        <h1 className="text-[26px] font-extrabold">مولاتي</h1>
-        <p className="mt-1 text-sm font-bold text-muted">{rows.length} مول · عمولة {moneyIq(totalComm)}</p>
+      <header className="hero compact">
+        <p className="kicker">عمولة المولات</p>
+        <h1 className="display text-[28px] font-black">مولاتي</h1>
+        <p className="num mt-3 text-[34px] font-black text-gold">{moneyIq(totalComm)}</p>
+        <p className="mt-1 text-sm font-bold text-muted">{rows.length} مول هذا الأسبوع — اضغط أي مول للفواتير</p>
       </header>
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
 
@@ -64,27 +61,24 @@ export function Malls() {
         </section>
       )}
 
-      <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث باسم المول" className="field" />
+      <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المول أو الفرع" />
       {loading && !rows.length && <Skeleton />}
-      <div className="stack-grid">
-        {list.map((r, i) => {
-          const share = totalComm > 0 ? (r.commissionAmount / totalComm) * 100 : 0;
-          return (
-            <button key={`${r.sectionId}-${r.sectionName}`} type="button" className="card mall-card" onClick={() => void openMall(r)}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-extrabold text-gold">#{String(i + 1).padStart(2, '0')}</p>
-                  <h2 className="text-lg font-extrabold">{r.sectionName}</h2>
-                  {r.branchName && <p className="text-sm font-bold text-muted">{r.branchName}</p>}
-                </div>
-                <p className="text-sm font-extrabold text-goal">{Math.round(share)}%</p>
+      <div className="stack-grid stagger">
+        {list.map((r, i) => (
+          <button key={`${r.sectionId}-${r.sectionName}`} type="button" className="card mall-card" onClick={() => void openMall(r)}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Medal rank={i + 1} />
+                <h2 className="mt-3 text-lg font-extrabold">{r.sectionName}</h2>
+                {r.branchName && <p className="text-sm font-bold text-muted">{r.branchName}</p>}
               </div>
-              <p className="num mt-3 text-[22px] font-extrabold text-gold">{moneyIq(r.commissionAmount)}</p>
-              <div className="mt-3"><Bar value={r.commissionAmount} max={max} tone="gold" /></div>
-              <p className="mt-2 text-xs font-extrabold text-muted">اضغط لرؤية المنتجات والفواتير</p>
-            </button>
-          );
-        })}
+              <span className="pill">{r.receiptCount} فاتورة</span>
+            </div>
+            <p className="num mt-3 text-[22px] font-extrabold text-gold">{moneyIq(r.commissionAmount)}</p>
+            <div className="mt-3"><Bar value={r.commissionAmount} max={max} tone="gold" /></div>
+            <p className="mt-2 text-xs font-extrabold text-muted">اضغط لرؤية المنتجات والفواتير</p>
+          </button>
+        ))}
         {!loading && !list.length && <Empty title="لا عمولة هذا الأسبوع" hint="غيّر الأسبوع أو ابحث باسم مول آخر" />}
       </div>
 
@@ -94,7 +88,7 @@ export function Malls() {
             <div className="detail-hero">
               <p className="kicker">عمولة المول كاملة</p>
               <p className="num mt-1 text-[28px] font-extrabold text-gold">{moneyIq(open.commissionAmount)}</p>
-              <p className="mt-1 text-sm font-bold text-muted">{pct(totalComm ? (open.commissionAmount / totalComm) * 100 : 0)} من الأسبوع</p>
+              <p className="mt-2 text-xs font-extrabold text-muted">{open.receiptCount} فاتورة</p>
             </div>
             {busy ? <Skeleton rows={3} /> : <CommissionList lines={mallLines} onOpen={setLine} empty="لا منتجات عمولة في هذا المول" />}
           </div>

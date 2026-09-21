@@ -1,6 +1,7 @@
 import { clockLabel, dayLabel, moneyIq, receiptLabel, stampLabel } from './api';
 import type { CommissionLine, GoalLine } from './api';
-import { Empty, Sheet } from './ui';
+import { lineText, type ReceiptGroup } from './insights';
+import { Empty, Sheet, useToast } from './ui';
 
 export function LineCard({
   name, amount, receipt, at, mall, onClick,
@@ -48,6 +49,33 @@ export function CommissionList({
   );
 }
 
+export function ReceiptList({
+  groups, onOpen,
+}: {
+  groups: ReceiptGroup[];
+  onOpen: (line: CommissionLine) => void;
+}) {
+  if (!groups.length) return <Empty title="لا فواتير هذا الأسبوع" hint="عندما تُحسب عمولة تظهر الفواتير هنا" />;
+  return (
+    <div className="line-stack">
+      {groups.map(g => (
+        <button key={g.id} type="button" className="receipt-card" onClick={() => onOpen(g.lines[0])}>
+          <span className="line-mark">#</span>
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] font-extrabold">{receiptLabel(g.receiptNumber)}</span>
+            <span className="line-meta">
+              <span className="chip-soft">{stampLabel(g.at)}</span>
+              {g.mallName && <span className="chip-soft">{g.mallName}</span>}
+              <span className="chip-soft">{g.count} منتج</span>
+            </span>
+          </span>
+          <span className="num text-[15px] font-extrabold text-gold">{moneyIq(g.commission)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function GoalLineList({
   lines, onOpen,
 }: {
@@ -78,6 +106,16 @@ export function CommissionSheet({
   line: CommissionLine | null;
   onClose: () => void;
 }) {
+  const toast = useToast();
+  async function copy() {
+    if (!line) return;
+    try {
+      await navigator.clipboard.writeText(lineText(line));
+      toast('تم نسخ التفاصيل');
+    } catch {
+      toast('تعذر النسخ');
+    }
+  }
   return (
     <Sheet open={!!line} title={line?.productName || 'تفاصيل العمولة'} onClose={onClose}>
       {line && (
@@ -93,6 +131,7 @@ export function CommissionSheet({
           <Detail label="المول" value={line.mallName || '—'} />
           {line.groupName && <Detail label="المجموعة" value={line.groupName} />}
           <Detail label="الكمية" value={String(line.quantity)} />
+          <button type="button" className="copy-btn" onClick={() => void copy()}>نسخ تفاصيل الحركة</button>
         </div>
       )}
     </Sheet>

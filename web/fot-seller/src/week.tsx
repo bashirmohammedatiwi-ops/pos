@@ -30,20 +30,34 @@ export function WeekBar({
   setWeek: (w?: string) => void;
 }) {
   if (!weeks.length) return null;
+  const key = weekStart || weeks.find(w => w.isCurrent)?.weekStart.slice(0, 10);
+  const idx = Math.max(0, weeks.findIndex(w => w.weekStart.slice(0, 10) === key || w.weekStart === weekStart));
+  const older = weeks[idx + 1];
+  const newer = weeks[idx - 1];
+
+  function pick(w?: WeekSummary) {
+    if (!w) return;
+    setWeek(w.isCurrent ? undefined : w.weekStart.slice(0, 10));
+  }
+
   return (
-    <div className="week-scroll">
-      {weeks.map(w => {
-        const key = w.weekStart.slice(0, 10);
-        const active = (!weekStart && w.isCurrent) || weekStart === key || weekStart === w.weekStart;
-        return (
-          <button key={key} type="button" onClick={() => setWeek(w.isCurrent ? undefined : key)} className={`week-chip ${active ? 'on' : ''}`}>
-            <div className="text-[13px] font-extrabold">{w.isCurrent ? 'هذا الأسبوع' : dayLabel(w.weekStart)}</div>
-            <div className="num mt-1 text-[11px] opacity-70">
-              {w.commissionAmount > 0 ? moneyIq(w.commissionAmount) : '—'}
-            </div>
-          </button>
-        );
-      })}
+    <div className="week-wrap">
+      <button type="button" className="week-arrow" disabled={!newer} onClick={() => pick(newer)} aria-label="الأحدث">‹</button>
+      <div className="week-scroll">
+        {weeks.map(w => {
+          const wk = w.weekStart.slice(0, 10);
+          const active = (!weekStart && w.isCurrent) || weekStart === wk || weekStart === w.weekStart;
+          return (
+            <button key={wk} type="button" onClick={() => setWeek(w.isCurrent ? undefined : wk)} className={`week-chip ${active ? 'on' : ''}`}>
+              <div className="text-[13px] font-extrabold">{w.isCurrent ? 'هذا الأسبوع' : dayLabel(w.weekStart)}</div>
+              <div className="num mt-1 text-[11px] opacity-70">
+                {w.commissionAmount > 0 ? moneyIq(w.commissionAmount) : '—'}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="week-arrow" disabled={!older} onClick={() => pick(older)} aria-label="الأقدم">›</button>
     </div>
   );
 }

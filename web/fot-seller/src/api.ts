@@ -143,10 +143,37 @@ export function pct(n: number) {
   return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10}%`;
 }
 
+export function dayKey(iso: string) {
+  return iso.slice(0, 10);
+}
+
 export function dayLabel(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
   return d.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'short' });
+}
+
+export function weekdayShort(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ar-IQ', { weekday: 'short' });
+}
+
+export function weekdayLong(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ar-IQ', { weekday: 'long' });
+}
+
+export function ago(ts: number) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 12) return 'الآن';
+  if (s < 60) return `قبل ${s} ث`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `قبل ${m} د`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `قبل ${h} س`;
+  return `قبل ${Math.round(h / 24)} ي`;
 }
 
 export function clockLabel(iso: string) {
@@ -237,13 +264,16 @@ export async function shareText(title: string, text: string): Promise<'shared' |
   }
 }
 
-export function weekReport(dash: Dashboard) {
+export function weekReport(dash: Dashboard, extra?: string[]) {
   const hit = dash.goals.filter(g => g.percent >= 100).length;
+  const topMall = [...dash.malls].sort((a, b) => b.commissionAmount - a.commissionAmount)[0];
   return [
     `${dash.seller.name} — أسبوع ${weekRange(dash.week.weekStart, dash.week.weekEnd)}`,
     `العمولة: ${moneyIq(dash.week.commissionAmount)}`,
-    `المستحق: ${moneyIq(dash.balanceDue)}`,
+    dash.balanceDue > 0 ? `المستحق: ${moneyIq(dash.balanceDue)}` : '',
     `المولات: ${dash.week.mallCount || dash.malls.length}`,
+    topMall ? `أقوى مول: ${topMall.sectionName} — ${moneyIq(topMall.commissionAmount)}` : '',
     dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
-  ].join('\n');
+    ...(extra ?? []),
+  ].filter(Boolean).join('\n');
 }

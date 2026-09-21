@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { money, pct } from './api';
+import { money, moneyIq, moneyK } from './api';
+import type { DayBucket, HourBand } from './insights';
 
 export function IconHome() {
   return (
@@ -52,14 +53,45 @@ export function IconShare() {
     </svg>
   );
 }
+export function IconSearch() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+export function IconCopy() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="8" y="8" width="12" height="12" rx="2" /><path d="M4 16V6a2 2 0 0 1 2-2h10" />
+    </svg>
+  );
+}
 
 const STROKE: Record<string, string> = {
   teal: '#0d9488',
   ok: '#15803d',
-  goal: '#4f46e5',
+  goal: '#4338ca',
   warn: '#d97706',
   gold: '#0f766e',
 };
+
+export function BrandMark({ size = 40 }: { size?: number }) {
+  return (
+    <svg className="brand-mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden>
+      <defs>
+        <linearGradient id="bm" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#0f766e" />
+          <stop offset="100%" stopColor="#4338ca" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="18" fill="url(#bm)" />
+      <circle cx="32" cy="32" r="18" fill="none" stroke="#ffffff" strokeWidth="3.2" opacity="0.28" />
+      <circle cx="32" cy="32" r="18" fill="none" stroke="#99f6e4" strokeWidth="3.2" strokeDasharray="70 113" strokeLinecap="round" transform="rotate(-90 32 32)" />
+      <circle cx="32" cy="32" r="6" fill="#fbbf24" />
+    </svg>
+  );
+}
 
 export function Avatar({ name, dark, onClick }: { name: string; dark?: boolean; onClick?: () => void }) {
   const cls = `grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-base font-extrabold ${dark ? 'bg-white/10 text-white' : 'bg-gold-soft text-gold'}`;
@@ -84,10 +116,11 @@ export function Badge({ tone = 'gold', children }: { tone?: 'gold' | 'ok' | 'war
 export function Empty({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="card empty-card">
-      <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden>
-        <circle cx="36" cy="36" r="30" fill="#f0fdfa" />
-        <circle cx="36" cy="36" r="18" fill="none" stroke="#99f6e4" strokeWidth="3" strokeDasharray="8 7" />
-        <circle cx="36" cy="36" r="6" fill="#0d9488" />
+      <svg width="88" height="88" viewBox="0 0 88 88" aria-hidden>
+        <circle cx="44" cy="44" r="36" fill="#f0fdfa" />
+        <circle cx="44" cy="44" r="22" fill="none" stroke="#99f6e4" strokeWidth="3" strokeDasharray="8 7" />
+        <circle cx="44" cy="44" r="7" fill="#0d9488" />
+        <rect x="58" y="18" width="14" height="14" rx="4" fill="#c7d2fe" transform="rotate(18 65 25)" />
       </svg>
       <p className="mt-3 text-lg font-extrabold">{title}</p>
       {hint && <p className="mt-2 text-sm leading-7 text-muted">{hint}</p>}
@@ -137,7 +170,7 @@ export function HeroArt() {
     <svg className="hero-art" viewBox="0 0 220 220" aria-hidden>
       <defs>
         <linearGradient id="ha" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.22" />
+          <stop offset="0%" stopColor="#4338ca" stopOpacity="0.24" />
           <stop offset="100%" stopColor="#0d9488" stopOpacity="0.08" />
         </linearGradient>
       </defs>
@@ -145,7 +178,7 @@ export function HeroArt() {
       <circle cx="78" cy="86" r="52" fill="none" stroke="#99f6e4" strokeWidth="10" />
       <circle cx="78" cy="86" r="52" fill="none" stroke="#0d9488" strokeWidth="10" strokeDasharray="220 327" strokeLinecap="round" transform="rotate(-90 78 86)" />
       <circle cx="78" cy="86" r="28" fill="#ffffff" />
-      <circle cx="78" cy="86" r="10" fill="#4f46e5" />
+      <circle cx="78" cy="86" r="10" fill="#4338ca" />
       <polygon points="168,38 182,62 158,62" fill="#c7d2fe" />
       <rect x="154" y="128" width="28" height="28" rx="8" fill="#ccfbf1" transform="rotate(18 168 142)" />
       <circle cx="186" cy="96" r="7" fill="#5eead4" />
@@ -160,8 +193,9 @@ export function LoginArt() {
       <circle cx="60" cy="60" r="54" fill="#f0fdfa" />
       <circle cx="60" cy="60" r="38" fill="none" stroke="#99f6e4" strokeWidth="8" />
       <circle cx="60" cy="60" r="38" fill="none" stroke="#0d9488" strokeWidth="8" strokeDasharray="160 239" strokeLinecap="round" transform="rotate(-90 60 60)" />
-      <circle cx="60" cy="60" r="16" fill="#4f46e5" />
+      <circle cx="60" cy="60" r="16" fill="#4338ca" />
       <circle cx="60" cy="60" r="6" fill="#ffffff" />
+      <circle cx="92" cy="28" r="5" fill="#fbbf24" />
     </svg>
   );
 }
@@ -197,7 +231,7 @@ export function AreaChart({ values, height = 128 }: { values: number[]; height?:
       ))}
       <polygon fill={`url(#ag-${uid})`} points={fill} />
       <polyline fill="none" stroke="#0f766e" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={line} />
-      {peak && <circle cx={peak.x} cy={peak.y} r="4.5" fill="#4f46e5" />}
+      {peak && <circle cx={peak.x} cy={peak.y} r="4.5" fill="#4338ca" />}
       {last && <circle cx={last.x} cy={last.y} r="5" fill="#0f766e" stroke="#ffffff" strokeWidth="2" />}
     </svg>
   );
@@ -249,7 +283,7 @@ export function Ring({
   );
 }
 
-const DONUT = ['#0f766e', '#4f46e5', '#14b8a6', '#7c3aed', '#0ea5e9', '#f59e0b', '#94a3b8'];
+const DONUT = ['#0f766e', '#4338ca', '#14b8a6', '#7c3aed', '#0ea5e9', '#c9a227', '#94a3b8'];
 
 export function Donut({
   items, size = 168, center,
@@ -289,7 +323,7 @@ export function Donut({
   );
 }
 
-export function Legend({ items }: { items: { label: string; value: string; share: number }[] }) {
+export function Legend({ items }: { items: { label: string; value: string }[] }) {
   return (
     <ul className="legend">
       {items.map((item, i) => (
@@ -297,7 +331,6 @@ export function Legend({ items }: { items: { label: string; value: string; share
           <span className="legend-dot" style={{ background: DONUT[i % DONUT.length] }} />
           <span className="legend-name">{item.label}</span>
           <span className="legend-val num">{item.value}</span>
-          <span className="legend-share">{pct(item.share)}</span>
         </li>
       ))}
     </ul>
@@ -313,6 +346,99 @@ export function Delta({ value, dark }: { value: number; dark?: boolean }) {
     <span className={`delta ${up ? 'up' : 'down'}`}>
       {up ? '▲' : '▼'} {money(Math.abs(value))}% عن السابق
     </span>
+  );
+}
+
+export function CountMoney({ value }: { value: number }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const from = 0;
+    const start = performance.now();
+    let raf = 0;
+    const step = (t: number) => {
+      const p = Math.min(1, (t - start) / 720);
+      const eased = 1 - (1 - p) ** 3;
+      setN(from + (value - from) * eased);
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <span className="num">{moneyIq(n)}</span>;
+}
+
+export function Medal({ rank }: { rank: number }) {
+  const cls = rank === 1 ? 'r1' : rank === 2 ? 'r2' : rank === 3 ? 'r3' : 'rn';
+  return <span className={`medal ${cls}`}>{String(rank).padStart(2, '0')}</span>;
+}
+
+export function DayStrip({
+  days, active, onSelect,
+}: {
+  days: DayBucket[]; active?: string; onSelect?: (key: string) => void;
+}) {
+  const max = Math.max(...days.map(d => d.commission), 1);
+  return (
+    <div className="day-strip">
+      {days.map(d => (
+        <button
+          key={d.key}
+          type="button"
+          className={`day-col ${active === d.key ? 'on' : ''}`}
+          onClick={() => onSelect?.(d.key)}
+        >
+          <span className="num text-[10px] font-extrabold text-gold">{d.commission ? moneyK(d.commission) : '—'}</span>
+          <div className="day-bar-wrap">
+            <div className="day-bar" style={{ height: `${Math.max(8, (d.commission / max) * 100)}%` }} />
+          </div>
+          <small>{d.weekday || d.label}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function HourBands({ rows }: { rows: HourBand[] }) {
+  return (
+    <div className="hour-grid">
+      {rows.map(r => (
+        <article key={r.key} className="card hour-card">
+          <p className="kicker">{r.hint}</p>
+          <h3 className="text-base font-extrabold">{r.label}</h3>
+          <p className="num mt-2 text-lg font-extrabold text-gold">{moneyIq(r.commission)}</p>
+          <p className="mt-1 text-xs font-bold text-muted">{r.count} حركة</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function InsightTile({
+  kicker, title, value, hint, tone = 'gold',
+}: {
+  kicker: string; title: string; value: string; hint?: string; tone?: 'gold' | 'goal' | 'amber';
+}) {
+  return (
+    <article className={`card insight-tile ${tone}`}>
+      <div className="mark">{kicker.slice(0, 1)}</div>
+      <p className="text-[11px] font-extrabold text-muted">{kicker}</p>
+      <p className="mt-1 truncate text-sm font-extrabold">{title}</p>
+      <p className="num mt-2 text-base font-extrabold text-gold">{value}</p>
+      {hint && <p className="mt-1 text-[11px] font-bold text-muted">{hint}</p>}
+    </article>
+  );
+}
+
+export function SearchField({
+  value, onChange, placeholder,
+}: {
+  value: string; onChange: (v: string) => void; placeholder: string;
+}) {
+  return (
+    <div className="search-wrap">
+      <IconSearch />
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="search-field" />
+    </div>
   );
 }
 

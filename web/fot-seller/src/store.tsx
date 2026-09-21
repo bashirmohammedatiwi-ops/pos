@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   api, deltaPct, setSeller,
-  type CommissionLine, type Dashboard, type GroupRow, type ProductRow, type WeekSummary,
+  type CommissionLine, type Dashboard, type WeekSummary,
 } from './api';
 import { useWeek } from './week';
 
@@ -10,11 +10,10 @@ type Store = {
   setWeek: (w?: string) => void;
   dash: Dashboard | null;
   weeks: WeekSummary[];
-  groups: GroupRow[];
-  products: ProductRow[];
   lines: CommissionLine[];
   err: string;
   loading: boolean;
+  updatedAt: number | null;
   reload: () => Promise<void>;
 };
 
@@ -24,11 +23,10 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   const { weekStart, setWeek } = useWeek();
   const [dash, setDash] = useState<Dashboard | null>(null);
   const [weeks, setWeeks] = useState<WeekSummary[]>([]);
-  const [groups, setGroups] = useState<GroupRow[]>([]);
-  const [products, setProducts] = useState<ProductRow[]>([]);
   const [lines, setLines] = useState<CommissionLine[]>([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     setErr('');
@@ -38,9 +36,13 @@ export function SellerProvider({ children }: { children: ReactNode }) {
       setDash(d);
       setWeeks(w);
       setSeller(d.seller);
-      api.groups().then(setGroups).catch(() => undefined);
-      api.products().then(setProducts).catch(() => undefined);
-      api.commissionLines(weekStart).then(b => setLines(b.lines)).catch(() => setLines([]));
+      try {
+        const bundle = await api.commissionLines(weekStart);
+        setLines(bundle.lines);
+      } catch {
+        setLines([]);
+      }
+      setUpdatedAt(Date.now());
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'تعذر التحميل');
     } finally {
@@ -51,8 +53,8 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void reload(); }, [reload]);
 
   const value = useMemo<Store>(() => ({
-    weekStart, setWeek, dash, weeks, groups, products, lines, err, loading, reload,
-  }), [weekStart, setWeek, dash, weeks, groups, products, lines, err, loading, reload]);
+    weekStart, setWeek, dash, weeks, lines, err, loading, updatedAt, reload,
+  }), [weekStart, setWeek, dash, weeks, lines, err, loading, updatedAt, reload]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
