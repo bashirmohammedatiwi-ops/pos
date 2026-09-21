@@ -1,5 +1,4 @@
 # Shop PC connects OUT to the VPS (no SSH user/key).
-# VPS chisel server on :4704 reverse-forwards shop API :5000.
 param(
     [string]$VpsHost = "187.124.23.65",
     [int]$TunnelPort = 4704,
@@ -8,11 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$tools = Join-Path $PSScriptRoot "tools"
-$chisel = Join-Path $tools "chisel.exe"
-$version = "1.12.0"
-$url = "https://github.com/jpillora/chisel/releases/download/v$version/chisel_${version}_windows_amd64.zip"
+$project = Join-Path $PSScriptRoot "..\tools\Fot.ShopTunnel\Fot.ShopTunnel.csproj"
 
 function Test-LocalPort([int]$Port) {
     try {
@@ -32,31 +27,8 @@ if (-not (Test-LocalPort $ShopPort)) {
     exit 1
 }
 Write-Host "    Shop API is up at 127.0.0.1:$ShopPort" -ForegroundColor Green
-
-if (-not (Test-Path $chisel)) {
-    Write-Host "[2] Downloading tunnel client..." -ForegroundColor Cyan
-    New-Item -ItemType Directory -Force -Path $tools | Out-Null
-    $zip = Join-Path $tools "chisel.zip"
-    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-    Expand-Archive -Path $zip -DestinationPath $tools -Force
-    Remove-Item $zip -Force
-    if (-not (Test-Path $chisel)) {
-        $found = Get-ChildItem $tools -Recurse -Filter "chisel*.exe" | Select-Object -First 1
-        if ($found) { Copy-Item $found.FullName $chisel -Force }
-    }
-    if (-not (Test-Path $chisel)) {
-        Write-Host "Failed to download the tunnel client." -ForegroundColor Red
-        exit 1
-    }
-}
-
-Write-Host "[3] Connecting shop to ${VpsHost}:$TunnelPort" -ForegroundColor Cyan
+Write-Host "[2] Connecting shop to ${VpsHost}:$TunnelPort" -ForegroundColor Cyan
 Write-Host "    Leave this window open. Closing it brings back the shop-down error." -ForegroundColor DarkCyan
 
-$server = "${VpsHost}:${TunnelPort}"
-$remote = "R:0.0.0.0:${ShopPort}:127.0.0.1:${ShopPort}"
-while ($true) {
-    & $chisel client --auth $Auth --keepalive 25s --max-retry-count 0 $server $remote
-    Write-Host "Tunnel dropped. Reconnecting in 5 seconds..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
-}
+dotnet run --project $project -c Release --no-launch-profile -- `
+    --host $VpsHost --tunnel $TunnelPort --shop $ShopPort --auth $Auth --workers 8

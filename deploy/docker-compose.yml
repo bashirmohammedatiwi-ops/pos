@@ -4,9 +4,14 @@
 services:
   # Shop PC connects outbound here (no inbound 5000). Reverse tunnel lands on :5000.
   shop-tunnel:
-    image: jpillora/chisel:1.12.0
+    image: node:20-alpine
     network_mode: host
-    command: server --reverse --port 4704 --auth ${FOT_TUNNEL_AUTH:-fot:e7Kq9mN2pL4xW8vR}
+    working_dir: /app
+    volumes:
+      - ./shop-tunnel:/app:ro
+    command: ["node", "server.js"]
+    environment:
+      FOT_TUNNEL_AUTH: ${FOT_TUNNEL_AUTH:-fot:e7Kq9mN2pL4xW8vR}
     restart: unless-stopped
 
   # Host-network forward: tunnel listens on VPS 127.0.0.1:5000,

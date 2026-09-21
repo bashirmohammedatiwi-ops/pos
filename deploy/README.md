@@ -53,13 +53,15 @@ cd deploy
 ./up.sh
 ```
 
-أو فوراً بدون انتظار السحب:
+أو فوراً من مجلد `deploy`:
 
 ```bash
 ufw allow 4704/tcp || true
+docker rm -f shop-tunnel 2>/dev/null || true
 docker run -d --name shop-tunnel --network host --restart unless-stopped \
-  jpillora/chisel:1.12.0 \
-  server --reverse --port 4704 --auth fot:e7Kq9mN2pL4xW8vR
+  -e FOT_TUNNEL_AUTH=fot:e7Kq9mN2pL4xW8vR \
+  -v "$PWD/shop-tunnel:/app:ro" -w /app \
+  node:20-alpine node server.js
 ```
 
 **على جهاز المحل — اترك النافذة مفتوحة:**
