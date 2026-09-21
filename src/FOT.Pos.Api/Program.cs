@@ -63,7 +63,7 @@ builder.Services.AddHttpClient(SellerWebPublisher.ClientName, c =>
 builder.Services.AddSingleton<SellerWebPublisher>();
 builder.Services.AddHttpClient(SellerHubSyncService.ClientName, c =>
 {
-    c.Timeout = TimeSpan.FromSeconds(90);
+    c.Timeout = TimeSpan.FromSeconds(180);
 });
 builder.Services.AddSingleton<SellerHubSyncService>();
 builder.Services.AddSingleton<ISellerHubSync>(sp => sp.GetRequiredService<SellerHubSyncService>());

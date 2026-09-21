@@ -57,23 +57,36 @@ public sealed class ManagerPortalRepository(
         var count = Math.Clamp(weekCount, 1, 12);
         var weeks = new List<ManagerWeekSummaryDto>();
         var packs = new List<ManagerWeekPackDto>();
-        var balances = await ListBalancesAsync(ct);
+        Dictionary<long, decimal> balances;
+        try { balances = await ListBalancesAsync(ct); }
+        catch { balances = new Dictionary<long, decimal>(); }
 
         for (var i = 0; i < count; i++)
         {
             var start = currentStart.AddDays(-i * period.WeekLengthDays);
             var end = start.AddDays(period.WeekLengthDays - 1);
-            var current = i == 0;
-            var week = await SummarizeWeekAsync(start, end, current, ct);
-            var sellers = await ListSellersAsync(start, end, balances, ct);
-            var goals = await ListGoalsAsync(start, end, ct);
-            sellers = AttachGoals(sellers, goals);
-            var cashiers = await ListCashiersAsync(start, end, ct);
-            var malls = await ListMallsAsync(start, end, ct);
-            var lines = await ListLinesAsync(start, end, ct);
-            var products = await ListProductsAsync(start, end, ct);
-            weeks.Add(week);
-            packs.Add(new ManagerWeekPackDto(start, week, sellers, cashiers, malls, goals, lines, products));
+            try
+            {
+                var current = i == 0;
+                var week = await SummarizeWeekAsync(start, end, current, ct);
+                var sellers = await Safe(() => ListSellersAsync(start, end, balances, ct));
+                var goals = await Safe(() => ListGoalsAsync(start, end, ct));
+                sellers = AttachGoals(sellers, goals);
+                weeks.Add(week);
+                packs.Add(new ManagerWeekPackDto(
+                    start, week, sellers,
+                    await Safe(() => ListCashiersAsync(start, end, ct)),
+                    await Safe(() => ListMallsAsync(start, end, ct)),
+                    goals,
+                    await Safe(() => ListLinesAsync(start, end, ct)),
+                    await Safe(() => ListProductsAsync(start, end, ct))));
+            }
+            catch
+            {
+                var empty = new ManagerWeekSummaryDto(start, end, i == 0, 0, 0, 0, 0, 0, 0);
+                weeks.Add(empty);
+                packs.Add(new ManagerWeekPackDto(start, empty, [], [], [], [], [], []));
+            }
         }
 
         return new ManagerHubSnapshotDto(weeks, packs);
@@ -331,7 +344,13 @@ public sealed class ManagerPortalRepository(
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<(long SalesmanId, decimal BalanceDue)>(
             new CommandDefinition(sql, cancellationToken: ct));
-        return rows.ToDictionary(r => r.SalesmanId, r => r.BalanceDue);
+        return rows.GroupBy(r => r.SalesmanId).ToDictionary(g => g.Key, g => g.First().BalanceDue);
+    }
+
+    private static async Task<IReadOnlyList<T>> Safe<T>(Func<Task<IReadOnlyList<T>>> run)
+    {
+        try { return await run(); }
+        catch { return []; }
     }
 
     private static IReadOnlyList<ManagerSellerRowDto> AttachGoals(
