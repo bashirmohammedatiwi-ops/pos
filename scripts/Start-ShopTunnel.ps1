@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $tools = Join-Path $PSScriptRoot "tools"
 $chisel = Join-Path $tools "chisel.exe"
 $version = "1.11.3"
@@ -25,15 +26,15 @@ function Test-LocalPort([int]$Port) {
     }
 }
 
-Write-Host "1) فحص واجهة نقطة البيع على هذا الجهاز..." -ForegroundColor Cyan
+Write-Host "[1] Checking shop API on this PC..." -ForegroundColor Cyan
 if (-not (Test-LocalPort $ShopPort)) {
-    Write-Host "خادم نقطة البيع غير شغّال على المنفذ $ShopPort. شغّل FOT POS Server ثم أعد المحاولة." -ForegroundColor Red
+    Write-Host "FOT POS Server is not running on port $ShopPort. Start it, then run this again." -ForegroundColor Red
     exit 1
 }
-Write-Host "   واجهة المحل تعمل على 127.0.0.1:$ShopPort" -ForegroundColor Green
+Write-Host "    Shop API is up at 127.0.0.1:$ShopPort" -ForegroundColor Green
 
 if (-not (Test-Path $chisel)) {
-    Write-Host "2) تنزيل برنامج النفق..." -ForegroundColor Cyan
+    Write-Host "[2] Downloading tunnel client..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $tools | Out-Null
     $gz = Join-Path $tools "chisel.gz"
     Invoke-WebRequest -Uri $url -OutFile $gz -UseBasicParsing
@@ -45,13 +46,13 @@ if (-not (Test-Path $chisel)) {
     Remove-Item $gz -Force
 }
 
-Write-Host "3) ربط المحل بالسيرفر ${VpsHost}:$TunnelPort" -ForegroundColor Cyan
-Write-Host "اترك هذه النافذة مفتوحة. إغلاقها يعيد رسالة تعذر الاتصال." -ForegroundColor DarkCyan
+Write-Host "[3] Connecting shop to ${VpsHost}:$TunnelPort" -ForegroundColor Cyan
+Write-Host "    Leave this window open. Closing it brings back the shop-down error." -ForegroundColor DarkCyan
 
 $server = "${VpsHost}:${TunnelPort}"
 $remote = "R:0.0.0.0:${ShopPort}:127.0.0.1:${ShopPort}"
 while ($true) {
     & $chisel client --auth $Auth --keepalive 25s --max-retry-count 0 $server $remote
-    Write-Host "انقطع النفق — إعادة بعد 5 ثوان..." -ForegroundColor Yellow
+    Write-Host "Tunnel dropped. Reconnecting in 5 seconds..." -ForegroundColor Yellow
     Start-Sleep -Seconds 5
 }
