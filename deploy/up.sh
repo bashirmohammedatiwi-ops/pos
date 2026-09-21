@@ -5,7 +5,10 @@ cd "$(dirname "$0")"
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "created deploy/.env from .env.example"
-  echo "edit FOT_SHOP_API_URL then run again if the shop API is not on this machine"
+fi
+if grep -q 'host.docker.internal:5000' .env; then
+  sed -i 's|host.docker.internal:5000|host.docker.internal:15000|' .env
+  echo "updated FOT_SHOP_API_URL to shop-proxy :15000"
 fi
 
 docker compose up -d --build

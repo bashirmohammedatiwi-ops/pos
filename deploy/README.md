@@ -21,7 +21,7 @@ cd pos/deploy
 cp .env.example .env
 ```
 
-عدّل `FOT_SHOP_API_URL` إلى عنوان يصل لواجهة المحل (`http://127.0.0.1:5000` عبر Cloudflare Tunnel أو Tailscale).
+اترك `FOT_SHOP_API_URL=http://host.docker.internal:15000` ثم افتح نفق المحل من جهاز نقطة البيع.
 
 ```bash
 chmod +x up.sh
@@ -38,23 +38,32 @@ docker compose up -d --build
 
 افتح في جدار النار **4700–4703 فقط**.
 
-## إذا ظهر «لا بائع» أو 502
+## إذا ظهر «تعذر الاتصال بنقطة البيع» أو 502
 
-ويب السيرفر لا يصل لواجهة المحل على `:5000`. الرمز المولَّد في لوحة التحكم صحيح، لكن السيرفر يحتاج نفقاً.
+ويب السيرفر لا يرى API المحل. يلزم أمران معاً: خادم نقطة البيع شغّال، ونفق SSH مفتوح.
 
-من جهاز المحل (بعد تثبيت خادم 2.2.63):
+**على الـ VPS مرة واحدة:**
+
+```bash
+cd pos
+sudo sh deploy/enable-host-tunnel.sh
+cd deploy
+# يجب أن يكون في .env:
+# FOT_SHOP_API_URL=http://host.docker.internal:15000
+./up.sh
+```
+
+**على جهاز المحل — اترك النافذة مفتوحة:**
+
+1. شغّل `FOT POS Server` (المنفذ 5000).
+2. ثم:
 
 ```powershell
+cd "$HOME\Documents\pos"
 powershell -File scripts\Start-ShopTunnel.ps1 -VpsUser YOUR_SSH_USER
 ```
 
-على الـ VPS في `deploy/.env`:
-
-```
-FOT_SHOP_API_URL=http://host.docker.internal:5000
-```
-
-ثم `docker compose up -d`. لا تفتح المنفذ 5000 على السيرفر للعامة.
+إذا أُغلقت النافذة يعود خطأ الاتصال. النفق يعيد نفسه تلقائياً إذا انقطع الخط.
 
 ## تشغيل محلي
 

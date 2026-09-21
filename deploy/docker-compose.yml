@@ -2,12 +2,20 @@
 # Shop POS API stays on the LAN (port 5000) and is never published here.
 
 services:
+  # Host-network forward: SSH tunnel listens on VPS 127.0.0.1:5000,
+  # Docker cannot see that address, so this publishes it on 15000 for containers.
+  shop-proxy:
+    image: alpine/socat
+    network_mode: host
+    command: TCP-LISTEN:15000,fork,reuseaddr,keepalive TCP:127.0.0.1:5000
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.27-alpine
     ports:
       - "${FOT_HTTP_PORT:-4700}:80"
     environment:
-      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://host.docker.internal:5000}
+      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://host.docker.internal:15000}
       NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -16,6 +24,7 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       - seller
+      - shop-proxy
     restart: unless-stopped
 
   seller:
@@ -25,10 +34,12 @@ services:
     ports:
       - "${FOT_SELLER_PORT:-4701}:80"
     environment:
-      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://host.docker.internal:5000}
+      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://host.docker.internal:15000}
       NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - shop-proxy
     restart: unless-stopped
 
   # Later:

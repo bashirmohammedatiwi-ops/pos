@@ -65,7 +65,7 @@ npm run dev
 git clone https://github.com/bashirmohammedatiwi-ops/pos.git
 cd pos/deploy
 cp .env.example .env
-# عيّن FOT_SHOP_API_URL إلى نفق يصل لمحل الـ API
+# اترك FOT_SHOP_API_URL=http://host.docker.internal:15000 وافتح نفق المحل
 chmod +x up.sh
 ./up.sh
 ```
