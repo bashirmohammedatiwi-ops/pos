@@ -69,7 +69,7 @@ function findPack(snapshot, weekStart) {
   return packs.find((p) => weekKey(p.weekStart) === key) || packs[0];
 }
 
-const CASHIER_KEY = /cashier|كاشير|cash_name|cashiername|cashierid/i;
+const CASHIER_KEY = /cashier|كاشير|cash_name|cashiername|cashierid|mallname|mallcount|^malls$|sectionname|sectionid|branchname/i;
 
 function scrub(value) {
   if (Array.isArray(value)) return value.map(scrub);
@@ -278,13 +278,13 @@ const server = http.createServer(async (req, res) => {
         seller: me,
         week: pack?.week || pack?.Week || {},
         balanceDue: snap.balanceDue ?? snap.BalanceDue ?? 0,
-        malls: pack?.malls || pack?.Malls || [],
+        malls: [],
         goals: pack?.goals || pack?.Goals || [],
       });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/malls') {
-      send(res, 200, pack?.malls || pack?.Malls || []);
+      send(res, 200, []);
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/goals') {

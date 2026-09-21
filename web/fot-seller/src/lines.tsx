@@ -5,9 +5,9 @@ import { lineText, type ReceiptGroup } from './insights';
 import { Empty, Sheet, useToast } from './ui';
 
 export function LineCard({
-  name, amount, receipt, at, mall, onClick,
+  name, amount, receipt, at, onClick,
 }: {
-  name: string; amount?: string; receipt?: number | null; at: string; mall?: string | null; onClick: () => void;
+  name: string; amount?: string; receipt?: number | null; at: string; onClick: () => void;
 }) {
   return (
     <button type="button" className="line-card" onClick={onClick}>
@@ -17,7 +17,6 @@ export function LineCard({
         <span className="line-meta">
           <span className="chip-soft">{receiptLabel(receipt)}</span>
           <span className="chip-soft">{stampLabel(at)}</span>
-          {mall && <span className="chip-soft">{mall}</span>}
         </span>
       </span>
       {amount && <span className="num text-[15px] font-extrabold text-gold">{amount}</span>}
@@ -42,7 +41,6 @@ export function CommissionList({
           amount={moneyIq(l.commissionAmount)}
           receipt={l.receiptNumber}
           at={l.occurredAt}
-          mall={l.mallName}
           onClick={() => onOpen(l)}
         />
       ))}
@@ -70,7 +68,6 @@ export function ReceiptList({
                 <span className="block truncate text-[15px] font-extrabold">{receiptLabel(g.receiptNumber)}</span>
                 <span className="line-meta">
                   <span className="chip-soft">{stampLabel(g.at)}</span>
-                  {g.mallName && <span className="chip-soft">{g.mallName}</span>}
                   <span className="chip-soft">{g.count} منتج</span>
                 </span>
               </span>
@@ -85,7 +82,6 @@ export function ReceiptList({
                     amount={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
-                    mall={l.mallName}
                     onClick={() => onOpen(l)}
                   />
                 ))}
@@ -114,7 +110,6 @@ export function GoalLineList({
           amount={`${l.quantity}`}
           receipt={l.receiptNumber}
           at={l.occurredAt}
-          mall={l.mallName}
           onClick={() => onOpen(l)}
         />
       ))}
@@ -162,7 +157,6 @@ export function CommissionSheet({
           <Detail label="رقم الفاتورة" value={receiptLabel(line.receiptNumber)} />
           <Detail label="التاريخ" value={dayLabel(line.occurredAt)} />
           <Detail label="الوقت" value={clockLabel(line.occurredAt) || '—'} />
-          <Detail label="المول" value={line.mallName || '—'} />
           {line.groupName && <Detail label="المجموعة" value={line.groupName} />}
           <Detail label="الكمية" value={String(line.quantity)} />
           <button type="button" className="copy-btn" onClick={() => void copy()}>نسخ تفاصيل الحركة</button>
@@ -177,7 +171,6 @@ export function CommissionSheet({
                     amount={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
-                    mall={l.mallName}
                     onClick={() => onOpen?.(l)}
                   />
                 ))}
@@ -195,7 +188,6 @@ export function CommissionSheet({
                     amount={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
-                    mall={l.mallName}
                     onClick={() => onOpen?.(l)}
                   />
                 ))}
@@ -226,7 +218,6 @@ export function GoalLineSheet({
           <Detail label="رقم الفاتورة" value={receiptLabel(line.receiptNumber)} />
           <Detail label="التاريخ" value={dayLabel(line.occurredAt)} />
           <Detail label="الوقت" value={clockLabel(line.occurredAt) || '—'} />
-          <Detail label="المول" value={line.mallName || '—'} />
         </div>
       )}
     </Sheet>

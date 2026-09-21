@@ -1,4 +1,4 @@
-const BANNED_KEY = /cashier|كاشير|cash_name|cashiername|cashierid/i;
+const BANNED_KEY = /cashier|كاشير|cash_name|cashiername|cashierid|mallname|mallcount|^malls$|sectionname|sectionid|branchname/i;
 
 export function scrubSellerPayload<T>(value: T): T {
   return scrub(value) as T;

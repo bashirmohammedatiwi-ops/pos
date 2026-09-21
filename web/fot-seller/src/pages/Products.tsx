@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { commissionCsv, downloadText, moneyIq } from '../api';
 import type { CommissionLine } from '../api';
-import { groupDays, groupHours, groupReceipts, hourBand, rankProducts, uniqueMalls } from '../insights';
+import { groupDays, groupHours, groupReceipts, hourBand, rankProducts } from '../insights';
 import { CommissionList, CommissionSheet, ReceiptList } from '../lines';
 import { useSeller } from '../store';
 import { DayStrip, Empty, ErrorBox, Medal, SearchField, Skeleton } from '../ui';
@@ -15,7 +15,6 @@ export function Products() {
   const { weekStart, setWeek, dash, weeks, lines, err, loading, reload } = useSeller();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
-  const [mall, setMall] = useState('');
   const [mode, setMode] = useState<Mode>('lines');
   const [sort, setSort] = useState<Sort>('new');
   const [open, setOpen] = useState<CommissionLine | null>(null);
@@ -27,20 +26,17 @@ export function Products() {
     if (next != null) setQ(next);
   }, [params]);
 
-  const malls = useMemo(() => uniqueMalls(lines), [lines]);
   const filtered = useMemo(() => {
     const needle = q.trim();
     return lines.filter(l => {
-      if (mall && l.mallName !== mall) return false;
       if (dayKey && l.occurredAt.slice(0, 10) !== dayKey) return false;
       if (band && hourBand(l.occurredAt) !== band) return false;
       if (!needle) return true;
       return l.productName.includes(needle)
         || (l.groupName ?? '').includes(needle)
-        || (l.mallName ?? '').includes(needle)
         || String(l.receiptNumber ?? '').includes(needle);
     });
-  }, [lines, q, mall, dayKey, band]);
+  }, [lines, q, dayKey, band]);
 
   const sorted = useMemo(() => {
     if (sort === 'amount') return [...filtered].sort((a, b) => b.commissionAmount - a.commissionAmount);
@@ -74,7 +70,7 @@ export function Products() {
       </section>
 
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
-      <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو الفاتورة أو المول" />
+      <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو رقم الفاتورة" />
 
       <div className="toolbar">
         {([['lines', 'الحركات'], ['receipts', 'الفواتير'], ['days', 'الأيام'], ['products', 'المنتجات']] as const).map(([k, label]) => (
@@ -91,15 +87,6 @@ export function Products() {
             <button key={h.key} type="button" className={`chip ${band === h.key ? 'chip-on' : ''}`} onClick={() => setBand(band === h.key ? '' : h.key)}>
               {h.label}
             </button>
-          ))}
-        </div>
-      )}
-
-      {malls.length > 1 && (
-        <div className="toolbar">
-          <button type="button" className={`chip ${!mall ? 'chip-on' : ''}`} onClick={() => setMall('')}>كل المولات</button>
-          {malls.map(name => (
-            <button key={name} type="button" className={`chip ${mall === name ? 'chip-on' : ''}`} onClick={() => setMall(name === mall ? '' : name)}>{name}</button>
           ))}
         </div>
       )}

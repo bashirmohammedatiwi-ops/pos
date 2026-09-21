@@ -122,7 +122,6 @@ export const api = {
   me: () => request<SellerMe>('/api/seller/me'),
   dashboard: (weekStart?: string) => request<Dashboard>(`/api/seller/dashboard${weekQs(weekStart)}`),
   weeks: () => request<WeekSummary[]>('/api/seller/weeks?count=12'),
-  malls: (weekStart?: string) => request<MallRow[]>(`/api/seller/malls${weekQs(weekStart)}`),
   goals: (weekStart?: string) => request<GoalRow[]>(`/api/seller/goals${weekQs(weekStart)}`),
   groups: () => request<GroupRow[]>('/api/seller/commission-groups'),
   products: () => request<ProductRow[]>('/api/seller/commission-products'),
@@ -268,13 +267,10 @@ export async function shareText(title: string, text: string): Promise<'shared' |
 
 export function weekReport(dash: Dashboard, extra?: string[]) {
   const hit = dash.goals.filter(g => g.percent >= 100).length;
-  const topMall = [...dash.malls].sort((a, b) => b.commissionAmount - a.commissionAmount)[0];
   return [
     `${dash.seller.name} — أسبوع ${weekRange(dash.week.weekStart, dash.week.weekEnd)}`,
     `العمولة: ${moneyIq(dash.week.commissionAmount)}`,
     dash.balanceDue > 0 ? `المستحق: ${moneyIq(dash.balanceDue)}` : '',
-    `المولات: ${dash.week.mallCount || dash.malls.length}`,
-    topMall ? `أقوى مول: ${topMall.sectionName} — ${moneyIq(topMall.commissionAmount)}` : '',
     dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
     ...(extra ?? []),
   ].filter(Boolean).join('\n');
@@ -286,13 +282,12 @@ function csvCell(value: string | number | null | undefined) {
 }
 
 export function commissionCsv(lines: CommissionLine[]) {
-  const header = ['المنتج', 'الفاتورة', 'التاريخ', 'الوقت', 'المول', 'الكمية', 'العمولة'];
+  const header = ['المنتج', 'الفاتورة', 'التاريخ', 'الوقت', 'الكمية', 'العمولة'];
   const rows = lines.map(l => [
     csvCell(l.productName),
     csvCell(l.receiptNumber ?? ''),
     csvCell(dayLabel(l.occurredAt)),
     csvCell(clockLabel(l.occurredAt)),
-    csvCell(l.mallName ?? ''),
     csvCell(l.quantity),
     csvCell(Math.round(l.commissionAmount)),
   ].join(','));

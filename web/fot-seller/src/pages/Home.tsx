@@ -6,8 +6,8 @@ import { buildInsights } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller, useWeekCompare } from '../store';
 import {
-  AreaChart, CountMoney, DayStrip, Delta, Donut, ErrorBox, HeroArt, HourBands, IconShare,
-  InsightTile, Legend, Medal, Ring, SectionHead, Skeleton, Track, WeekCompare, useToast,
+  AreaChart, CountMoney, DayStrip, Delta, ErrorBox, HeroArt, HourBands, IconShare,
+  InsightTile, Medal, Ring, SectionHead, Skeleton, Track, WeekCompare, useToast,
 } from '../ui';
 import { WeekBar } from '../week';
 
@@ -21,7 +21,7 @@ export function Home() {
     comm: weeks.reduce((s, w) => s + w.commissionAmount, 0),
     best: weeks.reduce((a, b) => a.commissionAmount >= b.commissionAmount ? a : b, weeks[0]),
   }), [weeks]);
-  const insights = useMemo(() => buildInsights(lines, dash?.malls ?? []), [lines, dash]);
+  const insights = useMemo(() => buildInsights(lines), [lines]);
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading || !dash) return <Skeleton rows={7} />;
@@ -30,9 +30,6 @@ export function Home() {
   const hit = dash.goals.filter(g => g.percent >= 100).length;
   const goalAvg = dash.goals.length ? dash.goals.reduce((s, g) => s + g.percent, 0) / dash.goals.length : 0;
   const focus = [...dash.goals].sort((a, b) => a.percent - b.percent)[0];
-  const topMalls = [...dash.malls].sort((a, b) => b.commissionAmount - a.commissionAmount).slice(0, 5);
-  const donutItems = topMalls.map(m => ({ label: m.sectionName, value: m.commissionAmount }));
-  const legendItems = topMalls.map(m => ({ label: m.sectionName, value: moneyIq(m.commissionAmount) }));
   const preview = lines.slice(0, 6);
   const allGoals = dash.goals.length > 0 && hit === dash.goals.length;
 
@@ -81,7 +78,7 @@ export function Home() {
           <p className="mt-2 text-xs font-extrabold text-muted">{insights.itemCount} حركة · {insights.invoiceCount} فاتورة — اضغط للتفاصيل</p>
         </Link>
         <div className="hero-pills">
-          <span className="pill">{dash.week.mallCount || dash.malls.length} مول</span>
+          <span className="pill">{insights.invoiceCount} فاتورة</span>
           <span className="pill">{dash.goals.length ? `${hit}/${dash.goals.length} أهداف` : 'لا أهداف'}</span>
           {dash.balanceDue > 0 && <span className="pill">مستحق {moneyIq(dash.balanceDue)}</span>}
         </div>
@@ -108,9 +105,9 @@ export function Home() {
 
       <div className="insight-grid stagger">
         <InsightTile
-          kicker="أقوى مول"
-          title={insights.topMall?.sectionName || '—'}
-          value={insights.topMall ? moneyIq(insights.topMall.commissionAmount) : '—'}
+          kicker="ذروة الوقت"
+          title={insights.peakHour?.label || '—'}
+          value={insights.peakHour ? moneyIq(insights.peakHour.commission) : '—'}
         />
         <InsightTile
           kicker="أفضل منتج"
@@ -206,36 +203,22 @@ export function Home() {
         )}
       </section>
 
-      <div className="page-grid">
-        {spark.some(v => v > 0) && (
-          <section className="card p-4">
-            <SectionHead title="مسار العمولة" kicker="١٢ أسبوعاً" />
-            <AreaChart values={spark} />
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-[11px] font-bold text-muted">مجموع الفترة</p>
-                <p className="num font-extrabold text-gold">{moneyIq(totals.comm)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-muted">أقوى أسبوع</p>
-                <p className="num font-extrabold">{totals.best ? moneyIq(totals.best.commissionAmount) : '—'}</p>
-              </div>
-            </div>
-          </section>
-        )}
-
+      {spark.some(v => v > 0) && (
         <section className="card p-4">
-          <SectionHead title="عمولة المولات" kicker="حسب المول فقط" to="/malls" link="الكل" />
-          {topMalls.length ? (
-            <div className="grid items-center gap-3 sm:grid-cols-[auto_1fr]">
-              <Donut items={donutItems} size={150} center="المولات" />
-              <Legend items={legendItems} />
+          <SectionHead title="مسار العمولة" kicker="١٢ أسبوعاً" />
+          <AreaChart values={spark} />
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-[11px] font-bold text-muted">مجموع الفترة</p>
+              <p className="num font-extrabold text-gold">{moneyIq(totals.comm)}</p>
             </div>
-          ) : (
-            <p className="text-sm font-bold text-muted">لا عمولة هذا الأسبوع</p>
-          )}
+            <div>
+              <p className="text-[11px] font-bold text-muted">أقوى أسبوع</p>
+              <p className="num font-extrabold">{totals.best ? moneyIq(totals.best.commissionAmount) : '—'}</p>
+            </div>
+          </div>
         </section>
-      </div>
+      )}
 
       <CommissionSheet line={open} lines={lines} onClose={() => setOpen(null)} onOpen={setOpen} />
     </div>

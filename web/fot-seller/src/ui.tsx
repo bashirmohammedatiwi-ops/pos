@@ -440,13 +440,13 @@ export function WeekCompare({ cur, prev }: { cur?: WeekSummary; prev?: WeekSumma
           <p className="text-[11px] font-extrabold text-gold">هذا الأسبوع</p>
           <p className="num mt-1 text-xl font-extrabold">{moneyIq(cur.commissionAmount)}</p>
           <div className="mt-2"><Bar value={cur.commissionAmount} max={max} tone="gold" /></div>
-          <p className="mt-2 text-xs font-bold text-muted">{cur.receiptCount} فاتورة · {cur.mallCount} مول</p>
+          <p className="mt-2 text-xs font-bold text-muted">{cur.receiptCount} فاتورة</p>
         </div>
         <div>
           <p className="text-[11px] font-extrabold text-muted">الأسبوع السابق</p>
           <p className="num mt-1 text-xl font-extrabold">{moneyIq(prev.commissionAmount)}</p>
           <div className="mt-2"><Bar value={prev.commissionAmount} max={max} tone="goal" /></div>
-          <p className="mt-2 text-xs font-bold text-muted">{prev.receiptCount} فاتورة · {prev.mallCount} مول</p>
+          <p className="mt-2 text-xs font-bold text-muted">{prev.receiptCount} فاتورة</p>
         </div>
       </div>
       <div className="mt-3"><Delta value={((cur.commissionAmount - prev.commissionAmount) / Math.max(Math.abs(prev.commissionAmount), 1)) * 100} /></div>

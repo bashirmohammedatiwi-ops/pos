@@ -7,7 +7,6 @@ import {
   stampLabel,
   weekdayShort,
   type CommissionLine,
-  type MallRow,
 } from './api';
 
 export type DayBucket = {
@@ -123,17 +122,12 @@ export function groupHours(lines: CommissionLine[]): HourBand[] {
   return rows;
 }
 
-export function uniqueMalls(lines: CommissionLine[]) {
-  return [...new Set(lines.map(l => l.mallName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'ar'));
-}
-
 export function lineText(line: CommissionLine) {
   return [
     line.productName,
     `العمولة: ${moneyIq(line.commissionAmount)}`,
     `الفاتورة: ${receiptLabel(line.receiptNumber)}`,
     `الوقت: ${stampLabel(line.occurredAt)}`,
-    line.mallName ? `المول: ${line.mallName}` : '',
     `الكمية: ${line.quantity}`,
   ].filter(Boolean).join('\n');
 }
@@ -141,18 +135,16 @@ export function lineText(line: CommissionLine) {
 export function receiptText(group: ReceiptGroup) {
   return [
     `${receiptLabel(group.receiptNumber)} · ${stampLabel(group.at)}`,
-    group.mallName ? `المول: ${group.mallName}` : '',
     `العمولة: ${moneyIq(group.commission)}`,
     ...group.lines.map(l => `• ${l.productName} — ${moneyIq(l.commissionAmount)}`),
   ].filter(Boolean).join('\n');
 }
 
-export function buildInsights(lines: CommissionLine[], malls: MallRow[]) {
+export function buildInsights(lines: CommissionLine[]) {
   const days = groupDays(lines);
   const products = rankProducts(lines);
   const receipts = groupReceipts(lines);
   const hours = groupHours(lines);
-  const topMall = [...malls].sort((a, b) => b.commissionAmount - a.commissionAmount)[0];
   const bestDay = [...days].sort((a, b) => b.commission - a.commission)[0];
   const bestProduct = products[0];
   const peakHour = [...hours].sort((a, b) => b.commission - a.commission)[0];
@@ -161,7 +153,6 @@ export function buildInsights(lines: CommissionLine[], malls: MallRow[]) {
     products,
     receipts,
     hours,
-    topMall,
     bestDay,
     bestProduct,
     peakHour: peakHour?.commission ? peakHour : undefined,

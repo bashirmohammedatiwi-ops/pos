@@ -2,23 +2,20 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'reac
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { ago, getSeller, getToken, moneyIq, setSeller, setToken, weekRange } from './api';
 import { SellerProvider, useSeller } from './store';
-import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconMall, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
+import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
 import { Goals } from './pages/Goals';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
-import { Malls } from './pages/Malls';
 import { Products } from './pages/Products';
 
 const links = [
   { to: '/', label: 'أسبوعي', icon: IconHome, end: true },
-  { to: '/malls', label: 'مولاتي', icon: IconMall },
   { to: '/goals', label: 'أهدافي', icon: IconGoal },
   { to: '/products', label: 'عمولتي', icon: IconBox },
 ] as const;
 
 const titles: Record<string, string> = {
   '/': 'الأسبوع',
-  '/malls': 'المولات',
   '/goals': 'الأهداف',
   '/products': 'العمولة',
 };
@@ -63,7 +60,7 @@ function Finder({
         <input
           autoFocus
           className="search-field"
-          placeholder="ابحث عن منتج أو مول أو هدف أو فاتورة"
+          placeholder="ابحث عن منتج أو هدف أو فاتورة"
           value={q}
           onChange={e => setQ(e.target.value)}
           onKeyDown={e => {
@@ -124,12 +121,6 @@ function Shell() {
   }, []);
 
   const hits = useMemo<Hit[]>(() => {
-    const malls = (dash?.malls ?? []).map(m => ({
-      id: `m-${m.sectionId}-${m.sectionName}`,
-      title: m.sectionName,
-      hint: `مول · ${moneyIq(m.commissionAmount)}`,
-      to: '/malls',
-    }));
     const goals = (dash?.goals ?? []).map(g => ({
       id: `g-${g.ruleId}`,
       title: g.ruleName,
@@ -142,7 +133,7 @@ function Shell() {
       hint: `${l.receiptNumber ? `فاتورة #${l.receiptNumber}` : 'فاتورة'} · ${moneyIq(l.commissionAmount)}`,
       to: '/products',
     }));
-    return [...malls, ...goals, ...items];
+    return [...goals, ...items];
   }, [dash, lines]);
 
   function logout() {
@@ -221,7 +212,6 @@ function Shell() {
           <main className="main">
             <Routes>
               <Route path="/" element={<Home />} />
-              <Route path="/malls" element={<Malls />} />
               <Route path="/goals" element={<Goals />} />
               <Route path="/products" element={<Products />} />
               <Route path="*" element={<Navigate to="/" replace />} />
