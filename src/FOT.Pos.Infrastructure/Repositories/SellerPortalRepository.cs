@@ -161,12 +161,13 @@ public sealed class SellerPortalRepository(
             var isAmount = string.Equals(breakdown.TargetType, "amount", StringComparison.OrdinalIgnoreCase);
             var sold = isAmount ? row.Amount : row.Quantity;
             var weekly = row.WeeklyTarget;
-            var percent = weekly > 0 ? Math.Round(sold / weekly * 100m, 1) : 0;
+            if (weekly <= 0) continue;
+            var percent = Math.Round(sold / weekly * 100m, 1);
             list.Add(new SellerGoalDto(
                 breakdown.RuleId, breakdown.RuleName, breakdown.TargetType,
                 sold, weekly, percent));
         }
-        return list.OrderByDescending(g => g.Percent).ToList();
+        return list.OrderBy(g => g.Percent).ThenBy(g => g.RuleName).ToList();
     }
 
     public async Task<IReadOnlyList<SellerCommissionGroupDto>> ListCommissionGroupsAsync(

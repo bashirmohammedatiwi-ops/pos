@@ -4,11 +4,11 @@ import { downloadText, moneyIq, pieces, pct, productCsv, shareOf } from '../api'
 import { peopleForProduct, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
-import { Empty, ErrorBox, Medal, SearchField, Sheet, Skeleton, useToast } from '../ui';
+import { Empty, ErrorBox, Medal, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
 import { WeekBar } from '../week';
 import type { LineRow } from '../api';
 
-type Sort = 'sales' | 'commission' | 'qty';
+type Sort = 'sales' | 'qty';
 type Tab = 'sellers' | 'cashiers' | 'invoices';
 
 export function Products() {
@@ -26,7 +26,6 @@ export function Products() {
   const rows = useMemo(() => {
     const list = rankProducts(lines).filter(p => !q.trim() || p.name.includes(q.trim()));
     return [...list].sort((a, b) => {
-      if (sort === 'commission') return b.commission - a.commission;
       if (sort === 'qty') return b.qty - a.qty;
       return b.sales - a.sales;
     });
@@ -38,7 +37,7 @@ export function Products() {
 
   return (
     <div className="fade-up space-y-4">
-      <section className="hero compact">
+      <section className="hero compact command">
         <p className="kicker">منتجات الأسبوع</p>
         <h1 className="display text-[28px] font-black">ماذا يُباع</h1>
         <p className="mt-2 text-sm font-bold text-muted">{rows.length} منتجاً — اضغط لترى البائع والكاشير والفواتير</p>
@@ -47,7 +46,7 @@ export function Products() {
           className="pill mt-3"
           onClick={() => {
             downloadText(`منتجات-${weekStart || 'week'}.csv`, productCsv(rows.map(p => ({
-              name: p.name, quantity: p.qty, salesAmount: p.sales, commissionAmount: p.commission, count: p.count,
+              name: p.name, quantity: p.qty, salesAmount: p.sales, commissionAmount: 0, count: p.count,
             }))));
             toast('تم تنزيل المنتجات');
           }}
@@ -58,7 +57,7 @@ export function Products() {
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
       <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المنتج" />
       <div className="toolbar">
-        {([['sales', 'المبيعات'], ['commission', 'العمولة'], ['qty', 'القطع']] as const).map(([k, label]) => (
+        {([['sales', 'المبيعات'], ['qty', 'القطع']] as const).map(([k, label]) => (
           <button key={k} type="button" className={`chip ${sort === k ? 'chip-on' : ''}`} onClick={() => setSort(k)}>{label}</button>
         ))}
       </div>
@@ -70,10 +69,10 @@ export function Products() {
             <div className="min-w-0 text-start">
               <p className="truncate font-extrabold">{p.name}</p>
               <p className="text-xs font-bold text-muted">{pieces(p.qty)} · {p.count} حركة · {pct(shareOf(p.sales, total))}</p>
+              <div className="mt-2"><Track value={shareOf(p.sales, total)} tone="gold" /></div>
             </div>
             <div className="text-end">
               <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
-              <p className="num text-xs font-extrabold text-gold">{moneyIq(p.commission)}</p>
             </div>
           </button>
         ))}

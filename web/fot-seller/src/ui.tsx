@@ -373,9 +373,9 @@ export function Medal({ rank }: { rank: number }) {
 }
 
 export function DayStrip({
-  days, active, onSelect,
+  days, active, onSelect, today,
 }: {
-  days: DayBucket[]; active?: string; onSelect?: (key: string) => void;
+  days: DayBucket[]; active?: string; onSelect?: (key: string) => void; today?: string;
 }) {
   const max = Math.max(...days.map(d => d.commission), 1);
   return (
@@ -384,7 +384,7 @@ export function DayStrip({
         <button
           key={d.key}
           type="button"
-          className={`day-col ${active === d.key ? 'on' : ''}`}
+          className={`day-col ${active === d.key ? 'on' : ''} ${today === d.key ? 'today' : ''}`}
           onClick={() => onSelect?.(d.key)}
         >
           <span className="num text-[10px] font-extrabold text-gold">{d.commission ? moneyK(d.commission) : '—'}</span>
@@ -393,6 +393,87 @@ export function DayStrip({
           </div>
           <small>{d.weekday || d.label}</small>
         </button>
+      ))}
+    </div>
+  );
+}
+
+export function LiveDot({ stale }: { stale?: boolean }) {
+  return (
+    <span className={`live-pill ${stale ? 'stale' : ''}`}>
+      <i className="live-dot" />
+      {stale ? 'تحديث قديم' : 'هذا الأسبوع'}
+    </span>
+  );
+}
+
+export function CommandRail({
+  items,
+}: {
+  items: { kicker: string; value: string; hint?: string; tone?: 'goal' | 'gold' | 'ok' | 'warn' | 'amber' }[];
+}) {
+  if (!items.length) return null;
+  return (
+    <div className="command-rail">
+      {items.map(item => (
+        <article key={item.kicker} className={`command-tile ${item.tone || ''}`}>
+          <p className="kicker">{item.kicker}</p>
+          <p className="command-val num">{item.value}</p>
+          {item.hint && <p className="command-hint">{item.hint}</p>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function Podium({
+  items,
+  onPick,
+}: {
+  items: { id: string; name: string; value: string; hint?: string }[];
+  onPick?: (item: { id: string; name: string }) => void;
+}) {
+  if (!items.length) return null;
+  const slots = [
+    { rank: 2 as const, item: items[1] },
+    { rank: 1 as const, item: items[0] },
+    { rank: 3 as const, item: items[2] },
+  ];
+  return (
+    <div className="podium">
+      {slots.map(slot => {
+        if (!slot.item) return <div key={`empty-${slot.rank}`} />;
+        const item = slot.item;
+        const cls = `podium-card r${slot.rank}`;
+        const body = (
+          <>
+            <Medal rank={slot.rank} />
+            <p className="podium-name">{item.name}</p>
+            <p className="podium-val num">{item.value}</p>
+            {item.hint && <p className="podium-hint">{item.hint}</p>}
+          </>
+        );
+        if (onPick) {
+          return (
+            <button key={item.id} type="button" className={cls} onClick={() => onPick(item)}>
+              {body}
+            </button>
+          );
+        }
+        return <article key={item.id} className={cls}>{body}</article>;
+      })}
+    </div>
+  );
+}
+
+export function QuickJump({ links }: { links: { to: string; label: string; hint: string }[] }) {
+  return (
+    <div className="action-grid">
+      {links.map(l => (
+        <Link key={l.to} to={l.to} className="action-tile">
+          <p className="font-extrabold">{l.label}</p>
+          <p className="mt-1 text-xs font-bold text-muted">{l.hint}</p>
+        </Link>
       ))}
     </div>
   );

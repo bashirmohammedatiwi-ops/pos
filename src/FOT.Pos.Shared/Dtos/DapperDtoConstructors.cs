@@ -268,3 +268,8 @@ public partial record ManagerProductRowDto
 {
     public ManagerProductRowDto() : this("", 0, 0, 0, 0) { }
 }
+
+public partial record ManagerDayRowDto
+{
+    public ManagerDayRowDto() : this(default, 0, 0, 0) { }
+}

@@ -95,7 +95,10 @@ function fixGoal(goal) {
 }
 
 function fixGoals(list) {
-  return (list || []).map(fixGoal);
+  return (list || [])
+    .map(fixGoal)
+    .filter((g) => Number(g.weeklyTarget ?? g.WeeklyTarget ?? 0) > 0)
+    .sort((a, b) => (a.percent - b.percent) || String(a.ruleName || a.RuleName || '').localeCompare(String(b.ruleName || b.RuleName || ''), 'ar'));
 }
 
 function writeJson(res, status, body) {
@@ -236,6 +239,7 @@ function buildManagerFromSellers(snapshots) {
       const commAmt = n(row.commissionAmount ?? row.CommissionAmount ?? comm.totalCommission ?? comm.TotalCommission);
       const receipts = n(row.receiptCount ?? row.ReceiptCount);
       const pieces = packLines.reduce((s, l) => s + n(l.quantity ?? l.Quantity), 0);
+      const liveGoals = packGoals.filter((g) => n(g.weeklyTarget ?? g.WeeklyTarget) > 0);
       let sellerSales = 0;
       for (const mall of malls) {
         const sales = n(mall.salesAmount ?? mall.SalesAmount);
@@ -262,10 +266,10 @@ function buildManagerFromSellers(snapshots) {
         commissionAmount: commAmt,
         receiptCount: receipts,
         pieceCount: pieces,
-        goalCount: packGoals.length,
-        goalsHit: packGoals.filter((g) => n(g.percent ?? g.Percent) >= 100).length,
-        goalPercent: packGoals.length
-          ? Math.round((packGoals.reduce((s, g) => s + n(g.percent ?? g.Percent), 0) / packGoals.length) * 10) / 10
+        goalCount: liveGoals.length,
+        goalsHit: liveGoals.filter((g) => n(g.percent ?? g.Percent) >= 100).length,
+        goalPercent: liveGoals.length
+          ? Math.round((liveGoals.reduce((s, g) => s + n(g.percent ?? g.Percent), 0) / liveGoals.length) * 10) / 10
           : 0,
         balanceDue: balance,
       });
@@ -361,9 +365,41 @@ function buildManagerFromSellers(snapshots) {
         goals: p.goals,
         lines: p.lines.slice(0, 800),
         products: [...p.products.values()].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount).slice(0, 80),
+        days: daysFromLines(p.lines),
       };
     }),
   };
+}
+
+function daysFromLines(lines) {
+  const map = new Map();
+  for (const line of lines || []) {
+    const key = weekKey(line.occurredAt || line.OccurredAt);
+    if (!key) continue;
+    const row = map.get(key) || { day: key, salesAmount: 0, receiptCount: 0, pieceCount: 0, recs: new Set() };
+    row.salesAmount += n(line.salesAmount ?? line.SalesAmount);
+    row.pieceCount += n(line.quantity ?? line.Quantity);
+    const rec = line.receiptNumber ?? line.ReceiptNumber;
+    if (rec) row.recs.add(rec);
+    row.receiptCount = row.recs.size || row.receiptCount;
+    map.set(key, row);
+  }
+  return [...map.values()]
+    .map(({ recs, ...row }) => row)
+    .sort((a, b) => String(a.day).localeCompare(String(b.day)));
+}
+
+function presentDays(pack, lines) {
+  const raw = pack?.days || pack?.Days || [];
+  if (raw.length) {
+    return raw.map((d) => ({
+      day: d.day || d.Day,
+      salesAmount: n(d.salesAmount ?? d.SalesAmount),
+      receiptCount: n(d.receiptCount ?? d.ReceiptCount),
+      pieceCount: n(d.pieceCount ?? d.PieceCount),
+    })).sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  }
+  return daysFromLines(lines);
 }
 
 function packSales(pack) {
@@ -378,7 +414,7 @@ function packCashierCount(pack) {
 function hasRichManager(snap) {
   if (!hasManagerPacks(snap)) return false;
   const packs = snap.weekPacks || snap.WeekPacks || [];
-  return packs.some((p) => packSales(p) > 0 || packCashierCount(p) > 0);
+  return packs.some((p) => packSales(p) > 0);
 }
 
 function mergeManager(official, built) {
@@ -405,6 +441,8 @@ function mergeManager(official, built) {
       Malls: needCash ? (b.malls || b.Malls || []) : (p.malls || p.Malls || []),
       lines: needCash || needSales ? (b.lines || b.Lines || p.lines) : (p.lines || p.Lines),
       Lines: needCash || needSales ? (b.lines || b.Lines || p.lines) : (p.lines || p.Lines),
+      days: (p.days || p.Days || []).length ? (p.days || p.Days) : (b.days || b.Days || []),
+      Days: (p.days || p.Days || []).length ? (p.days || p.Days) : (b.days || b.Days || []),
     };
   });
   const weeks = weekPacks.map((p) => p.week || p.Week).filter(Boolean);
@@ -431,6 +469,22 @@ function pickCashierName(...vals) {
 }
 
 function unifyCashiers(cashiers, malls, lines) {
+  const liveCashiers = (cashiers || []).filter((c) => {
+    const label = pickCashierName(c.name ?? c.Name);
+    return label && (n(c.salesAmount ?? c.SalesAmount) > 0 || n(c.receiptCount ?? c.ReceiptCount) > 0);
+  });
+  if (liveCashiers.length) {
+    return liveCashiers
+      .map((c) => ({
+        cashierId: Number(c.cashierId ?? c.CashierId) || 0,
+        name: pickCashierName(c.name ?? c.Name),
+        salesAmount: n(c.salesAmount ?? c.SalesAmount),
+        commissionAmount: n(c.commissionAmount ?? c.CommissionAmount),
+        receiptCount: n(c.receiptCount ?? c.ReceiptCount),
+        pieceCount: n(c.pieceCount ?? c.PieceCount),
+      }))
+      .sort((a, b) => b.salesAmount - a.salesAmount);
+  }
   const map = new Map();
   function add(id, name, sales, comm, receipts, pieces) {
     const label = pickCashierName(name);
@@ -491,6 +545,7 @@ function presentPack(pack) {
   if (!pack) return null;
   const lines = presentLines(pack.lines || pack.Lines || []);
   const cashiers = unifyCashiers(pack.cashiers || pack.Cashiers, pack.malls || pack.Malls, lines);
+  const days = presentDays(pack, lines);
   const malls = cashiers.map((c) => ({
     sectionId: c.cashierId,
     sectionName: c.name,
@@ -518,6 +573,8 @@ function presentPack(pack) {
     Goals: pack.goals || pack.Goals || [],
     products: pack.products || pack.Products || [],
     Products: pack.products || pack.Products || [],
+    days,
+    Days: days,
     week,
     Week: week,
   };
@@ -533,7 +590,9 @@ function fixManagerGoals(list) {
     const target = Number(g.weeklyTarget ?? g.WeeklyTarget ?? 0);
     const percent = target > 0 ? Math.round((sold / target) * 1000) / 10 : 0;
     return { ...g, sold, weeklyTarget: target, percent, Percent: percent };
-  });
+  }).filter((g) => g.weeklyTarget > 0)
+    .sort((a, b) => String(a.salesmanName || a.SalesmanName || '').localeCompare(String(b.salesmanName || b.SalesmanName || ''), 'ar')
+      || a.percent - b.percent);
 }
 
 function applySync(payload) {
@@ -586,10 +645,10 @@ function applySync(payload) {
 
   const incomingManager = payload.managerSnapshot || payload.ManagerSnapshot;
   const fromSellers = buildManagerFromSellers(rawSnapshots);
-  if (hasRichManager(incomingManager)) {
-    next.managerSnapshot = incomingManager;
-  } else if (hasManagerPacks(incomingManager) && fromSellers) {
+  if (hasManagerPacks(incomingManager) && fromSellers) {
     next.managerSnapshot = mergeManager(incomingManager, fromSellers);
+  } else if (hasRichManager(incomingManager)) {
+    next.managerSnapshot = incomingManager;
   } else {
     next.managerSnapshot = fromSellers || incomingManager || next.managerSnapshot;
   }
@@ -740,6 +799,7 @@ const server = http.createServer(async (req, res) => {
       const goals = fixManagerGoals(pack?.goals || pack?.Goals || []);
       const lines = pack?.lines || pack?.Lines || [];
       const products = pack?.products || pack?.Products || [];
+      const days = pack?.days || pack?.Days || [];
 
       if (req.method === 'GET' && url.pathname === '/api/manager/me') {
         sendOpen(res, 200, me);
@@ -758,6 +818,7 @@ const server = http.createServer(async (req, res) => {
           malls,
           goals,
           products: products.slice(0, 40),
+          days,
           lastSyncAt: state.lastSyncAt,
         });
         return;
@@ -790,6 +851,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'GET' && url.pathname === '/api/manager/goals') {
         sendOpen(res, 200, goals);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/days') {
+        sendOpen(res, 200, days);
         return;
       }
       if (req.method === 'GET' && url.pathname === '/api/manager/lines') {

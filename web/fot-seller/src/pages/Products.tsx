@@ -53,7 +53,7 @@ export function Products() {
 
   return (
     <div className="fade-up space-y-4">
-      <section className="hero compact">
+      <section className="hero compact command">
         <p className="kicker">عمولتك كاملة</p>
         <h1 className="display text-[28px] font-black">كل المنتجات</h1>
         <p className="num mt-3 text-[34px] font-black text-gold">{moneyIq(total)}</p>
@@ -118,7 +118,7 @@ export function Products() {
       {mode === 'days' && (
         days.length ? (
           <section className="card p-4 space-y-4">
-            <DayStrip days={days} active={dayKey ?? undefined} onSelect={key => setDayKey(dayKey === key ? null : key)} />
+            <DayStrip days={days} today={new Date().toISOString().slice(0, 10)} active={dayKey ?? undefined} onSelect={key => setDayKey(dayKey === key ? null : key)} />
             <div className="toolbar">
               <button type="button" className={`chip ${!dayKey ? 'chip-on' : ''}`} onClick={() => setDayKey(null)}>كل الأيام</button>
               {days.map(d => (

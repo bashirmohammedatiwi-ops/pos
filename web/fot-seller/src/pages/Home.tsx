@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { commissionCsv, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, shareText, weekRange, weekReport } from '../api';
+import { commissionCsv, deltaPct, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, shareText, weekRange, weekReport } from '../api';
 import type { CommissionLine } from '../api';
-import { buildInsights } from '../insights';
+import { buildInsights, fillWeekDays, prevDay, weekPace } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller, useWeekCompare } from '../store';
 import {
-  AreaChart, CountMoney, DayStrip, Delta, ErrorBox, HeroArt, HourBands, IconShare,
-  InsightTile, Medal, Ring, SectionHead, Skeleton, Track, WeekCompare, useToast,
+  AreaChart, CommandRail, CountMoney, DayStrip, Delta, ErrorBox, HeroArt, HourBands, IconShare,
+  InsightTile, LiveDot, Medal, Podium, QuickJump, Ring, SectionHead, Skeleton, Track, WeekCompare, useToast,
 } from '../ui';
 import { WeekBar } from '../week';
 
@@ -16,22 +16,50 @@ export function Home() {
   const compare = useWeekCompare(weeks, weekStart);
   const toast = useToast();
   const [open, setOpen] = useState<CommissionLine | null>(null);
+  const [period, setPeriod] = useState<'day' | 'week'>('week');
+  const [day, setDay] = useState<string>();
   const spark = useMemo(() => [...weeks].reverse().map(w => w.commissionAmount), [weeks]);
   const totals = useMemo(() => ({
     comm: weeks.reduce((s, w) => s + w.commissionAmount, 0),
     best: weeks.reduce((a, b) => a.commissionAmount >= b.commissionAmount ? a : b, weeks[0]),
   }), [weeks]);
-  const insights = useMemo(() => buildInsights(lines), [lines]);
+  const weekInsights = useMemo(() => buildInsights(lines), [lines]);
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+  const weekDays = useMemo(
+    () => fillWeekDays(weekInsights.days, dash?.week.weekStart, dash?.week.weekEnd),
+    [weekInsights.days, dash],
+  );
+  const focusDay = day
+    || (weekDays.some(d => d.key === today) ? today : [...weekDays].reverse().find(d => d.commission > 0)?.key);
+  const scopedLines = useMemo(() => {
+    if (period !== 'day' || !focusDay) return lines;
+    return lines.filter(l => l.occurredAt.slice(0, 10) === focusDay);
+  }, [lines, period, focusDay]);
+  const insights = useMemo(
+    () => (period === 'day' ? buildInsights(scopedLines) : weekInsights),
+    [period, scopedLines, weekInsights],
+  );
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading || !dash) return <Skeleton rows={7} />;
 
   const commission = dash.week.commissionAmount;
+  const dayRow = weekDays.find(d => d.key === focusDay);
+  const yest = prevDay(weekDays, focusDay);
+  const dayComm = dayRow?.commission ?? 0;
+  const showingDay = period === 'day';
+  const heroComm = showingDay ? dayComm : commission;
   const hit = dash.goals.filter(g => g.percent >= 100).length;
   const goalAvg = dash.goals.length ? dash.goals.reduce((s, g) => s + g.percent, 0) / dash.goals.length : 0;
   const focus = [...dash.goals].sort((a, b) => a.percent - b.percent)[0];
-  const preview = lines.slice(0, 6);
+  const preview = scopedLines.slice(0, 6);
   const allGoals = dash.goals.length > 0 && hit === dash.goals.length;
+  const pace = weekPace(dash.week.weekStart, dash.week.weekEnd, commission, today);
+  const remainGoal = focus && focus.percent < 100 ? Math.max(0, focus.weeklyTarget - focus.sold) : 0;
+  const dayVsYest = yest ? deltaPct(dayComm, yest.commission) : 0;
 
   async function share() {
     const extra = [
@@ -46,7 +74,7 @@ export function Home() {
 
   return (
     <div className="fade-up space-y-4">
-      <section className="hero">
+      <section className="hero command">
         <div className="hero-orbs" aria-hidden><i /><i /><i /></div>
         <HeroArt />
         <div className="hero-top">
@@ -55,7 +83,8 @@ export function Home() {
             <h1 className="display mt-1 text-[28px] font-black leading-tight">{dash.seller.name}</h1>
             <p className="mt-1 text-sm font-bold text-muted">أسبوع {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <LiveDot />
             <button type="button" onClick={() => void share()} className="pill">
               <IconShare /> مشاركة
             </button>
@@ -71,35 +100,70 @@ export function Home() {
             </button>
           </div>
         </div>
+        <div className="period-toggle">
+          <button type="button" className={showingDay ? '' : 'on'} onClick={() => { setPeriod('week'); setDay(undefined); }}>الأسبوع</button>
+          <button type="button" className={showingDay ? 'on' : ''} onClick={() => setPeriod('day')}>اليوم</button>
+        </div>
         <Link to="/products" className="hero-comm stat-link">
-          <p className="text-sm font-extrabold text-gold">عمولة الأسبوع كاملة</p>
-          <div className="hero-num"><CountMoney value={commission} /></div>
-          <div className="mt-3">{compare.prev && <Delta value={compare.commDelta} />}</div>
-          <p className="mt-2 text-xs font-extrabold text-muted">{insights.itemCount} حركة · {insights.invoiceCount} فاتورة — اضغط للتفاصيل</p>
+          <p className="text-sm font-extrabold text-gold">{showingDay ? `عمولة ${dayRow?.label || 'اليوم'}` : 'عمولة الأسبوع'}</p>
+          <div className="hero-num"><CountMoney value={heroComm} /></div>
+          <div className="mt-3">
+            {showingDay
+              ? (yest ? <Delta value={dayVsYest} /> : <span className="text-xs font-extrabold text-muted">أول يوم ظاهر</span>)
+              : (compare.prev && <Delta value={compare.commDelta} />)}
+          </div>
+          <p className="mt-2 text-xs font-extrabold text-muted">
+            {showingDay ? `${dayRow?.count || 0} حركة · ${dayRow?.qty ? Math.round(dayRow.qty) : 0} قطعة` : `${insights.itemCount} حركة · ${insights.invoiceCount} فاتورة`}
+          </p>
         </Link>
         <div className="hero-pills">
           <span className="pill">{dash.goals.length ? `${hit}/${dash.goals.length} أهداف` : 'لا أهداف'}</span>
           {dash.balanceDue > 0 && <span className="pill">مستحق {moneyIq(dash.balanceDue)}</span>}
+          <span className="pill">يوم {pace.elapsedDays} من {pace.totalDays}</span>
         </div>
       </section>
 
-      <Link to="/products" className="piece-board stat-link">
-        <div className="piece-board-main">
-          <p className="kicker">عدد القطع هذا الأسبوع</p>
-          <p className="piece-num num">{Math.round(insights.pieceCount)}</p>
-          <p className="piece-unit">قطعة مباعة</p>
-        </div>
-        <div className="piece-board-side">
-          <div>
-            <p>الحركات</p>
-            <strong className="num">{insights.itemCount}</strong>
-          </div>
-          <div>
-            <p>الفواتير</p>
-            <strong className="num">{insights.invoiceCount}</strong>
-          </div>
-        </div>
-      </Link>
+      <CommandRail items={[
+        {
+          kicker: 'اليوم مقابل أمس',
+          value: moneyIq(dayComm),
+          hint: yest ? `${yest.label} كان ${moneyIq(yest.commission)}` : 'لا يوم سابق',
+          tone: dayComm >= (yest?.commission ?? 0) ? 'gold' : 'warn',
+        },
+        {
+          kicker: 'إيقاع العمولة',
+          value: moneyIq(pace.projected),
+          hint: `متوسط اليوم ${moneyIq(pace.dailyAvg)}`,
+          tone: 'goal',
+        },
+        {
+          kicker: 'المتبقي من الأسبوع',
+          value: pace.remainingDays ? `${pace.remainingDays} يوم` : 'اليوم الأخير',
+          hint: `مرّ ${pace.elapsedDays} من ${pace.totalDays}`,
+          tone: pace.remainingDays <= 1 ? 'warn' : 'ok',
+        },
+        {
+          kicker: 'أقرب هدف',
+          value: focus ? `${Math.round(focus.percent)}٪` : '—',
+          hint: focus
+            ? (remainGoal > 0 ? `متبقي ${goalValue(focus.targetType, remainGoal)}` : 'مكتمل')
+            : 'لا هدف مربوط',
+          tone: focus ? (focus.percent >= 100 ? 'ok' : focus.percent >= 80 ? 'goal' : 'warn') : 'gold',
+        },
+      ]} />
+
+      <div className="period-grid">
+        <button type="button" className={`period-card ${showingDay ? 'on' : ''}`} onClick={() => setPeriod('day')}>
+          <p className="kicker">إحصاء اليوم</p>
+          <p className="num mt-1 text-[22px] font-black text-gold">{moneyIq(dayComm)}</p>
+          <p className="mt-1 text-xs font-extrabold text-muted">{dayRow?.count || 0} حركة · {dayRow?.qty ? Math.round(dayRow.qty) : 0} قطعة</p>
+        </button>
+        <button type="button" className={`period-card ${showingDay ? '' : 'on'}`} onClick={() => { setPeriod('week'); setDay(undefined); }}>
+          <p className="kicker">إحصاء الأسبوع</p>
+          <p className="num mt-1 text-[22px] font-black text-gold">{moneyIq(commission)}</p>
+          <p className="mt-1 text-xs font-extrabold text-muted">{weekInsights.invoiceCount} فاتورة · {weekInsights.itemCount} حركة</p>
+        </button>
+      </div>
 
       {dash.seller.mustChangePin && (
         <div className="card border-warn/30 bg-warn-soft px-4 py-3 text-sm font-extrabold text-warn">
@@ -119,6 +183,20 @@ export function Home() {
 
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
       <WeekCompare cur={compare.cur} prev={compare.prev} />
+
+      {insights.products.length > 0 && (
+        <section className="card p-4">
+          <SectionHead title="أقوى منتجاتك" kicker="حسب العمولة" to="/products" link="التفاصيل" />
+          <Podium
+            items={insights.products.slice(0, 3).map(p => ({
+              id: p.name,
+              name: p.name,
+              value: moneyIq(p.commission),
+              hint: `${p.count} حركة · ${pieces(p.qty)}`,
+            }))}
+          />
+        </section>
+      )}
 
       <div className="insight-grid stagger">
         <InsightTile
@@ -140,8 +218,8 @@ export function Home() {
           tone="amber"
         />
         <InsightTile
-          kicker="قطع الأسبوع"
-          title={pieces(insights.pieceCount)}
+          kicker={showingDay ? 'فواتير اليوم' : 'فواتير الأسبوع'}
+          title={`${insights.invoiceCount} فاتورة`}
           value={`${insights.itemCount} حركة`}
         />
       </div>
@@ -156,10 +234,18 @@ export function Home() {
         </div>
       )}
 
-      {insights.days.length > 1 && (
+      {weekDays.length > 1 && (
         <section className="card p-4">
           <SectionHead title="إيقاع الأسبوع" kicker="عمولة كل يوم" />
-          <DayStrip days={insights.days} active={insights.bestDay?.key} />
+          <DayStrip
+            days={weekDays}
+            today={today}
+            active={showingDay ? focusDay : undefined}
+            onSelect={key => {
+              setDay(d => d === key ? undefined : key);
+              setPeriod('day');
+            }}
+          />
         </section>
       )}
 
@@ -222,6 +308,11 @@ export function Home() {
           <p className="text-sm font-bold text-muted">لا أهداف مربوطة باسمك بعد</p>
         )}
       </section>
+
+      <QuickJump links={[
+        { to: '/goals', label: 'أهدافي', hint: dash.goals.length ? `${hit} من ${dash.goals.length} تحقق` : 'لا أهداف' },
+        { to: '/products', label: 'عمولتي', hint: `${insights.itemCount} حركة` },
+      ]} />
 
       {spark.some(v => v > 0) && (
         <section className="card p-4">

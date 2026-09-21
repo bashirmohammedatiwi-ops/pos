@@ -1,6 +1,6 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import { ago, getSeller, getToken, moneyIq, pieces, setSeller, setToken, weekRange } from './api';
+import { ago, getSeller, getToken, moneyIq, setSeller, setToken, weekRange } from './api';
 import { SellerProvider, useSeller } from './store';
 import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
 import { Goals } from './pages/Goals';
@@ -173,7 +173,7 @@ function Shell() {
             <div className="card seller-mini">
               <p className="kicker">عمولة الأسبوع</p>
               <p className="num mt-1 text-xl font-extrabold text-gold">{moneyIq(dash.week.commissionAmount)}</p>
-              <p className="mt-2 text-sm font-extrabold text-gold">{pieces(lines.reduce((s, l) => s + l.quantity, 0))}</p>
+              <p className="mt-1 text-sm font-extrabold text-muted">{dash.week.receiptCount} فاتورة</p>
               <p className="mt-1 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
             </div>
           )}
@@ -249,8 +249,8 @@ function Shell() {
                 <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.week.commissionAmount)}</p>
               </div>
               <div className="card p-3.5">
-                <p className="text-[11px] font-extrabold text-gold">القطع</p>
-                <p className="num mt-1 text-lg font-extrabold">{pieces(lines.reduce((s, l) => s + l.quantity, 0))}</p>
+                <p className="text-[11px] font-extrabold text-gold">الفواتير</p>
+                <p className="num mt-1 text-lg font-extrabold">{dash.week.receiptCount}</p>
               </div>
               <div className="card p-3.5 col-span-2">
                 <p className="text-[11px] font-extrabold text-gold">المستحق</p>

@@ -1,44 +1,70 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ago, avgTicket, cashierCsv, downloadText, goalLabel, goalTone, goalValue, greeting, lastSyncMs, moneyIq, pieces, pct, shareOf, shareText, teamCsv, weekRange, weekReport } from '../api';
-import { buildAlerts, cashierShares, sellerShares } from '../insights';
+import {
+  ago, avgTicket, cashierCsv, deltaPct, downloadText, goalLabel, goalTone, goalValue, greeting,
+  groupGoalsBySeller, lastSyncMs, moneyIq, pct, resolveWeekSales, shareOf, shareText,
+  teamCsv, todayKey, weekRange, weekReport,
+} from '../api';
+import { buildAlerts, cashierShares, prevDay, sellerShares, shopHealth, weekPace } from '../insights';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
-  AreaChart, CountMoney, DayStrip, Delta, Donut, ErrorBox, HourBands, InsightTile, Legend, Medal,
-  Ring, SectionHead, ShareRow, Skeleton, Track, WeekCompare, useToast,
+  AreaChart, CommandRail, CountMoney, DayStrip, Delta, Donut, ErrorBox, HealthMeter, HourBands,
+  InsightTile, Legend, LiveDot, Medal, Podium, QuickJump, Ring, SectionHead, ShareRow, Skeleton,
+  Track, WeekCompare, useToast,
 } from '../ui';
 import { WeekBar } from '../week';
 
 export function Home() {
-  const { weekStart, setWeek, dash, prevDash, weeks, lines, cashiers, err, loading, cached, reload } = useManager();
+  const { weekStart, setWeek, dash, prevDash, weeks, cashiers, err, loading, cached, reload } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
   const insights = useShopInsights();
   const toast = useToast();
   const nav = useNavigate();
   const [day, setDay] = useState<string>();
+  const [period, setPeriod] = useState<'day' | 'week'>('week');
   const due = useMemo(() => (dash?.sellers ?? []).filter(s => s.balanceDue > 0).sort((a, b) => b.balanceDue - a.balanceDue), [dash]);
   const syncMs = lastSyncMs(dash?.lastSyncAt);
   const stale = syncMs != null && Date.now() - syncMs > 15 * 60 * 1000;
   const alerts = useMemo(() => buildAlerts(dash, prevDash, cashiers, stale), [dash, prevDash, cashiers, stale]);
-
-  const spark = useMemo(() => [...weeks].reverse().map(w => w.salesAmount || w.commissionAmount), [weeks]);
-  const sellers = useMemo(() => sellerShares(dash?.sellers ?? [], dash?.week.salesAmount || 1), [dash]);
-  const cashierRows = useMemo(() => cashierShares(cashiers, dash?.week.salesAmount || 1), [cashiers, dash]);
+  const spark = useMemo(() => [...weeks].reverse().map(w => w.salesAmount), [weeks]);
+  const weekSales = resolveWeekSales(dash);
+  const sellers = useMemo(() => sellerShares(dash?.sellers ?? [], weekSales || 1), [dash, weekSales]);
+  const cashierRows = useMemo(() => cashierShares(cashiers, weekSales || 1), [cashiers, weekSales]);
+  const goalGroups = useMemo(() => groupGoalsBySeller(dash?.goals), [dash]);
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading || !dash) return <Skeleton rows={8} />;
 
   const week = dash.week;
-  const hit = dash.goals.filter(g => g.percent >= 100).length;
-  const avg = dash.goals.length ? dash.goals.reduce((s, g) => s + g.percent, 0) / dash.goals.length : 0;
-  const late = [...dash.goals].sort((a, b) => a.percent - b.percent)[0];
-  const ticket = avgTicket(week.salesAmount, week.receiptCount);
-  const dayLines = day ? lines.filter(l => l.occurredAt.slice(0, 10) === day) : lines;
-  const daySales = dayLines.reduce((s, l) => s + l.salesAmount, 0);
+  const ticket = avgTicket(weekSales, week.receiptCount);
+  const today = todayKey();
+  const inWeek = insights.days.some(d => d.key === today);
+  const focusDay = day || (inWeek ? today : [...insights.days].reverse().find(d => d.sales > 0)?.key);
+  const dayRow = insights.days.find(d => d.key === focusDay);
+  const yest = prevDay(insights.days, focusDay);
+  const daySales = dayRow?.sales ?? 0;
+  const dayReceipts = dayRow?.receipts ?? 0;
+  const showingDay = period === 'day';
+  const heroSales = showingDay ? daySales : weekSales;
+  const heroReceipts = showingDay ? dayReceipts : week.receiptCount;
+  const heroTicket = avgTicket(heroSales, heroReceipts);
+  const hit = goalGroups.reduce((s, g) => s + g.hit, 0);
+  const goalCount = goalGroups.reduce((s, g) => s + g.goals.length, 0);
+  const avg = goalGroups.length ? goalGroups.reduce((s, g) => s + g.avg, 0) / goalGroups.length : 0;
+  const late = goalGroups[0];
+  const pace = weekPace(week.weekStart, week.weekEnd, weekSales, today);
+  const health = shopHealth({
+    goalAvg: avg,
+    goalCount,
+    salesDelta: compare.prev ? compare.salesDelta : undefined,
+    stale: !!stale,
+    hasSales: weekSales > 0,
+  });
+  const dayVsYest = yest ? deltaPct(daySales, yest.sales) : 0;
 
   return (
     <div className="fade-up space-y-4">
-      <section className="hero">
+      <section className="hero command">
         <div className="hero-orbs" aria-hidden><i /><i /><i /></div>
         <div className="hero-top">
           <div>
@@ -46,7 +72,8 @@ export function Home() {
             <h1 className="display mt-1 text-[28px] font-black leading-tight">{dash.manager.displayName}</h1>
             <p className="mt-1 text-sm font-bold text-muted">أسبوع {weekRange(week.weekStart, week.weekEnd)}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <LiveDot stale={stale} />
             <Link to="/report" className="pill">التقرير</Link>
             <button
               type="button"
@@ -55,6 +82,7 @@ export function Home() {
                 const extra = [
                   insights.topCashier ? `أقوى كاشير: ${insights.topCashier.name} — ${moneyIq(insights.topCashier.salesAmount)}` : '',
                   insights.bestDay ? `أقوى يوم: ${insights.bestDay.label} — ${moneyIq(insights.bestDay.sales)}` : '',
+                  `إيقاع الأسبوع: متوقع ${moneyIq(pace.projected)}`,
                 ].filter(Boolean);
                 const result = await shareText('تقرير الأسبوع', weekReport(dash, extra));
                 if (result === 'copied') toast('تم نسخ التقرير');
@@ -68,7 +96,7 @@ export function Home() {
               type="button"
               className="pill"
               onClick={() => {
-                downloadText(`فريق-${week.weekStart.slice(0, 10)}.csv`, teamCsv(dash.sellers, week.salesAmount));
+                downloadText(`فريق-${week.weekStart.slice(0, 10)}.csv`, teamCsv(dash.sellers, weekSales));
                 toast('تم تنزيل تقرير البائعين');
               }}
             >
@@ -76,65 +104,94 @@ export function Home() {
             </button>
           </div>
         </div>
-        <div className="hero-comm">
-          <p className="text-sm font-extrabold text-goal">إجمالي مبيعات الأسبوع</p>
-          <p className="hero-num text-goal"><CountMoney value={week.salesAmount} /></p>
-          <div className="mt-3">{compare.prev && <Delta value={compare.salesDelta} />}</div>
+
+        <div className="period-toggle">
+          <button type="button" className={showingDay ? '' : 'on'} onClick={() => setPeriod('week')}>الأسبوع</button>
+          <button type="button" className={showingDay ? 'on' : ''} onClick={() => setPeriod('day')}>اليوم</button>
         </div>
-        {spark.length > 1 && (
+
+        <div className="hero-comm">
+          <p className="text-sm font-extrabold text-goal">{showingDay ? `مبيعات ${dayRow?.label || 'اليوم'}` : 'إجمالي مبيعات الأسبوع'}</p>
+          <p className="hero-num text-goal"><CountMoney value={heroSales} /></p>
+          <div className="mt-3">
+            {showingDay
+              ? (yest ? <Delta value={dayVsYest} /> : <span className="text-xs font-extrabold text-muted">أول يوم ظاهر</span>)
+              : (compare.prev && <Delta value={compare.salesDelta} />)}
+          </div>
+        </div>
+        {spark.length > 1 && !showingDay && (
           <div className="mt-4">
             <AreaChart values={spark} height={88} />
-            <p className="mt-1 text-[11px] font-bold text-muted">منحنى المبيعات عبر الأسابيع المرفوعة</p>
+            <p className="mt-1 text-[11px] font-bold text-muted">منحنى المبيعات عبر الأسابيع</p>
           </div>
         )}
         <div className="hero-stats kpi-mosaic">
           <div className="hero-stat">
-            <p className="kicker">العمولة</p>
-            <p className="num display text-[22px] font-black text-gold">{moneyIq(week.commissionAmount)}</p>
-          </div>
-          <div className="hero-stat">
-            <p className="kicker">القطع</p>
-            <p className="num display text-[22px] font-black">{pieces(week.pieceCount)}</p>
-          </div>
-          <div className="hero-stat">
             <p className="kicker">الفواتير</p>
-            <p className="num display text-[22px] font-black">{week.receiptCount}</p>
+            <p className="num display text-[22px] font-black">{heroReceipts}</p>
           </div>
           <div className="hero-stat">
             <p className="kicker">متوسط الفاتورة</p>
-            <p className="num display text-[20px] font-black">{moneyIq(ticket)}</p>
+            <p className="num display text-[20px] font-black">{moneyIq(heroTicket)}</p>
+          </div>
+          <div className="hero-stat">
+            <p className="kicker">بائعون</p>
+            <p className="num display text-[22px] font-black">{week.sellerCount || sellers.filter(s => s.sales > 0).length}</p>
+          </div>
+          <div className="hero-stat">
+            <p className="kicker">كاشير</p>
+            <p className="num display text-[22px] font-black">{cashiers.length || week.cashierCount}</p>
           </div>
         </div>
         <div className="hero-pills">
-          <span className="pill">{week.sellerCount} بائع</span>
-          <span className="pill">{cashiers.length || week.cashierCount} كاشير</span>
-          <span className="pill">{insights.invoiceCount} فاتورة مفصّلة</span>
-          <span className="pill">{dash.goals.length ? `${hit}/${dash.goals.length} أهداف` : 'لا أهداف'}</span>
+          <span className="pill">{goalCount ? `${hit}/${goalCount} أهداف` : 'لا أهداف مربوطة'}</span>
           {syncMs && <span className="pill">{stale ? 'المزامنة قديمة' : `مزامنة ${ago(syncMs)}`}</span>}
+          <span className="pill">يوم {pace.elapsedDays} من {pace.totalDays}</span>
         </div>
         {stale && <p className="mt-3 text-sm font-extrabold text-warn">بيانات المزامنة قديمة — افتح لوحة التحكم حتى تُرفع من جديد</p>}
-        {week.salesAmount <= 0 && week.commissionAmount > 0 && (
-          <p className="mt-3 text-sm font-bold text-muted">إجمالي المبيعات يظهر بالكامل بعد تحديث سيرفر المحل 2.2.68</p>
-        )}
       </section>
 
-      <Link to="/moves" className="piece-board stat-link">
-        <div>
-          <p className="kicker">قطع الفريق هذا الأسبوع</p>
-          <p className="piece-num num">{Math.round(week.pieceCount)}</p>
-          <p className="piece-unit">قطعة مباعة</p>
-        </div>
-        <div className="piece-board-side">
-          <div>
-            <p>الحركات</p>
-            <strong className="num">{lines.length}</strong>
-          </div>
-          <div>
-            <p>منتجات</p>
-            <strong className="num">{insights.products.length}</strong>
-          </div>
-        </div>
-      </Link>
+      <CommandRail items={[
+        {
+          kicker: 'اليوم مقابل أمس',
+          value: moneyIq(daySales),
+          hint: yest ? `${yest.label} كان ${moneyIq(yest.sales)}` : 'لا يوم سابق في هذا الأسبوع',
+          tone: daySales >= (yest?.sales ?? 0) ? 'gold' : 'warn',
+        },
+        {
+          kicker: 'إيقاع الأسبوع',
+          value: moneyIq(pace.projected),
+          hint: `متوسط اليوم ${moneyIq(pace.dailyAvg)}`,
+          tone: 'goal',
+        },
+        {
+          kicker: 'المتبقي من الأسبوع',
+          value: pace.remainingDays ? `${pace.remainingDays} يوم` : 'اليوم الأخير',
+          hint: `مرّ ${pace.elapsedDays} من ${pace.totalDays}`,
+          tone: pace.remainingDays <= 1 ? 'warn' : 'ok',
+        },
+        {
+          kicker: 'صحة المحل',
+          value: `${health.score}`,
+          hint: health.label,
+          tone: health.tone === 'gold' ? 'gold' : health.tone,
+        },
+      ]} />
+
+      <div className="period-grid">
+        <button type="button" className={`period-card ${showingDay ? 'on' : ''}`} onClick={() => setPeriod('day')}>
+          <p className="kicker">إحصاء اليوم</p>
+          <p className="num mt-1 text-[22px] font-black text-goal">{moneyIq(daySales)}</p>
+          <p className="mt-1 text-xs font-extrabold text-muted">{dayReceipts} فاتورة · متوسط {moneyIq(avgTicket(daySales, dayReceipts))}</p>
+        </button>
+        <button type="button" className={`period-card ${showingDay ? '' : 'on'}`} onClick={() => setPeriod('week')}>
+          <p className="kicker">إحصاء الأسبوع</p>
+          <p className="num mt-1 text-[22px] font-black text-goal">{moneyIq(weekSales)}</p>
+          <p className="mt-1 text-xs font-extrabold text-muted">{week.receiptCount} فاتورة · متوسط {moneyIq(ticket)}</p>
+        </button>
+      </div>
+
+      <HealthMeter score={health.score} label={health.label} tone={health.tone} />
 
       {(cached || alerts.length > 0) && (
         <div className="space-y-2">
@@ -150,27 +207,42 @@ export function Home() {
       )}
 
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
-      <WeekCompare cur={compare.cur} prev={compare.prev} salesDelta={compare.salesDelta} commDelta={compare.commDelta} pieceDelta={compare.pieceDelta} />
+      <WeekCompare cur={compare.cur} prev={compare.prev} salesDelta={compare.salesDelta} receiptDelta={compare.receiptDelta} />
+
+      {sellers.some(s => s.sales > 0) && (
+        <section className="card p-4">
+          <SectionHead title="منصة الأقوى" kicker="أعلى ثلاثة بائعين" to="/team" link="كل الفريق" />
+          <Podium
+            items={sellers.filter(s => s.sales > 0).slice(0, 3).map(s => ({
+              id: s.id,
+              name: s.name,
+              value: moneyIq(s.sales),
+              hint: `${s.receipts} فاتورة · ${pct(s.share)}`,
+            }))}
+            onPick={item => nav(`/team?q=${encodeURIComponent(item.name)}`)}
+          />
+        </section>
+      )}
 
       <div className="insight-grid">
         {insights.topSeller && (
           <Link to={`/team?q=${encodeURIComponent(insights.topSeller.name)}`} className="stat-link">
-            <InsightTile kicker="أقوى بائع" title={insights.topSeller.name} value={moneyIq(insights.topSeller.salesAmount)} hint={`${pct(shareOf(insights.topSeller.salesAmount, week.salesAmount))} من المبيعات`} tone="goal" />
+            <InsightTile kicker="أقوى بائع" title={insights.topSeller.name} value={moneyIq(insights.topSeller.salesAmount)} hint={`${pct(shareOf(insights.topSeller.salesAmount, weekSales))} من المبيعات`} tone="goal" />
           </Link>
         )}
         {insights.topCashier && (
           <Link to={`/cashiers?q=${encodeURIComponent(insights.topCashier.name)}`} className="stat-link">
-            <InsightTile kicker="أقوى كاشير" title={insights.topCashier.name} value={moneyIq(insights.topCashier.salesAmount)} hint={`${pieces(insights.topCashier.pieceCount)} · ${insights.topCashier.receiptCount} فاتورة`} />
+            <InsightTile kicker="أقوى كاشير" title={insights.topCashier.name} value={moneyIq(insights.topCashier.salesAmount)} hint={`${insights.topCashier.receiptCount} فاتورة`} />
           </Link>
         )}
         {insights.bestDay && (
-          <Link to="/report" className="stat-link">
+          <button type="button" className="stat-link" onClick={() => { setDay(insights.bestDay?.key); setPeriod('day'); }}>
             <InsightTile kicker="أقوى يوم" title={insights.bestDay.label} value={moneyIq(insights.bestDay.sales)} hint={`${insights.bestDay.receipts} فاتورة`} tone="amber" />
-          </Link>
+          </button>
         )}
         {insights.bestProduct && (
           <Link to={`/moves?q=${encodeURIComponent(insights.bestProduct.name)}`} className="stat-link">
-            <InsightTile kicker="أقوى منتج" title={insights.bestProduct.name} value={moneyIq(insights.bestProduct.sales)} hint={pieces(insights.bestProduct.qty)} />
+            <InsightTile kicker="أقوى منتج" title={insights.bestProduct.name} value={moneyIq(insights.bestProduct.sales)} hint={`${insights.bestProduct.count} حركة`} />
           </Link>
         )}
       </div>
@@ -178,17 +250,25 @@ export function Home() {
       {insights.days.length > 0 && (
         <section className="card p-4">
           <SectionHead title="المبيعات يوماً بيوم" kicker={day ? `يوم ${insights.days.find(d => d.key === day)?.label || ''}` : 'كل أيام الأسبوع'} />
-          <DayStrip days={insights.days} active={day} onSelect={key => setDay(d => d === key ? undefined : key)} />
-          {day && (
+          <DayStrip
+            days={insights.days}
+            today={today}
+            active={day || (showingDay ? focusDay : undefined)}
+            onSelect={key => {
+              setDay(d => d === key ? undefined : key);
+              setPeriod('day');
+            }}
+          />
+          {(day || showingDay) && dayRow && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-extrabold">مبيعات اليوم {moneyIq(daySales)} · {dayLines.length} حركة</p>
-              <Link to={`/moves?day=${day}`} className="section-link">فواتير اليوم</Link>
+              <p className="text-sm font-extrabold">مبيعات {dayRow.label} {moneyIq(dayRow.sales)} · {dayRow.receipts} فاتورة</p>
+              <Link to={`/moves?day=${dayRow.key}`} className="section-link">فواتير اليوم</Link>
             </div>
           )}
         </section>
       )}
 
-      {insights.hours.some(h => h.sales || h.commission) && (
+      {insights.hours.some(h => h.sales) && (
         <section>
           <SectionHead title="أوقات الذروة" kicker="صباح / ظهر / مساء / ليل" />
           <HourBands rows={insights.hours} />
@@ -222,7 +302,7 @@ export function Home() {
               type="button"
               className="section-link"
               onClick={() => {
-                downloadText(`كاشير-${week.weekStart.slice(0, 10)}.csv`, cashierCsv(cashiers, week.salesAmount));
+                downloadText(`كاشير-${week.weekStart.slice(0, 10)}.csv`, cashierCsv(cashiers, weekSales));
                 toast('تم تنزيل تقرير الكاشير');
               }}
             >
@@ -230,54 +310,69 @@ export function Home() {
             </button>
           )}
         />
+        {cashierRows.length > 2 && (
+          <div className="mb-3">
+            <Podium
+              items={cashierRows.slice(0, 3).map(c => ({
+                id: c.id,
+                name: c.name,
+                value: moneyIq(c.sales),
+                hint: `${c.receipts} فاتورة`,
+              }))}
+              onPick={item => nav(`/cashiers?q=${encodeURIComponent(item.name)}`)}
+            />
+          </div>
+        )}
         {cashierRows.slice(0, 6).map((c, i) => (
           <ShareRow key={c.id} rank={i + 1} row={c} onClick={() => nav(`/cashiers?q=${encodeURIComponent(c.name)}`)} />
         ))}
-        {!cashierRows.length && <p className="text-sm font-bold text-muted">لم تُرفع أسماء الكاشير بعد — تظهر بعد مزامنة السيرفر 2.2.67</p>}
+        {!cashierRows.length && <p className="text-sm font-bold text-muted">لم تُرفع أسماء الكاشير بعد</p>}
       </section>
 
       <section className="card board">
-        <SectionHead title="أهداف الفريق" kicker="الإنجاز" to="/goals" link="المتابعة" />
-        {dash.goals.length ? (
+        <SectionHead title="التاركت حسب البائع" kicker="المربوطون فقط" to="/goals" link="الكل" />
+        {goalGroups.length ? (
           <div className="board-body">
             <div className="board-ring">
               <Ring value={avg} size={118} tone="goal" label="متوسط" />
-              <p className="mt-2 text-sm font-extrabold">{hit} من {dash.goals.length} تحقق</p>
-              {late && late.percent < 100 && (
-                <p className="mt-1 text-xs font-bold text-muted">أضعف: {late.salesmanName} · {goalLabel(late.percent)}</p>
+              <p className="mt-2 text-sm font-extrabold">{hit} من {goalCount} تحقق</p>
+              {late && late.avg < 100 && (
+                <p className="mt-1 text-xs font-bold text-muted">أضعف: {late.salesmanName}</p>
               )}
             </div>
             <div>
-              {dash.goals.slice(0, 5).map(g => (
-                <Link key={`${g.ruleId}-${g.salesmanId}`} to="/goals" className="board-row stat-link">
-                  <Ring value={g.percent} size={52} tone={goalTone(g.percent)} />
+              {goalGroups.slice(0, 5).map(group => (
+                <Link key={group.salesmanId} to={`/goals?q=${encodeURIComponent(group.salesmanName)}`} className="board-row stat-link">
+                  <Ring value={group.avg} size={52} tone={goalTone(group.avg)} />
                   <div className="min-w-0">
-                    <p className="truncate font-extrabold">{g.salesmanName}</p>
-                    <p className="truncate text-xs font-bold text-muted">{g.ruleName}</p>
+                    <p className="truncate font-extrabold">{group.salesmanName}</p>
+                    <p className="truncate text-xs font-bold text-muted">{group.goals.length} تاركت · {group.hit} تحقق</p>
                     <p className="mt-1 text-xs font-extrabold text-gold">
-                      {goalValue(g.targetType, g.sold)} من {goalValue(g.targetType, g.weeklyTarget)}
+                      {goalValue(group.goals[0].targetType, group.goals[0].sold)} من {goalValue(group.goals[0].targetType, group.goals[0].weeklyTarget)}
                     </p>
-                    <div className="mt-2"><Track value={g.percent} tone={goalTone(g.percent)} /></div>
+                    <div className="mt-2"><Track value={group.avg} tone={goalTone(group.avg)} /></div>
                   </div>
-                  <span className="text-xs font-extrabold text-muted">{goalLabel(g.percent)}</span>
+                  <span className="text-xs font-extrabold text-muted">{goalLabel(group.avg)}</span>
                 </Link>
               ))}
             </div>
           </div>
         ) : (
-          <p className="text-sm font-bold text-muted">لا أهداف مربوطة هذا الأسبوع</p>
+          <p className="text-sm font-bold text-muted">لا تاركت مربوط على بائع هذا الأسبوع</p>
         )}
       </section>
 
-      <div className="toolbar">
-        <Link to="/watch" className="pill">المتابعة</Link>
-        <Link to="/products" className="pill">المنتجات</Link>
-        <Link to="/report" className="pill">التقرير</Link>
-      </div>
+      <QuickJump links={[
+        { to: '/watch', label: 'المتابعة', hint: alerts.length ? `${alerts.length} تنبيه` : 'لا تنبيهات' },
+        { to: '/products', label: 'المنتجات', hint: insights.products[0]?.name || 'ماذا يُباع' },
+        { to: '/report', label: 'التقرير', hint: 'يومي وأسبوعي' },
+        { to: '/moves', label: 'الفواتير', hint: showingDay && dayRow ? dayRow.label : 'كل الحركات' },
+      ]} />
+
       <Link to="/report" className="card banner stat-link">
         <div>
           <p className="kicker">تقرير كامل</p>
-          <p className="font-extrabold">جدول الأسابيع ومقارنة كل بائع بالأسبوع السابق</p>
+          <p className="font-extrabold">أيام الأسبوع ومقارنة كل بائع بالأسبوع السابق</p>
         </div>
         <span className="section-link">افتح</span>
       </Link>
@@ -303,12 +398,9 @@ export function Home() {
               <Medal rank={i + 1} />
               <div className="min-w-0">
                 <p className="truncate font-extrabold">{p.name}</p>
-                <p className="text-xs font-bold text-muted">{pieces(p.qty)} · {p.count} حركة · {pct(shareOf(p.sales, week.salesAmount))}</p>
+                <p className="text-xs font-bold text-muted">{p.count} حركة · {pct(shareOf(p.sales, weekSales))}</p>
               </div>
-              <div className="text-end">
-                <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
-                <p className="num text-xs font-extrabold text-gold">{moneyIq(p.commission)}</p>
-              </div>
+              <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
             </div>
           ))}
         </section>

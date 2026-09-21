@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { downloadText, managerCsv, moneyIq, pieces, type LineRow } from '../api';
+import { dayLabel, downloadText, managerCsv, moneyIq, todayKey, type LineRow } from '../api';
 import { groupReceipts, lineCashier, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
-import { useManager } from '../store';
-import { Empty, ErrorBox, Medal, SearchField, Skeleton, useToast } from '../ui';
+import { useManager, useShopInsights } from '../store';
+import { DayStrip, Empty, ErrorBox, Medal, SearchField, Skeleton, useToast } from '../ui';
 import { WeekBar } from '../week';
 
 type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
 
 export function Moves() {
   const { weekStart, setWeek, dash, weeks, lines, cashiers, err, loading, reload } = useManager();
+  const insights = useShopInsights();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -21,6 +22,13 @@ export function Moves() {
   const [open, setOpen] = useState<LineRow | null>(null);
 
   const day = params.get('day') ?? '';
+  function setDay(next?: string) {
+    const copy = new URLSearchParams(params);
+    if (next) copy.set('day', next);
+    else copy.delete('day');
+    setParams(copy, { replace: true });
+  }
+
   const filtered = useMemo(() => {
     const needle = q.trim();
     return lines.filter(l => {
@@ -45,11 +53,10 @@ export function Moves() {
   }, [lines, cashiers]);
 
   const bySeller = useMemo(() => {
-    const map = new Map<string, { name: string; sales: number; comm: number; qty: number; count: number }>();
+    const map = new Map<string, { name: string; sales: number; qty: number; count: number }>();
     for (const l of filtered) {
-      const row = map.get(l.salesmanName) ?? { name: l.salesmanName, sales: 0, comm: 0, qty: 0, count: 0 };
+      const row = map.get(l.salesmanName) ?? { name: l.salesmanName, sales: 0, qty: 0, count: 0 };
       row.sales += l.salesAmount;
-      row.comm += l.commissionAmount;
       row.qty += l.quantity;
       row.count += 1;
       map.set(l.salesmanName, row);
@@ -58,12 +65,11 @@ export function Moves() {
   }, [filtered]);
 
   const byCashier = useMemo(() => {
-    const map = new Map<string, { name: string; sales: number; comm: number; qty: number; count: number }>();
+    const map = new Map<string, { name: string; sales: number; qty: number; count: number }>();
     for (const l of filtered) {
       const name = lineCashier(l) || 'كاشير';
-      const row = map.get(name) ?? { name, sales: 0, comm: 0, qty: 0, count: 0 };
+      const row = map.get(name) ?? { name, sales: 0, qty: 0, count: 0 };
       row.sales += l.salesAmount;
-      row.comm += l.commissionAmount;
       row.qty += l.quantity;
       row.count += 1;
       map.set(name, row);
@@ -72,20 +78,17 @@ export function Moves() {
   }, [filtered]);
 
   const totalSales = filtered.reduce((s, l) => s + l.salesAmount, 0);
-  const totalComm = filtered.reduce((s, l) => s + l.commissionAmount, 0);
-  const totalQty = filtered.reduce((s, l) => s + l.quantity, 0);
 
   if (err && !dash) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
     <div className="fade-up space-y-4">
-      <section className="hero compact">
-        <p className="kicker">فواتير الأسبوع</p>
+      <section className="hero compact command">
+        <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : 'فواتير الأسبوع'}</p>
         <h1 className="display text-[28px] font-black">كل التفاصيل</h1>
         <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales)}</p>
-        <p className="num mt-1 text-lg font-extrabold text-gold">{moneyIq(totalComm)}</p>
         <p className="mt-2 text-sm font-bold text-muted">
-          {day ? `يوم ${day} · ` : ''}{receipts.length} فاتورة · {filtered.length} حركة · {pieces(totalQty)}
+          {receipts.length} فاتورة · {filtered.length} حركة
         </p>
         <button
           type="button"
@@ -100,22 +103,19 @@ export function Moves() {
         <button type="button" className="pill mt-3" onClick={() => window.print()}>طباعة</button>
       </section>
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      {insights.days.length > 0 && (
+        <section className="card p-4">
+          <DayStrip days={insights.days} today={todayKey()} active={day || undefined} onSelect={key => setDay(day === key ? undefined : key)} />
+        </section>
+      )}
       <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو البائع أو الكاشير أو رقم الفاتورة" />
       <div className="toolbar">
         {([['invoices', 'الفواتير'], ['lines', 'الحركات'], ['products', 'المنتجات'], ['sellers', 'حسب البائع'], ['cashiers', 'حسب الكاشير']] as const).map(([k, label]) => (
           <button key={k} type="button" className={`chip ${mode === k ? 'chip-on' : ''}`} onClick={() => setMode(k)}>{label}</button>
         ))}
         {day && (
-          <button
-            type="button"
-            className="chip chip-on"
-            onClick={() => {
-              const next = new URLSearchParams(params);
-              next.delete('day');
-              setParams(next, { replace: true });
-            }}
-          >
-            يوم {day} ×
+          <button type="button" className="chip chip-on" onClick={() => setDay()}>
+            يوم {dayLabel(day)} ×
           </button>
         )}
       </div>
@@ -147,12 +147,9 @@ export function Moves() {
                 <Medal rank={i + 1} />
                 <div className="min-w-0">
                   <p className="truncate font-extrabold">{p.name}</p>
-                  <p className="text-xs font-bold text-muted">{p.count} حركة · {pieces(p.qty)}</p>
+                  <p className="text-xs font-bold text-muted">{p.count} حركة</p>
                 </div>
-                <div className="text-end">
-                  <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
-                  <p className="num text-xs font-extrabold text-gold">{moneyIq(p.commission)}</p>
-                </div>
+                <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
               </div>
             ))}
           </div>
@@ -166,12 +163,9 @@ export function Moves() {
                 <Medal rank={i + 1} />
                 <div className="min-w-0 text-start">
                   <p className="truncate font-extrabold">{s.name}</p>
-                  <p className="text-xs font-bold text-muted">{s.count} حركة · {pieces(s.qty)}</p>
+                  <p className="text-xs font-bold text-muted">{s.count} حركة</p>
                 </div>
-                <div className="text-end">
-                  <p className="num text-sm font-extrabold">{moneyIq(s.sales)}</p>
-                  <p className="num text-xs font-extrabold text-gold">{moneyIq(s.comm)}</p>
-                </div>
+                <p className="num text-sm font-extrabold">{moneyIq(s.sales)}</p>
               </button>
             ))}
           </div>
@@ -185,12 +179,9 @@ export function Moves() {
                 <Medal rank={i + 1} />
                 <div className="min-w-0 text-start">
                   <p className="truncate font-extrabold">{c.name}</p>
-                  <p className="text-xs font-bold text-muted">{c.count} حركة · {pieces(c.qty)}</p>
+                  <p className="text-xs font-bold text-muted">{c.count} حركة</p>
                 </div>
-                <div className="text-end">
-                  <p className="num text-sm font-extrabold">{moneyIq(c.sales)}</p>
-                  <p className="num text-xs font-extrabold text-gold">{moneyIq(c.comm)}</p>
-                </div>
+                <p className="num text-sm font-extrabold">{moneyIq(c.sales)}</p>
               </button>
             ))}
           </div>

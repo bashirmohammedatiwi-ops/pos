@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { avgTicket, money, moneyIq, moneyK, pct, pieces, shareOf } from './api';
+import { avgTicket, money, moneyIq, moneyK, pct, shareOf } from './api';
 import type { HourBand, PersonShare } from './insights';
 
 export function IconHome() {
@@ -302,12 +302,13 @@ export function AreaChart({ values, height = 128 }: { values: number[]; height?:
 }
 
 export function DayStrip({
-  days, active, onSelect, metric = 'sales',
+  days, active, onSelect, metric = 'sales', today,
 }: {
   days: { key: string; weekday: string; label: string; sales: number; commission: number }[];
   active?: string;
   onSelect?: (key: string) => void;
   metric?: 'sales' | 'commission';
+  today?: string;
 }) {
   const max = Math.max(...days.map(d => metric === 'sales' ? d.sales : d.commission), 1);
   return (
@@ -318,7 +319,7 @@ export function DayStrip({
           <button
             key={d.key}
             type="button"
-            className={`day-col ${active === d.key ? 'on' : ''}`}
+            className={`day-col ${active === d.key ? 'on' : ''} ${today === d.key ? 'today' : ''}`}
             onClick={() => onSelect?.(d.key)}
           >
             <span className="num text-[10px] font-extrabold text-goal">{v ? moneyK(v) : '—'}</span>
@@ -341,8 +342,7 @@ export function HourBands({ rows }: { rows: HourBand[] }) {
           <p className="kicker">{r.hint}</p>
           <h3 className="text-base font-extrabold">{r.label}</h3>
           <p className="num mt-2 text-lg font-extrabold">{moneyIq(r.sales)}</p>
-          <p className="num mt-1 text-xs font-extrabold text-gold">{moneyIq(r.commission)}</p>
-          <p className="mt-1 text-xs font-bold text-muted">{r.count} حركة · {pieces(r.qty)}</p>
+          <p className="mt-1 text-xs font-bold text-muted">{r.count} حركة</p>
         </article>
       ))}
     </div>
@@ -359,9 +359,107 @@ export function InsightTile({
       <div className="mark">{kicker.slice(0, 1)}</div>
       <p className="text-[11px] font-extrabold text-muted">{kicker}</p>
       <p className="mt-1 truncate text-sm font-extrabold">{title}</p>
-      <p className="num mt-2 text-base font-extrabold text-gold">{value}</p>
+      <p className="num tile-value mt-2 text-base font-extrabold">{value}</p>
       {hint && <p className="mt-1 text-[11px] font-bold text-muted">{hint}</p>}
     </article>
+  );
+}
+
+export function LiveDot({ stale }: { stale?: boolean }) {
+  return (
+    <span className={`live-pill ${stale ? 'stale' : ''}`}>
+      <i className="live-dot" />
+      {stale ? 'مزامنة قديمة' : 'مباشر'}
+    </span>
+  );
+}
+
+export function CommandRail({
+  items,
+}: {
+  items: { kicker: string; value: string; hint?: string; tone?: 'goal' | 'gold' | 'ok' | 'warn' | 'amber' }[];
+}) {
+  if (!items.length) return null;
+  return (
+    <div className="command-rail">
+      {items.map(item => (
+        <article key={item.kicker} className={`command-tile ${item.tone || ''}`}>
+          <p className="kicker">{item.kicker}</p>
+          <p className="command-val num">{item.value}</p>
+          {item.hint && <p className="command-hint">{item.hint}</p>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function Podium({
+  items,
+  onPick,
+}: {
+  items: { id: string; name: string; value: string; hint?: string }[];
+  onPick?: (item: { id: string; name: string }) => void;
+}) {
+  if (!items.length) return null;
+  const slots = [
+    { rank: 2 as const, item: items[1] },
+    { rank: 1 as const, item: items[0] },
+    { rank: 3 as const, item: items[2] },
+  ];
+  return (
+    <div className="podium">
+      {slots.map(slot => {
+        if (!slot.item) return <div key={`empty-${slot.rank}`} />;
+        const item = slot.item;
+        const cls = `podium-card r${slot.rank}`;
+        const body = (
+          <>
+            <Medal rank={slot.rank} />
+            <p className="podium-name">{item.name}</p>
+            <p className="podium-val num">{item.value}</p>
+            {item.hint && <p className="podium-hint">{item.hint}</p>}
+          </>
+        );
+        if (onPick) {
+          return (
+            <button key={item.id} type="button" className={cls} onClick={() => onPick(item)}>
+              {body}
+            </button>
+          );
+        }
+        return <article key={item.id} className={cls}>{body}</article>;
+      })}
+    </div>
+  );
+}
+
+export function QuickJump({ links }: { links: { to: string; label: string; hint: string }[] }) {
+  return (
+    <div className="action-grid">
+      {links.map(l => (
+        <Link key={l.to} to={l.to} className="action-tile">
+          <p className="font-extrabold">{l.label}</p>
+          <p className="mt-1 text-xs font-bold text-muted">{l.hint}</p>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export function HealthMeter({
+  score, label, tone,
+}: {
+  score: number; label: string; tone: 'ok' | 'goal' | 'warn' | 'gold';
+}) {
+  return (
+    <div className={`health-card tone-${tone}`}>
+      <Ring value={score} size={76} tone={tone} label="صحة" />
+      <div className="min-w-0">
+        <p className="kicker">نبض المحل</p>
+        <p className="font-extrabold">{label}</p>
+        <div className="mt-2"><Track value={score} tone={tone} /></div>
+      </div>
+    </div>
   );
 }
 
@@ -380,9 +478,8 @@ export function ShareRow({
         </div>
         <div className="mt-2"><Bar value={row.share} max={100} tone="goal" /></div>
         <p className="mt-1 text-xs font-bold text-muted">
-          {pct(row.share)} من المبيعات · {pieces(row.pieces)} · {row.receipts} فاتورة
+          {pct(row.share)} من المبيعات · {row.receipts} فاتورة · متوسط {moneyIq(row.avg)}
         </p>
-        <p className="num mt-1 text-xs font-extrabold text-gold">{moneyIq(row.commission)} عمولة · متوسط {moneyIq(row.avg)}</p>
       </div>
     </>
   );
@@ -393,15 +490,13 @@ export function ShareRow({
 }
 
 export function StatGrid({
-  sales, commission, pieceCount, receipts, totalSales,
+  sales, receipts, totalSales,
 }: {
-  sales: number; commission: number; pieceCount: number; receipts: number; totalSales?: number;
+  sales: number; commission?: number; pieceCount?: number; receipts: number; totalSales?: number;
 }) {
   return (
     <div className="grid grid-cols-2 gap-2.5">
       <div className="detail-cell"><p>المبيعات</p><strong className="num">{moneyIq(sales)}</strong></div>
-      <div className="detail-cell"><p>العمولة</p><strong className="num">{moneyIq(commission)}</strong></div>
-      <div className="detail-cell"><p>القطع</p><strong className="num">{pieces(pieceCount)}</strong></div>
       <div className="detail-cell"><p>الفواتير</p><strong className="num">{receipts}</strong></div>
       <div className="detail-cell"><p>متوسط الفاتورة</p><strong className="num">{moneyIq(avgTicket(sales, receipts))}</strong></div>
       <div className="detail-cell"><p>حصة الأسبوع</p><strong className="num">{pct(shareOf(sales, totalSales ?? sales))}</strong></div>
@@ -435,39 +530,37 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
 }
 
 export function WeekCompare({
-  cur, prev, salesDelta, commDelta, pieceDelta,
+  cur, prev, salesDelta, receiptDelta,
 }: {
-  cur?: { salesAmount: number; commissionAmount: number; pieceCount: number; receiptCount: number };
-  prev?: { salesAmount: number; commissionAmount: number; pieceCount: number; receiptCount: number };
+  cur?: { salesAmount: number; commissionAmount?: number; pieceCount?: number; receiptCount: number };
+  prev?: { salesAmount: number; commissionAmount?: number; pieceCount?: number; receiptCount: number };
   salesDelta?: number;
   commDelta?: number;
   pieceDelta?: number;
+  receiptDelta?: number;
 }) {
   if (!cur || !prev) return null;
   const max = Math.max(cur.salesAmount, prev.salesAmount, 1);
   return (
     <section className="card compare-card">
-      <SectionHead title="مقارنة بالأسبوع السابق" kicker="مبيعات وعمولة وقطع" />
+      <SectionHead title="مقارنة بالأسبوع السابق" kicker="مبيعات وفواتير" />
       <div className="compare-cols">
         <div>
           <p className="text-[11px] font-extrabold text-goal">هذا الأسبوع</p>
           <p className="num mt-1 text-xl font-extrabold">{moneyIq(cur.salesAmount)}</p>
-          <p className="num mt-1 text-sm font-extrabold text-gold">{moneyIq(cur.commissionAmount)}</p>
-          <p className="mt-1 text-xs font-extrabold text-muted">{pieces(cur.pieceCount)} · {cur.receiptCount} فاتورة</p>
+          <p className="mt-1 text-xs font-extrabold text-muted">{cur.receiptCount} فاتورة · متوسط {moneyIq(avgTicket(cur.salesAmount, cur.receiptCount))}</p>
           <div className="mt-2"><Bar value={cur.salesAmount} max={max} tone="goal" /></div>
         </div>
         <div>
           <p className="text-[11px] font-extrabold text-muted">الأسبوع السابق</p>
           <p className="num mt-1 text-xl font-extrabold">{moneyIq(prev.salesAmount)}</p>
-          <p className="num mt-1 text-sm font-extrabold text-muted">{moneyIq(prev.commissionAmount)}</p>
-          <p className="mt-1 text-xs font-extrabold text-muted">{pieces(prev.pieceCount)} · {prev.receiptCount} فاتورة</p>
+          <p className="mt-1 text-xs font-extrabold text-muted">{prev.receiptCount} فاتورة · متوسط {moneyIq(avgTicket(prev.salesAmount, prev.receiptCount))}</p>
           <div className="mt-2"><Bar value={prev.salesAmount} max={max} /></div>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {salesDelta != null && <Delta value={salesDelta} />}
-        {commDelta != null && <span className="text-xs font-extrabold text-gold">عمولة <Delta value={commDelta} /></span>}
-        {pieceDelta != null && <span className="text-xs font-extrabold text-muted">قطع <Delta value={pieceDelta} /></span>}
+        {receiptDelta != null && <span className="text-xs font-extrabold text-muted">فواتير <Delta value={receiptDelta} /></span>}
       </div>
     </section>
   );

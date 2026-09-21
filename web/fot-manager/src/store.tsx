@@ -1,5 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, deltaPct, setMe, type CashierRow, type Dashboard, type LineRow, type WeekSummary } from './api';
+import { api, attachLiveGoals, deltaPct, liveGoals, setMe, type CashierRow, type Dashboard, type LineRow, type WeekSummary } from './api';
+
+function normalizeDash(d: Dashboard): Dashboard {
+  const goals = liveGoals(d.goals);
+  return { ...d, goals, sellers: attachLiveGoals(d.sellers ?? [], goals) };
+}
 import { buildInsights, unifyCashiers } from './insights';
 import { useWeek } from './week';
 
@@ -54,7 +59,8 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
     if (!quiet) setErr('');
     if (!quiet && !seed?.dash) setLoading(true);
     try {
-      const [d, w] = await Promise.all([api.dashboard(weekStart), api.weeks()]);
+      const [rawDash, w] = await Promise.all([api.dashboard(weekStart), api.weeks()]);
+      const d = normalizeDash(rawDash);
       let nextLines: LineRow[] = [];
       try {
         nextLines = (await api.lines(weekStart)).lines;
@@ -66,7 +72,7 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
       const prevWeek = idx >= 0 ? w[idx + 1] : undefined;
       let prev: Dashboard | null = null;
       if (prevWeek) {
-        try { prev = await api.dashboard(prevWeek.weekStart.slice(0, 10)); }
+        try { prev = normalizeDash(await api.dashboard(prevWeek.weekStart.slice(0, 10))); }
         catch { prev = null; }
       }
       const now = Date.now();
@@ -119,7 +125,7 @@ export function useWeekCompare(weeks: WeekSummary[], weekStart?: string) {
       return {
         cur: undefined as WeekSummary | undefined,
         prev: undefined as WeekSummary | undefined,
-        salesDelta: 0, commDelta: 0, pieceDelta: 0, receiptDelta: 0,
+        salesDelta: 0, receiptDelta: 0,
       };
     }
     const key = weekStart || weeks.find(w => w.isCurrent)?.weekStart.slice(0, 10);
@@ -130,8 +136,6 @@ export function useWeekCompare(weeks: WeekSummary[], weekStart?: string) {
       cur,
       prev,
       salesDelta: prev ? deltaPct(cur.salesAmount, prev.salesAmount) : 0,
-      commDelta: prev ? deltaPct(cur.commissionAmount, prev.commissionAmount) : 0,
-      pieceDelta: prev ? deltaPct(cur.pieceCount, prev.pieceCount) : 0,
       receiptDelta: prev ? deltaPct(cur.receiptCount, prev.receiptCount) : 0,
     };
   }, [weeks, weekStart]);

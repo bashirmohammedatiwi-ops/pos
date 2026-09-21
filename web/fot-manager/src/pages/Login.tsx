@@ -59,10 +59,10 @@ export function Login() {
           <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-indigo-100">FOT MANAGER</p>
           <h2 className="display mt-3 text-4xl font-black leading-tight">متابعة المحل<br />من أي مكان</h2>
           <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/80">
-            مبيعات كل بائع وكل كاشير، الفواتير، القطع، العمولات، وأهداف الفريق — أسبوعاً بأسبوع.
+            مبيعات كل بائع وكل كاشير، إحصاء اليوم والأسبوع، إيقاع التاركت، والفواتير من أي مكان.
           </p>
           <div className="mt-8 grid grid-cols-3 gap-2 text-center">
-            {['مبيعات', 'كاشير', 'فواتير'].map(x => (
+            {['يومي', 'أسبوعي', 'تاركت'].map(x => (
               <div key={x} className="rounded-2xl bg-white/10 px-2 py-3 text-xs font-extrabold">{x}</div>
             ))}
           </div>
@@ -74,7 +74,7 @@ export function Login() {
             {name ? `أهلاً ${name.split(' ')[0]}` : 'لوحة المدير'}
           </h1>
           <p className="mt-2 text-center text-sm font-bold leading-6 text-muted">
-            اسم الدخول وكلمة المرور من لوحة التحكم
+            اسم الدخول وكلمة المرور من لوحة التحكم — المبيعات والكاشير والتاركت في شاشة واحدة
           </p>
           <form onSubmit={enter} className="mt-7">
             <label className="mb-2 block text-sm font-extrabold text-goal">اسم الدخول</label>

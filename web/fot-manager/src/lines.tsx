@@ -4,11 +4,10 @@ import { lineCashier, lineText, type ReceiptGroup } from './insights';
 import { Empty, Sheet, useToast } from './ui';
 
 export function LineCard({
-  name, sales, commission, receipt, at, qty, extra, onClick,
+  name, sales, receipt, at, qty, extra, onClick,
 }: {
   name: string;
   sales?: string;
-  commission?: string;
   receipt?: number | null;
   at: string;
   qty?: number;
@@ -29,7 +28,6 @@ export function LineCard({
       </span>
       <span className="text-end">
         {sales && <span className="num block text-[15px] font-extrabold">{sales}</span>}
-        {commission && <span className="num block text-xs font-extrabold text-gold">{commission}</span>}
       </span>
     </button>
   );
@@ -42,7 +40,7 @@ export function MoveList({
   onOpen: (line: LineRow) => void;
   empty?: string;
 }) {
-  if (!lines.length) return <Empty title={empty || 'لا حركات هذا الأسبوع'} hint="عند حساب العمولة تظهر كل المنتجات والفواتير هنا" />;
+  if (!lines.length) return <Empty title={empty || 'لا حركات هذا الأسبوع'} hint="عند وجود فواتير تظهر المنتجات هنا" />;
   return (
     <div className="line-stack">
       {lines.map(l => (
@@ -50,7 +48,6 @@ export function MoveList({
           key={l.id}
           name={l.productName}
           sales={moneyIq(l.salesAmount)}
-          commission={moneyIq(l.commissionAmount)}
           receipt={l.receiptNumber}
           at={l.occurredAt}
           qty={l.quantity}
@@ -89,7 +86,6 @@ export function ReceiptList({
               </span>
               <span className="text-end">
                 <span className="num block text-[15px] font-extrabold">{moneyIq(g.sales)}</span>
-                <span className="num block text-xs font-extrabold text-gold">{moneyIq(g.commission)}</span>
               </span>
             </button>
             {open && (
@@ -99,7 +95,6 @@ export function ReceiptList({
                     key={l.id}
                     name={l.productName}
                     sales={moneyIq(l.salesAmount)}
-                    commission={moneyIq(l.commissionAmount)}
                     receipt={l.receiptNumber}
                     at={l.occurredAt}
                     qty={l.quantity}
@@ -128,9 +123,8 @@ export function LineSheet({
       {open && (
         <div className="detail-grid">
           <div className="detail-hero">
-            <p className="kicker">المبيعات / العمولة</p>
+            <p className="kicker">المبيعات</p>
             <p className="num mt-1 text-[28px] font-extrabold">{moneyIq(open.salesAmount)}</p>
-            <p className="num mt-1 text-lg font-extrabold text-gold">{moneyIq(open.commissionAmount)}</p>
           </div>
           <div className="detail-cell"><p>البائع</p><strong>{open.salesmanName}</strong></div>
           <div className="detail-cell"><p>الكاشير</p><strong>{cashierLabel(open.cashierName) || cashierLabel(open.mallName) || '—'}</strong></div>

@@ -8,6 +8,7 @@ import {
   receiptLabel,
   shareOf,
   stampLabel,
+  todayKey,
   weekdayShort,
   type CashierRow,
   type Dashboard,
@@ -89,7 +90,48 @@ export function lineCashier(line: LineRow) {
   return cashierLabel(line.cashierName) || cashierLabel(line.mallName);
 }
 
+export function officialDays(
+  days: { day: string; salesAmount: number; receiptCount: number; pieceCount: number }[] | undefined,
+  lines: LineRow[],
+  weekStart?: string,
+  weekEnd?: string,
+): DayBucket[] {
+  const map = new Map<string, DayBucket>();
+  for (const row of groupDays(lines)) map.set(row.key, row);
+  for (const d of days ?? []) {
+    const key = String(d.day || '').slice(0, 10);
+    if (!key) continue;
+    const prev = map.get(key);
+    map.set(key, {
+      key,
+      label: dayLabel(key),
+      weekday: weekdayShort(key),
+      sales: d.salesAmount,
+      commission: prev?.commission ?? 0,
+      count: prev?.count ?? d.receiptCount,
+      qty: d.pieceCount,
+      receipts: d.receiptCount,
+    });
+  }
+  if (weekStart && weekEnd) {
+    const start = new Date(`${weekStart.slice(0, 10)}T12:00:00`);
+    const end = new Date(`${weekEnd.slice(0, 10)}T12:00:00`);
+    for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+      const key = new Date(t).toISOString().slice(0, 10);
+      if (!map.has(key)) {
+        map.set(key, {
+          key, label: dayLabel(key), weekday: weekdayShort(key),
+          sales: 0, commission: 0, count: 0, qty: 0, receipts: 0,
+        });
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
 export function unifyCashiers(cashiers: CashierRow[], malls: MallRow[], lines: LineRow[]): CashierRow[] {
+  const live = cashiers.filter(c => cashierLabel(c.name) && (c.salesAmount > 0 || c.receiptCount > 0));
+  if (live.length) return [...live].sort((a, b) => b.salesAmount - a.salesAmount);
   const map = new Map<string, CashierRow>();
   const put = (id: number, name: string, sales: number, comm: number, receipts: number, pieces: number) => {
     const label = cashierLabel(name);
@@ -370,7 +412,7 @@ export function buildAlerts(
 }
 
 export function buildInsights(lines: LineRow[], dash: Dashboard | null, cashiers: CashierRow[]) {
-  const days = groupDays(lines);
+  const days = officialDays(dash?.days, lines, dash?.week.weekStart, dash?.week.weekEnd);
   const products = rankProducts(lines);
   const receipts = groupReceipts(lines);
   const hours = groupHours(lines);
@@ -404,7 +446,6 @@ export function lineText(line: LineRow) {
     `البائع: ${line.salesmanName}`,
     lineCashier(line) ? `الكاشير: ${lineCashier(line)}` : '',
     `المبيعات: ${moneyIq(line.salesAmount)}`,
-    `العمولة: ${moneyIq(line.commissionAmount)}`,
     `الفاتورة: ${receiptLabel(line.receiptNumber)}`,
     `الوقت: ${stampLabel(line.occurredAt)}`,
     `الكمية: ${line.quantity} قطعة`,
@@ -417,7 +458,6 @@ export function receiptText(group: ReceiptGroup) {
     group.cashierName ? `الكاشير: ${group.cashierName}` : '',
     `البائعون: ${group.sellers.join('، ')}`,
     `المبيعات: ${moneyIq(group.sales)}`,
-    `العمولة: ${moneyIq(group.commission)}`,
     ...group.lines.map(l => `• ${l.productName} — ${moneyIq(l.salesAmount)}`),
   ].filter(Boolean).join('\n');
 }
@@ -429,4 +469,77 @@ export function clockHint(iso: string) {
 export function weekKey(w?: WeekSummary | string) {
   if (!w) return '';
   return (typeof w === 'string' ? w : w.weekStart).slice(0, 10);
+}
+
+export type WeekPace = {
+  elapsedDays: number;
+  remainingDays: number;
+  totalDays: number;
+  dailyAvg: number;
+  projected: number;
+  progress: number;
+};
+
+export function weekPace(weekStart?: string, weekEnd?: string, amount = 0, today = todayKey()): WeekPace {
+  const start = (weekStart || '').slice(0, 10);
+  const end = (weekEnd || '').slice(0, 10);
+  const now = (today || todayKey()).slice(0, 10);
+  if (!start || !end) {
+    return { elapsedDays: 1, remainingDays: 0, totalDays: 1, dailyAvg: amount, projected: amount, progress: 100 };
+  }
+  const s = Date.parse(`${start}T12:00:00`);
+  const e = Date.parse(`${end}T12:00:00`);
+  const t = Date.parse(`${now}T12:00:00`);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) {
+    return { elapsedDays: 1, remainingDays: 0, totalDays: 1, dailyAvg: amount, projected: amount, progress: 100 };
+  }
+  const totalDays = Math.max(1, Math.round((e - s) / 86400000) + 1);
+  const clamped = Math.min(e, Math.max(s, Number.isFinite(t) ? t : s));
+  const elapsedDays = Math.min(totalDays, Math.max(1, Math.round((clamped - s) / 86400000) + 1));
+  const remainingDays = Math.max(0, totalDays - elapsedDays);
+  const dailyAvg = amount / elapsedDays;
+  return {
+    elapsedDays,
+    remainingDays,
+    totalDays,
+    dailyAvg,
+    projected: dailyAvg * totalDays,
+    progress: (elapsedDays / totalDays) * 100,
+  };
+}
+
+export function prevDay<T extends { key: string }>(days: T[], key?: string): T | undefined {
+  if (!key || !days.length) return undefined;
+  const i = days.findIndex(d => d.key === key);
+  if (i > 0) return days[i - 1];
+  const earlier = days.filter(d => d.key < key);
+  return earlier[earlier.length - 1];
+}
+
+export function shopHealth(opts: {
+  goalAvg: number;
+  goalCount: number;
+  salesDelta?: number;
+  stale: boolean;
+  hasSales: boolean;
+}): { score: number; label: string; tone: 'ok' | 'goal' | 'warn' | 'gold' } {
+  let score = 48;
+  if (opts.hasSales) score += 12;
+  if (opts.goalCount) {
+    if (opts.goalAvg >= 100) score += 28;
+    else if (opts.goalAvg >= 80) score += 20;
+    else if (opts.goalAvg >= 50) score += 10;
+    else score -= 8;
+  }
+  if (opts.salesDelta != null) {
+    if (opts.salesDelta > 8) score += 16;
+    else if (opts.salesDelta > 0) score += 8;
+    else if (opts.salesDelta < -15) score -= 16;
+    else if (opts.salesDelta < -5) score -= 8;
+  }
+  if (opts.stale) score -= 22;
+  score = Math.max(8, Math.min(100, Math.round(score)));
+  const tone = score >= 80 ? 'ok' : score >= 60 ? 'goal' : score >= 40 ? 'gold' : 'warn';
+  const label = score >= 80 ? 'المحل في وضع قوي' : score >= 60 ? 'المحل يسير بشكل جيد' : score >= 40 ? 'يحتاج متابعة' : 'يحتاج تركيز فوري';
+  return { score, label, tone };
 }

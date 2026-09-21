@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  api, deltaPct, setSeller, withGoalProgress,
+  api, deltaPct, liveGoals, setSeller,
   type CommissionLine, type Dashboard, type WeekSummary,
 } from './api';
 import { scrubSellerPayload } from './privacy';
@@ -10,7 +10,7 @@ const CACHE_KEY = 'fot_seller_cache';
 
 function remapDash(d: Dashboard | null): Dashboard | null {
   if (!d) return null;
-  return { ...d, goals: (d.goals ?? []).map(withGoalProgress) };
+  return { ...d, goals: liveGoals(d.goals) };
 }
 
 function readCache() {
@@ -66,7 +66,7 @@ export function SellerProvider({ children }: { children: ReactNode }) {
         nextLines = [];
       }
       const now = Date.now();
-      setDash(d);
+      setDash(remapDash(d));
       setWeeks(w);
       setLines(nextLines);
       setSeller(d.seller);

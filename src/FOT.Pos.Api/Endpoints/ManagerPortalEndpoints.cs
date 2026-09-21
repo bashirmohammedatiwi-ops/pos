@@ -71,7 +71,9 @@ public static class ManagerPortalEndpoints
             return Results.Ok(new ManagerDashboardDto(
                 new ManagerMeDto(acc.Id, acc.Username, acc.DisplayName),
                 pack.Week, pack.Sellers, pack.Cashiers, pack.Malls, pack.Goals,
-                pack.Products.Take(40).ToList()));
+                pack.Products.Take(40).ToList(),
+                null,
+                pack.Days));
         });
 
         g.MapGet("/sellers", async (HttpContext http, ManagerPortalRepository managers, DateTime? weekStart) =>
@@ -108,6 +110,12 @@ public static class ManagerPortalEndpoints
         {
             if (ManagerHttp.Id(http) is null) return Results.Unauthorized();
             return Results.Ok((await managers.GetWeekPackAsync(weekStart, default)).Goals);
+        });
+
+        g.MapGet("/days", async (HttpContext http, ManagerPortalRepository managers, DateTime? weekStart) =>
+        {
+            if (ManagerHttp.Id(http) is null) return Results.Unauthorized();
+            return Results.Ok((await managers.GetWeekPackAsync(weekStart, default)).Days);
         });
 
         g.MapGet("/lines", async (HttpContext http, ManagerPortalRepository managers, DateTime? weekStart) =>

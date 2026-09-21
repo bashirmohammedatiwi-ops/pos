@@ -1,14 +1,24 @@
 import { Link } from 'react-router-dom';
-import { lastSyncMs, moneyIq, pct } from '../api';
-import { buildAlerts } from '../insights';
-import { useManager } from '../store';
-import { Empty, ErrorBox, Skeleton } from '../ui';
+import { groupGoalsBySeller, lastSyncMs, moneyIq, pct, resolveWeekSales } from '../api';
+import { buildAlerts, shopHealth } from '../insights';
+import { useManager, useWeekCompare } from '../store';
+import { Empty, ErrorBox, HealthMeter, Skeleton } from '../ui';
 import { WeekBar } from '../week';
 
 export function Watch() {
   const { weekStart, setWeek, dash, prevDash, weeks, cashiers, err, loading, reload } = useManager();
   const stale = lastSyncMs(dash?.lastSyncAt) != null && Date.now() - (lastSyncMs(dash?.lastSyncAt) ?? 0) > 15 * 60 * 1000;
+  const compare = useWeekCompare(weeks, weekStart);
   const alerts = buildAlerts(dash, prevDash, cashiers, stale);
+  const groups = groupGoalsBySeller(dash?.goals);
+  const avg = groups.length ? groups.reduce((s, g) => s + g.avg, 0) / groups.length : 0;
+  const health = shopHealth({
+    goalAvg: avg,
+    goalCount: groups.reduce((s, g) => s + g.goals.length, 0),
+    salesDelta: compare.prev ? compare.salesDelta : undefined,
+    stale,
+    hasSales: resolveWeekSales(dash) > 0,
+  });
   const late = (dash?.goals ?? []).filter(g => g.percent < 80).sort((a, b) => a.percent - b.percent);
   const drops = (dash?.sellers ?? []).flatMap(s => {
     const prev = prevDash?.sellers.find(x => x.salesmanId === s.salesmanId);
@@ -22,13 +32,14 @@ export function Watch() {
 
   return (
     <div className="fade-up space-y-4">
-      <section className="hero compact">
+      <section className="hero compact command">
         <p className="kicker">يحتاج متابعة</p>
         <h1 className="display text-[28px] font-black">التنبيهات</h1>
         <p className="mt-2 text-sm font-bold text-muted">
           {alerts.length ? `${alerts.length} نقطة تحتاج نظرك هذا الأسبوع` : 'لا تنبيهات — الفريق في وضع جيد'}
         </p>
       </section>
+      <HealthMeter score={health.score} label={health.label} tone={health.tone} />
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
 
       {alerts.map(a => (
@@ -44,7 +55,7 @@ export function Watch() {
         <section className="card p-4">
           <p className="kicker">أهداف متأخرة</p>
           {late.map(g => (
-            <Link key={`${g.ruleId}-${g.salesmanId}`} to="/goals" className="rank-row stat-link">
+            <Link key={`${g.ruleId}-${g.salesmanId}`} to={`/goals?q=${encodeURIComponent(g.salesmanName)}`} className="rank-row stat-link">
               <div className="min-w-0">
                 <p className="font-extrabold">{g.salesmanName}</p>
                 <p className="text-xs font-bold text-muted">{g.ruleName}</p>

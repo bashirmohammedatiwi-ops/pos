@@ -45,7 +45,7 @@ export function Goals() {
 
   return (
     <div className="fade-up space-y-4">
-      <section className="card goal-hero">
+      <section className="card goal-hero command">
         <Ring value={avg} size={132} tone="goal" label="إنجاز" />
         <div>
           <p className="kicker">لوحة الأهداف</p>
@@ -74,9 +74,12 @@ export function Goals() {
 
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
 
-      <div className="flex flex-wrap gap-2">
-        {([['all', `الكل ${rows.length}`], ['done', `تحقق ${hit}`], ['near', `قريب ${near}`], ['late', `تركيز ${late}`]] as const).map(([k, label]) => (
-          <button key={k} type="button" className={`chip ${filter === k ? 'chip-on' : ''}`} onClick={() => setFilter(k)}>{label}</button>
+      <div className="filter-stats">
+        {([['all', rows.length, 'الكل'], ['done', hit, 'تحقق'], ['near', near, 'قريب'], ['late', late, 'تركيز']] as const).map(([k, n, label]) => (
+          <button key={k} type="button" className={`filter-stat ${filter === k ? 'on' : ''}`} onClick={() => setFilter(k)}>
+            <strong className="num">{n}</strong>
+            <span>{label}</span>
+          </button>
         ))}
       </div>
 

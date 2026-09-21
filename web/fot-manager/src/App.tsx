@@ -1,6 +1,6 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import { ago, getMe, getToken, lastSyncMs, moneyIq, pieces, setMe, setToken, weekRange } from './api';
+import { ago, getMe, getToken, lastSyncMs, moneyIq, resolveWeekSales, setMe, setToken, todayKey, weekRange } from './api';
 import { lineCashier } from './insights';
 import { ManagerProvider, useManager } from './store';
 import { Avatar, BrandMark, Finder, IconBox, IconCashier, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, IconTeam, Sheet, type FinderHit } from './ui';
@@ -56,7 +56,7 @@ function Shell() {
   const { dash, cashiers, lines, reload, loading, err, updatedAt } = useManager();
   const badges = {
     '/goals': dash?.goals.filter(g => g.percent < 100).length || undefined,
-    '/team': dash?.sellers.filter(s => s.salesAmount > 0 || s.commissionAmount > 0).length || undefined,
+    '/team': dash?.sellers.filter(s => s.salesAmount > 0 || s.receiptCount > 0).length || undefined,
     '/cashiers': cashiers.length || undefined,
     '/moves': lines.length || undefined,
   };
@@ -89,7 +89,7 @@ function Shell() {
     const sellers = (dash?.sellers ?? []).map(s => ({
       id: `s-${s.salesmanId}`,
       title: s.name,
-      hint: `بائع · ${moneyIq(s.salesAmount)} · ${pieces(s.pieceCount)}`,
+      hint: `بائع · ${moneyIq(s.salesAmount)} · ${s.receiptCount} فاتورة`,
       to: '/team',
     }));
     const cash = cashiers.map(c => ({
@@ -155,9 +155,16 @@ function Shell() {
           {dash && (
             <div className="card seller-mini">
               <p className="kicker">مبيعات الأسبوع</p>
-              <p className="num mt-1 text-xl font-extrabold">{moneyIq(dash.week.salesAmount)}</p>
-              <p className="mt-1 text-sm font-extrabold text-gold">{moneyIq(dash.week.commissionAmount)}</p>
-              <p className="mt-2 text-sm font-extrabold text-goal">{pieces(dash.week.pieceCount)}</p>
+              <p className="num mt-1 text-xl font-extrabold">{moneyIq(resolveWeekSales(dash))}</p>
+              <p className="mt-1 text-sm font-extrabold text-muted">{dash.week.receiptCount} فاتورة</p>
+              {!!dash.days?.length && (
+                <div className="side-pulse">
+                  <p className="kicker">اليوم</p>
+                  <p className="num mt-1 text-sm font-extrabold">
+                    {moneyIq(dash.days.find(d => String(d.day).slice(0, 10) === todayKey())?.salesAmount ?? 0)}
+                  </p>
+                </div>
+              )}
               <p className="mt-1 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
               {dash.lastSyncAt && (
                 <p className="mt-2 text-[11px] font-bold text-muted">مزامنة {ago(lastSyncMs(dash.lastSyncAt) ?? Date.now())}</p>
@@ -228,7 +235,9 @@ function Shell() {
         onPick={hit => {
           setFinder(false);
           const next = new URLSearchParams(loc.search);
-          if (hit.to === '/moves' || hit.to === '/team' || hit.to === '/cashiers' || hit.to === '/products') next.set('q', hit.title);
+          if (hit.to === '/moves' || hit.to === '/team' || hit.to === '/cashiers' || hit.to === '/products' || hit.to === '/goals') {
+            next.set('q', hit.to === '/goals' ? hit.title.split(' · ')[0] : hit.title);
+          }
           else next.delete('q');
           const qs = next.toString();
           nav(qs ? `${hit.to}?${qs}` : hit.to);
@@ -242,15 +251,15 @@ function Shell() {
             <div className="grid grid-cols-2 gap-2.5">
               <div className="card p-3.5">
                 <p className="text-[11px] font-extrabold text-goal">المبيعات</p>
-                <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.week.salesAmount)}</p>
+                <p className="num mt-1 text-lg font-extrabold">{moneyIq(resolveWeekSales(dash))}</p>
               </div>
               <div className="card p-3.5">
-                <p className="text-[11px] font-extrabold text-gold">العمولة</p>
-                <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.week.commissionAmount)}</p>
+                <p className="text-[11px] font-extrabold text-goal">الفواتير</p>
+                <p className="num mt-1 text-lg font-extrabold">{dash.week.receiptCount}</p>
               </div>
               <div className="card p-3.5">
-                <p className="text-[11px] font-extrabold text-gold">القطع</p>
-                <p className="num mt-1 text-lg font-extrabold">{pieces(dash.week.pieceCount)}</p>
+                <p className="text-[11px] font-extrabold text-goal">البائعون</p>
+                <p className="num mt-1 text-lg font-extrabold">{dash.week.sellerCount}</p>
               </div>
               <div className="card p-3.5">
                 <p className="text-[11px] font-extrabold text-goal">الكاشير</p>

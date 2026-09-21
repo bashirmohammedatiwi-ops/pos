@@ -10,6 +10,13 @@ public sealed class ManagerPortalRepository(
     BusinessPeriodSettingsRepository periodSettings,
     TargetRepository targets)
 {
+    private const string ReceiptWhere = """
+        r.creation_date >= @start
+          AND r.creation_date < DATEADD(day, 1, CAST(@end AS DATE))
+          AND COALESCE(r.is_pending, 0) = 0
+          AND COALESCE(r.kind, 0) IN (0, 1)
+        """;
+
     public async Task<(DateTime Start, DateTime EndInclusive)> ResolveWeekAsync(DateTime? weekStart, CancellationToken ct)
     {
         var period = await periodSettings.GetAsync(ct);
@@ -47,7 +54,8 @@ public sealed class ManagerPortalRepository(
             await ListMallsAsync(start, end, ct),
             goals,
             await ListLinesAsync(start, end, ct),
-            await ListProductsAsync(start, end, ct));
+            await ListProductsAsync(start, end, ct),
+            await ListDaysAsync(start, end, ct));
     }
 
     public async Task<ManagerHubSnapshotDto> BuildSnapshotAsync(int weekCount, CancellationToken ct)
@@ -79,13 +87,14 @@ public sealed class ManagerPortalRepository(
                     await Safe(() => ListMallsAsync(start, end, ct)),
                     goals,
                     await Safe(() => ListLinesAsync(start, end, ct)),
-                    await Safe(() => ListProductsAsync(start, end, ct))));
+                    await Safe(() => ListProductsAsync(start, end, ct)),
+                    await Safe(() => ListDaysAsync(start, end, ct))));
             }
             catch
             {
                 var empty = new ManagerWeekSummaryDto(start, end, i == 0, 0, 0, 0, 0, 0, 0);
                 weeks.Add(empty);
-                packs.Add(new ManagerWeekPackDto(start, empty, [], [], [], [], [], []));
+                packs.Add(new ManagerWeekPackDto(start, empty, [], [], [], [], [], [], []));
             }
         }
 
@@ -95,18 +104,42 @@ public sealed class ManagerPortalRepository(
     private async Task<ManagerWeekSummaryDto> SummarizeWeekAsync(
         DateTime start, DateTime end, bool isCurrent, CancellationToken ct)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
-                COALESCE(SUM(c.line_amount), 0) AS SalesAmount,
-                COALESCE(SUM(c.commission_amount), 0) AS CommissionAmount,
-                COUNT(DISTINCT c.receipt_id) AS ReceiptCount,
-                COALESCE(SUM(c.quantity), 0) AS PieceCount,
-                COUNT(DISTINCT NULLIF(c.salesman_id, 0)) AS SellerCount,
-                COUNT(DISTINCT r.cashier_id) AS CashierCount
-            FROM ext_commission_calculations c
-            LEFT JOIN reciepts r ON r.id = c.receipt_id
-            WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
-              AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
+                COALESCE((
+                    SELECT SUM(CAST(r.total_amount AS DECIMAL(18,2)))
+                    FROM reciepts r
+                    WHERE {ReceiptWhere}
+                ), 0) AS SalesAmount,
+                COALESCE((
+                    SELECT SUM(c.commission_amount)
+                    FROM ext_commission_calculations c
+                    LEFT JOIN reciepts r ON r.id = c.receipt_id
+                    WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
+                      AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
+                ), 0) AS CommissionAmount,
+                COALESCE((
+                    SELECT COUNT(*)
+                    FROM reciepts r
+                    WHERE {ReceiptWhere}
+                ), 0) AS ReceiptCount,
+                COALESCE((
+                    SELECT SUM(ri.quantity)
+                    FROM reciept_items ri
+                    INNER JOIN reciepts r ON r.id = ri.reciept_id
+                    WHERE {ReceiptWhere}
+                ), 0) AS PieceCount,
+                COALESCE((
+                    SELECT COUNT(DISTINCT NULLIF(COALESCE(NULLIF(ri.salesman_id, 0), r.salesman), 0))
+                    FROM reciepts r
+                    LEFT JOIN reciept_items ri ON ri.reciept_id = r.id
+                    WHERE {ReceiptWhere}
+                ), 0) AS SellerCount,
+                COALESCE((
+                    SELECT COUNT(DISTINCT r.cashier_id)
+                    FROM reciepts r
+                    WHERE {ReceiptWhere}
+                ), 0) AS CashierCount
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<(decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, decimal PieceCount, int SellerCount, int CashierCount)>(
@@ -120,25 +153,36 @@ public sealed class ManagerPortalRepository(
     private async Task<IReadOnlyList<ManagerSellerRowDto>> ListSellersAsync(
         DateTime start, DateTime end, IReadOnlyDictionary<long, decimal> balances, CancellationToken ct)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
                 sm.id AS SalesmanId,
                 sm.name AS Name,
-                COALESCE(SUM(c.line_amount), 0) AS SalesAmount,
-                COALESCE(SUM(c.commission_amount), 0) AS CommissionAmount,
-                COUNT(DISTINCT c.receipt_id) AS ReceiptCount,
-                COALESCE(SUM(c.quantity), 0) AS PieceCount
+                COALESCE(sales.SalesAmount, 0) AS SalesAmount,
+                COALESCE(comm.CommissionAmount, 0) AS CommissionAmount,
+                COALESCE(sales.ReceiptCount, 0) AS ReceiptCount,
+                COALESCE(sales.PieceCount, 0) AS PieceCount
             FROM salesmen sm
             LEFT JOIN (
-                SELECT c.salesman_id, c.line_amount, c.commission_amount, c.receipt_id, c.quantity
+                SELECT
+                    COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) AS SalesmanId,
+                    SUM(CAST(ri.quantity * ri.price AS DECIMAL(18,2))) AS SalesAmount,
+                    COUNT(DISTINCT r.id) AS ReceiptCount,
+                    SUM(ri.quantity) AS PieceCount
+                FROM reciept_items ri
+                INNER JOIN reciepts r ON r.id = ri.reciept_id
+                WHERE {ReceiptWhere}
+                GROUP BY COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0)
+            ) sales ON sales.SalesmanId = sm.id
+            LEFT JOIN (
+                SELECT c.salesman_id AS SalesmanId, SUM(c.commission_amount) AS CommissionAmount
                 FROM ext_commission_calculations c
                 LEFT JOIN reciepts r ON r.id = c.receipt_id
                 WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
                   AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
-            ) c ON c.salesman_id = sm.id
+                GROUP BY c.salesman_id
+            ) comm ON comm.SalesmanId = sm.id
             WHERE sm.name IS NOT NULL AND LTRIM(RTRIM(sm.name)) <> N''
-            GROUP BY sm.id, sm.name
-            ORDER BY COALESCE(SUM(c.commission_amount), 0) DESC, sm.name
+            ORDER BY COALESCE(sales.SalesAmount, 0) DESC, sm.name
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var rows = (await conn.QueryAsync<(long SalesmanId, string Name, decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, decimal PieceCount)>(
@@ -151,21 +195,24 @@ public sealed class ManagerPortalRepository(
     private async Task<IReadOnlyList<ManagerCashierRowDto>> ListCashiersAsync(
         DateTime start, DateTime end, CancellationToken ct)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
                 COALESCE(cash.id, 0) AS CashierId,
                 COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), N'كاشير') AS Name,
-                COALESCE(SUM(c.line_amount), 0) AS SalesAmount,
-                COALESCE(SUM(c.commission_amount), 0) AS CommissionAmount,
-                COUNT(DISTINCT c.receipt_id) AS ReceiptCount,
-                COALESCE(SUM(c.quantity), 0) AS PieceCount
-            FROM ext_commission_calculations c
-            LEFT JOIN reciepts r ON r.id = c.receipt_id
+                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
+                COUNT(*) AS ReceiptCount,
+                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+            FROM reciepts r
             LEFT JOIN cashiers cash ON cash.id = r.cashier_id
-            WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
-              AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
+            LEFT JOIN (
+                SELECT reciept_id, SUM(quantity) AS qty
+                FROM reciept_items
+                GROUP BY reciept_id
+            ) p ON p.reciept_id = r.id
+            WHERE {ReceiptWhere}
             GROUP BY cash.id, cash.account_name, cash.username
-            ORDER BY SUM(c.commission_amount) DESC
+            ORDER BY SUM(r.total_amount) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerCashierRowDto>(new CommandDefinition(sql, new
@@ -178,25 +225,28 @@ public sealed class ManagerPortalRepository(
     private async Task<IReadOnlyList<ManagerMallRowDto>> ListMallsAsync(
         DateTime start, DateTime end, CancellationToken ct)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
                 COALESCE(sec.id, 0) AS SectionId,
                 COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'بدون مول') AS SectionName,
                 NULLIF(LTRIM(RTRIM(br.name)), N'') AS BranchName,
-                COALESCE(SUM(c.line_amount), 0) AS SalesAmount,
-                COALESCE(SUM(c.commission_amount), 0) AS CommissionAmount,
-                COUNT(DISTINCT c.receipt_id) AS ReceiptCount,
-                COALESCE(SUM(c.quantity), 0) AS PieceCount
-            FROM ext_commission_calculations c
-            LEFT JOIN reciepts r ON r.id = c.receipt_id
+                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
+                COUNT(*) AS ReceiptCount,
+                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+            FROM reciepts r
             LEFT JOIN cashiers cash ON cash.id = r.cashier_id
             LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
             LEFT JOIN sections sec ON sec.id = COALESCE(NULLIF(pos.section_id, 0), cash.section_id)
             LEFT JOIN branches br ON br.id = sec.branch_id
-            WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
-              AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
+            LEFT JOIN (
+                SELECT reciept_id, SUM(quantity) AS qty
+                FROM reciept_items
+                GROUP BY reciept_id
+            ) p ON p.reciept_id = r.id
+            WHERE {ReceiptWhere}
             GROUP BY sec.id, sec.name, br.name
-            ORDER BY SUM(c.commission_amount) DESC
+            ORDER BY SUM(r.total_amount) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerMallRowDto>(new CommandDefinition(sql, new
@@ -206,39 +256,66 @@ public sealed class ManagerPortalRepository(
         }, cancellationToken: ct))).ToList();
     }
 
+    private async Task<IReadOnlyList<ManagerDayRowDto>> ListDaysAsync(
+        DateTime start, DateTime end, CancellationToken ct)
+    {
+        var sql = $"""
+            SELECT
+                CAST(r.creation_date AS date) AS Day,
+                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                COUNT(*) AS ReceiptCount,
+                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+            FROM reciepts r
+            LEFT JOIN (
+                SELECT reciept_id, SUM(quantity) AS qty
+                FROM reciept_items
+                GROUP BY reciept_id
+            ) p ON p.reciept_id = r.id
+            WHERE {ReceiptWhere}
+            GROUP BY CAST(r.creation_date AS date)
+            ORDER BY Day
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var rows = (await conn.QueryAsync<ManagerDayRowDto>(new CommandDefinition(sql, new
+        {
+            start = start.Date,
+            end = end.Date
+        }, cancellationToken: ct))).ToList();
+        return FillDays(rows, start, end);
+    }
+
     private async Task<IReadOnlyList<ManagerLineDto>> ListLinesAsync(
         DateTime start, DateTime end, CancellationToken ct)
     {
-        const string sql = """
-            SELECT TOP 800
-                c.id AS Id,
-                COALESCE(c.salesman_id, 0) AS SalesmanId,
-                COALESCE(NULLIF(LTRIM(RTRIM(sm.name)), N''), N'بائع') AS SalesmanName,
+        var sql = $"""
+            SELECT TOP 1200
+                ri.id AS Id,
+                COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) AS SalesmanId,
+                COALESCE(NULLIF(LTRIM(RTRIM(ri.salesman_name)), N''), NULLIF(LTRIM(RTRIM(sm.name)), N''), N'بائع') AS SalesmanName,
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N''),
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1))), N''),
-                    NULLIF(LTRIM(RTRIM(c.commission_group_name)), N''),
+                    NULLIF(LTRIM(RTRIM(ri.barcode)), N''),
                     N'منتج'
                 ) AS ProductName,
-                NULLIF(LTRIM(RTRIM(c.commission_group_name)), N'') AS GroupName,
-                c.quantity AS Quantity,
-                COALESCE(c.line_amount, 0) AS SalesAmount,
-                c.commission_amount AS CommissionAmount,
+                CAST(NULL AS NVARCHAR(200)) AS GroupName,
+                ri.quantity AS Quantity,
+                CAST(ri.quantity * ri.price AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
                 r.number AS ReceiptNumber,
-                COALESCE(r.creation_date, c.calculated_at) AS OccurredAt,
+                r.creation_date AS OccurredAt,
                 COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), N'كاشير') AS CashierName,
-                COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'مول') AS MallName
-            FROM ext_commission_calculations c
-            LEFT JOIN salesmen sm ON sm.id = c.salesman_id
-            LEFT JOIN reciepts r ON r.id = c.receipt_id
-            LEFT JOIN articles a ON a.Seq = c.article_id
-            LEFT JOIN articles a2 ON a2.id = c.article_id
+                COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'كاشير') AS MallName
+            FROM reciept_items ri
+            INNER JOIN reciepts r ON r.id = ri.reciept_id
+            LEFT JOIN salesmen sm ON sm.id = COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0)
+            LEFT JOIN articles a ON a.Seq = ri.article_id
+            LEFT JOIN articles a2 ON a2.id = ri.article_id
             LEFT JOIN cashiers cash ON cash.id = r.cashier_id
             LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
             LEFT JOIN sections sec ON sec.id = COALESCE(NULLIF(pos.section_id, 0), cash.section_id)
-            WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
-              AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
-            ORDER BY COALESCE(r.creation_date, c.calculated_at) DESC
+            WHERE {ReceiptWhere}
+            ORDER BY r.creation_date DESC, ri.id DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerLineDto>(new CommandDefinition(sql, new
@@ -251,32 +328,31 @@ public sealed class ManagerPortalRepository(
     private async Task<IReadOnlyList<ManagerProductRowDto>> ListProductsAsync(
         DateTime start, DateTime end, CancellationToken ct)
     {
-        const string sql = """
+        var sql = $"""
             SELECT TOP 80
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N''),
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1))), N''),
-                    NULLIF(LTRIM(RTRIM(c.commission_group_name)), N''),
+                    NULLIF(LTRIM(RTRIM(ri.barcode)), N''),
                     N'منتج'
                 ) AS Name,
-                COALESCE(SUM(c.quantity), 0) AS Quantity,
-                COALESCE(SUM(c.line_amount), 0) AS SalesAmount,
-                COALESCE(SUM(c.commission_amount), 0) AS CommissionAmount,
+                COALESCE(SUM(ri.quantity), 0) AS Quantity,
+                COALESCE(SUM(CAST(ri.quantity * ri.price AS DECIMAL(18,2))), 0) AS SalesAmount,
+                CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
                 COUNT(*) AS Count
-            FROM ext_commission_calculations c
-            LEFT JOIN reciepts r ON r.id = c.receipt_id
-            LEFT JOIN articles a ON a.Seq = c.article_id
-            LEFT JOIN articles a2 ON a2.id = c.article_id
-            WHERE COALESCE(r.creation_date, c.calculated_at) >= @start
-              AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
+            FROM reciept_items ri
+            INNER JOIN reciepts r ON r.id = ri.reciept_id
+            LEFT JOIN articles a ON a.Seq = ri.article_id
+            LEFT JOIN articles a2 ON a2.id = ri.article_id
+            WHERE {ReceiptWhere}
             GROUP BY
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N''),
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1))), N''),
-                    NULLIF(LTRIM(RTRIM(c.commission_group_name)), N''),
+                    NULLIF(LTRIM(RTRIM(ri.barcode)), N''),
                     N'منتج'
                 )
-            ORDER BY SUM(c.commission_amount) DESC
+            ORDER BY SUM(CAST(ri.quantity * ri.price AS DECIMAL(18,2))) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerProductRowDto>(new CommandDefinition(sql, new
@@ -295,6 +371,7 @@ public sealed class ManagerPortalRepository(
             INNER JOIN ext_target_rules r ON r.id = a.target_rule_id
             WHERE COALESCE(a.is_active, 1) = 1
               AND COALESCE(r.is_active, 1) = 1
+              AND COALESCE(a.weekly_target, COALESCE(a.assigned_value, 0)) > 0
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var ruleIds = (await conn.QueryAsync<long>(new CommandDefinition(idsSql, cancellationToken: ct))).ToList();
@@ -305,7 +382,7 @@ public sealed class ManagerPortalRepository(
             {
                 var breakdown = await targets.GetBreakdownAsync(ruleId, start, end, ct);
                 var isAmount = string.Equals(breakdown.TargetType, "amount", StringComparison.OrdinalIgnoreCase);
-                foreach (var row in breakdown.Salesmen.Where(s => s.SalesmanId > 0))
+                foreach (var row in breakdown.Salesmen.Where(s => s.SalesmanId > 0 && s.WeeklyTarget > 0))
                 {
                     var sold = isAmount ? row.Amount : row.Quantity;
                     var weekly = row.WeeklyTarget;
@@ -321,7 +398,11 @@ public sealed class ManagerPortalRepository(
                 // skip a broken rule so the rest of the manager pack still uploads
             }
         }
-        return list.OrderBy(g => g.Percent).ThenBy(g => g.SalesmanName).ToList();
+        return list
+            .OrderBy(g => g.SalesmanName, StringComparer.CurrentCulture)
+            .ThenBy(g => g.Percent)
+            .ThenBy(g => g.RuleName, StringComparer.CurrentCulture)
+            .ToList();
     }
 
     private async Task<Dictionary<long, decimal>> ListBalancesAsync(CancellationToken ct)
@@ -347,6 +428,16 @@ public sealed class ManagerPortalRepository(
         return rows.GroupBy(r => r.SalesmanId).ToDictionary(g => g.Key, g => g.First().BalanceDue);
     }
 
+    private static IReadOnlyList<ManagerDayRowDto> FillDays(
+        IReadOnlyList<ManagerDayRowDto> rows, DateTime start, DateTime end)
+    {
+        var map = rows.GroupBy(r => r.Day.Date).ToDictionary(g => g.Key, g => g.First());
+        var list = new List<ManagerDayRowDto>();
+        for (var day = start.Date; day <= end.Date; day = day.AddDays(1))
+            list.Add(map.TryGetValue(day, out var row) ? row : new ManagerDayRowDto(day, 0, 0, 0));
+        return list;
+    }
+
     private static async Task<IReadOnlyList<T>> Safe<T>(Func<Task<IReadOnlyList<T>>> run)
     {
         try { return await run(); }
@@ -356,11 +447,11 @@ public sealed class ManagerPortalRepository(
     private static IReadOnlyList<ManagerSellerRowDto> AttachGoals(
         IReadOnlyList<ManagerSellerRowDto> sellers, IReadOnlyList<ManagerGoalRowDto> goals)
     {
-        var bySeller = goals.GroupBy(g => g.SalesmanId).ToDictionary(g => g.Key, g => g.ToList());
+        var bySeller = goals.Where(g => g.WeeklyTarget > 0).GroupBy(g => g.SalesmanId).ToDictionary(g => g.Key, g => g.ToList());
         return sellers.Select(s =>
         {
             if (!bySeller.TryGetValue(s.SalesmanId, out var rows) || rows.Count == 0)
-                return s;
+                return s with { GoalCount = 0, GoalsHit = 0, GoalPercent = 0 };
             var hit = rows.Count(g => g.Percent >= 100);
             var avg = rows.Average(g => g.Percent);
             return s with { GoalCount = rows.Count, GoalsHit = hit, GoalPercent = Math.Round(avg, 1) };

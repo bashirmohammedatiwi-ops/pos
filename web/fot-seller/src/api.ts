@@ -122,11 +122,11 @@ export const api = {
   me: () => request<SellerMe>('/api/seller/me'),
   dashboard: async (weekStart?: string) => {
     const d = await request<Dashboard>(`/api/seller/dashboard${weekQs(weekStart)}`);
-    return { ...d, goals: (d.goals ?? []).map(withGoalProgress) };
+    return { ...d, goals: liveGoals(d.goals) };
   },
   weeks: () => request<WeekSummary[]>('/api/seller/weeks?count=12'),
   goals: async (weekStart?: string) =>
-    (await request<GoalRow[]>(`/api/seller/goals${weekQs(weekStart)}`)).map(withGoalProgress),
+    liveGoals(await request<GoalRow[]>(`/api/seller/goals${weekQs(weekStart)}`)),
   groups: () => request<GroupRow[]>('/api/seller/commission-groups'),
   products: () => request<ProductRow[]>('/api/seller/commission-products'),
   commissionLines: (weekStart?: string, sectionId?: number) =>
@@ -243,6 +243,12 @@ export function goalPercent(sold: number, target: number) {
 
 export function withGoalProgress<T extends GoalRow>(goal: T): T {
   return { ...goal, percent: goalPercent(goal.sold, goal.weeklyTarget) };
+}
+export function liveGoals<T extends GoalRow>(goals?: T[] | null): T[] {
+  return (goals ?? [])
+    .filter(g => Number(g.weeklyTarget) > 0)
+    .map(withGoalProgress)
+    .sort((a, b) => a.percent - b.percent || String(a.ruleName).localeCompare(String(b.ruleName), 'ar'));
 }
 
 export function goalValue(type: string, n: number) {

@@ -97,7 +97,8 @@ public record ManagerDashboardDto(
     IReadOnlyList<ManagerMallRowDto> Malls,
     IReadOnlyList<ManagerGoalRowDto> Goals,
     IReadOnlyList<ManagerProductRowDto> Products,
-    DateTime? LastSyncAt = null);
+    DateTime? LastSyncAt = null,
+    IReadOnlyList<ManagerDayRowDto>? Days = null);
 public record ManagerSellerDetailDto(
     ManagerSellerRowDto Seller,
     IReadOnlyList<ManagerGoalRowDto> Goals,
@@ -229,6 +230,12 @@ public partial record ManagerProductRowDto(
     decimal CommissionAmount,
     int Count);
 
+public partial record ManagerDayRowDto(
+    DateTime Day,
+    decimal SalesAmount,
+    int ReceiptCount,
+    decimal PieceCount);
+
 public record ManagerWeekPackDto(
     DateTime WeekStart,
     ManagerWeekSummaryDto Week,
@@ -237,7 +244,8 @@ public record ManagerWeekPackDto(
     IReadOnlyList<ManagerMallRowDto> Malls,
     IReadOnlyList<ManagerGoalRowDto> Goals,
     IReadOnlyList<ManagerLineDto> Lines,
-    IReadOnlyList<ManagerProductRowDto> Products);
+    IReadOnlyList<ManagerProductRowDto> Products,
+    IReadOnlyList<ManagerDayRowDto> Days);
 
 public record ManagerHubSnapshotDto(
     IReadOnlyList<ManagerWeekSummaryDto> Weeks,

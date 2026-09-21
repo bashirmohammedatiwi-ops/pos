@@ -171,3 +171,68 @@ export function clockHint(iso: string) {
   const clock = clockLabel(iso);
   return clock || dayLabel(iso);
 }
+
+export type WeekPace = {
+  elapsedDays: number;
+  remainingDays: number;
+  totalDays: number;
+  dailyAvg: number;
+  projected: number;
+  progress: number;
+};
+
+export function weekPace(weekStart?: string, weekEnd?: string, amount = 0, today = ''): WeekPace {
+  const start = (weekStart || '').slice(0, 10);
+  const end = (weekEnd || '').slice(0, 10);
+  const now = (today || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  if (!start || !end) {
+    return { elapsedDays: 1, remainingDays: 0, totalDays: 1, dailyAvg: amount, projected: amount, progress: 100 };
+  }
+  const s = Date.parse(`${start}T12:00:00`);
+  const e = Date.parse(`${end}T12:00:00`);
+  const t = Date.parse(`${now}T12:00:00`);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) {
+    return { elapsedDays: 1, remainingDays: 0, totalDays: 1, dailyAvg: amount, projected: amount, progress: 100 };
+  }
+  const totalDays = Math.max(1, Math.round((e - s) / 86400000) + 1);
+  const clamped = Math.min(e, Math.max(s, Number.isFinite(t) ? t : s));
+  const elapsedDays = Math.min(totalDays, Math.max(1, Math.round((clamped - s) / 86400000) + 1));
+  const remainingDays = Math.max(0, totalDays - elapsedDays);
+  const dailyAvg = amount / elapsedDays;
+  return {
+    elapsedDays,
+    remainingDays,
+    totalDays,
+    dailyAvg,
+    projected: dailyAvg * totalDays,
+    progress: (elapsedDays / totalDays) * 100,
+  };
+}
+
+export function prevDay<T extends { key: string }>(days: T[], key?: string): T | undefined {
+  if (!key || !days.length) return undefined;
+  const i = days.findIndex(d => d.key === key);
+  if (i > 0) return days[i - 1];
+  const earlier = days.filter(d => d.key < key);
+  return earlier[earlier.length - 1];
+}
+
+export function fillWeekDays(days: DayBucket[], weekStart?: string, weekEnd?: string): DayBucket[] {
+  if (!weekStart || !weekEnd) return days;
+  const map = new Map(days.map(d => [d.key, d]));
+  const start = new Date(`${weekStart.slice(0, 10)}T12:00:00`);
+  const end = new Date(`${weekEnd.slice(0, 10)}T12:00:00`);
+  const out: DayBucket[] = [];
+  for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+    const key = new Date(t).toISOString().slice(0, 10);
+    out.push(map.get(key) ?? {
+      key,
+      label: dayLabel(key),
+      weekday: weekdayShort(key),
+      commission: 0,
+      count: 0,
+      qty: 0,
+    });
+  }
+  return out;
+}
