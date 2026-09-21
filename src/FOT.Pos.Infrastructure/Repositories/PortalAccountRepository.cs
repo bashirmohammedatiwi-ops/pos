@@ -90,6 +90,36 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
         return (await ListSellersAsync(ct)).FirstOrDefault(s => s.SalesmanId == salesmanId);
     }
 
+    public async Task<IReadOnlyList<ManagerHubAccountDto>> ListSyncManagersAsync(CancellationToken ct)
+    {
+        const string sql = """
+            SELECT id AS Id, username AS Username, display_name AS DisplayName,
+                   password_hash AS PasswordHash,
+                   CAST(COALESCE(is_active, 0) AS bit) AS IsActive
+            FROM ext_users
+            WHERE role = N'manager'
+            ORDER BY id
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return (await conn.QueryAsync<ManagerHubAccountDto>(new CommandDefinition(sql, cancellationToken: ct))).ToList();
+    }
+
+    public async Task<ManagerHubAccountDto?> GetSyncManagerByUsernameAsync(string username, CancellationToken ct)
+    {
+        username = (username ?? "").Trim();
+        if (username.Length < 2) return null;
+        const string sql = """
+            SELECT TOP 1 id AS Id, username AS Username, display_name AS DisplayName,
+                   password_hash AS PasswordHash,
+                   CAST(COALESCE(is_active, 0) AS bit) AS IsActive
+            FROM ext_users
+            WHERE role = N'manager' AND LOWER(username) = LOWER(@username)
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return await conn.QueryFirstOrDefaultAsync<ManagerHubAccountDto>(
+            new CommandDefinition(sql, new { username }, cancellationToken: ct));
+    }
+
     public async Task<IReadOnlyList<PortalManagerAccountDto>> ListManagersAsync(CancellationToken ct)
     {
         const string sql = """

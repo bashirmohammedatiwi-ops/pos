@@ -243,3 +243,28 @@ public partial record PortalManagerAccountDto
 {
     public PortalManagerAccountDto() : this(0, "", "", false, null, default) { }
 }
+
+public partial record ManagerHubAccountDto
+{
+    public ManagerHubAccountDto() : this(0, "", "", null, false) { }
+}
+
+public partial record ManagerCashierRowDto
+{
+    public ManagerCashierRowDto() : this(0, "", 0, 0, 0, 0) { }
+}
+
+public partial record ManagerMallRowDto
+{
+    public ManagerMallRowDto() : this(0, "", null, 0, 0, 0, 0) { }
+}
+
+public partial record ManagerLineDto
+{
+    public ManagerLineDto() : this(0, 0, "", "", null, 0, 0, 0, null, default, null, null) { }
+}
+
+public partial record ManagerProductRowDto
+{
+    public ManagerProductRowDto() : this("", 0, 0, 0, 0) { }
+}

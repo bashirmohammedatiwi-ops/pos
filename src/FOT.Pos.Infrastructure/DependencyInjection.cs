@@ -56,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<WeeklySettlementRepository>();
         services.AddScoped<CommissionGroupRepository>();
         services.AddScoped<SellerPortalRepository>();
+        services.AddScoped<ManagerPortalRepository>();
         services.AddScoped<PortalAccountRepository>();
         services.AddScoped<SalePostProcessor>();
         services.AddScoped<ProductAttributionRepository>();

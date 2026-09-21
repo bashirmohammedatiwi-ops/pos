@@ -80,32 +80,36 @@ public static class PortalAccountEndpoints
             return Results.Ok(await repo.ListManagersAsync(default));
         });
 
-        g.MapPost("/managers", async (HttpContext http, CreateManagerAccountRequest req, PortalAccountRepository repo) =>
+        g.MapPost("/managers", async (HttpContext http, CreateManagerAccountRequest req, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var (row, error) = await repo.CreateManagerAsync(req.Username, req.DisplayName, default);
             if (error is not null) return Results.BadRequest(new { error });
+            _ = sync.PushNowAsync(CancellationToken.None);
             return Results.Ok(row);
         });
 
-        g.MapPost("/managers/{id:long}/reset", async (HttpContext http, long id, PortalAccountRepository repo) =>
+        g.MapPost("/managers/{id:long}/reset", async (HttpContext http, long id, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.ResetManagerPasswordAsync(id, default);
+            if (row is not null) _ = sync.PushNowAsync(CancellationToken.None);
             return row is null ? Results.NotFound() : Results.Ok(row);
         });
 
-        g.MapPut("/managers/{id:long}", async (HttpContext http, long id, UpdateManagerAccountRequest req, PortalAccountRepository repo) =>
+        g.MapPut("/managers/{id:long}", async (HttpContext http, long id, UpdateManagerAccountRequest req, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.UpdateManagerNameAsync(id, req.DisplayName, default);
+            if (row is not null) _ = sync.PushNowAsync(CancellationToken.None);
             return row is null ? Results.BadRequest(new { error = "تعذر تحديث الاسم" }) : Results.Ok(row);
         });
 
-        g.MapPost("/managers/{id:long}/active", async (HttpContext http, long id, bool active, PortalAccountRepository repo) =>
+        g.MapPost("/managers/{id:long}/active", async (HttpContext http, long id, bool active, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.SetManagerActiveAsync(id, active, default);
+            if (row is not null) _ = sync.PushNowAsync(CancellationToken.None);
             return row is null ? Results.NotFound() : Results.Ok(row);
         });
     }

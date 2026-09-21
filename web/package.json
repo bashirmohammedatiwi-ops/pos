@@ -6,7 +6,8 @@
     "fot-pos",
     "fot-admin",
     "fot-price",
-    "fot-seller"
+    "fot-seller",
+    "fot-manager"
   ],
   "scripts": {
     "verify": "powershell -NoProfile -File ../scripts/Verify-Build.ps1",

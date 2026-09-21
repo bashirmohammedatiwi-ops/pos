@@ -15,10 +15,10 @@ const JWT_HOURS = Number(process.env.FOT_HUB_JWT_HOURS || 24);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-let state = { lastSyncAt: null, accounts: {}, snapshots: {} };
+let state = { lastSyncAt: null, accounts: {}, snapshots: {}, managers: {}, managerSnapshot: null };
 try {
   if (fs.existsSync(STATE_FILE)) {
-    state = { lastSyncAt: null, accounts: {}, snapshots: {}, ...JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) };
+    state = { lastSyncAt: null, accounts: {}, snapshots: {}, managers: {}, managerSnapshot: null, ...JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) };
   }
 } catch (err) {
   console.error('hub state load failed', err.message);
@@ -41,7 +41,7 @@ function signJwt(payload) {
   return `${header}.${body}.${sig}`;
 }
 
-function verifyJwt(token) {
+function verifyJwt(token, role) {
   if (!token) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -50,7 +50,7 @@ function verifyJwt(token) {
   try {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
-    if (payload.role !== 'seller') return null;
+    if (role && payload.role !== role) return null;
     return payload;
   } catch {
     return null;
@@ -62,11 +62,11 @@ function weekKey(value) {
 }
 
 function findPack(snapshot, weekStart) {
-  const packs = snapshot?.weekPacks || [];
+  const packs = snapshot?.weekPacks || snapshot?.WeekPacks || [];
   if (!packs.length) return null;
   if (!weekStart) return packs[0];
   const key = weekKey(weekStart);
-  return packs.find((p) => weekKey(p.weekStart) === key) || packs[0];
+  return packs.find((p) => weekKey(p.weekStart || p.WeekStart) === key) || packs[0];
 }
 
 const CASHIER_KEY = /cashier|كاشير|cash_name|cashiername|cashierid|mallname|mallcount|^malls$|sectionname|sectionid|branchname/i;
@@ -98,8 +98,8 @@ function fixGoals(list) {
   return (list || []).map(fixGoal);
 }
 
-function send(res, status, body) {
-  const json = typeof body === 'string' ? body : JSON.stringify(scrub(body));
+function writeJson(res, status, body) {
+  const json = typeof body === 'string' ? body : JSON.stringify(body);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
@@ -107,6 +107,14 @@ function send(res, status, body) {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Fot-Sync-Key',
   });
   res.end(json);
+}
+
+function send(res, status, body) {
+  writeJson(res, status, typeof body === 'string' ? body : scrub(body));
+}
+
+function sendOpen(res, status, body) {
+  writeJson(res, status, body);
 }
 
 function readBody(req) {
@@ -137,9 +145,37 @@ function syncAuthorized(req) {
 function sellerIdFromReq(req) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const payload = verifyJwt(token);
+  const payload = verifyJwt(token, 'seller');
   const id = Number(payload?.sub || 0);
   return id > 0 ? id : null;
+}
+
+function managerFromReq(req) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const payload = verifyJwt(token, 'manager');
+  const id = Number(payload?.sub || 0);
+  if (!(id > 0)) return null;
+  return state.managers?.[id] || null;
+}
+
+function findManager(username) {
+  const key = String(username || '').trim().toLowerCase();
+  if (!key) return null;
+  return Object.values(state.managers || {}).find((m) => String(m.username || '').toLowerCase() === key) || null;
+}
+
+function managerPack(weekStart) {
+  return findPack(state.managerSnapshot, weekStart);
+}
+
+function fixManagerGoals(list) {
+  return (list || []).map((g) => {
+    const sold = Number(g.sold ?? g.Sold ?? 0);
+    const target = Number(g.weeklyTarget ?? g.WeeklyTarget ?? 0);
+    const percent = target > 0 ? Math.round((sold / target) * 1000) / 10 : 0;
+    return { ...g, sold, weeklyTarget: target, percent, Percent: percent };
+  });
 }
 
 function applySync(payload) {
@@ -162,11 +198,36 @@ function applySync(payload) {
     if (!id) continue;
     snapshots[id] = scrub(snap);
   }
-  state = {
+  const next = {
     lastSyncAt: new Date().toISOString(),
     accounts,
     snapshots,
+    managers: state.managers || {},
+    managerSnapshot: state.managerSnapshot || null,
   };
+
+  const managerRows = payload.managers || payload.Managers;
+  if (Array.isArray(managerRows)) {
+    const managers = {};
+    for (const row of managerRows) {
+      const id = Number(row.id ?? row.Id);
+      const username = String(row.username ?? row.Username ?? '').trim().toLowerCase();
+      if (!id || !username) continue;
+      managers[id] = {
+        id,
+        username,
+        displayName: row.displayName ?? row.DisplayName ?? username,
+        passwordHash: row.passwordHash ?? row.PasswordHash ?? '',
+        isActive: row.isActive ?? row.IsActive ?? true,
+      };
+    }
+    next.managers = managers;
+  }
+
+  const managerSnapshot = payload.managerSnapshot || payload.ManagerSnapshot;
+  if (managerSnapshot) next.managerSnapshot = managerSnapshot;
+
+  state = next;
   saveState();
 }
 
@@ -179,10 +240,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/health') {
-      send(res, 200, {
+      sendOpen(res, 200, {
         status: 'ok',
         lastSyncAt: state.lastSyncAt,
         sellerCount: Object.keys(state.accounts).length,
+        managerCount: Object.keys(state.managers || {}).length,
+        hasManagerSnapshot: !!state.managerSnapshot,
       });
       return;
     }
@@ -195,10 +258,11 @@ const server = http.createServer(async (req, res) => {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) : {};
       applySync(payload);
-      send(res, 200, {
+      sendOpen(res, 200, {
         ok: true,
         lastSyncAt: state.lastSyncAt,
         sellerCount: Object.keys(state.accounts).length,
+        managerCount: Object.keys(state.managers || {}).length,
       });
       return;
     }
@@ -245,6 +309,134 @@ const server = http.createServer(async (req, res) => {
         exp: Math.floor(Date.now() / 1000) + JWT_HOURS * 3600,
       });
       send(res, 200, { token, seller: me });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/auth/manager-lookup') {
+      const acc = findManager(url.searchParams.get('username') || '');
+      if (!acc) {
+        sendOpen(res, 404, { error: 'لا مدير بهذا الاسم' });
+        return;
+      }
+      sendOpen(res, 200, { id: acc.id, username: acc.username, displayName: acc.displayName });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/auth/manager-login') {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const acc = findManager(body.username || body.Username || '');
+      const password = String(body.password || body.Password || '').trim();
+      if (!acc) {
+        sendOpen(res, 401, { error: 'بيانات الدخول غير صحيحة' });
+        return;
+      }
+      if (!acc.isActive) {
+        sendOpen(res, 403, { error: 'الحساب متوقف — راجع الإدارة' });
+        return;
+      }
+      if (!acc.passwordHash) {
+        sendOpen(res, 403, { error: 'اطلب من الإدارة توليد حسابك من لوحة التحكم' });
+        return;
+      }
+      if (password.length < 4 || !bcrypt.compareSync(password, acc.passwordHash)) {
+        sendOpen(res, 401, { error: 'بيانات الدخول غير صحيحة' });
+        return;
+      }
+      const token = signJwt({
+        sub: String(acc.id),
+        role: 'manager',
+        display_name: acc.displayName,
+        exp: Math.floor(Date.now() / 1000) + JWT_HOURS * 3600,
+      });
+      sendOpen(res, 200, {
+        token,
+        manager: { id: acc.id, username: acc.username, displayName: acc.displayName },
+      });
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/manager/')) {
+      const acc = managerFromReq(req);
+      if (!acc) {
+        sendOpen(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
+        return;
+      }
+      if (!state.managerSnapshot) {
+        sendOpen(res, 404, { error: 'لم تُرفع بيانات المتابعة بعد — انتظر المزامنة من لوحة التحكم' });
+        return;
+      }
+      const weekStart = url.searchParams.get('weekStart');
+      const pack = managerPack(weekStart);
+      const me = { id: acc.id, username: acc.username, displayName: acc.displayName };
+      const week = pack?.week || pack?.Week || {};
+      const sellers = pack?.sellers || pack?.Sellers || [];
+      const cashiers = pack?.cashiers || pack?.Cashiers || [];
+      const malls = pack?.malls || pack?.Malls || [];
+      const goals = fixManagerGoals(pack?.goals || pack?.Goals || []);
+      const lines = pack?.lines || pack?.Lines || [];
+      const products = pack?.products || pack?.Products || [];
+
+      if (req.method === 'GET' && url.pathname === '/api/manager/me') {
+        sendOpen(res, 200, me);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/weeks') {
+        sendOpen(res, 200, state.managerSnapshot.weeks || state.managerSnapshot.Weeks || []);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/dashboard') {
+        sendOpen(res, 200, {
+          manager: me,
+          week,
+          sellers,
+          cashiers,
+          malls,
+          goals,
+          products: products.slice(0, 8),
+          lastSyncAt: state.lastSyncAt,
+        });
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/sellers') {
+        sendOpen(res, 200, sellers);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname.match(/^\/api\/manager\/sellers\/(\d+)$/)) {
+        const sid = Number(url.pathname.split('/').pop());
+        const seller = sellers.find((s) => Number(s.salesmanId ?? s.SalesmanId) === sid);
+        if (!seller) {
+          sendOpen(res, 404, { error: 'لا بائع في هذا الأسبوع' });
+          return;
+        }
+        sendOpen(res, 200, {
+          seller,
+          goals: goals.filter((g) => Number(g.salesmanId ?? g.SalesmanId) === sid),
+          lines: lines.filter((l) => Number(l.salesmanId ?? l.SalesmanId) === sid),
+        });
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/cashiers') {
+        sendOpen(res, 200, cashiers);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/malls') {
+        sendOpen(res, 200, malls);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/goals') {
+        sendOpen(res, 200, goals);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/lines') {
+        sendOpen(res, 200, { totalCommission: lines.reduce((s, l) => s + Number(l.commissionAmount ?? l.CommissionAmount ?? 0), 0), lineCount: lines.length, lines });
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/manager/products') {
+        sendOpen(res, 200, products);
+        return;
+      }
+      sendOpen(res, 404, { error: 'not found' });
       return;
     }
 

@@ -182,7 +182,7 @@ export function PortalAccountsPage() {
       qc.setQueryData<PortalManagerAccountDto[]>(['portal-managers'], old => [row, ...(old ?? [])]);
       markManager(row.id);
       setEditName(row.displayName);
-      toast.success(`حُفظ على السيرفر — ${row.username} · ${row.passwordDisplay}`);
+      toast.success(`حُفظ ورُفع للويب — ${row.username} · ${row.passwordDisplay}`);
       if (row.passwordDisplay) void copySecret(row.passwordDisplay);
       void qc.invalidateQueries({ queryKey: ['portal-managers'] });
     },
@@ -193,7 +193,7 @@ export function PortalAccountsPage() {
     onSuccess: row => {
       putManager(row);
       markManager(row.id);
-      toast.success(`حُفظ على السيرفر — رمز ${row.username}: ${row.passwordDisplay}`);
+      toast.success(`حُفظ ورُفع للويب — رمز ${row.username}: ${row.passwordDisplay}`);
       if (row.passwordDisplay) void copySecret(row.passwordDisplay);
       void qc.invalidateQueries({ queryKey: ['portal-managers'] });
     },
@@ -331,8 +331,9 @@ export function PortalAccountsPage() {
               ? `${webQ.data.visibleOnWeb ? 'الويب متصل' : 'الويب لا يصل للمحل'} — ${webQ.data.message} · محفوظ في نقطة البيع: ${formatNum(webQ.data.sellerAccounts)} حساباً`
               : 'توليد الرمز يحفظه في نقطة البيع ثم يتحقق من ظهوره على ويب البائعين.'}
           {webQ.data?.webUrl ? (
-            <a className="ms-2 underline" href={webQ.data.webUrl} target="_blank" rel="noreferrer">فتح الويب</a>
+            <a className="ms-2 underline" href={webQ.data.webUrl} target="_blank" rel="noreferrer">فتح ويب البائعين</a>
           ) : null}
+          <a className="ms-2 underline" href="http://187.124.23.65:4703" target="_blank" rel="noreferrer">فتح ويب المدراء</a>
         </div>
       }
       filters={
@@ -385,7 +386,7 @@ export function PortalAccountsPage() {
       }
       header={{
         title: tab === 'sellers' ? 'حسابات بائعي الويب' : 'حسابات مدراء المتابعة',
-        hint: tab === 'sellers' ? 'اختر بائعاً لتوليد الرمز أو إيقاف الحساب' : 'أنشئ مديراً ثم سلّمه كلمة المرور',
+        hint: tab === 'sellers' ? 'اختر بائعاً لتوليد الرمز أو إيقاف الحساب' : 'أنشئ مديراً ثم سلّمه كلمة المرور — يدخل من http://187.124.23.65:4703',
         actions: tab === 'sellers' ? (
           <>
             <FilterChip compact active={filter === 'all'} onClick={() => setFilter('all')}>الكل</FilterChip>

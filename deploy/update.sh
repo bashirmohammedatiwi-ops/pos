@@ -22,7 +22,7 @@ chmod +x "$here/up.sh" "$here/update.sh" "$here/enable-host-tunnel.sh" 2>/dev/nu
 sh "$here/up.sh"
 
 echo
-echo "expected containers: hub, seller, gateway"
+echo "expected containers: hub, seller, manager, gateway"
 docker compose -f "$here/docker-compose.yml" --env-file "$here/.env" ps
 echo
 echo "hub sync port 4705:"

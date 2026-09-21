@@ -84,6 +84,22 @@ public partial record PortalManagerAccountDto(
     string? PasswordDisplay,
     DateTime CreatedAt);
 
+public record ManagerLoginRequest(string Username, string Password);
+public record ManagerMeDto(long Id, string Username, string DisplayName);
+public record ManagerLoginResponse(string Token, ManagerMeDto Manager);
+public record ManagerDashboardDto(
+    ManagerMeDto Manager,
+    ManagerWeekSummaryDto Week,
+    IReadOnlyList<ManagerSellerRowDto> Sellers,
+    IReadOnlyList<ManagerCashierRowDto> Cashiers,
+    IReadOnlyList<ManagerMallRowDto> Malls,
+    IReadOnlyList<ManagerGoalRowDto> Goals,
+    IReadOnlyList<ManagerProductRowDto> Products,
+    DateTime? LastSyncAt = null);
+public record ManagerSellerDetailDto(
+    ManagerSellerRowDto Seller,
+    IReadOnlyList<ManagerGoalRowDto> Goals,
+    IReadOnlyList<ManagerLineDto> Lines);
 public record CreateManagerAccountRequest(string Username, string DisplayName);
 public record UpdateManagerAccountRequest(string DisplayName);
 public record PortalBulkIssueResult(int Issued, IReadOnlyList<PortalSellerAccountDto> Sellers);
@@ -129,7 +145,101 @@ public record SellerHubSnapshotDto(
 public record SellerHubSyncRequest(
     DateTime GeneratedAt,
     IReadOnlyList<SellerHubAccountDto> Accounts,
-    IReadOnlyList<SellerHubSnapshotDto> Snapshots);
+    IReadOnlyList<SellerHubSnapshotDto> Snapshots,
+    IReadOnlyList<ManagerHubAccountDto>? Managers = null,
+    ManagerHubSnapshotDto? ManagerSnapshot = null);
+
+public partial record ManagerHubAccountDto(
+    long Id,
+    string Username,
+    string DisplayName,
+    string? PasswordHash,
+    bool IsActive);
+
+public record ManagerWeekSummaryDto(
+    DateTime WeekStart,
+    DateTime WeekEnd,
+    bool IsCurrent,
+    decimal SalesAmount,
+    decimal CommissionAmount,
+    int ReceiptCount,
+    decimal PieceCount,
+    int SellerCount,
+    int CashierCount);
+
+public record ManagerSellerRowDto(
+    long SalesmanId,
+    string Name,
+    decimal SalesAmount,
+    decimal CommissionAmount,
+    int ReceiptCount,
+    decimal PieceCount,
+    int GoalCount,
+    int GoalsHit,
+    decimal GoalPercent,
+    decimal BalanceDue);
+
+public partial record ManagerCashierRowDto(
+    long CashierId,
+    string Name,
+    decimal SalesAmount,
+    decimal CommissionAmount,
+    int ReceiptCount,
+    decimal PieceCount);
+
+public partial record ManagerMallRowDto(
+    long SectionId,
+    string SectionName,
+    string? BranchName,
+    decimal SalesAmount,
+    decimal CommissionAmount,
+    int ReceiptCount,
+    decimal PieceCount);
+
+public record ManagerGoalRowDto(
+    long RuleId,
+    string RuleName,
+    string TargetType,
+    long SalesmanId,
+    string SalesmanName,
+    decimal Sold,
+    decimal WeeklyTarget,
+    decimal Percent);
+
+public partial record ManagerLineDto(
+    long Id,
+    long SalesmanId,
+    string SalesmanName,
+    string ProductName,
+    string? GroupName,
+    decimal Quantity,
+    decimal SalesAmount,
+    decimal CommissionAmount,
+    int? ReceiptNumber,
+    DateTime OccurredAt,
+    string? CashierName,
+    string? MallName);
+
+public partial record ManagerProductRowDto(
+    string Name,
+    decimal Quantity,
+    decimal SalesAmount,
+    decimal CommissionAmount,
+    int Count);
+
+public record ManagerWeekPackDto(
+    DateTime WeekStart,
+    ManagerWeekSummaryDto Week,
+    IReadOnlyList<ManagerSellerRowDto> Sellers,
+    IReadOnlyList<ManagerCashierRowDto> Cashiers,
+    IReadOnlyList<ManagerMallRowDto> Malls,
+    IReadOnlyList<ManagerGoalRowDto> Goals,
+    IReadOnlyList<ManagerLineDto> Lines,
+    IReadOnlyList<ManagerProductRowDto> Products);
+
+public record ManagerHubSnapshotDto(
+    IReadOnlyList<ManagerWeekSummaryDto> Weeks,
+    IReadOnlyList<ManagerWeekPackDto> WeekPacks);
 
 public record DashboardStatsDto(
     int ActiveOffers,

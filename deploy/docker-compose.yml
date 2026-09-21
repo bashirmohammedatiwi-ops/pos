@@ -29,6 +29,7 @@ services:
       - ./nginx/coming-soon.html:/usr/share/nginx/html/coming-soon.html:ro
     depends_on:
       - seller
+      - manager
       - hub
     restart: unless-stopped
 
@@ -38,6 +39,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${FOT_SELLER_PORT:-4701}:80"
+    environment:
+      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://hub:4705}
+      NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL
+    depends_on:
+      - hub
+    restart: unless-stopped
+
+  manager:
+    build:
+      context: ../web/fot-manager
+      dockerfile: Dockerfile
+    ports:
+      - "${FOT_MANAGER_PORT:-4703}:80"
     environment:
       FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://hub:4705}
       NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL

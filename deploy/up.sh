@@ -23,4 +23,5 @@ docker compose ps
 echo
 echo "seller gateway: http://0.0.0.0:${FOT_HTTP_PORT:-4700}"
 echo "seller direct:  http://0.0.0.0:${FOT_SELLER_PORT:-4701}"
+echo "manager:        http://0.0.0.0:${FOT_MANAGER_PORT:-4703}"
 echo "shop sync:      http://0.0.0.0:4705/health"

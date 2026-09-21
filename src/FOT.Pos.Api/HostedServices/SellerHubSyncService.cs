@@ -58,6 +58,7 @@ public sealed class SellerHubSyncService(
             using var scope = scopes.CreateScope();
             var accounts = scope.ServiceProvider.GetRequiredService<PortalAccountRepository>();
             var sellers = scope.ServiceProvider.GetRequiredService<SellerPortalRepository>();
+            var managersRepo = scope.ServiceProvider.GetRequiredService<ManagerPortalRepository>();
             var rows = await accounts.ListSyncAccountsAsync(ct);
             var snapshots = new List<SellerHubSnapshotDto>();
             foreach (var row in rows)
@@ -72,7 +73,18 @@ public sealed class SellerHubSyncService(
                 }
             }
 
-            var payload = new SellerHubSyncRequest(DateTime.UtcNow, rows, snapshots);
+            var managers = await accounts.ListSyncManagersAsync(ct);
+            ManagerHubSnapshotDto? managerSnapshot = null;
+            try
+            {
+                managerSnapshot = await managersRepo.BuildSnapshotAsync(WeekCount, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Manager hub snapshot failed");
+            }
+
+            var payload = new SellerHubSyncRequest(DateTime.UtcNow, rows, snapshots, managers, managerSnapshot);
             var client = http.CreateClient(ClientName);
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{SyncUrl}/api/sync");
             req.Headers.TryAddWithoutValidation("X-Fot-Sync-Key", SyncKey);
@@ -85,7 +97,7 @@ public sealed class SellerHubSyncService(
                 return false;
             }
 
-            logger.LogInformation("Seller hub sync uploaded {Sellers} seller(s)", snapshots.Count);
+            logger.LogInformation("Seller hub sync uploaded {Sellers} seller(s) and {Managers} manager(s)", snapshots.Count, managers.Count);
             return true;
         }
         catch (Exception ex)

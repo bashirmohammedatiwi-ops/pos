@@ -137,6 +137,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(o =>
 {
     o.AddPolicy("SellerOnly", p => p.RequireRole("seller"));
+    o.AddPolicy("ManagerOnly", p => p.RequireRole("manager"));
 });
 builder.Services.AddResponseCompression(o => o.EnableForHttps = true);
 builder.Services.AddHealthChecks()
@@ -320,6 +321,7 @@ app.MapGet("/api/server/info", (IWebHostEnvironment env) =>
 
 app.MapAuthEndpoints();
 app.MapSellerAuthEndpoints();
+app.MapManagerAuthEndpoints();
 app.MapPriceCheckerEndpoints();
 
 var api = app.MapGroup("/api").RequireAuthorization();
@@ -330,6 +332,7 @@ api.MapAdminEndpoints();
 api.MapPortalAccountEndpoints();
 api.MapTelemetryEndpoints();
 api.MapSellerPortalEndpoints();
+api.MapManagerPortalEndpoints();
 
 var uploadsPath = FotDataPaths.Uploads;
 app.UseStaticFiles(new StaticFileOptions
