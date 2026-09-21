@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyTitle>FOT POS API</AssemblyTitle>
+    <Product>FOT POS Server</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.19" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.9" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FOT.Pos.Application\FOT.Pos.Application.csproj" />
+    <ProjectReference Include="..\FOT.Pos.Infrastructure\FOT.Pos.Infrastructure.csproj" />
+    <ProjectReference Include="..\FOT.Pos.Shared\FOT.Pos.Shared.csproj" />
+  </ItemGroup>
+
+  <Target Name="CopyEdariNativeToApiRoot" AfterTargets="Build">
+    <PropertyGroup>
+      <EdariNativeDir>$(OutputPath)Edari\Native\</EdariNativeDir>
+      <EdariConnector64>$(EdariNativeDir)ADOServerConnectorV4_64.dll</EdariConnector64>
+      <EdariConnector32>$(EdariNativeDir)ADOServerConnectorV4.dll</EdariConnector32>
+      <EdariProvider>$(EdariNativeDir)NexusDB.ADOProvider.dll</EdariProvider>
+    </PropertyGroup>
+    <Copy SourceFiles="$(EdariConnector64)" DestinationFiles="$(OutputPath)AdoServerConnectorV4_64.dll" SkipUnchangedFiles="true" Condition="Exists('$(EdariConnector64)')" />
+    <Copy SourceFiles="$(EdariConnector64)" DestinationFiles="$(OutputPath)ADOServerConnectorV4_64.dll" SkipUnchangedFiles="true" Condition="Exists('$(EdariConnector64)')" />
+    <Copy SourceFiles="$(EdariConnector32)" DestinationFiles="$(OutputPath)AdoServerConnectorV4.dll" SkipUnchangedFiles="true" Condition="Exists('$(EdariConnector32)')" />
+    <Copy SourceFiles="$(EdariConnector32)" DestinationFiles="$(OutputPath)ADOServerConnectorV4.dll" SkipUnchangedFiles="true" Condition="Exists('$(EdariConnector32)')" />
+    <Copy SourceFiles="$(EdariProvider)" DestinationFiles="$(OutputPath)NexusDB.ADOProvider.dll" SkipUnchangedFiles="true" Condition="Exists('$(EdariProvider)')" />
+  </Target>
+
+</Project>

@@ -1,0 +1,65 @@
+<Window x:Class="FOT.Pos.Client.OfferAddProductWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="إضافة منتج للعرض"
+        Height="560" Width="720">
+    <Grid>
+        <Border Style="{StaticResource OverlayScrim}"/>
+        <Border Style="{StaticResource OverlayCard}" Width="680" MaxHeight="620">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Style="{StaticResource OverlayHeader}">
+                    <Grid>
+                        <TextBlock x:Name="TitleLabel" Text="إضافة منتج" Style="{StaticResource PosDialogTitle}" FontSize="18" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource OverlayCloseButton}" HorizontalAlignment="Left" Click="Cancel_Click"/>
+                    </Grid>
+                </Border>
+                <Border DockPanel.Dock="Bottom" Padding="18,14" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button x:Name="AddBtn" Content="إضافة للعرض" Style="{StaticResource CompleteSaleButton}" FontSize="15" Padding="28,13" Click="Add_Click" IsEnabled="False" IsDefault="True"/>
+                        <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Padding="24,13" Click="Cancel_Click"/>
+                    </StackPanel>
+                </Border>
+                <Border Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" KeyDown="SearchBox_OnKeyDown"/>
+                            <Button Grid.Column="1" Content="بحث" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Padding="20,10" Click="Search_Click"/>
+                        </Grid>
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="200"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Background="White" CornerRadius="14" BorderBrush="#E2E8F0" BorderThickness="1">
+                                <DataGrid x:Name="ProductsGrid" AutoGenerateColumns="False" IsReadOnly="True" Margin="6"
+                                          Style="{StaticResource PosCartGrid}" RowHeight="48"
+                                          SelectionChanged="ProductsGrid_OnSelectionChanged">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="الاسم" Binding="{Binding Name}" Width="*"/>
+                                        <DataGridTextColumn Header="باركود" Binding="{Binding Barcode}" Width="110"/>
+                                        <DataGridTextColumn Header="السعر" Binding="{Binding OriginalPrice, StringFormat=N0}" Width="90"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" x:Name="DiscountPanel">
+                                <TextBlock Text="المنتج المحدد" Style="{StaticResource SectionLabel}"/>
+                                <TextBlock x:Name="SelectedProductLabel" Text="—" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,6,0,16"/>
+                                <TextBlock Text="نسبة التخفيض %" Style="{StaticResource SectionLabel}"/>
+                                <TextBox x:Name="PercentBox" Style="{StaticResource InputBox}" Text="10" FontSize="20" FontWeight="Bold"
+                                         HorizontalContentAlignment="Center" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

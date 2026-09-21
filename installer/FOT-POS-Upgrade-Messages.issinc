@@ -1,0 +1,39 @@
+#ifndef FOTPosUpgradeMessagesIncluded
+#define FOTPosUpgradeMessagesIncluded
+
+[CustomMessages]
+arabic.FOTUpgradeCaption=تحديث %1
+arabic.FOTInstallCaption=تثبيت %1
+arabic.FOTUpgradeWelcomeTitle=تحديث %1
+arabic.FOTInstallWelcomeTitle=مرحباً بك في معالج تثبيت %1
+arabic.FOTUpgradeWelcomeBody=سيتم تحديث %1 من الإصدار %2 إلى الإصدار %3.%n%n• إيقاف الخدمة/التطبيق مؤقتاً%n• استبدال ملفات البرنامج%n• الحفاظ على إعداداتك%n%n%4
+arabic.FOTInstallWelcomeBody=سيقوم هذا المعالج بتثبيت %1 الإصدار %3.%n%n%4
+arabic.FOTUpgradeReadyLabel=انقر «تحديث» لبدء التحديث، أو «إلغاء» للخروج.
+arabic.FOTInstallReadyLabel=انقر «تثبيت» لبدء التثبيت، أو «إلغاء» للخروج.
+arabic.FOTUpgradeFinished=تم تحديث %1 بنجاح.%n%nالإصدار السابق: %2%nالإصدار الحالي: %3
+arabic.FOTInstallFinished=تم تثبيت %1 بنجاح.%n%nالإصدار: %3
+arabic.FOTUpgradeStatus=جاري التحديث…
+arabic.FOTInstallStatus=جاري التثبيت…
+arabic.FOTReleaseNotes=يتضمن: إصلاح ترحيل فواتير Edari، تحسين المثبت، واستقرار عام.
+arabic.FOTSameVersionPrompt=الإصدار %2 مثبت بالفعل.%n%nهل تريد إعادة التثبيت (إصلاح)؟
+arabic.FOTUpdateButton=تحديث
+arabic.FOTInstallButton=تثبيت
+
+english.FOTUpgradeCaption=Update %1
+english.FOTInstallCaption=Install %1
+english.FOTUpgradeWelcomeTitle=Update %1
+english.FOTInstallWelcomeTitle=Welcome to the %1 Setup Wizard
+english.FOTUpgradeWelcomeBody=%1 will be updated from version %2 to %3.%n%n• Brief service/app stop%n• Program files replaced%n• Settings preserved%n%n%4
+english.FOTInstallWelcomeBody=This wizard will install %1 version %3.%n%n%4
+english.FOTUpgradeReadyLabel=Click Update to begin, or Cancel to exit.
+english.FOTInstallReadyLabel=Click Install to begin, or Cancel to exit.
+english.FOTUpgradeFinished=%1 was updated successfully.%n%nPrevious: %2%nCurrent: %3
+english.FOTInstallFinished=%1 was installed successfully.%n%nVersion: %3
+english.FOTUpgradeStatus=Updating…
+english.FOTInstallStatus=Installing…
+english.FOTReleaseNotes=Edari receipt sync fixes, installer improvements, stability.
+english.FOTSameVersionPrompt=Version %2 is already installed.%n%nReinstall (repair) anyway?
+english.FOTUpdateButton=Update
+english.FOTInstallButton=Install
+
+#endif

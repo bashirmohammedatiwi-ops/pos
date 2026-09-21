@@ -1,0 +1,82 @@
+<UserControl x:Class="FOT.Pos.Client.Controls.SearchableComboBox"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:services="clr-namespace:FOT.Pos.Client.Services"
+             MinHeight="36"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch"
+             services:TouchKeyboardHelper.Suppress="True">
+    <Grid>
+        <Border x:Name="FieldBorder" Background="Transparent" BorderThickness="0"
+                Padding="0,2" MinHeight="32" Cursor="Hand"
+                MouseLeftButtonUp="FieldBorder_OnClick">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="22"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="DisplayText" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"
+                           Foreground="#0C1222" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="PlaceholderText" Text="{Binding Placeholder, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                           Foreground="#94A3B8" VerticalAlignment="Center" FontSize="14" Visibility="Collapsed"/>
+                <Path Grid.Column="1" Data="M 0,0 L 7,7 L 14,0" Stroke="#64748B" StrokeThickness="1.8"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      VerticalAlignment="Center" HorizontalAlignment="Center" Width="14" Height="8"/>
+            </Grid>
+        </Border>
+
+        <Popup x:Name="DropPopup" Placement="Bottom" PlacementTarget="{Binding ElementName=FieldBorder}"
+               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
+               HorizontalOffset="0" VerticalOffset="6">
+            <Border x:Name="PopupCard" Background="White" BorderBrush="#CBD5E1" BorderThickness="1"
+                    CornerRadius="12" Padding="8" MinWidth="240" MaxHeight="360"
+                    Effect="{StaticResource ShadowMd}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" FontSize="15" Padding="12,10"
+                             Margin="0,0,0,8" TextChanged="SearchBox_OnTextChanged"
+                             KeyDown="SearchBox_OnKeyDown"
+                             services:TouchKeyboardHelper.Suppress="True"/>
+                    <ListBox x:Name="ItemsList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             ScrollViewer.CanContentScroll="True"
+                             PreviewMouseLeftButtonUp="ItemsList_OnPreviewMouseLeftButtonUp"
+                             KeyDown="ItemsList_OnKeyDown">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="12,12"/>
+                                <Setter Property="FontSize" Value="15"/>
+                                <Setter Property="MinHeight" Value="48"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="bd" Background="Transparent" CornerRadius="10"
+                                                    Padding="{TemplateBinding Padding}" Margin="0,1">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bd" Property="Background" Value="#F1F5F9"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="bd" Property="Background" Value="#ECFDF5"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

@@ -1,0 +1,166 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.ReceiptsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top" Style="{StaticResource FilterBar}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,8">
+                    <TextBlock Text="القسم" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="SectionCombo" DisplayMemberPath="Name" SelectionChanged="Filter_Changed"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,8,8">
+                    <TextBlock Text="نقطة البيع" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="PosCombo" DisplayMemberPath="Name" SelectionChanged="Filter_Changed"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,8,8">
+                    <TextBlock Text="الكاشير" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="CashierCombo" DisplayMemberPath="Username" SelectionChanged="Filter_Changed"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,8,8">
+                    <TextBlock Text="النوع" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="KindCombo" SelectionChanged="Filter_Changed">
+                        <ComboBoxItem Content="الكل" Tag="" IsSelected="True"/>
+                        <ComboBoxItem Content="مبيعات" Tag="0"/>
+                        <ComboBoxItem Content="مرتجع" Tag="1"/>
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="4" VerticalAlignment="Bottom" Margin="0,0,0,8">
+                    <TextBlock Text="المزامنة" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="SyncCombo" Width="130" SelectionChanged="Filter_Changed">
+                        <ComboBoxItem Content="كل الفواتير" Tag="" IsSelected="True"/>
+                        <ComboBoxItem Content="متزامنة" Tag="1"/>
+                        <ComboBoxItem Content="غير متزامنة" Tag="0"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
+                    <TextBlock Text="من تاريخ" Style="{StaticResource FieldLabel}"/>
+                    <DatePicker x:Name="FromDate" SelectedDateChanged="DateFilter_Changed"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,8,0">
+                    <TextBlock Text="إلى تاريخ" Style="{StaticResource FieldLabel}"/>
+                    <DatePicker x:Name="ToDate" SelectedDateChanged="DateFilter_Changed"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Bottom">
+                    <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" Width="220" KeyDown="SearchBox_OnKeyDown"/>
+                    <Button Content="استعراض" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" Click="Search_Click"/>
+                    <Button Content="مسح" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Click="Clear_Click"/>
+                    <CheckBox x:Name="ShowCardInfoBox" Content="إظهار معلومات الكارت"
+                              VerticalAlignment="Center" Margin="16,0,0,0" FontWeight="SemiBold"
+                              Checked="ToggleCardColumns_Click" Unchecked="ToggleCardColumns_Click"/>
+                </StackPanel>
+                <Border Grid.Row="1" Grid.Column="4" Style="{StaticResource StatusPill}" VerticalAlignment="Bottom">
+                    <TextBlock x:Name="ResultCountLabel" FontSize="12"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource SummaryBar}" Margin="0,10,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="عدد الإيصالات" Style="{StaticResource Caption}"/>
+                    <TextBlock x:Name="SumCount" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="صافي المبيعات" Style="{StaticResource Caption}"/>
+                    <TextBlock x:Name="SumNet" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" Foreground="{StaticResource PrimaryBrush}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="المدفوع" Style="{StaticResource Caption}"/>
+                    <TextBlock x:Name="SumPaid" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="3">
+                    <TextBlock Text="خصومات (عروض + مستخدم)" Style="{StaticResource Caption}"/>
+                    <TextBlock x:Name="SumDiscount" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Style="{StaticResource DataPanel}">
+            <DockPanel LastChildFill="True">
+                <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="الفواتير" Style="{StaticResource H2}"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="انقر على صف لعرض تفاصيل الأصناف" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            <Button x:Name="CardColumnsButton" Content="إظهار تفاصيل الكارت"
+                                    Style="{StaticResource SecondaryButton}" Margin="10,0,0,0"
+                                    Click="ToggleCardColumns_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <DataGrid x:Name="Grid" IsReadOnly="True" SelectionMode="Single"
+                          RowDetailsVisibilityMode="VisibleWhenSelected"
+                          SelectionChanged="Grid_SelectionChanged"
+                          LoadingRowDetails="Grid_LoadingRowDetails"
+                          UnloadingRowDetails="Grid_UnloadingRowDetails">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="رقم الإيصال" Binding="{Binding DisplayNumber}" Width="95"/>
+                        <DataGridTextColumn Header="التاريخ" Binding="{Binding CreationDate, StringFormat=dd/MM/yyyy HH:mm}" Width="130"/>
+                        <DataGridTextColumn Header="الكاشير" Binding="{Binding CashierName}" Width="80"/>
+                        <DataGridTextColumn Header="المبلغ الكلي" Binding="{Binding GrossAmount, StringFormat=N0}" Width="95"/>
+                        <DataGridTextColumn Header="المدفوع" Binding="{Binding Payment, StringFormat=N0}" Width="90"/>
+                        <DataGridTextColumn Header="مرتجع" Binding="{Binding CashBack, StringFormat=N0}" Width="75"/>
+                        <DataGridTextColumn Header="خصم عروض" Binding="{Binding OffersDiscount, StringFormat=N0}" Width="85"/>
+                        <DataGridTextColumn Header="خصم مستخدم" Binding="{Binding UserDiscount, StringFormat=N0}" Width="90"/>
+                        <DataGridTextColumn Header="الصافي" Binding="{Binding NetAmount, StringFormat=N0}" Width="90"/>
+                        <DataGridTextColumn Header="أقلام" Binding="{Binding ItemCount}" Width="55"/>
+                        <DataGridTextColumn Header="النوع" Binding="{Binding KindLabel}" Width="70"/>
+                        <DataGridTextColumn Header="الحساب" Binding="{Binding AccountName}" Width="110"/>
+                        <DataGridTextColumn Header="القسم" Binding="{Binding SectionName}" Width="80"/>
+                        <DataGridTextColumn Header="رقم الإداري" Binding="{Binding SyncLabel}" Width="85"/>
+                        <DataGridTextColumn x:Name="CardAccNoColumn" Header="رقم البطاقة" Binding="{Binding CardAccNo}" Width="120" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardTypeColumn" Header="نوع البطاقة" Binding="{Binding CardType}" Width="90" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardRrnColumn" Header="رقم الوصل" Binding="{Binding CardRrn}" Width="95" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardRefColumn" Header="رقم الحركة" Binding="{Binding CardRefNo}" Width="95" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardTerminalColumn" Header="رقم الجهاز" Binding="{Binding CardTerminalId}" Width="105" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardTimeColumn" Header="تاريخ الحركة" Binding="{Binding CardTransTimeLabel}" Width="120" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardNameColumn" Header="اسم الكارت" Binding="{Binding CardName}" Width="90" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardAmountColumn" Header="قيمة الفاتورة" Binding="{Binding CardAmountLabel}" Width="100" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardAcquirerColumn" Header="المصرف" Binding="{Binding CardAcquirer}" Width="110" Visibility="Collapsed"/>
+                        <DataGridTextColumn x:Name="CardAuthColumn" Header="رمز الموافقة" Binding="{Binding CardAuthCode}" Width="95" Visibility="Collapsed"/>
+                    </DataGrid.Columns>
+                    <DataGrid.RowDetailsTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource InfoBox}" Margin="8,4" Padding="8">
+                                <DataGrid ItemsSource="{Binding DetailItems}" IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="200">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="المنتج" Binding="{Binding Name}" Width="*"/>
+                                        <DataGridTextColumn Header="باركود" Binding="{Binding Barcode}" Width="120"/>
+                                        <DataGridTextColumn Header="كمية" Binding="{Binding Quantity, StringFormat=N2}" Width="70"/>
+                                        <DataGridTextColumn Header="سعر" Binding="{Binding Price, StringFormat=N0}" Width="80"/>
+                                        <DataGridTextColumn Header="الإجمالي" Binding="{Binding LineTotal, StringFormat=N0}" Width="90"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Border>
+                        </DataTemplate>
+                    </DataGrid.RowDetailsTemplate>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+    </DockPanel>
+</UserControl>

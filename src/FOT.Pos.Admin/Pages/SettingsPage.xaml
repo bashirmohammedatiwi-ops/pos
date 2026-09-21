@@ -1,0 +1,185 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctrl="clr-namespace:FOT.Pos.Admin.Controls"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch">
+    <DockPanel LastChildFill="True">
+        <Grid VerticalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="420"/>
+                <ColumnDefinition Width="340"/>
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0">
+                <StackPanel>
+                    <Border Style="{StaticResource FilterBar}" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="إعدادات الطباعة" Style="{StaticResource H2}"/>
+                                <TextBlock Text="تخصيص شكل الفاتورة الحرارية — تطبق على جميع نقاط البيع فور الحفظ"
+                                           Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="SaveBtn" Content="حفظ الإعدادات" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
+                                <Button Content="طباعة تجريبية" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Click="TestPrint_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource DataPanel}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <TextBlock Text="شعار المتجر (Logo)" Style="{StaticResource H2}"/>
+                            </Border>
+                            <StackPanel Margin="18">
+                                <TextBlock Text="صورة الشعار تظهر أعلى الفاتورة — PNG أو JPG بخلفية شفافة مفضّلة"
+                                           Style="{StaticResource Caption}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Border x:Name="LogoPreviewBorder" Width="120" Height="72" CornerRadius="8"
+                                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                                            Background="#F8FAFC" Margin="0,0,14,0">
+                                        <Image x:Name="LogoPreviewImage" Stretch="Uniform" Margin="6"/>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <Button x:Name="UploadLogoBtn" Content="رفع صورة الشعار" Style="{StaticResource SecondaryButton}"
+                                                Padding="14,10" Click="UploadLogo_Click"/>
+                                        <Button x:Name="RemoveLogoBtn" Content="حذف الشعار" Style="{StaticResource GhostDangerButton}"
+                                                Padding="14,10" Margin="0,8,0,0" Click="RemoveLogo_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <CheckBox x:Name="ShowLogoChk" Content="عرض الشعار على الفاتورة" Margin="0,14,0,0"
+                                          Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Text="ارتفاع الشعار:" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox x:Name="LogoHeightCombo" Width="100" SelectionChanged="Form_Changed">
+                                        <ComboBoxItem Content="48 px" Tag="48"/>
+                                        <ComboBoxItem Content="64 px" Tag="64"/>
+                                        <ComboBoxItem Content="72 px" Tag="72"/>
+                                        <ComboBoxItem Content="96 px" Tag="96"/>
+                                        <ComboBoxItem Content="120 px" Tag="120"/>
+                                    </ComboBox>
+                                </StackPanel>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource DataPanel}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <TextBlock Text="الملف" Style="{StaticResource H2}"/>
+                            </Border>
+                            <StackPanel Margin="18">
+                                <TextBlock Text="اسم القالب" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="NameBox" Style="{StaticResource InputBox}" TextChanged="Form_Changed"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource DataPanel}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <TextBlock Text="الترويسة" Style="{StaticResource H2}"/>
+                            </Border>
+                            <StackPanel Margin="18">
+                                <TextBlock Text="عنوان المتجر (يظهر بخط عريض)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="HeaderBox" Style="{StaticResource InputBox}" TextChanged="Form_Changed"/>
+                                <TextBlock Text="وصف / فرع / عنوان" Style="{StaticResource FieldLabel}" Margin="0,12,0,0"/>
+                                <TextBox x:Name="HeaderDescBox" Style="{StaticResource InputBox}" TextChanged="Form_Changed"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource DataPanel}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <TextBlock Text="التذييل و QR" Style="{StaticResource H2}"/>
+                            </Border>
+                            <StackPanel Margin="18">
+                                <TextBlock Text="رسالة التذييل" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="FooterBox" Style="{StaticResource InputBox}" TextChanged="Form_Changed"/>
+                                <TextBlock Text="نص QR (رابط / رقم ضريبي / واتساب)" Style="{StaticResource FieldLabel}" Margin="0,12,0,0"/>
+                                <TextBox x:Name="QrBox" Style="{StaticResource InputBox}" TextChanged="Form_Changed"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource DataPanel}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <TextBlock Text="الورق والخط" Style="{StaticResource H2}"/>
+                            </Border>
+                            <Grid Margin="18">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                    <TextBlock Text="عرض الورق" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="PaperWidthCombo" SelectionChanged="Form_Changed">
+                                        <ComboBoxItem Content="58 mm (صغير)" Tag="58"/>
+                                        <ComboBoxItem Content="80 mm (قياسي)" Tag="80"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="4,0">
+                                    <TextBlock Text="حجم الخط" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="FontSizeCombo" SelectionChanged="Form_Changed">
+                                        <ComboBoxItem Content="9" Tag="9"/>
+                                        <ComboBoxItem Content="10" Tag="10"/>
+                                        <ComboBoxItem Content="11" Tag="11"/>
+                                        <ComboBoxItem Content="12" Tag="12"/>
+                                        <ComboBoxItem Content="13" Tag="13"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Margin="8,0,0,0">
+                                    <TextBlock Text="عدد النسخ" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="CopiesCombo" SelectionChanged="Form_Changed">
+                                        <ComboBoxItem Content="1" Tag="1"/>
+                                        <ComboBoxItem Content="2" Tag="2"/>
+                                        <ComboBoxItem Content="3" Tag="3"/>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource DataPanel}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <TextBlock Text="محتوى الفاتورة" Style="{StaticResource H2}"/>
+                            </Border>
+                            <UniformGrid Columns="2" Margin="18">
+                                <CheckBox x:Name="ShowItemTableChk" Content="جدول (مادة · كمية · حسم · إجمالي)" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowSubtotalChk" Content="المجموع الفرعي" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowPaymentLinesChk" Content="المدفوع والباقي" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowBarcodeChk" Content="طباعة الباركود" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowArticleNumChk" Content="رقم المادة" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowQrChk" Content="رمز QR" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowCashierChk" Content="اسم الكاشير" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowSalesmanChk" Content="اسم المندوب" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="ShowDiscountsChk" Content="تفاصيل الخصم" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                                <CheckBox x:Name="AutoPrintChk" Content="طباعة تلقائية بعد البيع (POS)" Margin="0,0,0,10" Checked="Form_Changed" Unchecked="Form_Changed"/>
+                            </UniformGrid>
+                        </DockPanel>
+                    </Border>
+
+                    <TextBlock x:Name="StatusText" Style="{StaticResource Caption}" Foreground="{StaticResource SuccessBrush}" Margin="4,0,0,8"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Column="1" Style="{StaticResource SplitPane}" VerticalAlignment="Stretch">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                        <TextBlock Text="معاينة الفاتورة" Style="{StaticResource H2}"/>
+                    </Border>
+                    <ctrl:ReceiptPreviewControl x:Name="Preview" Margin="12"/>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,10 @@
+{
+  "name": "fot-pos-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FOT POS — .NET API + Electron desktop apps. Node packages live under web/ and desktop/.",
+  "scripts": {
+    "verify": "powershell -NoProfile -File scripts/Verify-Build.ps1",
+    "dist": "powershell -NoProfile -File scripts/publish-desktop.ps1"
+  }
+}

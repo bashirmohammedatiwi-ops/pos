@@ -1,0 +1,15 @@
+{
+  "name": "@fot/shared",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi": "./src/openapi.d.ts"
+  },
+  "scripts": {
+    "openapi": "powershell -NoProfile -File ../../../scripts/Export-OpenApi.ps1"
+  }
+}

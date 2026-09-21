@@ -1,0 +1,47 @@
+#ifndef FOTPosUpgradeCodeIncluded
+#define FOTPosUpgradeCodeIncluded
+
+[Code]
+function GetInstalledVersion(): String;
+var
+  SubKey: String;
+begin
+  Result := '';
+  SubKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppUninstallId}_is1';
+  if RegQueryStringValue(HKLM64, SubKey, 'DisplayVersion', Result) then Exit;
+  if RegQueryStringValue(HKLM32, SubKey, 'DisplayVersion', Result) then Exit;
+  RegQueryStringValue(HKLM, SubKey, 'DisplayVersion', Result);
+end;
+
+function CompareVersion(V1, V2: String): Integer;
+var
+  P, N1, N2: Integer;
+  S1, S2: String;
+begin
+  S1 := V1;
+  S2 := V2;
+  while (S1 <> '') or (S2 <> '') do
+  begin
+    P := Pos('.', S1);
+    if P > 0 then begin N1 := StrToIntDef(Copy(S1, 1, P - 1), 0); Delete(S1, 1, P); end
+    else begin N1 := StrToIntDef(S1, 0); S1 := ''; end;
+    P := Pos('.', S2);
+    if P > 0 then begin N2 := StrToIntDef(Copy(S2, 1, P - 1), 0); Delete(S2, 1, P); end
+    else begin N2 := StrToIntDef(S2, 0); S2 := ''; end;
+    if N1 < N2 then begin Result := -1; Exit; end;
+    if N1 > N2 then begin Result := 1; Exit; end;
+  end;
+  Result := 0;
+end;
+
+function IsUpgrade: Boolean;
+begin
+  Result := GetInstalledVersion() <> '';
+end;
+
+function IsFreshInstall: Boolean;
+begin
+  Result := not IsUpgrade;
+end;
+
+#endif

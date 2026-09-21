@@ -1,0 +1,302 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.OffersPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch">
+    <DockPanel LastChildFill="True">
+
+        <!-- KPI row -->
+        <UniformGrid DockPanel.Dock="Top" Columns="4" Margin="0,0,0,16">
+            <Border Style="{StaticResource PremiumKpiCard}" Margin="0,0,12,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource KpiIconBox}">
+                        <TextBlock Text="&#xE7C8;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource PrimaryBrush}"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="إجمالي العروض" Style="{StaticResource Caption}"/>
+                        <TextBlock x:Name="KpiTotal" Style="{StaticResource StatValue}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource PremiumKpiCard}" Margin="0,0,12,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource KpiIconBox}" Background="#F0FDF4">
+                        <TextBlock Text="&#xE73E;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource SuccessBrush}"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="عروض نشطة" Style="{StaticResource Caption}"/>
+                        <TextBlock x:Name="KpiActive" Style="{StaticResource StatValue}" Foreground="{StaticResource SuccessBrush}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource PremiumKpiCard}" Margin="0,0,12,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource KpiIconBox}" Background="#FFFBEB">
+                        <TextBlock Text="&#xE719;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource WarningBrush}"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="أصناف مخفّضة" Style="{StaticResource Caption}"/>
+                        <TextBlock x:Name="KpiProducts" Style="{StaticResource StatValue}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource PremiumKpiCard}" Margin="0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource KpiIconBox}" Background="#ECFEFF">
+                        <TextBlock Text="&#xE8A5;" Style="{StaticResource PageMdl2Icon}" Foreground="#0891B2"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="دفعات شجرات Edari" Style="{StaticResource Caption}"/>
+                        <TextBlock x:Name="KpiTrees" Style="{StaticResource StatValue}" Foreground="{StaticResource PrimaryBrush}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </UniformGrid>
+
+        <!-- Three-column workspace -->
+        <Grid VerticalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" MinWidth="260"/>
+                <ColumnDefinition Width="320" MinWidth="280"/>
+                <ColumnDefinition Width="*" MinWidth="360"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Offers list -->
+            <Border Grid.Column="0" Style="{StaticResource PremiumSplitPane}" Margin="0,0,12,0" VerticalAlignment="Stretch">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <Border Style="{StaticResource KpiIconBox}" Width="36" Height="36" Margin="0,0,10,0">
+                                    <TextBlock Text="&#xE7C8;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource PrimaryBrush}" FontSize="13"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="مجموعات العروض" Style="{StaticResource H2}"/>
+                                    <TextBlock Text="اختر عرضاً للتعديل" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="عرض جديد" Style="{StaticResource PrimaryButton}" Padding="14,9" Click="Create_Click"/>
+                                <Button Content="حذف" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,9"
+                                        Click="DeleteOffer_Click" x:Name="DeleteOfferBtn" IsEnabled="False"/>
+                            </StackPanel>
+                            <Grid Margin="0,12,0,0">
+                                <TextBox x:Name="OfferSearchBox" Style="{StaticResource InputBox}" Padding="36,10,12,10"
+                                         TextChanged="OfferSearchBox_OnTextChanged"/>
+                                <TextBlock Text="&#xE721;" Style="{StaticResource PageMdl2Icon}"
+                                           Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False"
+                                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,12,0"/>
+                            </Grid>
+                            <CheckBox x:Name="ActiveOnlyBox" Content="النشطة فقط" Margin="0,10,0,0" FontWeight="Medium"
+                                      Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                        </StackPanel>
+                    </Border>
+                    <ListBox x:Name="OffersList" SelectionChanged="OffersList_OnSelectionChanged" Margin="8,6,8,10"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="2,4" Padding="12,10" CornerRadius="10"
+                                        Background="{Binding CardBg}" BorderBrush="{Binding CardBorder}" BorderThickness="1">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" CornerRadius="9" Background="#EFF6FF" Margin="0,0,10,0">
+                                            <TextBlock Text="&#xE7C8;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource PrimaryBrush}" FontSize="12"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"/>
+                                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                <Border Background="{Binding StatusBg}" CornerRadius="5" Padding="7,3" Margin="0,0,6,0">
+                                                    <TextBlock Text="{Binding StatusLabel}" FontSize="10" FontWeight="Medium" Foreground="{Binding StatusFg}"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding TypeLabel}" FontSize="10" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding MetaLabel}" Style="{StaticResource Caption}" Margin="0,5,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Settings -->
+            <Border Grid.Column="1" Style="{StaticResource PremiumSplitPane}" Margin="0,0,12,0"
+                    x:Name="SettingsPanel" IsEnabled="False" VerticalAlignment="Stretch">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}">
+                        <StackPanel Orientation="Horizontal">
+                            <Border Style="{StaticResource KpiIconBox}" Width="36" Height="36" Margin="0,0,10,0" Background="#F0FDF4">
+                                <TextBlock Text="&#xE713;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource SuccessBrush}" FontSize="13"/>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="إعدادات العرض" Style="{StaticResource H2}"/>
+                                <TextBlock Text="الاسم · النوع · الصلاحية" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="اسم العرض" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="OfferNameBox" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+
+                            <TextBlock Text="نوع العرض" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="OfferTypeCombo" Margin="0,0,0,14" SelectionChanged="OfferTypeCombo_OnSelectionChanged">
+                                <ComboBoxItem Content="خصم نسبة — منتجات / شجرات Edari" Tag="0"/>
+                                <ComboBoxItem Content="مجموعة — أصناف مطلوبة + مخفّضة" Tag="1"/>
+                                <ComboBoxItem Content="أسعار فردية — سعر أو نسبة لكل منتج" Tag="2"/>
+                            </ComboBox>
+
+                            <TextBlock Text="الأولوية (أعلى = يُطبَّق أولاً)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="OfferPriorityBox" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+
+                            <Border Style="{StaticResource PremiumSectionCard}">
+                                <CheckBox x:Name="OfferEnabledBox" Content="عرض نشط" FontWeight="SemiBold"/>
+                            </Border>
+
+                            <Border Style="{StaticResource PremiumSectionCard}" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <TextBlock Text="&#xE787;" Style="{StaticResource PageMdl2Icon}" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="صلاحية العرض" Style="{StaticResource FieldLabel}" Margin="0"/>
+                                    </StackPanel>
+                                    <CheckBox x:Name="UnlimitedBox" Content="بدون تاريخ انتهاء" Margin="0,0,0,10"
+                                              Checked="UnlimitedBox_OnChanged" Unchecked="UnlimitedBox_OnChanged"/>
+                                    <TextBlock Text="من" Style="{StaticResource Caption}"/>
+                                    <DatePicker x:Name="FromDate" Margin="0,4,0,10" IsEnabled="False"/>
+                                    <TextBlock Text="إلى" Style="{StaticResource Caption}"/>
+                                    <DatePicker x:Name="ToDate" Margin="0,4,0,0" IsEnabled="False"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Button Content="حفظ الإعدادات" Style="{StaticResource PrimaryButton}" Padding="14,11" Click="SaveOffer_Click"/>
+
+                            <TextBlock Text="ملخص العرض" Style="{StaticResource FieldLabel}" Margin="0,16,0,8"/>
+                            <Border Style="{StaticResource PremiumSectionCard}" Margin="0,0,0,8">
+                                <TextBlock x:Name="SummaryProducts" FontSize="12"/>
+                            </Border>
+                            <Border Style="{StaticResource PremiumSectionCard}" Margin="0,0,0,8">
+                                <TextBlock x:Name="SummaryTrees" FontSize="12"/>
+                            </Border>
+                            <Border Style="{StaticResource PremiumSectionCard}">
+                                <TextBlock x:Name="SummaryRequired" FontSize="12"/>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- Details -->
+            <Border Grid.Column="2" Style="{StaticResource DataPanel}" x:Name="DetailsPanel" IsEnabled="False" VerticalAlignment="Stretch">
+                <TabControl x:Name="DetailsTabs">
+                    <TabItem Header="أصناف مخفّضة (%)" x:Name="DiscountTab">
+                        <DockPanel LastChildFill="True">
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}">
+                                <WrapPanel VerticalAlignment="Center">
+                                    <Button Content="إضافة منتج" Style="{StaticResource PrimaryButton}" Padding="12,8" Click="AddProduct_Click"/>
+                                    <Button Content="إضافة شجرة Edari" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="12,8" Click="AddTree_Click"/>
+                                    <Button Content="حذف" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="12,8"
+                                            Click="RemoveDetail_Click" x:Name="RemoveDiscountBtn" IsEnabled="False"/>
+                                    <Button Content="حذف دفعة شجرة" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="12,8"
+                                            Click="RemoveTreeBatch_Click" x:Name="RemoveTreeBtn" IsEnabled="False"/>
+                                </WrapPanel>
+                            </Border>
+                            <DataGrid x:Name="DiscountGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      SelectionChanged="DiscountGrid_OnSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="المنتج / المصدر" Binding="{Binding DisplayName}" Width="*"/>
+                                    <DataGridTextColumn Header="خصم %" Binding="{Binding DiscountPercent, StringFormat=N0}" Width="70"/>
+                                    <DataGridTextColumn Header="المصدر" Binding="{Binding SourceLabel}" Width="90"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                    <TabItem Header="أصناف مطلوبة" x:Name="RequiredTab" Visibility="Collapsed">
+                        <DockPanel LastChildFill="True">
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="إضافة منتج مطلوب" Style="{StaticResource PrimaryButton}" Padding="12,8" Click="AddRequired_Click"/>
+                                    <Button Content="حذف" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="12,8"
+                                            Click="RemoveRequired_Click" x:Name="RemoveRequiredBtn" IsEnabled="False"/>
+                                </StackPanel>
+                            </Border>
+                            <DataGrid x:Name="RequiredGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      SelectionChanged="RequiredGrid_OnSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="المنتج" Binding="{Binding DisplayName}" Width="*"/>
+                                    <DataGridTextColumn Header="باركود" Binding="{Binding Barcode}" Width="120"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                    <TabItem Header="شجرات Edari" x:Name="TreeTab">
+                        <DockPanel LastChildFill="True">
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource KpiIconBox}" Width="34" Height="34" Margin="0,0,10,0" Background="#ECFEFF">
+                                        <TextBlock Text="&#xE8A5;" Style="{StaticResource PageMdl2Icon}" Foreground="#0891B2" FontSize="12"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="دفعات شجرات Edari" Style="{StaticResource H2}"/>
+                                        <TextBlock Text="خصومات مطبّقة عبر شجرة مواد الإداري" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <ListBox x:Name="TreeBatchList" SelectionChanged="TreeBatchList_OnSelectionChanged"
+                                     BorderThickness="0" Margin="10,8">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="4,6" Padding="16,14" CornerRadius="10" Style="{StaticResource PremiumSectionCard}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border Grid.Column="0" Width="38" Height="38" CornerRadius="10" Background="#ECFEFF" Margin="0,0,12,0">
+                                                    <TextBlock Text="&#xE8A5;" Style="{StaticResource PageMdl2Icon}" Foreground="#0891B2" FontSize="13"/>
+                                                </Border>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding TreeName}" FontWeight="SemiBold" FontSize="14"/>
+                                                    <TextBlock Text="{Binding SubLabel}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0">
+                                                    <TextBlock Text="{Binding DiscountLabel}" FontSize="20" FontWeight="Bold"
+                                                               Foreground="{StaticResource PrimaryBrush}" HorizontalAlignment="Center"/>
+                                                    <TextBlock Text="خصم" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </TabItem>
+                </TabControl>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

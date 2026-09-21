@@ -1,0 +1,89 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pfx
+*.pem
+*.p12
+*.key
+credentials.json
+secrets.json
+**/appsettings.*.local.json
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# .NET build
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+[Dd]ebug/
+[Rr]elease/
+!src/**/Release/
+x64/
+x86/
+[Bb]uild[Ll]og.*
+
+# Web build
+**/dist/
+**/.vite/
+**/.turbo/
+*.tsbuildinfo
+
+# Desktop / Electron output
+desktop/dist/
+desktop/release/
+desktop/out/
+
+# Android
+android/**/build/
+android/**/.gradle/
+android/**/.cxx/
+android/**/local.properties
+**/*.apk
+**/*.aab
+**/*.ap_
+**/*.dex
+
+# Local publish, installers, dumps
+publish/
+artifacts/
+backups/
+database/backups/
+*.log
+*.msi
+*.exe
+*.nupkg
+*.zip
+*.bak
+*.mdf
+*.ldf
+!database/**/*.sql
+
+# Tools runtime and local exports
+tools/**/bin/
+tools/**/obj/
+tools/output/
+tools/**/_xlsx_tmp/
+tools/**/_probe*
+evoluderm-price/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.swp
+.idea/
+.vscode/
+.zcode/
+.config/
+
+# Nested copies
+web/node_modules/

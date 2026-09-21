@@ -1,0 +1,27 @@
+export type {
+  AccountSummaryDto,
+  ArticleGroupDto,
+  ArticleGroupItemDto,
+  CardChargeResult,
+  CardPaymentDto,
+  CashierPermissionsDto,
+  CatalogInfoDto,
+  CreateReceiptResponse,
+  HoldReceiptDto,
+  PosSessionDto,
+  ProductDto,
+  ProductAttributionDto,
+  ProductAllowedSalesmenDto,
+  ReceiptDetailDto,
+  ReceiptItemDto,
+  ReceiptReturnLineDto,
+  ReceiptReturnSourceDto,
+  CashReportDto,
+  ReceiptSearchResult,
+  ReceiptSummaryDto,
+  SaleKind,
+  SalesmanDto,
+  SectionCashBoxDto,
+} from '@fot/shared';
+
+export type { PrintSettingsDto, ReceiptPrintLineDto, ReceiptPrintPreviewDto } from '@fot/shared';

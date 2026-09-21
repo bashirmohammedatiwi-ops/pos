@@ -1,0 +1,16 @@
+<Window x:Class="FOT.Pos.Client.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FOT POS — نقطة البيع"
+        Height="768" Width="1024"
+        WindowState="Maximized"
+        Background="#F1F5F9"
+        FlowDirection="RightToLeft">
+    <Grid>
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="FOT POS Client" FontSize="32" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Center"/>
+            <TextBlock Text="نقطة البيع — قيد التطوير (Phase 3)" FontSize="16" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+            <TextBlock Text="يتصل بـ API على LAN — SignalR + SQLite offline" FontSize="13" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+        </StackPanel>
+    </Grid>
+</Window>

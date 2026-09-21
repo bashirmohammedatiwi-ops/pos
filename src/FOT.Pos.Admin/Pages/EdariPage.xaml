@@ -1,0 +1,214 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.EdariPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch">
+    <DockPanel LastChildFill="True">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border Style="{StaticResource InfoBox}" Margin="0,0,0,12">
+                    <TextBlock x:Name="StatusText" Style="{StaticResource Caption}" FontSize="13"/>
+                </Border>
+
+                <UniformGrid Columns="3" Margin="0,0,0,12">
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="غير متزامنة" Style="{StaticResource Caption}"/>
+                            <TextBlock x:Name="UnsyncedCount" Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="متزامنة اليوم" Style="{StaticResource Caption}"/>
+                            <TextBlock x:Name="SyncedCount" Style="{StaticResource StatValue}" Foreground="{StaticResource SuccessBrush}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource StatCard}" Margin="0">
+                        <StackPanel>
+                            <TextBlock Text="فشل اليوم" Style="{StaticResource Caption}"/>
+                            <TextBlock x:Name="FailedCount" Style="{StaticResource StatValue}" Foreground="{StaticResource DangerBrush}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <Border Style="{StaticResource DataPanel}" Margin="0,0,0,12">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="إعدادات الإداري (EdariNX)" Style="{StaticResource H2}"/>
+                                <TextBlock Grid.Column="1" Text="اتصال NexusDB والمزامنة" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <StackPanel Margin="18">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,12">
+                                    <TextBlock Text="مسار البيانات" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="DataRootBox" Style="{StaticResource InputBox}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,12">
+                                    <TextBlock Text="نسخة / السنة" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="YearCombo" IsEditable="True"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,12">
+                                    <TextBlock Text="خادم NexusDB" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="ServerBox" Style="{StaticResource InputBox}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,12">
+                                    <TextBlock Text="المنفذ" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="PortBox" Style="{StaticResource InputBox}"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,12">
+                                    <TextBlock Text="ODBC Driver" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="DriverBox" Style="{StaticResource InputBox}"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal">
+                                    <CheckBox x:Name="EnabledBox" Content="تفعيل الربط" Margin="0,0,16,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Style="{StaticResource InfoBox}" Margin="0,12,0,12">
+                                <TextBlock x:Name="ConnectionStatusText" Style="{StaticResource Caption}"/>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button Content="حفظ الإعدادات" Click="SaveSettings_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
+                                <Button Content="اختبار الاتصال" Click="TestConnection_Click" Style="{StaticResource SecondaryButton}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Sync panel -->
+                <Border Style="{StaticResource DataPanel}" Margin="0,0,0,12">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="مزامنة الإداري" Style="{StaticResource H2}"/>
+                                <TextBlock Grid.Column="1" Text="جلب البيانات + ترحيل الفواتير" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <StackPanel Margin="18">
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                    <CheckBox x:Name="AutoSyncBox" Content="مزامنة تلقائية" FontWeight="SemiBold"/>
+                                    <TextBlock Text="تعمل في الخلفية على الخادم" Style="{StaticResource Caption}" Margin="22,4,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="8,0">
+                                    <TextBlock Text="فترة المزامنة (ثانية)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="SyncIntervalBox" Style="{StaticResource InputBox}" ToolTip="من 15 إلى 3600 ثانية"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <CheckBox x:Name="CatalogSyncBox" Content="مزامنة العروض من Edari"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <UniformGrid Columns="2" Margin="0,0,0,14">
+                                <StackPanel Margin="0,0,8,0">
+                                    <TextBlock Text="آخر جلب من الإداري" Style="{StaticResource Caption}"/>
+                                    <TextBlock x:Name="LastPullLabel" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <StackPanel Margin="8,0,0,0">
+                                    <TextBlock Text="آخر ترحيل فواتير" Style="{StaticResource Caption}"/>
+                                    <TextBlock x:Name="LastReceiptSyncLabel" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <Border Style="{StaticResource InfoBox}" Margin="0,0,0,14">
+                                <TextBlock x:Name="SyncStatusText" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button x:Name="SyncNowBtn" Content="⚡ مزامنة فورية الآن" Click="SyncNow_Click"
+                                        Style="{StaticResource PrimaryButton}" Padding="24,14" FontSize="15" Margin="0,0,8,0"/>
+                                <Button Content="ترحيل الفواتير فقط" Click="SyncReceipts_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0"/>
+                                <Button Content="جلب البيانات فقط" Click="SyncPull_Click" Style="{StaticResource SecondaryButton}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Grid MinHeight="320" VerticalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource DataPanel}" Margin="0,0,8,0" VerticalAlignment="Stretch">
+                        <DockPanel LastChildFill="True">
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="فواتير بانتظار المزامنة" Style="{StaticResource H2}"/>
+                                    <TextBlock Grid.Column="1" Text="غير متزامنة مع Edari" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+                            <DataGrid x:Name="Grid" IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="70"/>
+                                    <DataGridTextColumn Header="التاريخ" Binding="{Binding CreationDate, StringFormat=yyyy-MM-dd HH:mm}" Width="130"/>
+                                    <DataGridTextColumn Header="المبلغ" Binding="{Binding TotalAmount, StringFormat=N0}" Width="100"/>
+                                    <DataGridTextColumn Header="المندوب" Binding="{Binding SalesmanName}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Style="{StaticResource DataPanel}" Margin="8,0,0,0" VerticalAlignment="Stretch">
+                        <DockPanel LastChildFill="True">
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="سجل المزامنة" Style="{StaticResource H2}"/>
+                                    <TextBlock Grid.Column="1" Text="آخر محاولات المزامنة" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+                            <DataGrid x:Name="LogsGrid" IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="العملية" Binding="{Binding Operation}" Width="90"/>
+                                    <DataGridTextColumn Header="الحالة" Binding="{Binding Status}" Width="70"/>
+                                    <DataGridTextColumn Header="فاتورة" Binding="{Binding ReceiptId}" Width="70"/>
+                                    <DataGridTextColumn Header="edr_num" Binding="{Binding EdrNum}" Width="80"/>
+                                    <DataGridTextColumn Header="الوقت" Binding="{Binding AttemptedAt, StringFormat=MM-dd HH:mm}" Width="90"/>
+                                    <DataGridTextColumn Header="رسالة" Binding="{Binding ErrorMessage}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

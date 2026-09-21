@@ -1,0 +1,61 @@
+<Window x:Class="FOT.Pos.Admin.TerminalEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="جهاز بيع" Height="520" Width="480"
+        WindowStartupLocation="CenterOwner" FlowDirection="RightToLeft"
+        Background="{StaticResource BgBrush}" ResizeMode="NoResize">
+    <Border Style="{StaticResource DialogShell}" Margin="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                <TextBlock x:Name="TitleLabel" Text="جهاز" Style="{StaticResource H2}"/>
+                <TextBlock x:Name="SubtitleLabel" Style="{StaticResource DashboardCaption}" Margin="0,4,0,0"/>
+            </StackPanel>
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource DialogFooter}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="حفظ" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
+                    <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="Cancel_Click"/>
+                </StackPanel>
+            </Border>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="اسم الجهاز" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="NameBox" Style="{StaticResource InputBox}" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="معرف الجهاز (HW ID)" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="HwIdBox" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="القسم يُحدَّد من الكاشير عند تسجيل الدخول — لا حاجة لربط الجهاز بقسم."
+                               TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,14"/>
+
+                    <Border Style="{StaticResource PremiumSectionCard}">
+                        <StackPanel>
+                            <CheckBox x:Name="ActiveBox" Content="جهاز نشط" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <CheckBox x:Name="OfflineBox" Content="السماح بالعمل دون اتصال"/>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="ملاحظات" Style="{StaticResource FieldLabel}" Margin="0,12,0,0"/>
+                    <TextBox x:Name="RemarksBox" Style="{StaticResource InputBox}" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="شاشة العميل — السطر الأول" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="VfdLine1Box" Style="{StaticResource InputBox}" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="شاشة العميل — السطر الثاني" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="VfdLine2Box" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="جهاز الدفع بالبطاقة" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="عنوان خدمة قارئ البطاقة على هذا الحاسوب، مثل localhost:9092. اتركه فارغاً إن لم يكن هناك قارئ بطاقة موصول بهذا الجهاز."
+                               TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8"/>
+                    <Border Style="{StaticResource PremiumSectionCard}">
+                        <StackPanel>
+                            <TextBlock Text="عنوان الخدمة" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="MposServiceBox" Style="{StaticResource InputBox}" Margin="0,0,0,10"/>
+                            <TextBlock Text="منفذ COM للقارئ (اختياري)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="MposComPortBox" Style="{StaticResource InputBox}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</Window>

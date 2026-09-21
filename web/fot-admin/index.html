@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <title>FOT POS — لوحة التحكم</title>
+    <script>
+      (function () {
+        // Electron file:// must not wait on Google Fonts — that blocks first paint
+        // (white window) when the PC has just booted and the network is not up.
+        if (location.protocol === 'file:') return;
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap';
+        document.head.appendChild(l);
+      })();
+    </script>
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+    </style>
+    <script>
+      (function () {
+        function recover(force) {
+          try {
+            if (window.fotDesktop && window.fotDesktop.recover) {
+              window.fotDesktop.recover();
+              return;
+            }
+            var n = parseInt(sessionStorage.getItem('fot_boot_reloads') || '0', 10);
+            if (!force && n >= 2) {
+              showUi();
+              return;
+            }
+            sessionStorage.setItem('fot_boot_reloads', String(n + 1));
+            if (window.caches) {
+              caches.keys().then(function (keys) { keys.forEach(function (k) { caches.delete(k); }); });
+            }
+            var hash = location.hash || '';
+            location.replace(location.pathname + '?r=' + Date.now() + hash);
+          } catch (e) {
+            location.reload();
+          }
+        }
+        function showUi() {
+          var root = document.getElementById('root');
+          if (!root || root.childElementCount > 0 || window.__fotAppReady) return;
+          root.innerHTML = '<div style="min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center">'
+            + '<h1 style="margin:0 0 8px;font-size:18px">تعذّر فتح لوحة التحكم</h1>'
+            + '<p style="margin:0 0 16px;color:#94a3b8;font-size:14px;line-height:1.8">الشاشة توقفت. أعد التحميل أو امسح ذاكرة المتصفح إن استمرّت المشكلة.</p>'
+            + '<button type="button" id="fot-recover-btn" style="padding:10px 18px;border:0;border-radius:12px;background:#0f9f76;color:#fff;font-weight:700;cursor:pointer">إعادة التحميل</button>'
+            + '</div>';
+          var btn = document.getElementById('fot-recover-btn');
+          if (btn) btn.onclick = function () { recover(true); };
+        }
+        window.addEventListener('error', function (e) {
+          var src = (e.target && (e.target.src || e.target.href)) || '';
+          var msg = String((e && e.message) || '');
+          if (/chunk|dynamically imported|Failed to fetch/i.test(msg) || /\.js(\?|$)/.test(src)) recover(false);
+        }, true);
+        setTimeout(function () {
+          if (!window.__fotAppReady) recover(false);
+        }, 12000);
+      })();
+    </script>
+  </head>
+  <body class="antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

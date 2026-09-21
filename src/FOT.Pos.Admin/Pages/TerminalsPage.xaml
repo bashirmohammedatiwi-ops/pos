@@ -1,0 +1,217 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.TerminalsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch"
+             TextOptions.TextFormattingMode="Display"
+             TextOptions.TextRenderingMode="ClearType"
+             UseLayoutRounding="True">
+    <DockPanel LastChildFill="True">
+        <!-- KPIs -->
+        <UniformGrid DockPanel.Dock="Top" Columns="5" Margin="0,0,0,14">
+            <Border Style="{StaticResource DashboardKpiCard}" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="إجمالي الأجهزة" Style="{StaticResource DashboardCaption}"/>
+                    <TextBlock x:Name="KpiTotal" Style="{StaticResource DashboardStatValue}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource DashboardKpiCard}" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="متصل الآن" Style="{StaticResource DashboardCaption}"/>
+                    <TextBlock x:Name="KpiOnline" Style="{StaticResource DashboardStatValue}" Foreground="#047857" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource DashboardKpiCard}" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="غير متصل" Style="{StaticResource DashboardCaption}"/>
+                    <TextBlock x:Name="KpiOffline" Style="{StaticResource DashboardStatValue}" Foreground="#BE123C" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource DashboardKpiCard}" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="فواتير اليوم" Style="{StaticResource DashboardCaption}"/>
+                    <TextBlock x:Name="KpiReceipts" Style="{StaticResource DashboardStatValue}" Foreground="#1D4ED8" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource DashboardKpiCard}" Margin="0">
+                <StackPanel>
+                    <TextBlock Text="مبيعات اليوم" Style="{StaticResource DashboardCaption}"/>
+                    <TextBlock x:Name="KpiSales" Style="{StaticResource DashboardStatValue}" Foreground="#1D4ED8" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <!-- Toolbar -->
+        <Border DockPanel.Dock="Top" Style="{StaticResource DashboardWelcomeBar}" Margin="0,0,0,14" Padding="14,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <ComboBox x:Name="StatusFilter" Width="140" SelectionChanged="Filter_Changed">
+                        <ComboBoxItem Content="كل الأجهزة" Tag="all" IsSelected="True"/>
+                        <ComboBoxItem Content="متصل فقط" Tag="online"/>
+                        <ComboBoxItem Content="غير متصل" Tag="offline"/>
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="&#xE710; إضافة جهاز" Style="{StaticResource TopBarPrimaryAction}" Padding="16,9" Margin="0,0,8,0" Click="Add_Click"/>
+                    <Button Content="تحديث" Style="{StaticResource TopBarActionButton}" Padding="14,9" Click="Refresh_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Master-detail -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="340" MinWidth="280"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- List -->
+            <Border Grid.Column="0" Style="{StaticResource DashboardDataPanel}" Margin="0,0,12,0">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}" Padding="14,12">
+                        <TextBlock Text="الأجهزة" Style="{StaticResource H2}"/>
+                    </Border>
+                    <ListBox x:Name="TerminalList" SelectionChanged="TerminalList_OnSelectionChanged" Margin="8,6">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="10,8" Margin="2,3" CornerRadius="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="White">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse Width="10" Height="10" Margin="0,0,10,0" VerticalAlignment="Center">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#CBD5E1"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                            <Setter Property="Fill" Value="#10B981"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" Foreground="#0F172A"/>
+                                            <TextBlock Text="{Binding HwId}" FontSize="10" Foreground="#94A3B8" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Detail -->
+            <Border Grid.Column="1" Style="{StaticResource DashboardDataPanel}" x:Name="DetailPanel">
+                <Grid>
+                <DockPanel x:Name="DetailContent" Visibility="Collapsed">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PremiumPanelHeader}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse x:Name="DetailDot" Width="12" Height="12" Fill="#CBD5E1" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock x:Name="DetailName" Style="{StaticResource H2}"/>
+                                    <TextBlock x:Name="DetailHwId" Style="{StaticResource DashboardCaption}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button Content="تعديل" Style="{StaticResource TopBarActionButton}" Padding="14,8" Click="Edit_Click"/>
+                                <Button Content="حذف" Style="{StaticResource TopBarActionButton}" Padding="14,8" Margin="8,0,0,0" Click="Delete_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                <TextBlock Text="معلومات الجهاز" Style="{StaticResource FieldLabel}" Margin="0,0,0,8"/>
+                                <Border Style="{StaticResource PremiumSectionCard}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource DashboardCaption}" Text="الحالة"/>
+                                        <TextBlock x:Name="DetailStatus" FontWeight="SemiBold" Margin="0,2,0,10"/>
+                                        <TextBlock Style="{StaticResource DashboardCaption}" Text="آخر اتصال"/>
+                                        <TextBlock x:Name="DetailLastConn" Margin="0,2,0,10"/>
+                                        <TextBlock Style="{StaticResource DashboardCaption}" Text="الإصدار"/>
+                                        <TextBlock x:Name="DetailVersion" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="مبيعات اليوم" Style="{StaticResource FieldLabel}" Margin="0,14,0,8"/>
+                                <UniformGrid Columns="2">
+                                    <Border Style="{StaticResource PremiumSectionCard}" Margin="0,0,6,0">
+                                        <StackPanel>
+                                            <TextBlock Text="فواتير" Style="{StaticResource DashboardCaption}"/>
+                                            <TextBlock x:Name="DetailReceipts" Style="{StaticResource DashboardStatValue}" FontSize="22" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource PremiumSectionCard}" Margin="6,0,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="المبيعات" Style="{StaticResource DashboardCaption}"/>
+                                            <TextBlock x:Name="DetailSales" Style="{StaticResource DashboardStatValue}" FontSize="22" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="الإعدادات" Style="{StaticResource FieldLabel}" Margin="0,0,0,8"/>
+                                <Border Style="{StaticResource PremiumSectionCard}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource DashboardCaption}" Text="ملاحظات"/>
+                                        <TextBlock x:Name="DetailRemarks" TextWrapping="Wrap" Margin="0,2,0,10"/>
+                                        <TextBlock Style="{StaticResource DashboardCaption}" Text="شاشة العميل"/>
+                                        <TextBlock x:Name="DetailVfd1" Margin="0,2,0,4"/>
+                                        <TextBlock x:Name="DetailVfd2" Margin="0,0,0,10"/>
+                                        <TextBlock Style="{StaticResource DashboardCaption}" Text="وضع دون اتصال"/>
+                                        <TextBlock x:Name="DetailOffline" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="آخر النشاط" Style="{StaticResource FieldLabel}" Margin="0,14,0,8"/>
+                                <Border Style="{StaticResource PremiumSectionCard}" MinHeight="120">
+                                    <ItemsControl x:Name="ActivityList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="#F1F5F9" BorderThickness="0,0,0,1" Padding="0,6">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding EventType}" FontWeight="Medium" FontSize="12"/>
+                                                        <TextBlock Text="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Style="{StaticResource DashboardCaption}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </DockPanel>
+
+                <StackPanel x:Name="DetailPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Border Style="{StaticResource KpiIconBoxBlue}" Width="56" Height="56" Margin="0,0,0,14" HorizontalAlignment="Center">
+                        <TextBlock Text="&#xE977;" Style="{StaticResource PageMdl2Icon}" Foreground="#1D4ED8" FontSize="20"/>
+                    </Border>
+                    <TextBlock Text="اختر جهازاً من القائمة" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                    <TextBlock Text="أو أضف جهازاً جديداً" Style="{StaticResource DashboardCaption}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

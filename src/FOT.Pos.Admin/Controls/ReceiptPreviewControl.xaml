@@ -1,0 +1,17 @@
+<UserControl x:Class="FOT.Pos.Admin.Controls.ReceiptPreviewControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft">
+    <StackPanel HorizontalAlignment="Center">
+        <TextBlock Text="معاينة حية" Style="{StaticResource Caption}" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+        <Border x:Name="PaperBorder" Background="White" CornerRadius="4" Padding="4"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                HorizontalAlignment="Center" MaxHeight="620">
+            <FlowDocumentScrollViewer x:Name="PreviewViewer"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Background="White"/>
+        </Border>
+        <TextBlock x:Name="PaperHint" Style="{StaticResource Caption}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+    </StackPanel>
+</UserControl>

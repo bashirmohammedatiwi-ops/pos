@@ -1,0 +1,84 @@
+<Window x:Class="FOT.Pos.Admin.OfferAddProductDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="إضافة منتج للعرض"
+        Height="580" Width="720"
+        WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft"
+        Background="{StaticResource BgBrush}"
+        ResizeMode="NoResize">
+    <Border Style="{StaticResource DialogShell}" Margin="20">
+        <DockPanel LastChildFill="True">
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                <TextBlock Text="إضافة منتج للعرض" Style="{StaticResource H2}"/>
+                <TextBlock Text="ابحث عن المنتج وحدّد نسبة الخصم" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource DialogFooter}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="إضافة للعرض" Style="{StaticResource PrimaryButton}" Click="Add_Click" IsDefault="True"/>
+                    <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="Cancel_Click"/>
+                </StackPanel>
+            </Border>
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarCard}" Margin="0,0,0,12" Padding="12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" KeyDown="SearchBox_OnKeyDown"/>
+                    <Button Grid.Column="1" Content="بحث" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Click="Search_Click"/>
+                </Grid>
+            </Border>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="240"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource DataPanel}" Margin="0,0,10,0">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                            <TextBlock Text="نتائج البحث" Style="{StaticResource Caption}"/>
+                        </Border>
+                        <DataGrid x:Name="ProductsGrid" IsReadOnly="True" SelectionMode="Single"
+                                  SelectionChanged="ProductsGrid_OnSelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="الاسم" Binding="{Binding Name}" Width="*"/>
+                                <DataGridTextColumn Header="باركود" Binding="{Binding Barcode}" Width="110"/>
+                                <DataGridTextColumn Header="السعر" Binding="{Binding OriginalPrice, StringFormat=N0}" Width="90"/>
+                                <DataGridTextColumn Header="عرض حالي" Binding="{Binding OfferName}" Width="130"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource SplitPane}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                            <TextBlock Text="إعدادات الخصم" Style="{StaticResource H2}" Margin="0" FontSize="14"/>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
+                            <StackPanel IsEnabled="False" x:Name="DiscountPanel">
+                                <Border Style="{StaticResource InfoBox}" Margin="0,0,0,12">
+                                    <TextBlock x:Name="SelectedProductLabel" Text="—" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                                </Border>
+                                <StackPanel x:Name="DiscountFields">
+                                    <TextBlock Text="نسبة التخفيض %" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="PercentBox" Style="{StaticResource InputBox}" Text="10" Margin="0,0,0,12"/>
+                                </StackPanel>
+                                <CheckBox x:Name="UnlimitedBox" Content="بدون تاريخ انتهاء" IsChecked="True" Margin="0,0,0,10" Checked="UnlimitedBox_OnChanged" Unchecked="UnlimitedBox_OnChanged"/>
+                                <TextBlock Text="من تاريخ" Style="{StaticResource FieldLabel}"/>
+                                <DatePicker x:Name="FromDate" Margin="0,0,0,10" IsEnabled="False"/>
+                                <TextBlock Text="إلى تاريخ" Style="{StaticResource FieldLabel}"/>
+                                <DatePicker x:Name="ToDate" IsEnabled="False"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </DockPanel>
+    </Border>
+</Window>

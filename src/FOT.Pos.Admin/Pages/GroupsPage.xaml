@@ -1,0 +1,48 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.GroupsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top" Style="{StaticResource FilterBar}">
+            <TextBlock Text="مجموعات أزرار المنتجات في شاشة البيع — اختر مجموعة لعرض أصنافها" Style="{StaticResource Caption}"/>
+        </Border>
+        <Grid VerticalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource SplitPane}" Margin="0,0,10,0" VerticalAlignment="Stretch">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                        <TextBlock Text="المجموعات" Style="{StaticResource H2}"/>
+                    </Border>
+                    <ListBox x:Name="GroupsList" DisplayMemberPath="Name" SelectionChanged="GroupsList_OnSelectionChanged" Margin="8,4,8,8"/>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="1" Style="{StaticResource DataPanel}" VerticalAlignment="Stretch">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Name="ItemsTitle" Text="اختر مجموعة" Style="{StaticResource H2}"/>
+                            <TextBlock Grid.Column="1" Text="أصناف المجموعة المحددة" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="ItemsGrid" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="المنتج" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="باركود" Binding="{Binding Barcode}" Width="120"/>
+                            <DataGridTextColumn Header="السعر" Binding="{Binding Price, StringFormat=N0}" Width="100"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

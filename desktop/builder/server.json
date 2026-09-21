@@ -1,0 +1,59 @@
+{
+  "appId": "com.fot.pos.server",
+  "productName": "FOT POS Server",
+  "copyright": "Copyright © Future of Technology",
+  "directories": {
+    "output": "dist/server"
+  },
+  "files": [
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "roles/admin.txt",
+      "to": "fot-role.txt"
+    },
+    {
+      "from": "../web/fot-admin/dist",
+      "to": "fot-admin"
+    }
+  ],
+  "extraFiles": [
+    {
+      "from": "../publish/desktop/FOT-POS-Server/Api",
+      "to": "Api"
+    },
+    {
+      "from": "../scripts/Install-WindowsService.ps1",
+      "to": "Install-WindowsService.ps1"
+    },
+    {
+      "from": "../scripts/Uninstall-WindowsService.ps1",
+      "to": "Uninstall-WindowsService.ps1"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "requestedExecutionLevel": "asInvoker",
+    "artifactName": "FOT-POS-Server-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FOT POS إدارة (الخادم)",
+    "include": "electron/installer-server.nsh",
+    "deleteAppDataOnUninstall": false,
+    "artifactName": "FOT-POS-Server-Setup.exe"
+  },
+  "asar": true
+}

@@ -1,0 +1,40 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:dto="clr-namespace:FOT.Pos.Shared.Dtos;assembly=FOT.Pos.Shared">
+
+    <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type dto:ProductDto}">
+        <Border Padding="12,10" CornerRadius="8" Cursor="Hand">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                            <Setter Property="Background" Value="#EEF2FF"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                            <Setter Property="Background" Value="#F9FAFB"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="32" Height="32" CornerRadius="8" Background="#F4F4F5" Margin="0,0,10,0">
+                    <TextBlock Text="{Binding Name, Converter={StaticResource NameInitial}}" FontWeight="Bold" FontSize="12"
+                               Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Barcode}" Foreground="{StaticResource MutedBrush}" FontSize="10" Margin="0,2,0,0"/>
+                </StackPanel>
+                <TextBlock Grid.Column="2" Text="{Binding Price, StringFormat={}{0:N0} د.ع}" FontWeight="Bold" FontSize="14"
+                           Foreground="{StaticResource InkBrush}" VerticalAlignment="Center" Margin="16,0,0,0"/>
+            </Grid>
+        </Border>
+    </DataTemplate>
+
+</ResourceDictionary>

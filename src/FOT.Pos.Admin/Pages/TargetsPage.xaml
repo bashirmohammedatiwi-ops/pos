@@ -1,0 +1,70 @@
+<UserControl x:Class="FOT.Pos.Admin.Pages.TargetsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             VerticalAlignment="Stretch">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top" Style="{StaticResource FilterBar}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="أهداف المبيعات وتتبع التقدم" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Content="هدف جديد" Style="{StaticResource PrimaryButton}" Click="Add_Click"/>
+            </Grid>
+        </Border>
+        <Border Style="{StaticResource DataPanel}" Padding="0">
+            <TabControl>
+                <TabItem Header="القواعد">
+                    <DockPanel LastChildFill="True">
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="قواعد الأهداف" Style="{StaticResource H2}"/>
+                                <TextBlock Grid.Column="1" Text="القواعد المعرّفة" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <DataGrid x:Name="RulesGrid" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="الاسم" Binding="{Binding Name}" Width="*"/>
+                                <DataGridTextColumn Header="شجرة الإداري" Binding="{Binding EdariTreeName}" Width="160"/>
+                                <DataGridTextColumn Header="النوع" Binding="{Binding TargetType}" Width="100"/>
+                                <DataGridTextColumn Header="القيمة" Binding="{Binding TargetValue, StringFormat=N0}" Width="110"/>
+                                <DataGridTextColumn Header="الفترة" Binding="{Binding PeriodType}" Width="100"/>
+                                <DataGridCheckBoxColumn Header="نشط" Binding="{Binding IsActive}" Width="70"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </TabItem>
+                <TabItem Header="التقدم">
+                    <DockPanel LastChildFill="True">
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="تتبع التقدم" Style="{StaticResource H2}"/>
+                                <TextBlock Grid.Column="1" Text="نحو الأهداف المحددة" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <DataGrid x:Name="ProgressGrid" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="الهدف" Binding="{Binding RuleName}" Width="*"/>
+                                <DataGridTextColumn Header="الفترة" Binding="{Binding PeriodType}" Width="90"/>
+                                <DataGridTextColumn Header="البداية" Binding="{Binding PeriodStart, StringFormat=yyyy-MM-dd}" Width="110"/>
+                                <DataGridTextColumn Header="الحالي" Binding="{Binding CurrentValue, StringFormat=N0}" Width="100"/>
+                                <DataGridTextColumn Header="المطلوب" Binding="{Binding TargetValue, StringFormat=N0}" Width="100"/>
+                                <DataGridTextColumn Header="%" Binding="{Binding ProgressPercent, StringFormat=N0}" Width="70"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
+        </Border>
+    </DockPanel>
+</UserControl>

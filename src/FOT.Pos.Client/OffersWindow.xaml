@@ -1,0 +1,171 @@
+<Window x:Class="FOT.Pos.Client.OffersWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="إدارة العروض — FOT POS">
+    <Grid>
+        <Border Style="{StaticResource OverlayScrim}"/>
+        <Border Margin="18" CornerRadius="22" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                ClipToBounds="True" Effect="{StaticResource ShadowLg}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="18,14">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Width="42" Height="42" CornerRadius="12" Background="#ECFDF5" Margin="0,0,12,0">
+                                <ContentControl ContentTemplate="{StaticResource IconOffers}" Foreground="#059669"
+                                                Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="إدارة العروض والتخفيضات" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock x:Name="StatsLabel" Foreground="{StaticResource MutedBrush}" FontSize="13" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <Button Content="عرض جديد" Style="{StaticResource PrimaryButton}" Padding="16,10" Click="CreateOffer_Click"/>
+                            <Button Content="حذف العرض" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="16,10"
+                                    Click="DeleteOffer_Click" x:Name="DeleteOfferBtn" IsEnabled="False"/>
+                            <Button Content="تحديث" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="16,10" Click="RefreshCatalog_Click"/>
+                            <Button Style="{StaticResource OverlayCloseButton}" Margin="10,0,0,0" Click="Close_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="1" Margin="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Col 1: Offers list -->
+            <Border Grid.Column="0" Background="White" CornerRadius="12" Margin="0,0,8,0"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <DockPanel Margin="12">
+                    <TextBlock DockPanel.Dock="Top" Text="مجموعات العروض" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                    <TextBox DockPanel.Dock="Top" x:Name="OfferSearchBox" Style="{StaticResource InputBox}"
+                             Margin="0,0,0,10" TextChanged="OfferSearchBox_OnTextChanged"/>
+                    <ListBox x:Name="OffersList" SelectionChanged="OffersList_OnSelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="4,6">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                        <Border Background="{Binding StatusBg}" CornerRadius="4" Padding="6,2" Margin="0,0,6,0">
+                                            <TextBlock Text="{Binding StatusLabel}" FontSize="11" Foreground="{Binding StatusFg}"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding MetaLabel}" Foreground="{StaticResource MutedBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Col 2: Offer settings -->
+            <Border Grid.Column="1" Background="White" CornerRadius="12" Margin="0,0,8,0"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" x:Name="SettingsPanel" IsEnabled="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="إعدادات العرض" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14"/>
+
+                        <TextBlock Text="اسم العرض" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+                        <TextBox x:Name="OfferNameBox" Style="{StaticResource InputBox}" Margin="0,4,0,12"/>
+
+                        <TextBlock Text="نوع العرض" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+                        <ComboBox x:Name="OfferTypeCombo" Margin="0,4,0,12" SelectionChanged="OfferTypeCombo_OnSelectionChanged">
+                            <ComboBoxItem Content="خصم نسبة — منتجات / شجرات" Tag="0" IsSelected="True"/>
+                            <ComboBoxItem Content="مجموعة عرض — مطلوب + مخفّض" Tag="1"/>
+                        </ComboBox>
+
+                        <TextBlock Text="الأولوية (أعلى = يُطبَّق أولاً)" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+                        <TextBox x:Name="OfferPriorityBox" Style="{StaticResource InputBox}" Margin="0,4,0,12"/>
+
+                        <CheckBox x:Name="OfferEnabledBox" Content="عرض نشط" Margin="0,0,0,14" FontSize="14"/>
+
+                        <TextBlock Text="صلاحية العرض" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="UnlimitedBox" Content="بدون تاريخ انتهاء" IsChecked="True" Margin="0,0,0,8"
+                                  Checked="UnlimitedBox_OnChanged" Unchecked="UnlimitedBox_OnChanged"/>
+                        <TextBlock Text="من" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                        <DatePicker x:Name="FromDate" Margin="0,2,0,8" IsEnabled="False"/>
+                        <TextBlock Text="إلى" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                        <DatePicker x:Name="ToDate" Margin="0,2,0,14" IsEnabled="False"/>
+
+                        <Button Content="حفظ الإعدادات" Style="{StaticResource PrimaryButton}" Padding="14,12" Click="SaveOffer_Click"/>
+
+                        <Border Background="#F8FAFC" CornerRadius="8" Padding="12" Margin="0,16,0,0"
+                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="ملخص" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <TextBlock x:Name="SummaryProducts" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+                                <TextBlock x:Name="SummaryTrees" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="SummaryRequired" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Col 3: Details -->
+            <Border Grid.Column="2" Background="White" CornerRadius="12"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" x:Name="DetailsPanel" IsEnabled="False">
+                <TabControl x:Name="DetailsTabs" Margin="8">
+                    <TabItem Header="الأصناف المخفّضة (%)" x:Name="DiscountTab">
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                                <Button Content="＋  منتج" Style="{StaticResource PrimaryButton}" Padding="14,10" Click="AddProduct_Click"/>
+                                <Button Content="＋  شجرة مواد" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" Padding="14,10" Click="AddTree_Click"/>
+                                <Button Content="حذف المحدد" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,10"
+                                        Click="RemoveDetail_Click" x:Name="RemoveDiscountBtn" IsEnabled="False"/>
+                                <Button Content="حذف دفعة شجرة" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,10"
+                                        Click="RemoveTreeBatch_Click" x:Name="RemoveTreeBtn" IsEnabled="False"/>
+                            </StackPanel>
+                            <DataGrid x:Name="DiscountGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      SelectionChanged="DiscountGrid_OnSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="المنتج / المصدر" Binding="{Binding DisplayName}" Width="*"/>
+                                    <DataGridTextColumn Header="نسبة %" Binding="{Binding DiscountPercent, StringFormat=N0}" Width="80"/>
+                                    <DataGridTextColumn Header="المصدر" Binding="{Binding SourceLabel}" Width="100"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                    <TabItem Header="أصناف مطلوبة (مجموعة)" x:Name="RequiredTab">
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                                <Button Content="＋  منتج مطلوب" Style="{StaticResource PrimaryButton}" Padding="14,10" Click="AddRequired_Click"/>
+                                <Button Content="حذف المحدد" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="14,10"
+                                        Click="RemoveRequired_Click" x:Name="RemoveRequiredBtn" IsEnabled="False"/>
+                            </StackPanel>
+                            <DataGrid x:Name="RequiredGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      SelectionChanged="RequiredGrid_OnSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="المنتج" Binding="{Binding DisplayName}" Width="*"/>
+                                    <DataGridTextColumn Header="باركود" Binding="{Binding Barcode}" Width="120"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                    <TabItem Header="دفعات الشجرات" x:Name="TreeTab">
+                        <DockPanel Margin="8">
+                            <DataGrid x:Name="TreeBatchGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      SelectionChanged="TreeBatchGrid_OnSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="الشجرة" Binding="{Binding TreeName}" Width="*"/>
+                                    <DataGridTextColumn Header="عدد الأصناف" Binding="{Binding ProductCount}" Width="100"/>
+                                    <DataGridTextColumn Header="نسبة %" Binding="{Binding DiscountPercent, StringFormat=N0}" Width="80"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                </TabControl>
+            </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

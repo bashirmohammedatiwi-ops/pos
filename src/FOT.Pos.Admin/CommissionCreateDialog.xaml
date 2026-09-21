@@ -1,0 +1,31 @@
+<Window x:Class="FOT.Pos.Admin.CommissionCreateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="قاعدة عمولة" Height="420" Width="440" WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft" Background="{StaticResource BgBrush}" ResizeMode="NoResize">
+    <Border Style="{StaticResource DialogShell}" Margin="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                <TextBlock Text="قاعدة عمولة" Style="{StaticResource H2}"/>
+                <TextBlock Text="تحديد نسبة أو مبلغ ثابت للعمولة" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+            </StackPanel>
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource DialogFooter}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="حفظ" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
+                    <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="Cancel_Click"/>
+                </StackPanel>
+            </Border>
+            <StackPanel>
+                <TextBlock Text="الباركود (اختياري)" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="BarcodeBox" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+                <TextBlock Text="نوع العمولة" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="TypeCombo" Margin="0,0,0,14">
+                    <ComboBoxItem Content="نسبة مئوية" Tag="percentage" IsSelected="True"/>
+                    <ComboBoxItem Content="مبلغ ثابت" Tag="fixed"/>
+                </ComboBox>
+                <TextBlock Text="القيمة" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="ValueBox" Style="{StaticResource InputBox}"/>
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>

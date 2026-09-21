@@ -1,0 +1,95 @@
+<Window x:Class="FOT.Pos.Admin.EdariTreePickerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="شجرة مواد الإداري — Edari"
+        Height="680" Width="820"
+        MinHeight="520" MinWidth="640"
+        WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft"
+        Background="{StaticResource BgBrush}">
+    <Border Style="{StaticResource DialogShell}" Margin="20">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,0,0,14">
+                <TextBlock Text="شجرة مواد الإداري (EdariNX)" Style="{StaticResource H2}"/>
+                <TextBlock x:Name="HintText" Text="تصفّح مجلدات المواد — اختر مجلداً لتطبيق الخصم على جميع الأصناف تحته"
+                           Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <Border Grid.Row="1" Style="{StaticResource InfoBox}" Margin="0,0,0,10">
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource BadgePrimary}" Margin="0,0,8,0">
+                        <TextBlock x:Name="SourceLabel" Text="Edari" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
+                    </Border>
+                    <TextBlock x:Name="BreadcrumbLabel" Text="الجذر" Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="2" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" KeyDown="SearchBox_OnKeyDown"/>
+                <Button Grid.Column="1" Content="بحث" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Padding="16,10" Click="Search_Click"/>
+                <Button Grid.Column="2" Content="رجوع" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="16,10"
+                        Click="Back_Click" x:Name="BackBtn" IsEnabled="False"/>
+            </Grid>
+
+            <Border Grid.Row="3" Style="{StaticResource DataPanel}">
+                <ListBox x:Name="TreeList" BorderThickness="0" SelectionChanged="TreeList_OnSelectionChanged"
+                         MouseDoubleClick="TreeList_OnDoubleClick">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="6,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Style="{StaticResource KindIcon}">
+                                    <TextBlock Text="{Binding KindShort}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{StaticResource MutedBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="{Binding SubLabel}" Style="{StaticResource Caption}"/>
+                                </StackPanel>
+                                <Border Grid.Column="2" Style="{StaticResource BadgeMuted}" VerticalAlignment="Center" Margin="8,0,0,0">
+                                    <TextBlock Text="{Binding KindLabel}" FontSize="11"/>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <Border Grid.Row="4" Style="{StaticResource AlertSuccess}" Margin="0,12,0,0"
+                    x:Name="PreviewPanel" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock x:Name="PreviewTitle" FontWeight="SemiBold" FontSize="13"/>
+                    <TextBlock x:Name="PreviewCount" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="5" Margin="0,14,0,0">
+                <TextBlock x:Name="StatusText" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="اختيار المجلد" Style="{StaticResource PrimaryButton}" Padding="18,11"
+                            Click="Select_Click" IsDefault="True" x:Name="SelectBtn"/>
+                    <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Padding="18,11" Click="Cancel_Click"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

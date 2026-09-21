@@ -1,0 +1,43 @@
+<Window x:Class="FOT.Pos.Admin.OfferCreateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="عرض جديد" Height="420" Width="420" WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft" Background="{StaticResource BgBrush}" ResizeMode="NoResize">
+    <Border Style="{StaticResource DialogShell}" Margin="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                <TextBlock Text="عرض جديد" Style="{StaticResource H2}"/>
+                <TextBlock Text="إنشاء مجموعة عروض جديدة" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+            </StackPanel>
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource DialogFooter}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="إنشاء" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
+                    <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="Cancel_Click"/>
+                </StackPanel>
+            </Border>
+            <StackPanel>
+                <TextBlock Text="اسم العرض" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="NameBox" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock Text="الأولوية" Style="{StaticResource FieldLabel}"/>
+                        <TextBox x:Name="PriorityBox" Text="1" Style="{StaticResource InputBox}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                        <TextBlock Text="النوع" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="TypeCombo">
+                            <ComboBoxItem Content="خصم نسبة" Tag="0" IsSelected="True"/>
+                            <ComboBoxItem Content="مجموعة أصناف" Tag="1"/>
+                            <ComboBoxItem Content="أسعار فردية" Tag="2"/>
+                        </ComboBox>
+                    </StackPanel>
+                </Grid>
+                <CheckBox x:Name="EnabledBox" Content="نشط فور الإنشاء" IsChecked="True"/>
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>

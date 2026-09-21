@@ -1,0 +1,15 @@
+{
+  "name": "fot-web",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "fot-pos",
+    "fot-admin",
+    "fot-price",
+    "fot-seller"
+  ],
+  "scripts": {
+    "verify": "powershell -NoProfile -File ../scripts/Verify-Build.ps1",
+    "openapi": "powershell -NoProfile -File ../scripts/Export-OpenApi.ps1"
+  }
+}

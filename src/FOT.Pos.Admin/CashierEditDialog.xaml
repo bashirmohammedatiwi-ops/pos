@@ -1,0 +1,93 @@
+<Window x:Class="FOT.Pos.Admin.CashierEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="كاشير" Height="620" Width="480"
+        WindowStartupLocation="CenterOwner" FlowDirection="RightToLeft"
+        Background="{StaticResource BgBrush}" ResizeMode="NoResize">
+    <Border Style="{StaticResource DialogShell}" Margin="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                <TextBlock x:Name="TitleLabel" Text="كاشير" Style="{StaticResource H2}"/>
+                <TextBlock x:Name="SubtitleLabel" Style="{StaticResource DashboardCaption}" Margin="0,4,0,0"/>
+            </StackPanel>
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource DialogFooter}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="حفظ" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
+                    <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="Cancel_Click"/>
+                </StackPanel>
+            </Border>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="اسم الكاشير" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="AccountNameBox" Style="{StaticResource InputBox}" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="رمز الدخول *" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="يُستخدم على جهاز البيع — يجب أن يكون فريداً"
+                               FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8"/>
+                    <PasswordBox x:Name="PasswordBox" Margin="0,0,0,4" Padding="12,10" FontSize="16"/>
+                    <TextBlock x:Name="PasswordHint" Style="{StaticResource DashboardCaption}" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="القسم *" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="الكاشير يبيع ضمن هذا القسم"
+                               FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8"/>
+                    <ComboBox x:Name="SectionCombo" DisplayMemberPath="Name" Style="{StaticResource InputComboBox}" Margin="0,0,0,14"/>
+
+                    <CheckBox x:Name="ActiveBox" Content="حساب نشط" FontWeight="SemiBold" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="صندوق الدفع بالبطاقة" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="حساب Edari الذي تُرحّل إليه فواتير الماستر كارد / فيزا لهذا الكاشير. إن تُرك فارغاً تذهب الفاتورة لصندوق القسم الافتراضي."
+                               TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8"/>
+                    <Border Style="{StaticResource PremiumSectionCard}" Margin="0,0,0,14">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="CardAccountSearchBox" Grid.Column="0" Style="{StaticResource InputBox}" Margin="0,0,8,0"
+                                         TextChanged="CardAccountSearchBox_OnTextChanged"/>
+                                <Button Grid.Column="1" Content="بحث" Style="{StaticResource SecondaryButton}" Click="SearchCardAccounts_Click"/>
+                            </Grid>
+                            <ListBox x:Name="CardAccountList" MaxHeight="110" Margin="0,0,0,8"
+                                     DisplayMemberPath="Label" MouseDoubleClick="CardAccountList_OnDoubleClick"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="CardAccountLabel" Grid.Column="0" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" FontWeight="SemiBold"
+                                           Text="بدون صندوق مخصص"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button Content="تعيين" Style="{StaticResource SecondaryButton}" Padding="10,4" Click="SetCardAccount_Click"/>
+                                    <Button Content="إزالة" Style="{StaticResource SecondaryButton}" Padding="10,4" Margin="6,0,0,0" Click="ClearCardAccount_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Expander Header="صلاحيات متقدمة (اختياري)" IsExpanded="False">
+                        <Border Style="{StaticResource PremiumSectionCard}" Margin="0,8,0,0">
+                            <StackPanel>
+                                <CheckBox x:Name="MakeDiscount" Content="السماح بالخصم" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="DeleteItem" Content="حذف صنف من السلة" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowReturn" Content="فاتورة إرجاع" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowSearch" Content="بحث منتجات" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowPriceChange" Content="تغيير السعر" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowCredit" Content="بيع آجل" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowGift" Content="فاتورة هدية" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowOffline" Content="دخول دون اتصال" Margin="0,0,0,14"/>
+                                <TextBlock Text="حد خصم الصنف %" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="ItemDiscLimit" Style="{StaticResource InputBox}" Margin="0,0,0,10"/>
+                                <TextBlock Text="حد خصم الفاتورة %" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="UserDiscLimit" Style="{StaticResource InputBox}" Margin="0,0,0,10"/>
+                                <TextBlock Text="عدد الفواتير المعلّقة" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="HoldLimit" Style="{StaticResource InputBox}"/>
+                            </StackPanel>
+                        </Border>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</Window>

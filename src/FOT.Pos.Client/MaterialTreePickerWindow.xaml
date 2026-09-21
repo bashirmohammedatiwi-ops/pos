@@ -1,0 +1,61 @@
+<Window x:Class="FOT.Pos.Client.MaterialTreePickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="اختيار من شجرة المواد"
+        Height="640" Width="740">
+    <Grid>
+        <Border Style="{StaticResource OverlayScrim}"/>
+        <Border Style="{StaticResource OverlayCard}" Width="700" MaxHeight="640">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Style="{StaticResource OverlayHeader}">
+                    <Grid>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,48,0">
+                            <TextBlock Text="شجرة المواد" Style="{StaticResource PosDialogTitle}" FontSize="18"/>
+                            <TextBlock Text="اختر مجلداً لتطبيق الخصم على جميع الأصناف تحته" Style="{StaticResource PosDialogSubtitle}"/>
+                        </StackPanel>
+                        <Button Style="{StaticResource OverlayCloseButton}" HorizontalAlignment="Left" Click="Cancel_Click"/>
+                    </Grid>
+                </Border>
+                <Border DockPanel.Dock="Bottom" Padding="18,14" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button Content="اختيار المجلد" Style="{StaticResource CompleteSaleButton}" FontSize="15" Padding="28,13" Click="Select_Click" IsDefault="True"/>
+                        <Button Content="إلغاء" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Padding="24,13" Click="Cancel_Click"/>
+                    </StackPanel>
+                </Border>
+                <Border Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" KeyDown="SearchBox_OnKeyDown"/>
+                            <Button Grid.Column="1" Content="بحث" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Padding="16,10" Click="Search_Click"/>
+                            <Button Grid.Column="2" Content="رجوع" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="16,10" Click="Back_Click" x:Name="BackBtn"/>
+                        </Grid>
+                        <Border Grid.Row="1" Background="White" CornerRadius="14" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <ListBox x:Name="TreeList" MouseDoubleClick="TreeList_OnDoubleClick" BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="8,8">
+                                            <TextBlock Text="{Binding Icon}" FontSize="18" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="15"/>
+                                                <TextBlock Text="{Binding SubLabel}" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
+                    </Grid>
+                </Border>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

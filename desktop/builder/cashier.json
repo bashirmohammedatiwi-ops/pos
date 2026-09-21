@@ -1,0 +1,43 @@
+{
+  "appId": "com.fot.pos.cashier",
+  "productName": "FOT POS Cashier",
+  "copyright": "Copyright © Future of Technology",
+  "directories": {
+    "output": "dist/cashier"
+  },
+  "files": [
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "roles/pos.txt",
+      "to": "fot-role.txt"
+    },
+    {
+      "from": "../web/fot-pos/dist",
+      "to": "fot-pos"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "FOT-POS-Cashier-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FOT POS كاشير",
+    "include": "electron/installer-cashier.nsh",
+    "deleteAppDataOnUninstall": false,
+    "artifactName": "FOT-POS-Cashier-Setup.exe"
+  },
+  "asar": true
+}

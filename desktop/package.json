@@ -1,0 +1,70 @@
+{
+  "name": "fot-pos-desktop",
+  "version": "2.2.62",
+  "private": true,
+  "description": "Electron shells for FOT POS Admin and Cashier",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "admin": "cross-env FOT_APP=admin concurrently -k -n admin,electron -c cyan,magenta \"npm --prefix ../web/fot-admin run dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "pos": "cross-env FOT_APP=pos concurrently -k -n pos,electron -c green,magenta \"npm --prefix ../web/fot-pos run dev\" \"wait-on http://127.0.0.1:5174 && electron . --pos\"",
+    "build:admin": "cross-env VITE_ELECTRON=1 npm --prefix ../web/fot-admin run build",
+    "build:pos": "cross-env VITE_ELECTRON=1 npm --prefix ../web/fot-pos run build",
+    "start:admin": "cross-env FOT_APP=admin electron . --admin",
+    "start:pos": "cross-env FOT_APP=pos electron . --pos",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3 || echo optional native rebuild skipped",
+    "dist:server": "electron-builder --win nsis --config builder/server.json",
+    "dist:admin": "electron-builder --win nsis --config builder/admin.json",
+    "dist:cashier": "electron-builder --win nsis --config builder/cashier.json",
+    "dist:all": "npm run build:admin && npm run build:pos && npm run dist:cashier && npm run dist:admin && npm run dist:server",
+    "dist": "npm run dist:all"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^37.3.1",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "com.fot.pos.desktop",
+    "productName": "FOT POS",
+    "copyright": "Copyright آ© Future of Technology",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/fot-pos/dist",
+        "to": "fot-pos"
+      },
+      {
+        "from": "../web/fot-admin/dist",
+        "to": "fot-admin"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FOT POS",
+      "include": "electron/installer.nsh"
+    },
+    "asar": true
+  }
+}

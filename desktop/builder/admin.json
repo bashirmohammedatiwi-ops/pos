@@ -1,0 +1,43 @@
+{
+  "appId": "com.fot.pos.admin",
+  "productName": "FOT POS Admin",
+  "copyright": "Copyright © Future of Technology",
+  "directories": {
+    "output": "dist/admin"
+  },
+  "files": [
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "roles/admin.txt",
+      "to": "fot-role.txt"
+    },
+    {
+      "from": "../web/fot-admin/dist",
+      "to": "fot-admin"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "FOT-POS-Admin-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FOT POS إدارة",
+    "include": "electron/installer-admin.nsh",
+    "deleteAppDataOnUninstall": false,
+    "artifactName": "FOT-POS-Admin-Setup.exe"
+  },
+  "asar": true
+}
