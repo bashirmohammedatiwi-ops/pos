@@ -4,7 +4,7 @@
 services:
   # Shop PC connects outbound here (no inbound 5000). Reverse tunnel lands on :5000.
   shop-tunnel:
-    image: jpillora/chisel:1.11.3
+    image: jpillora/chisel:1.12.0
     network_mode: host
     command: server --reverse --port 4704 --auth ${FOT_TUNNEL_AUTH:-fot:e7Kq9mN2pL4xW8vR}
     restart: unless-stopped

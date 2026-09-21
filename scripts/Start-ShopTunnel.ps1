@@ -11,8 +11,8 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $tools = Join-Path $PSScriptRoot "tools"
 $chisel = Join-Path $tools "chisel.exe"
-$version = "1.11.3"
-$url = "https://github.com/jpillora/chisel/releases/download/v$version/chisel_${version}_windows_amd64.gz"
+$version = "1.12.0"
+$url = "https://github.com/jpillora/chisel/releases/download/v$version/chisel_${version}_windows_amd64.zip"
 
 function Test-LocalPort([int]$Port) {
     try {
@@ -36,14 +36,18 @@ Write-Host "    Shop API is up at 127.0.0.1:$ShopPort" -ForegroundColor Green
 if (-not (Test-Path $chisel)) {
     Write-Host "[2] Downloading tunnel client..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $tools | Out-Null
-    $gz = Join-Path $tools "chisel.gz"
-    Invoke-WebRequest -Uri $url -OutFile $gz -UseBasicParsing
-    $in = [IO.File]::OpenRead($gz)
-    $gzip = New-Object IO.Compression.GzipStream($in, [IO.Compression.CompressionMode]::Decompress)
-    $out = [IO.File]::Create($chisel)
-    $gzip.CopyTo($out)
-    $out.Close(); $gzip.Close(); $in.Close()
-    Remove-Item $gz -Force
+    $zip = Join-Path $tools "chisel.zip"
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    Expand-Archive -Path $zip -DestinationPath $tools -Force
+    Remove-Item $zip -Force
+    if (-not (Test-Path $chisel)) {
+        $found = Get-ChildItem $tools -Recurse -Filter "chisel*.exe" | Select-Object -First 1
+        if ($found) { Copy-Item $found.FullName $chisel -Force }
+    }
+    if (-not (Test-Path $chisel)) {
+        Write-Host "Failed to download the tunnel client." -ForegroundColor Red
+        exit 1
+    }
 }
 
 Write-Host "[3] Connecting shop to ${VpsHost}:$TunnelPort" -ForegroundColor Cyan

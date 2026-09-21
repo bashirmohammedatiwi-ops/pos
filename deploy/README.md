@@ -58,7 +58,7 @@ cd deploy
 ```bash
 ufw allow 4704/tcp || true
 docker run -d --name shop-tunnel --network host --restart unless-stopped \
-  jpillora/chisel:1.11.3 \
+  jpillora/chisel:1.12.0 \
   server --reverse --port 4704 --auth fot:e7Kq9mN2pL4xW8vR
 ```
 
