@@ -66,8 +66,8 @@ git clone https://github.com/bashirmohammedatiwi-ops/pos.git
 cd pos/deploy
 cp .env.example .env
 # اترك FOT_SHOP_API_URL=http://host.docker.internal:15000 وافتح نفق المحل
-chmod +x up.sh
-./up.sh
+chmod +x up.sh update.sh
+./update.sh
 ```
 
 التفاصيل: [`deploy/README.md`](deploy/README.md)

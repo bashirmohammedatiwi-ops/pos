@@ -43,14 +43,15 @@ docker compose up -d --build
 
 ويب السيرفر لا يرى API المحل. يلزم أمران معاً: خادم نقطة البيع شغّال، وملف النفق مفتوح على جهاز المحل.
 
-**على الـ VPS:**
+**على الـ VPS — انسخ هذا كما هو حتى لو كنت داخل `deploy`:**
 
 ```bash
-cd pos
+cd ~/pos
+git restore deploy/up.sh || git checkout -- deploy/up.sh
 git pull origin main
-sudo sh deploy/enable-host-tunnel.sh
 cd deploy
-./up.sh
+chmod +x update.sh up.sh
+./update.sh
 ```
 
 أو فوراً من مجلد `deploy`:

@@ -13,6 +13,10 @@ fi
 if ! grep -q '^FOT_TUNNEL_AUTH=' .env; then
   echo 'FOT_TUNNEL_AUTH=fot:e7Kq9mN2pL4xW8vR' >> .env
 fi
+if ! grep -q 'shop-tunnel:' docker-compose.yml; then
+  echo "this deploy folder is old. from the VPS run: cd ~/pos && git pull origin main"
+  exit 1
+fi
 
 docker compose up -d --build
 docker compose ps
