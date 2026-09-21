@@ -44,7 +44,9 @@ public partial record SellerCommissionLineDto(
     decimal CommissionAmount,
     long? ReceiptNumber,
     DateTime OccurredAt,
-    string? MallName);
+    string? MallName,
+    decimal SalesAmount = 0,
+    string? CashierName = null);
 
 public record SellerCommissionBundleDto(
     decimal TotalCommission,

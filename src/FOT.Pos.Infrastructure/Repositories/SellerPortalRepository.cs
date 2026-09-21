@@ -105,7 +105,7 @@ public sealed class SellerPortalRepository(
     }
 
     public async Task<IReadOnlyList<SellerMallDto>> ListMallsAsync(
-        long salesmanId, DateTime start, DateTime end, CancellationToken ct)
+        long salesmanId, DateTime start, DateTime end, CancellationToken ct, bool hideSales = true)
     {
         const string sql = """
             SELECT
@@ -134,7 +134,7 @@ public sealed class SellerPortalRepository(
             start = start.Date,
             end = end.Date
         }, cancellationToken: ct))).ToList();
-        return rows.Select(r => r with { SalesAmount = 0 }).ToList();
+        return hideSales ? rows.Select(r => r with { SalesAmount = 0 }).ToList() : rows;
     }
 
     public async Task<IReadOnlyList<SellerGoalDto>> ListGoalsAsync(
@@ -247,7 +247,9 @@ public sealed class SellerPortalRepository(
                 c.commission_amount AS CommissionAmount,
                 r.number AS ReceiptNumber,
                 COALESCE(r.creation_date, c.calculated_at) AS OccurredAt,
-                COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'مول') AS MallName
+                COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'مول') AS MallName,
+                COALESCE(c.line_amount, 0) AS SalesAmount,
+                COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), NULLIF(LTRIM(RTRIM(sec.name)), N'')) AS CashierName
             FROM ext_commission_calculations c
             LEFT JOIN reciepts r ON r.id = c.receipt_id
             LEFT JOIN articles a ON a.Seq = c.article_id

@@ -3,11 +3,12 @@ const ME_KEY = 'fot_manager_me';
 const LAST_USER_KEY = 'fot_manager_last_user';
 
 export function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 }
 export function setToken(token: string | null) {
-  if (token) sessionStorage.setItem(TOKEN_KEY, token);
-  else sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
 }
 
 export function getMe(): ManagerMe | null {
@@ -133,12 +134,32 @@ export function money(n: number) {
 export function moneyIq(n: number) {
   return `${money(n)} د.ع`;
 }
+export function moneyK(n: number) {
+  const v = Math.abs(Number(n) || 0);
+  if (v >= 1_000_000) return `${money(Math.round(n / 1_000_000))}م`;
+  if (v >= 1000) return `${money(Math.round(n / 1000))}أ`;
+  return money(n);
+}
 export function pieces(n: number) {
   return `${money(Math.round(Number(n) || 0))} قطعة`;
 }
 export function pct(n: number) {
   const v = Number(n) || 0;
   return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10}%`;
+}
+export function shareOf(part: number, total: number) {
+  return total > 0 ? (part / total) * 100 : 0;
+}
+export function avgTicket(sales: number, receipts: number) {
+  return receipts > 0 ? sales / receipts : 0;
+}
+export function cashierLabel(name?: string | null) {
+  const v = (name || '').trim();
+  if (!v || v === 'مول' || v === 'بدون مول') return '';
+  return v;
+}
+export function dayKey(iso: string) {
+  return (iso || '').slice(0, 10);
 }
 export function dayLabel(iso: string) {
   const d = new Date(iso);
@@ -204,13 +225,95 @@ export function tick(ms = 10) {
 }
 
 export function managerCsv(lines: LineRow[]) {
-  const header = ['البائع', 'المنتج', 'الكاشير', 'المول', 'الفاتورة', 'التاريخ', 'القطع', 'المبيعات', 'العمولة'];
+  const header = ['البائع', 'المنتج', 'الكاشير', 'الفاتورة', 'التاريخ', 'الوقت', 'القطع', 'المبيعات', 'العمولة'];
   const rows = lines.map(l => [
-    l.salesmanName, l.productName, l.cashierName ?? '', l.mallName ?? '',
-    l.receiptNumber ?? '', dayLabel(l.occurredAt), l.quantity,
+    l.salesmanName, l.productName, cashierLabel(l.cashierName) || cashierLabel(l.mallName),
+    l.receiptNumber ?? '', dayLabel(l.occurredAt), clockLabel(l.occurredAt), l.quantity,
     Math.round(l.salesAmount), Math.round(l.commissionAmount),
   ].join(','));
   return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
+}
+
+export function teamCsv(sellers: SellerRow[], totalSales: number) {
+  const header = ['الترتيب', 'البائع', 'المبيعات', 'الحصة', 'العمولة', 'القطع', 'الفواتير', 'متوسط الفاتورة', 'الأهداف', 'المستحق'];
+  const rows = [...sellers].sort((a, b) => b.salesAmount - a.salesAmount).map((s, i) => [
+    i + 1, s.name, Math.round(s.salesAmount), `${Math.round(shareOf(s.salesAmount, totalSales))}%`,
+    Math.round(s.commissionAmount), Math.round(s.pieceCount), s.receiptCount,
+    Math.round(avgTicket(s.salesAmount, s.receiptCount)), `${s.goalsHit}/${s.goalCount}`, Math.round(s.balanceDue),
+  ].join(','));
+  return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
+}
+
+export function cashierCsv(rows: CashierRow[], totalSales: number) {
+  const header = ['الترتيب', 'الكاشير', 'المبيعات', 'الحصة', 'العمولة', 'القطع', 'الفواتير', 'متوسط الفاتورة'];
+  const lines = [...rows].sort((a, b) => b.salesAmount - a.salesAmount).map((c, i) => [
+    i + 1, c.name, Math.round(c.salesAmount), `${Math.round(shareOf(c.salesAmount, totalSales))}%`,
+    Math.round(c.commissionAmount), Math.round(c.pieceCount), c.receiptCount,
+    Math.round(avgTicket(c.salesAmount, c.receiptCount)),
+  ].join(','));
+  return `\uFEFF${[header.join(','), ...lines].join('\n')}`;
+}
+
+export async function shareText(title: string, text: string): Promise<'shared' | 'copied' | 'abort' | 'fail'> {
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text });
+      return 'shared';
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') return 'abort';
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'copied';
+  } catch {
+    return 'fail';
+  }
+}
+
+export async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function weekReport(dash: Dashboard, extra?: string[]) {
+  const hit = dash.goals.filter(g => g.percent >= 100).length;
+  const top = [...dash.sellers].sort((a, b) => b.salesAmount - a.salesAmount)[0];
+  return [
+    `${dash.manager.displayName} — أسبوع ${weekRange(dash.week.weekStart, dash.week.weekEnd)}`,
+    `المبيعات: ${moneyIq(dash.week.salesAmount)}`,
+    `العمولة: ${moneyIq(dash.week.commissionAmount)}`,
+    `القطع: ${pieces(dash.week.pieceCount)}`,
+    `الفواتير: ${dash.week.receiptCount}`,
+    top ? `أقوى بائع: ${top.name} — ${moneyIq(top.salesAmount)}` : '',
+    dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
+    ...(extra ?? []),
+  ].filter(Boolean).join('\n');
+}
+
+export function productCsv(rows: ProductRow[]) {
+  const header = ['المنتج', 'المبيعات', 'العمولة', 'القطع', 'الحركات'];
+  const lines = rows.map(p => [p.name, Math.round(p.salesAmount), Math.round(p.commissionAmount), Math.round(p.quantity), p.count].join(','));
+  return `\uFEFF${[header.join(','), ...lines].join('\n')}`;
+}
+
+export function weeksCsv(weeks: WeekSummary[]) {
+  const header = ['الأسبوع', 'المبيعات', 'العمولة', 'القطع', 'الفواتير', 'بائعون', 'كاشير'];
+  const rows = weeks.map(w => [
+    dayLabel(w.weekStart), Math.round(w.salesAmount), Math.round(w.commissionAmount),
+    Math.round(w.pieceCount), w.receiptCount, w.sellerCount, w.cashierCount,
+  ].join(','));
+  return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
+}
+
+export function lastSyncMs(iso?: string | null) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
 }
 
 export function downloadText(name: string, text: string, type = 'text/csv;charset=utf-8') {

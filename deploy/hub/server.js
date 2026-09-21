@@ -175,6 +175,25 @@ function hasManagerPacks(snap) {
   return Array.isArray(packs) && packs.length > 0;
 }
 
+function addCashier(map, name, sales, comm, receipts, pieces) {
+  const label = pickCashierName(name);
+  if (!label) return;
+  const key = label.toLowerCase();
+  const cur = map.get(key) || {
+    cashierId: map.size + 1,
+    name: label,
+    salesAmount: 0,
+    commissionAmount: 0,
+    receiptCount: 0,
+    pieceCount: 0,
+  };
+  cur.salesAmount += n(sales);
+  cur.commissionAmount += n(comm);
+  cur.receiptCount += n(receipts);
+  cur.pieceCount += n(pieces);
+  map.set(key, cur);
+}
+
 function buildManagerFromSellers(snapshots) {
   const snaps = Object.values(snapshots || {});
   if (!snaps.length) return null;
@@ -201,12 +220,11 @@ function buildManagerFromSellers(snapshots) {
           commissionAmount: 0,
           receiptCount: 0,
           pieceCount: 0,
-          sellerCount: 0,
-          cashierCount: 0,
           sellers: [],
           goals: [],
           lines: [],
           products: new Map(),
+          cashierMap: new Map(),
         });
       }
       const bucket = weeks.get(key);
@@ -214,16 +232,33 @@ function buildManagerFromSellers(snapshots) {
       const comm = pack?.commission || pack?.Commission || {};
       const packLines = comm.lines || comm.Lines || [];
       const packGoals = pack?.goals || pack?.Goals || [];
+      const malls = pack?.malls || pack?.Malls || [];
       const commAmt = n(row.commissionAmount ?? row.CommissionAmount ?? comm.totalCommission ?? comm.TotalCommission);
       const receipts = n(row.receiptCount ?? row.ReceiptCount);
       const pieces = packLines.reduce((s, l) => s + n(l.quantity ?? l.Quantity), 0);
+      let sellerSales = 0;
+      for (const mall of malls) {
+        const sales = n(mall.salesAmount ?? mall.SalesAmount);
+        sellerSales += sales;
+        addCashier(
+          bucket.cashierMap,
+          mall.sectionName ?? mall.SectionName,
+          sales,
+          mall.commissionAmount ?? mall.CommissionAmount,
+          mall.receiptCount ?? mall.ReceiptCount,
+          0,
+        );
+      }
+      const lineSales = packLines.reduce((s, l) => s + n(l.salesAmount ?? l.SalesAmount), 0);
+      const salesAmt = sellerSales || lineSales;
+      bucket.salesAmount += salesAmt;
       bucket.commissionAmount += commAmt;
       bucket.receiptCount += receipts;
       bucket.pieceCount += pieces;
       bucket.sellers.push({
         salesmanId: sellerId,
         name: sellerName,
-        salesAmount: 0,
+        salesAmount: salesAmt,
         commissionAmount: commAmt,
         receiptCount: receipts,
         pieceCount: pieces,
@@ -244,7 +279,9 @@ function buildManagerFromSellers(snapshots) {
       for (const line of packLines) {
         const qty = n(line.quantity ?? line.Quantity);
         const commission = n(line.commissionAmount ?? line.CommissionAmount);
+        const sales = n(line.salesAmount ?? line.SalesAmount);
         const name = line.productName || line.ProductName || 'منتج';
+        const cashier = pickCashierName(line.cashierName ?? line.CashierName, line.mallName ?? line.MallName);
         bucket.lines.push({
           id: line.id ?? line.Id,
           salesmanId: sellerId,
@@ -252,15 +289,17 @@ function buildManagerFromSellers(snapshots) {
           productName: name,
           groupName: line.groupName ?? line.GroupName ?? null,
           quantity: qty,
-          salesAmount: 0,
+          salesAmount: sales,
           commissionAmount: commission,
           receiptNumber: line.receiptNumber ?? line.ReceiptNumber ?? null,
           occurredAt: line.occurredAt || line.OccurredAt,
-          cashierName: null,
-          mallName: null,
+          cashierName: cashier || null,
+          mallName: cashier || null,
         });
+        if (!sellerSales) addCashier(bucket.cashierMap, cashier, sales, commission, line.receiptNumber ?? line.ReceiptNumber ? 1 : 0, qty);
         const prod = bucket.products.get(name) || { name, quantity: 0, salesAmount: 0, commissionAmount: 0, count: 0 };
         prod.quantity += qty;
+        prod.salesAmount += sales;
         prod.commissionAmount += commission;
         prod.count += 1;
         bucket.products.set(name, prod);
@@ -271,8 +310,10 @@ function buildManagerFromSellers(snapshots) {
   const packs = [...weeks.values()].sort((a, b) => weekKey(b.weekStart).localeCompare(weekKey(a.weekStart)));
   if (!packs.length) return null;
 
-  return {
-    weeks: packs.map((p) => ({
+  function weekRow(p) {
+    const cashiers = [...(p.cashierMap?.values() || [])].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount);
+    const sellerCount = p.sellers.filter((s) => s.salesAmount > 0 || s.commissionAmount > 0 || s.pieceCount > 0).length || p.sellers.length;
+    return {
       weekStart: p.weekStart,
       weekEnd: p.weekEnd,
       isCurrent: p.isCurrent,
@@ -280,41 +321,210 @@ function buildManagerFromSellers(snapshots) {
       commissionAmount: p.commissionAmount,
       receiptCount: p.receiptCount,
       pieceCount: p.pieceCount,
-      sellerCount: p.sellers.filter((s) => s.commissionAmount > 0 || s.pieceCount > 0).length || p.sellers.length,
-      cashierCount: 0,
-    })),
-    weekPacks: packs.map((p) => ({
-      weekStart: p.weekStart,
-      week: {
+      sellerCount,
+      cashierCount: cashiers.length,
+      cashiers,
+    };
+  }
+
+  return {
+    weeks: packs.map((p) => {
+      const w = weekRow(p);
+      return {
+        weekStart: w.weekStart,
+        weekEnd: w.weekEnd,
+        isCurrent: w.isCurrent,
+        salesAmount: w.salesAmount,
+        commissionAmount: w.commissionAmount,
+        receiptCount: w.receiptCount,
+        pieceCount: w.pieceCount,
+        sellerCount: w.sellerCount,
+        cashierCount: w.cashierCount,
+      };
+    }),
+    weekPacks: packs.map((p) => {
+      const w = weekRow(p);
+      return {
         weekStart: p.weekStart,
-        weekEnd: p.weekEnd,
-        isCurrent: p.isCurrent,
-        salesAmount: p.salesAmount,
-        commissionAmount: p.commissionAmount,
-        receiptCount: p.receiptCount,
-        pieceCount: p.pieceCount,
-        sellerCount: p.sellers.filter((s) => s.commissionAmount > 0 || s.pieceCount > 0).length || p.sellers.length,
-        cashierCount: 0,
-      },
-      sellers: p.sellers.sort((a, b) => b.commissionAmount - a.commissionAmount),
-      cashiers: [],
-      malls: [],
-      goals: p.goals,
-      lines: p.lines.slice(0, 280),
-      products: [...p.products.values()].sort((a, b) => b.commissionAmount - a.commissionAmount).slice(0, 40),
-    })),
+        week: w,
+        sellers: p.sellers.sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount),
+        cashiers: w.cashiers,
+        malls: w.cashiers.map((c) => ({
+          sectionId: c.cashierId,
+          sectionName: c.name,
+          branchName: null,
+          salesAmount: c.salesAmount,
+          commissionAmount: c.commissionAmount,
+          receiptCount: c.receiptCount,
+          pieceCount: c.pieceCount,
+        })),
+        goals: p.goals,
+        lines: p.lines.slice(0, 800),
+        products: [...p.products.values()].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount).slice(0, 80),
+      };
+    }),
   };
 }
 
+function packSales(pack) {
+  const week = pack?.week || pack?.Week || {};
+  return n(week.salesAmount ?? week.SalesAmount);
+}
+
+function packCashierCount(pack) {
+  return (pack?.cashiers || pack?.Cashiers || []).length + (pack?.malls || pack?.Malls || []).length;
+}
+
+function hasRichManager(snap) {
+  if (!hasManagerPacks(snap)) return false;
+  const packs = snap.weekPacks || snap.WeekPacks || [];
+  return packs.some((p) => packSales(p) > 0 || packCashierCount(p) > 0);
+}
+
+function mergeManager(official, built) {
+  if (!official) return built;
+  if (!built) return official;
+  const oPacks = official.weekPacks || official.WeekPacks || [];
+  const bPacks = built.weekPacks || built.WeekPacks || [];
+  const byKey = new Map(bPacks.map((p) => [weekKey(p.weekStart || p.WeekStart), p]));
+  const weekPacks = oPacks.map((p) => {
+    const b = byKey.get(weekKey(p.weekStart || p.WeekStart));
+    if (!b) return p;
+    const needSales = packSales(p) <= 0 && packSales(b) > 0;
+    const needCash = packCashierCount(p) <= 0 && packCashierCount(b) > 0;
+    if (!needSales && !needCash) return p;
+    return {
+      ...p,
+      week: needSales ? (b.week || b.Week || p.week) : (p.week || p.Week),
+      Week: needSales ? (b.week || b.Week || p.week) : (p.week || p.Week),
+      sellers: needSales ? (b.sellers || b.Sellers || p.sellers) : (p.sellers || p.Sellers),
+      Sellers: needSales ? (b.sellers || b.Sellers || p.sellers) : (p.sellers || p.Sellers),
+      cashiers: needCash ? (b.cashiers || b.Cashiers || []) : (p.cashiers || p.Cashiers || []),
+      Cashiers: needCash ? (b.cashiers || b.Cashiers || []) : (p.cashiers || p.Cashiers || []),
+      malls: needCash ? (b.malls || b.Malls || []) : (p.malls || p.Malls || []),
+      Malls: needCash ? (b.malls || b.Malls || []) : (p.malls || p.Malls || []),
+      lines: needCash || needSales ? (b.lines || b.Lines || p.lines) : (p.lines || p.Lines),
+      Lines: needCash || needSales ? (b.lines || b.Lines || p.lines) : (p.lines || p.Lines),
+    };
+  });
+  const weeks = weekPacks.map((p) => p.week || p.Week).filter(Boolean);
+  return { ...official, weeks: weeks.length ? weeks : (official.weeks || official.Weeks || []), weekPacks, WeekPacks: weekPacks };
+}
+
 function ensureManagerSnapshot() {
-  if (hasManagerPacks(state.managerSnapshot)) return state.managerSnapshot;
+  if (hasRichManager(state.managerSnapshot)) return state.managerSnapshot;
   const built = buildManagerFromSellers(state.snapshots);
-  if (built) state.managerSnapshot = built;
+  if (built) {
+    state.managerSnapshot = hasManagerPacks(state.managerSnapshot)
+      ? mergeManager(state.managerSnapshot, built)
+      : built;
+  }
   return state.managerSnapshot;
 }
 
+function pickCashierName(...vals) {
+  for (const value of vals) {
+    const name = String(value || '').trim();
+    if (name && name !== 'مول' && name !== 'بدون مول') return name;
+  }
+  return '';
+}
+
+function unifyCashiers(cashiers, malls, lines) {
+  const map = new Map();
+  function add(id, name, sales, comm, receipts, pieces) {
+    const label = pickCashierName(name);
+    if (!label) return;
+    const key = label.toLowerCase();
+    const row = {
+      cashierId: Number(id) || 0,
+      name: label,
+      salesAmount: n(sales),
+      commissionAmount: n(comm),
+      receiptCount: n(receipts),
+      pieceCount: n(pieces),
+    };
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, row);
+      return;
+    }
+    const better = row.salesAmount > cur.salesAmount
+      || (row.salesAmount === cur.salesAmount && row.commissionAmount > cur.commissionAmount);
+    if (better) map.set(key, { ...row, cashierId: cur.cashierId || row.cashierId });
+  }
+
+  for (const c of cashiers || []) {
+    add(c.cashierId ?? c.CashierId, c.name ?? c.Name, c.salesAmount ?? c.SalesAmount, c.commissionAmount ?? c.CommissionAmount, c.receiptCount ?? c.ReceiptCount, c.pieceCount ?? c.PieceCount);
+  }
+  for (const m of malls || []) {
+    add(m.sectionId ?? m.SectionId, m.sectionName ?? m.SectionName, m.salesAmount ?? m.SalesAmount, m.commissionAmount ?? m.CommissionAmount, m.receiptCount ?? m.ReceiptCount, m.pieceCount ?? m.PieceCount);
+  }
+  if (!map.size) {
+    const agg = new Map();
+    for (const line of lines || []) {
+      const name = pickCashierName(line.cashierName ?? line.CashierName, line.mallName ?? line.MallName);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const row = agg.get(key) || { name, sales: 0, comm: 0, receipts: new Set(), pieces: 0 };
+      row.sales += n(line.salesAmount ?? line.SalesAmount);
+      row.comm += n(line.commissionAmount ?? line.CommissionAmount);
+      row.pieces += n(line.quantity ?? line.Quantity);
+      const rec = line.receiptNumber ?? line.ReceiptNumber;
+      if (rec) row.receipts.add(rec);
+      agg.set(key, row);
+    }
+    let i = 1;
+    for (const row of agg.values()) add(i++, row.name, row.sales, row.comm, row.receipts.size, row.pieces);
+  }
+  return [...map.values()].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount);
+}
+
+function presentLines(lines) {
+  return (lines || []).map((line) => {
+    const cashier = pickCashierName(line.cashierName ?? line.CashierName, line.mallName ?? line.MallName);
+    return { ...line, cashierName: cashier || null, mallName: cashier || null };
+  });
+}
+
+function presentPack(pack) {
+  if (!pack) return null;
+  const lines = presentLines(pack.lines || pack.Lines || []);
+  const cashiers = unifyCashiers(pack.cashiers || pack.Cashiers, pack.malls || pack.Malls, lines);
+  const malls = cashiers.map((c) => ({
+    sectionId: c.cashierId,
+    sectionName: c.name,
+    branchName: null,
+    salesAmount: c.salesAmount,
+    commissionAmount: c.commissionAmount,
+    receiptCount: c.receiptCount,
+    pieceCount: c.pieceCount,
+  }));
+  const week = {
+    ...(pack.week || pack.Week || {}),
+    cashierCount: cashiers.length || n((pack.week || pack.Week || {}).cashierCount ?? (pack.week || pack.Week || {}).CashierCount),
+  };
+  return {
+    ...pack,
+    cashiers,
+    Cashiers: cashiers,
+    malls,
+    Malls: malls,
+    lines,
+    Lines: lines,
+    sellers: pack.sellers || pack.Sellers || [],
+    Sellers: pack.sellers || pack.Sellers || [],
+    goals: pack.goals || pack.Goals || [],
+    Goals: pack.goals || pack.Goals || [],
+    products: pack.products || pack.Products || [],
+    Products: pack.products || pack.Products || [],
+    week,
+    Week: week,
+  };
+}
+
 function managerPack(weekStart) {
-  return findPack(ensureManagerSnapshot(), weekStart);
+  return presentPack(findPack(ensureManagerSnapshot(), weekStart));
 }
 
 function fixManagerGoals(list) {
@@ -339,11 +549,13 @@ function applySync(payload) {
       mustChangePin: row.mustChangePin ?? row.MustChangePin ?? false,
     };
   }
+  const rawSnapshots = {};
   const snapshots = {};
   for (const snap of payload.snapshots || []) {
     const me = snap.me || snap.Me || {};
     const id = Number(me.id ?? me.Id);
     if (!id) continue;
+    rawSnapshots[id] = snap;
     snapshots[id] = scrub(snap);
   }
   const next = {
@@ -373,10 +585,13 @@ function applySync(payload) {
   }
 
   const incomingManager = payload.managerSnapshot || payload.ManagerSnapshot;
-  if (hasManagerPacks(incomingManager)) {
+  const fromSellers = buildManagerFromSellers(rawSnapshots);
+  if (hasRichManager(incomingManager)) {
     next.managerSnapshot = incomingManager;
+  } else if (hasManagerPacks(incomingManager) && fromSellers) {
+    next.managerSnapshot = mergeManager(incomingManager, fromSellers);
   } else {
-    next.managerSnapshot = buildManagerFromSellers(snapshots) || next.managerSnapshot;
+    next.managerSnapshot = fromSellers || incomingManager || next.managerSnapshot;
   }
 
   state = next;
@@ -542,7 +757,7 @@ const server = http.createServer(async (req, res) => {
           cashiers,
           malls,
           goals,
-          products: products.slice(0, 8),
+          products: products.slice(0, 40),
           lastSyncAt: state.lastSyncAt,
         });
         return;

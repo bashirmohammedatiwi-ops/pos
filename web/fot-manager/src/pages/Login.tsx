@@ -7,6 +7,7 @@ export function Login() {
   const nav = useNavigate();
   const [username, setUsername] = useState(getLastUser);
   const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [name, setName] = useState('');
   const [looking, setLooking] = useState(false);
   const [lookErr, setLookErr] = useState('');
@@ -58,10 +59,10 @@ export function Login() {
           <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-indigo-100">FOT MANAGER</p>
           <h2 className="display mt-3 text-4xl font-black leading-tight">متابعة المحل<br />من أي مكان</h2>
           <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/80">
-            مبيعات الفريق، القطع، الكاشير، المولات، العمولات، وأهداف كل بائع — أسبوعاً بأسبوع.
+            مبيعات كل بائع وكل كاشير، الفواتير، القطع، العمولات، وأهداف الفريق — أسبوعاً بأسبوع.
           </p>
           <div className="mt-8 grid grid-cols-3 gap-2 text-center">
-            {['مبيعات', 'فريق', 'أهداف'].map(x => (
+            {['مبيعات', 'كاشير', 'فواتير'].map(x => (
               <div key={x} className="rounded-2xl bg-white/10 px-2 py-3 text-xs font-extrabold">{x}</div>
             ))}
           </div>
@@ -89,14 +90,23 @@ export function Login() {
               {name ? `● ${name}` : !username.trim() ? 'أدخل اسم الدخول ليظهر اسمك' : looking ? 'جاري التعرّف…' : lookErr || 'لا مدير بهذا الاسم'}
             </p>
             <label className="mb-2 block text-sm font-extrabold text-goal">كلمة المرور</label>
-            <input
-              dir="ltr"
-              type="password"
-              autoComplete="current-password"
-              className="field"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <input
+                dir="ltr"
+                type={showPass ? 'text' : 'password'}
+                autoComplete="current-password"
+                className="field"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-muted"
+                onClick={() => setShowPass(v => !v)}
+              >
+                {showPass ? 'إخفاء' : 'إظهار'}
+              </button>
+            </div>
             {err && <p className="mt-3 text-center text-sm font-extrabold text-danger">{err}</p>}
             <button
               disabled={busy || !name || password.length < 4}

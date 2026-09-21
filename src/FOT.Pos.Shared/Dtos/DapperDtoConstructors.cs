@@ -221,7 +221,7 @@ public partial record SellerCommissionProductDto
 
 public partial record SellerCommissionLineDto
 {
-    public SellerCommissionLineDto() : this(0, "", null, 0, 0, null, default, null) { }
+    public SellerCommissionLineDto() : this(0, "", null, 0, 0, null, default, null, 0, null) { }
 }
 
 public partial record SellerGoalLineDto

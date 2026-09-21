@@ -71,7 +71,7 @@ public static class ManagerPortalEndpoints
             return Results.Ok(new ManagerDashboardDto(
                 new ManagerMeDto(acc.Id, acc.Username, acc.DisplayName),
                 pack.Week, pack.Sellers, pack.Cashiers, pack.Malls, pack.Goals,
-                pack.Products.Take(8).ToList()));
+                pack.Products.Take(40).ToList()));
         });
 
         g.MapGet("/sellers", async (HttpContext http, ManagerPortalRepository managers, DateTime? weekStart) =>

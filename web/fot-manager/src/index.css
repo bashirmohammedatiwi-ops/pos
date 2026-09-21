@@ -1184,7 +1184,9 @@ button:active { transform: scale(0.985); }
   .topbar { padding: 14px 24px; }
   .main { padding: 24px 28px 48px; }
 
-  .stats, .insight-grid { grid-template-columns: repeat(4, 1fr); }
+  .stats, .insight-grid, .kpi-mosaic { grid-template-columns: repeat(4, 1fr); }
+  .desk-table { display: block; overflow: auto; padding: 8px 12px 12px; }
+  .people-mobile { display: none; }
 
   .page-grid {
     grid-template-columns: 1.15fr 0.85fr;
@@ -1239,9 +1241,65 @@ button:active { transform: scale(0.985); }
   .piece-board { grid-template-columns: 1fr; }
 }
 
+.kpi-mosaic { grid-template-columns: 1fr 1fr; }
+
+.share-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  padding: 12px 0;
+  text-align: start;
+  color: inherit;
+  background: transparent;
+  border-top: 1px solid #f1f5f9;
+}
+.share-row:first-child { border-top: 0; padding-top: 0; }
+
+.alert-card {
+  padding: 16px 18px;
+  border-radius: 24px;
+}
+.alert-card.warn {
+  background: linear-gradient(135deg, #fff7ed, #ffffff);
+  border-color: #fed7aa;
+}
+.alert-card.goal {
+  background: linear-gradient(135deg, #eef2ff, #ffffff);
+  border-color: #c7d2fe;
+}
+.alert-card.gold {
+  background: linear-gradient(135deg, #f0fdfa, #ffffff);
+  border-color: #99f6e4;
+}
+
+.person-card {
+  width: 100%;
+  padding: 16px;
+  text-align: start;
+  color: inherit;
+}
+
+.desk-table { display: none; }
+.desk-table table { width: 100%; border-collapse: collapse; }
+.desk-table th, .desk-table td {
+  padding: 12px 10px;
+  text-align: start;
+  font-size: 13px;
+  font-weight: 800;
+  border-bottom: 1px solid #f1f5f9;
+}
+.desk-table th { color: #64748b; font-size: 11px; }
+.desk-table tbody tr { cursor: pointer; }
+.desk-table tbody tr:hover { background: #f8fffd; }
+.desk-table .medal { width: 36px; height: 36px; font-size: 12px; }
+
 @media print {
-  .topbar, .dock, .side, .pull, .toast, .icon-btn, .finder-bg, .hero-orbs { display: none !important; }
+  .topbar, .dock, .side, .pull, .toast, .icon-btn, .finder-bg, .hero-orbs, .week-wrap, .toolbar { display: none !important; }
   .workspace { padding: 0; }
   .app, .main { background: #fff; max-width: none; }
   .card, .hero { box-shadow: none; break-inside: avoid; }
+  .desk-table { display: block !important; }
+  .people-mobile { display: none !important; }
 }

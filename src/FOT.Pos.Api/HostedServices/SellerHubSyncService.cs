@@ -122,7 +122,7 @@ public sealed class SellerHubSyncService(
         var packs = new List<SellerHubWeekPackDto>();
         foreach (var week in weeks)
         {
-            var malls = await sellers.ListMallsAsync(row.Id, week.WeekStart, week.WeekEnd, ct);
+            var malls = await sellers.ListMallsAsync(row.Id, week.WeekStart, week.WeekEnd, ct, hideSales: false);
             var goals = await sellers.ListGoalsAsync(row.Id, week.WeekStart, week.WeekEnd, ct);
             var commission = await sellers.ListCommissionLinesAsync(row.Id, week.WeekStart, week.WeekEnd, null, ct);
             var details = new List<SellerGoalDetailDto>();

@@ -210,7 +210,7 @@ public sealed class ManagerPortalRepository(
         DateTime start, DateTime end, CancellationToken ct)
     {
         const string sql = """
-            SELECT TOP 280
+            SELECT TOP 800
                 c.id AS Id,
                 COALESCE(c.salesman_id, 0) AS SalesmanId,
                 COALESCE(NULLIF(LTRIM(RTRIM(sm.name)), N''), N'بائع') AS SalesmanName,
@@ -252,7 +252,7 @@ public sealed class ManagerPortalRepository(
         DateTime start, DateTime end, CancellationToken ct)
     {
         const string sql = """
-            SELECT TOP 40
+            SELECT TOP 80
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N''),
                     NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1))), N''),

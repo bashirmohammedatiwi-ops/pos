@@ -1,41 +1,72 @@
-import { useMemo, useState } from 'react';
-import { api, goalLabel, goalTone, goalValue, moneyIq, pieces, type LineRow, type SellerRow } from '../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  api, avgTicket, deltaPct, downloadText, goalLabel, goalTone, goalValue, moneyIq, pieces, pct, shareOf, teamCsv, type LineRow, type SellerRow,
+} from '../api';
+import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProducts } from '../insights';
+import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
-import { Badge, Empty, ErrorBox, Medal, Ring, SearchField, Sheet, Skeleton, Track } from '../ui';
+import { Badge, Delta, Empty, ErrorBox, Medal, Ring, SearchField, Sheet, Skeleton, StatGrid, Track, useToast } from '../ui';
 import { WeekBar } from '../week';
 
-type Sort = 'commission' | 'sales' | 'pieces';
+type Sort = 'sales' | 'commission' | 'pieces' | 'receipts' | 'share';
+type Tab = 'overview' | 'goals' | 'cashiers' | 'products' | 'invoices';
 
 export function Team() {
-  const { weekStart, setWeek, dash, weeks, err, loading, reload } = useManager();
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState<Sort>('commission');
+  const { weekStart, setWeek, dash, prevDash, weeks, lines, err, loading, reload } = useManager();
+  const toast = useToast();
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(params.get('q') ?? '');
+  const [sort, setSort] = useState<Sort>('sales');
   const [open, setOpen] = useState<SellerRow | null>(null);
-  const [detailLines, setDetailLines] = useState<LineRow[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
+  const [hideZero, setHideZero] = useState(true);
+  const [line, setLine] = useState<LineRow | null>(null);
+  const [extraLines, setExtraLines] = useState<LineRow[]>([]);
+  const opened = useRef(false);
 
-  const rows = useMemo(() => {
-    const list = (dash?.sellers ?? []).filter(s => !q.trim() || s.name.includes(q.trim()));
-    return [...list].sort((a, b) => {
-      if (sort === 'sales') return b.salesAmount - a.salesAmount;
-      if (sort === 'pieces') return b.pieceCount - a.pieceCount;
-      return b.commissionAmount - a.commissionAmount;
-    });
-  }, [dash, q, sort]);
+  useEffect(() => { setQ(params.get('q') ?? ''); }, [params]);
 
   async function openSeller(s: SellerRow) {
     setOpen(s);
-    setBusy(true);
+    setTab('overview');
+    setExtraLines([]);
     try {
       const d = await api.seller(s.salesmanId, weekStart);
       setOpen(d.seller);
-      setDetailLines(d.lines);
-    } catch {
-      setDetailLines([]);
-    } finally {
-      setBusy(false);
-    }
+      setExtraLines(d.lines);
+    } catch { /* local lines */ }
   }
+
+  useEffect(() => {
+    const needle = params.get('q')?.trim();
+    if (opened.current || !needle || !dash) return;
+    const hit = dash.sellers.find(s => s.name === needle);
+    if (hit) { opened.current = true; void openSeller(hit); }
+  }, [dash, params]);
+
+  const total = dash?.week.salesAmount || 0;
+
+  const rows = useMemo(() => {
+    const list = (dash?.sellers ?? []).filter(s => {
+      if (q.trim() && !s.name.includes(q.trim())) return false;
+      if (hideZero && s.salesAmount <= 0 && s.commissionAmount <= 0 && s.pieceCount <= 0) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => {
+      if (sort === 'commission') return b.commissionAmount - a.commissionAmount;
+      if (sort === 'pieces') return b.pieceCount - a.pieceCount;
+      if (sort === 'receipts') return b.receiptCount - a.receiptCount;
+      if (sort === 'share') return shareOf(b.salesAmount, total) - shareOf(a.salesAmount, total);
+      return b.salesAmount - a.salesAmount;
+    });
+  }, [dash, q, sort, total]);
+
+  const detailLines = open ? mergeLines(linesForSeller(lines, open.salesmanId), extraLines.filter(l => l.salesmanId === open.salesmanId)) : [];
+  const detailCashiers = open ? cashiersForSeller(lines, open.salesmanId) : [];
+  const detailProducts = open ? rankProducts(detailLines) : [];
+  const detailReceipts = open ? groupReceipts(detailLines) : [];
+  const prevSeller = open ? prevDash?.sellers.find(s => s.salesmanId === open.salesmanId) : undefined;
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
@@ -43,83 +74,161 @@ export function Team() {
     <div className="fade-up space-y-4">
       <section className="hero compact">
         <p className="kicker">فريق المبيعات</p>
-        <h1 className="display text-[28px] font-black">البائعون</h1>
-        <p className="mt-2 text-sm font-bold text-muted">{rows.length} بائعاً هذا الأسبوع — اضغط للاطلاع على حركته</p>
+        <h1 className="display text-[28px] font-black">كل بائع بالتفصيل</h1>
+        <p className="mt-2 text-sm font-bold text-muted">
+          {rows.length} بائعاً · إجمالي {moneyIq(total)} — اضغط على أي اسم لترى مبيعاته وكاشيره وفواتيره
+        </p>
+        <button
+          type="button"
+          className="pill mt-3"
+          onClick={() => {
+            downloadText(`بائعون-${weekStart || 'week'}.csv`, teamCsv(dash?.sellers ?? [], total));
+            toast('تم تنزيل ملف البائعين');
+          }}
+        >
+          تصدير الجدول
+        </button>
       </section>
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
       <SearchField value={q} onChange={setQ} placeholder="ابحث باسم البائع" />
       <div className="toolbar">
-        {([['commission', 'العمولة'], ['sales', 'المبيعات'], ['pieces', 'القطع']] as const).map(([k, label]) => (
+        {([['sales', 'المبيعات'], ['share', 'الحصة'], ['commission', 'العمولة'], ['pieces', 'القطع'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
           <button key={k} type="button" className={`chip ${sort === k ? 'chip-on' : ''}`} onClick={() => setSort(k)}>{label}</button>
         ))}
+        <button type="button" className={`chip ${hideZero ? 'chip-on' : ''}`} onClick={() => setHideZero(v => !v)}>
+          {hideZero ? 'إخفاء بلا حركة' : 'إظهار الكل'}
+        </button>
       </div>
       {loading && !dash && <Skeleton />}
-      <div className="stack-grid stagger">
-        {rows.map((s, i) => (
-          <button key={s.salesmanId} type="button" className="card goal-card" onClick={() => void openSeller(s)}>
-            <Medal rank={i + 1} />
-            <div className="min-w-0 text-start">
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="text-lg font-extrabold">{s.name}</h2>
-                {s.goalCount > 0 && <Badge tone={goalTone(s.goalPercent) === 'goal' ? 'goal' : goalTone(s.goalPercent)}>{goalLabel(s.goalPercent)}</Badge>}
-              </div>
-              <div className="goal-metrics">
-                <div>
-                  <p className="text-[11px] font-extrabold text-muted">المبيعات</p>
-                  <p className="num mt-1 text-lg font-black">{moneyIq(s.salesAmount)}</p>
+
+      <div className="desk-table card">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>البائع</th><th>المبيعات</th><th>الحصة</th><th>العمولة</th><th>القطع</th><th>فواتير</th><th>متوسط</th><th>هدف</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s, i) => (
+              <tr key={s.salesmanId} onClick={() => void openSeller(s)}>
+                <td><Medal rank={i + 1} /></td>
+                <td className="font-extrabold">{s.name}</td>
+                <td className="num">{moneyIq(s.salesAmount)}</td>
+                <td className="num">{pct(shareOf(s.salesAmount, total))}</td>
+                <td className="num text-gold">{moneyIq(s.commissionAmount)}</td>
+                <td className="num">{Math.round(s.pieceCount)}</td>
+                <td className="num">{s.receiptCount}</td>
+                <td className="num">{moneyIq(avgTicket(s.salesAmount, s.receiptCount))}</td>
+                <td>{s.goalCount ? `${Math.round(s.goalPercent)}%` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="stack-grid stagger people-mobile">
+        {rows.map((s, i) => {
+          const share = shareOf(s.salesAmount, total);
+          const prev = prevDash?.sellers.find(x => x.salesmanId === s.salesmanId);
+          return (
+            <button key={s.salesmanId} type="button" className="card person-card" onClick={() => void openSeller(s)}>
+              <div className="flex items-start gap-3">
+                <Medal rank={i + 1} />
+                <div className="min-w-0 flex-1 text-start">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-lg font-extrabold">{s.name}</h2>
+                    {s.goalCount > 0 && <Badge tone={goalTone(s.goalPercent) === 'goal' ? 'goal' : goalTone(s.goalPercent)}>{goalLabel(s.goalPercent)}</Badge>}
+                  </div>
+                  <p className="num mt-2 text-[26px] font-black text-goal">{moneyIq(s.salesAmount)}</p>
+                  {prev && <div className="mt-1"><Delta value={deltaPct(s.salesAmount, prev.salesAmount)} /></div>}
+                  <p className="mt-1 text-sm font-extrabold text-muted">{pct(share)} من مبيعات المحل · متوسط {moneyIq(avgTicket(s.salesAmount, s.receiptCount))}</p>
+                  <div className="goal-metrics">
+                    <div>
+                      <p className="text-[11px] font-extrabold text-muted">العمولة</p>
+                      <p className="num mt-1 text-lg font-black text-gold">{moneyIq(s.commissionAmount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-extrabold text-muted">القطع / الفواتير</p>
+                      <p className="num mt-1 text-lg font-black">{Math.round(s.pieceCount)} · {s.receiptCount}</p>
+                    </div>
+                  </div>
+                  {s.goalCount > 0 && <div className="mt-2"><Track value={s.goalPercent} tone={goalTone(s.goalPercent)} /></div>}
+                  {s.balanceDue > 0 && <p className="mt-2 text-xs font-bold text-muted">مستحق {moneyIq(s.balanceDue)}</p>}
                 </div>
-                <div>
-                  <p className="text-[11px] font-extrabold text-muted">العمولة</p>
-                  <p className="num mt-1 text-lg font-black text-gold">{moneyIq(s.commissionAmount)}</p>
-                </div>
               </div>
-              <p className="mt-2 text-sm font-extrabold text-goal">{pieces(s.pieceCount)} · {s.receiptCount} فاتورة</p>
-              {s.goalCount > 0 && <div className="mt-2"><Track value={s.goalPercent} tone={goalTone(s.goalPercent)} /></div>}
-              {s.balanceDue > 0 && <p className="mt-2 text-xs font-bold text-muted">مستحق {moneyIq(s.balanceDue)}</p>}
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
         {!loading && !rows.length && <Empty title="لا بائعون في هذا الأسبوع" hint="عند حساب عمولة تظهر أسماء الفريق هنا" />}
       </div>
 
       <Sheet open={!!open} title={open?.name || 'البائع'} onClose={() => setOpen(null)}>
         {open && (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="detail-cell"><p>المبيعات</p><strong className="num">{moneyIq(open.salesAmount)}</strong></div>
-              <div className="detail-cell"><p>العمولة</p><strong className="num">{moneyIq(open.commissionAmount)}</strong></div>
-              <div className="detail-cell"><p>القطع</p><strong className="num">{pieces(open.pieceCount)}</strong></div>
-              <div className="detail-cell"><p>الفواتير</p><strong className="num">{open.receiptCount}</strong></div>
+            <div className="toolbar">
+              {([['overview', 'نظرة'], ['goals', 'أهداف'], ['cashiers', 'كاشير'], ['products', 'منتجات'], ['invoices', 'فواتير']] as const).map(([k, label]) => (
+                <button key={k} type="button" className={`chip ${tab === k ? 'chip-on' : ''}`} onClick={() => setTab(k)}>{label}</button>
+              ))}
             </div>
-            {open.goalCount > 0 && (
-              <div className="flex items-center gap-3">
-                <Ring value={open.goalPercent} size={72} tone={goalTone(open.goalPercent)} />
-                <p className="text-sm font-bold text-muted">{open.goalsHit} من {open.goalCount} أهداف تحققت</p>
-              </div>
+            {tab === 'overview' && (
+              <>
+                <StatGrid sales={open.salesAmount} commission={open.commissionAmount} pieceCount={open.pieceCount} receipts={open.receiptCount} totalSales={total} />
+                {prevSeller && (
+                  <div className="detail-cell">
+                    <p>مقابل الأسبوع السابق</p>
+                    <strong>{moneyIq(open.salesAmount)} مقابل {moneyIq(prevSeller.salesAmount)}</strong>
+                  </div>
+                )}
+                {open.goalCount > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Ring value={open.goalPercent} size={72} tone={goalTone(open.goalPercent)} />
+                    <p className="text-sm font-bold text-muted">{open.goalsHit} من {open.goalCount} أهداف تحققت</p>
+                  </div>
+                )}
+                {open.balanceDue > 0 && <div className="due-card"><span>المستحق</span><strong className="num">{moneyIq(open.balanceDue)}</strong></div>}
+              </>
             )}
-            {(dash?.goals ?? []).filter(g => g.salesmanId === open.salesmanId).map(g => (
-              <div key={g.ruleId} className="detail-cell">
-                <p>{g.ruleName}</p>
-                <strong>{goalValue(g.targetType, g.sold)} من {goalValue(g.targetType, g.weeklyTarget)}</strong>
-              </div>
-            ))}
-            {busy && <Skeleton rows={2} />}
-            {detailLines.slice(0, 8).map(l => (
-              <div key={l.id} className="line-card">
-                <span className="line-mark">{l.productName.charAt(0)}</span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[15px] font-extrabold">{l.productName}</span>
-                  <span className="line-meta">
-                    <span className="qty-chip">{l.quantity} قطعة</span>
-                    <span className="chip-soft">{l.cashierName}</span>
-                  </span>
-                </span>
-                <span className="num text-[15px] font-extrabold text-gold">{moneyIq(l.commissionAmount)}</span>
-              </div>
-            ))}
+            {tab === 'goals' && (
+              (dash?.goals ?? []).filter(g => g.salesmanId === open.salesmanId).map(g => (
+                <div key={g.ruleId} className="detail-cell">
+                  <p>{g.ruleName}</p>
+                  <strong>{goalValue(g.targetType, g.sold)} من {goalValue(g.targetType, g.weeklyTarget)} · {pct(g.percent)}</strong>
+                  <div className="mt-2"><Track value={g.percent} tone={goalTone(g.percent)} /></div>
+                </div>
+              ))
+            )}
+            {tab === 'cashiers' && (
+              detailCashiers.length
+                ? detailCashiers.map(c => (
+                  <div key={c.id} className="detail-cell">
+                    <p>{c.name}</p>
+                    <strong className="num">{moneyIq(c.sales)} · {pct(c.share)}</strong>
+                    <p className="mt-1 text-xs font-bold text-muted">{pieces(c.pieces)} · {c.receipts} فاتورة</p>
+                  </div>
+                ))
+                : <p className="text-sm font-bold text-muted">لا يظهر كاشير على حركات هذا البائع</p>
+            )}
+            {tab === 'products' && (
+              detailProducts.length
+                ? detailProducts.map(p => (
+                  <div key={p.name} className="detail-cell">
+                    <p>{p.name}</p>
+                    <strong className="num">{moneyIq(p.sales)}</strong>
+                    <p className="mt-1 text-xs font-bold text-muted">{pieces(p.qty)} · {p.count} حركة · عمولة {moneyIq(p.commission)}</p>
+                  </div>
+                ))
+                : <p className="text-sm font-bold text-muted">لا منتجات</p>
+            )}
+            {tab === 'invoices' && (
+              <>
+                <ReceiptList groups={detailReceipts} onOpen={setLine} />
+                <MoveList lines={detailLines} onOpen={setLine} empty="لا حركات لهذا البائع" />
+              </>
+            )}
           </div>
         )}
       </Sheet>
+      <LineSheet open={line} onClose={() => setLine(null)} />
     </div>
   );
 }
