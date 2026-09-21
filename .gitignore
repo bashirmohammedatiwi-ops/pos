@@ -66,6 +66,9 @@ database/backups/
 *.ldf
 !database/**/*.sql
 
+# Downloaded shop-tunnel binary
+scripts/tools/
+
 # Tools runtime and local exports
 tools/**/bin/
 tools/**/obj/

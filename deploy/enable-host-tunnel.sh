@@ -23,14 +23,13 @@ if [ -n "$sshd" ]; then
 fi
 
 if command -v ufw >/dev/null 2>&1; then
-  ufw allow 4700:4703/tcp || true
+  ufw allow 4700:4704/tcp || true
   ufw allow from 172.16.0.0/12 to any port 15000 proto tcp || true
   ufw allow from 192.168.0.0/16 to any port 15000 proto tcp || true
   ufw deny 15000/tcp || true
   ufw deny 5000/tcp || true
 fi
 
-echo "VPS is ready for the shop tunnel."
-echo "From the shop PC keep this running:"
-echo "  powershell -File scripts/Start-ShopTunnel.ps1 -VpsUser YOUR_SSH_USER"
+echo "VPS is ready for the shop tunnel on :4704."
+echo "On the shop PC double-click scripts/تشغيل-نفق-المحل.bat and leave it open."
 echo "Then: cd deploy && ./up.sh"

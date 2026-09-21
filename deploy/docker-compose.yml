@@ -2,7 +2,14 @@
 # Shop POS API stays on the LAN (port 5000) and is never published here.
 
 services:
-  # Host-network forward: SSH tunnel listens on VPS 127.0.0.1:5000,
+  # Shop PC connects outbound here (no inbound 5000). Reverse tunnel lands on :5000.
+  shop-tunnel:
+    image: jpillora/chisel:1.11.3
+    network_mode: host
+    command: server --reverse --port 4704 --auth ${FOT_TUNNEL_AUTH:-fot:e7Kq9mN2pL4xW8vR}
+    restart: unless-stopped
+
+  # Host-network forward: tunnel listens on VPS 127.0.0.1:5000,
   # Docker cannot see that address, so this publishes it on 15000 for containers.
   shop-proxy:
     image: alpine/socat
@@ -25,6 +32,7 @@ services:
     depends_on:
       - seller
       - shop-proxy
+      - shop-tunnel
     restart: unless-stopped
 
   seller:

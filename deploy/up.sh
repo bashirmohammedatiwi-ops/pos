@@ -10,6 +10,9 @@ if grep -q 'host.docker.internal:5000' .env; then
   sed -i 's|host.docker.internal:5000|host.docker.internal:15000|' .env
   echo "updated FOT_SHOP_API_URL to shop-proxy :15000"
 fi
+if ! grep -q '^FOT_TUNNEL_AUTH=' .env; then
+  echo 'FOT_TUNNEL_AUTH=fot:e7Kq9mN2pL4xW8vR' >> .env
+fi
 
 docker compose up -d --build
 docker compose ps
