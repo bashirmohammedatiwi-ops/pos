@@ -234,6 +234,11 @@ public partial record PortalSellerAccountDto
     public PortalSellerAccountDto() : this(0, "", false, false, null, null, null) { }
 }
 
+public partial record SellerHubAccountDto
+{
+    public SellerHubAccountDto() : this(0, "", null, false, false) { }
+}
+
 public partial record PortalManagerAccountDto
 {
     public PortalManagerAccountDto() : this(0, "", "", false, null, default) { }

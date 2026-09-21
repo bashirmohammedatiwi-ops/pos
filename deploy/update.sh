@@ -22,8 +22,8 @@ chmod +x "$here/up.sh" "$here/update.sh" "$here/enable-host-tunnel.sh" 2>/dev/nu
 sh "$here/up.sh"
 
 echo
-echo "expected containers: shop-tunnel, shop-proxy, seller, gateway"
+echo "expected containers: hub, seller, gateway"
 docker compose -f "$here/docker-compose.yml" --env-file "$here/.env" ps
 echo
-echo "tunnel port 4704 (shop PC connects here):"
-ss -lnt 2>/dev/null | grep 4704 || netstat -lnt 2>/dev/null | grep 4704 || echo "4704 is not listening — shop-tunnel failed"
+echo "hub sync port 4705:"
+ss -lnt 2>/dev/null | grep 4705 || netstat -lnt 2>/dev/null | grep 4705 || echo "4705 is not listening — hub failed"

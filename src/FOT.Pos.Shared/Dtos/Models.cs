@@ -103,6 +103,34 @@ public record PortalPublishResult(
     string Message,
     string WebUrl);
 
+public partial record SellerHubAccountDto(
+    long Id,
+    string Name,
+    string? PinHash,
+    bool IsActive,
+    bool MustChangePin);
+
+public record SellerHubWeekPackDto(
+    DateTime WeekStart,
+    SellerWeekSummaryDto Week,
+    IReadOnlyList<SellerMallDto> Malls,
+    IReadOnlyList<SellerGoalDto> Goals,
+    SellerCommissionBundleDto Commission,
+    IReadOnlyList<SellerGoalDetailDto> GoalDetails);
+
+public record SellerHubSnapshotDto(
+    SellerMeDto Me,
+    decimal BalanceDue,
+    IReadOnlyList<SellerWeekSummaryDto> Weeks,
+    IReadOnlyList<SellerCommissionGroupDto> Groups,
+    IReadOnlyList<SellerCommissionProductDto> Products,
+    IReadOnlyList<SellerHubWeekPackDto> WeekPacks);
+
+public record SellerHubSyncRequest(
+    DateTime GeneratedAt,
+    IReadOnlyList<SellerHubAccountDto> Accounts,
+    IReadOnlyList<SellerHubSnapshotDto> Snapshots);
+
 public record DashboardStatsDto(
     int ActiveOffers,
     int EdariMaterials,

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using FOT.Pos.Api;
+using FOT.Pos.Api.HostedServices;
 using FOT.Pos.Infrastructure.Repositories;
 using FOT.Pos.Shared.Dtos;
 
@@ -17,24 +18,30 @@ public static class PortalAccountEndpoints
             return Results.Ok(await repo.ListSellersAsync(default));
         });
 
-        g.MapPost("/sellers/{id:long}/issue", async (HttpContext http, long id, PortalAccountRepository repo) =>
+        g.MapPost("/sellers/{id:long}/issue", async (HttpContext http, long id, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.IssueSellerPinAsync(id, default);
-            return row is null ? Results.NotFound(new { error = "البائع غير موجود" }) : Results.Ok(row);
+            if (row is null) return Results.NotFound(new { error = "البائع غير موجود" });
+            _ = sync.PushNowAsync(CancellationToken.None);
+            return Results.Ok(row);
         });
 
-        g.MapPost("/sellers/issue-missing", async (HttpContext http, PortalAccountRepository repo) =>
+        g.MapPost("/sellers/issue-missing", async (HttpContext http, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
-            return Results.Ok(await repo.IssueMissingSellerPinsAsync(default));
+            var result = await repo.IssueMissingSellerPinsAsync(default);
+            _ = sync.PushNowAsync(CancellationToken.None);
+            return Results.Ok(result);
         });
 
-        g.MapPost("/sellers/{id:long}/active", async (HttpContext http, long id, bool active, PortalAccountRepository repo) =>
+        g.MapPost("/sellers/{id:long}/active", async (HttpContext http, long id, bool active, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.SetSellerActiveAsync(id, active, default);
-            return row is null ? Results.NotFound(new { error = "لا يوجد حساب لهذا البائع" }) : Results.Ok(row);
+            if (row is null) return Results.NotFound(new { error = "لا يوجد حساب لهذا البائع" });
+            _ = sync.PushNowAsync(CancellationToken.None);
+            return Results.Ok(row);
         });
 
         g.MapGet("/web-status", async (HttpContext http, PortalAccountRepository repo, SellerWebPublisher web) =>
@@ -52,15 +59,19 @@ public static class PortalAccountEndpoints
                 withAccount, active, true, probe.VisibleOnWeb, probe.Message, web.PublicUrl, probe.StatusCode));
         });
 
-        g.MapPost("/sellers/{id:long}/publish", async (HttpContext http, long id, PortalAccountRepository repo, SellerWebPublisher web) =>
+        g.MapPost("/sellers/{id:long}/publish", async (HttpContext http, long id, PortalAccountRepository repo, ISellerHubSync sync, SellerWebPublisher web) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var current = (await repo.ListSellersAsync(default)).FirstOrDefault(s => s.SalesmanId == id);
             if (current is null) return Results.NotFound(new { error = "البائع غير موجود" });
             var row = current.HasAccount ? current : await repo.IssueSellerPinAsync(id, default);
             if (row is null) return Results.NotFound(new { error = "البائع غير موجود" });
+            var uploaded = await sync.PushNowAsync(default);
             var probe = await web.ProbeAsync(id, default);
-            return Results.Ok(new PortalPublishResult(row, true, probe.VisibleOnWeb, probe.Message, web.PublicUrl));
+            var message = probe.VisibleOnWeb
+                ? probe.Message
+                : uploaded ? probe.Message : "حُفظ في نقطة البيع وتعذر رفعه إلى سيرفر الويب";
+            return Results.Ok(new PortalPublishResult(row, true, probe.VisibleOnWeb, message, web.PublicUrl));
         });
 
         g.MapGet("/managers", async (HttpContext http, PortalAccountRepository repo) =>

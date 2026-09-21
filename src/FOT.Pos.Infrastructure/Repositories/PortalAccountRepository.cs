@@ -7,6 +7,24 @@ namespace FOT.Pos.Infrastructure.Repositories;
 
 public sealed class PortalAccountRepository(ISqlConnectionFactory db)
 {
+    public async Task<IReadOnlyList<SellerHubAccountDto>> ListSyncAccountsAsync(CancellationToken ct)
+    {
+        const string sql = """
+            SELECT
+                sm.id AS Id,
+                sm.name AS Name,
+                a.pin_hash AS PinHash,
+                CAST(COALESCE(a.is_active, 0) AS bit) AS IsActive,
+                CAST(COALESCE(a.must_change_pin, 0) AS bit) AS MustChangePin
+            FROM salesmen sm
+            INNER JOIN ext_seller_accounts a ON a.salesman_id = sm.id
+            WHERE sm.name IS NOT NULL AND LTRIM(RTRIM(sm.name)) <> N''
+            ORDER BY sm.id
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return (await conn.QueryAsync<SellerHubAccountDto>(new CommandDefinition(sql, cancellationToken: ct))).ToList();
+    }
+
     public async Task<IReadOnlyList<PortalSellerAccountDto>> ListSellersAsync(CancellationToken ct)
     {
         const string sql = """

@@ -18,11 +18,13 @@ public sealed class SellerWebPublisher(IHttpClientFactory http, IConfiguration c
             var body = await res.Content.ReadAsStringAsync(ct);
             var code = (int)res.StatusCode;
             if (code is 502 or 503 or 504)
-                return new PortalWebProbeDto(false, "النفق غير متصل — ويب البائعين لا يصل للمحل", url, code);
+                return new PortalWebProbeDto(false, "سيرفر الويب لا يرد — حدّث حاوية hub على الـ VPS", url, code);
+            if (code == 404)
+                return new PortalWebProbeDto(false, "الحساب لم يظهر على الويب بعد — انتظر المزامنة أو اضغط نشر", url, code);
             if (!res.IsSuccessStatusCode)
-                return new PortalWebProbeDto(false, $"الويب رد {code} — حدّث السيرفر وشغّل نفق المحل", url, code);
+                return new PortalWebProbeDto(false, $"الويب رد {code} — حدّث سيرفر الويب", url, code);
             if (string.IsNullOrWhiteSpace(body) || body.TrimStart().StartsWith('<'))
-                return new PortalWebProbeDto(false, "الويب لا يمرّر طلب البائع إلى نقطة البيع", url, code);
+                return new PortalWebProbeDto(false, "سيرفر الويب لا يقدّم واجهة البائع بعد", url, code);
             return new PortalWebProbeDto(true, "الحساب ظاهر على ويب البائعين", url, code);
         }
         catch (TaskCanceledException)

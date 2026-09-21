@@ -45,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* raw */ }
     const authCall = path.startsWith('/auth/seller-login') || path.startsWith('/auth/seller-lookup');
     if (res.status === 502 || res.status === 503 || res.status === 504) {
-      throw new Error('تعذر الاتصال بنقطة البيع في المحل — اربط السيرفر بنفق المحل');
+      throw new Error('بيانات المحل لم تصل إلى السيرفر بعد — انتظر المزامنة من لوحة التحكم');
     }
     if (res.status === 404 && authCall) {
       throw new Error(path.includes('lookup') ? 'لا بائع بهذا الرقم' : 'تعذر الدخول');

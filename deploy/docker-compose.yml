@@ -1,25 +1,20 @@
-# FOT web hub — host ports 4700–4703 only.
-# Shop POS API stays on the LAN (port 5000) and is never published here.
+# FOT web hub — public ports 4700–4703, shop sync on 4705.
+# Shop POS API stays on the LAN. The VPS stores a seller-safe replica.
 
 services:
-  # Shop PC connects outbound here (no inbound 5000). Reverse tunnel lands on :5000.
-  shop-tunnel:
-    image: node:20-alpine
-    network_mode: host
-    working_dir: /app
-    volumes:
-      - ./shop-tunnel:/app:ro
-    command: ["node", "server.js"]
+  hub:
+    build:
+      context: ./hub
+      dockerfile: Dockerfile
+    ports:
+      - "4705:4705"
     environment:
-      FOT_TUNNEL_AUTH: ${FOT_TUNNEL_AUTH:-fot:e7Kq9mN2pL4xW8vR}
-    restart: unless-stopped
-
-  # Host-network forward: tunnel listens on VPS 127.0.0.1:5000,
-  # Docker cannot see that address, so this publishes it on 15000 for containers.
-  shop-proxy:
-    image: alpine/socat
-    network_mode: host
-    command: TCP-LISTEN:15000,fork,reuseaddr,keepalive TCP:127.0.0.1:5000
+      PORT: 4705
+      FOT_HUB_SYNC_KEY: ${FOT_HUB_SYNC_KEY:-fot-hub-sync-e7Kq9mN2pL4xW8vR}
+      FOT_HUB_JWT_KEY: ${FOT_HUB_JWT_KEY:-FOT-HUB-JWT-CHANGE-THIS-SECRET-MIN-32-CHARS}
+      FOT_HUB_DATA: /data
+    volumes:
+      - hub-data:/data
     restart: unless-stopped
 
   gateway:
@@ -27,17 +22,14 @@ services:
     ports:
       - "${FOT_HTTP_PORT:-4700}:80"
     environment:
-      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://host.docker.internal:15000}
+      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://hub:4705}
       NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./nginx/coming-soon.html:/usr/share/nginx/html/coming-soon.html:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - seller
-      - shop-proxy
-      - shop-tunnel
+      - hub
     restart: unless-stopped
 
   seller:
@@ -47,18 +39,11 @@ services:
     ports:
       - "${FOT_SELLER_PORT:-4701}:80"
     environment:
-      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://host.docker.internal:15000}
+      FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://hub:4705}
       NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
-      - shop-proxy
+      - hub
     restart: unless-stopped
 
-  # Later:
-  # staff:
-  #   build: ../web/fot-staff
-  #   ports: ["${FOT_STAFF_PORT:-4702}:80"]
-  # manager:
-  #   build: ../web/fot-manager
-  #   ports: ["${FOT_MANAGER_PORT:-4703}:80"]
+volumes:
+  hub-data:

@@ -59,13 +59,12 @@ npm run dev
 
 ## الرفع إلى السيرفر (VPS)
 
-المحل يحتفظ بنقطة البيع وSQL. السيرفر يشغّل ويب البائعين على المنافذ **4700–4704**. من جهاز المحل شغّل `تشغيل-نفق-المحل.bat`.
+المحل يحتفظ بنقطة البيع وSQL. السيرفر يخزّن نسخة ويب البائعين على المنافذ **4700–4703** ويستقبل المزامنة على **4705**. لا نفق.
 
 ```bash
 git clone https://github.com/bashirmohammedatiwi-ops/pos.git
 cd pos/deploy
 cp .env.example .env
-# اترك FOT_SHOP_API_URL=http://host.docker.internal:15000 وافتح نفق المحل
 chmod +x up.sh update.sh
 ./update.sh
 ```
