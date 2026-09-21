@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef, type TouchEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { dayLabel, moneyIq, type WeekSummary } from './api';
 
@@ -40,8 +40,19 @@ export function WeekBar({
     setWeek(w.isCurrent ? undefined : w.weekStart.slice(0, 10));
   }
 
+  const touchX = useRef(0);
+  function onTouchStart(e: TouchEvent) {
+    touchX.current = e.touches[0].clientX;
+  }
+  function onTouchEnd(e: TouchEvent) {
+    const dx = e.changedTouches[0].clientX - touchX.current;
+    if (Math.abs(dx) < 48) return;
+    if (dx > 0) pick(newer);
+    else pick(older);
+  }
+
   return (
-    <div className="week-wrap">
+    <div className="week-wrap sticky-week" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <button type="button" className="week-arrow" disabled={!newer} onClick={() => pick(newer)} aria-label="الأحدث">‹</button>
       <div className="week-scroll">
         {weeks.map(w => {

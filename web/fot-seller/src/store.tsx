@@ -3,7 +3,25 @@ import {
   api, deltaPct, setSeller,
   type CommissionLine, type Dashboard, type WeekSummary,
 } from './api';
+import { scrubSellerPayload } from './privacy';
 import { useWeek } from './week';
+
+const CACHE_KEY = 'fot_seller_cache';
+
+function readCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? scrubSellerPayload(JSON.parse(raw) as {
+      weekStart?: string;
+      dash: Dashboard | null;
+      weeks: WeekSummary[];
+      lines: CommissionLine[];
+      updatedAt: number | null;
+    }) : null;
+  } catch {
+    return null;
+  }
+}
 
 type Store = {
   weekStart?: string;
@@ -21,34 +39,42 @@ const Ctx = createContext<Store | null>(null);
 
 export function SellerProvider({ children }: { children: ReactNode }) {
   const { weekStart, setWeek } = useWeek();
-  const [dash, setDash] = useState<Dashboard | null>(null);
-  const [weeks, setWeeks] = useState<WeekSummary[]>([]);
-  const [lines, setLines] = useState<CommissionLine[]>([]);
+  const seed = useMemo(() => readCache(), []);
+  const [dash, setDash] = useState<Dashboard | null>(seed?.dash ?? null);
+  const [weeks, setWeeks] = useState<WeekSummary[]>(seed?.weeks ?? []);
+  const [lines, setLines] = useState<CommissionLine[]>(seed?.lines ?? []);
   const [err, setErr] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [loading, setLoading] = useState(!seed?.dash);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(seed?.updatedAt ?? null);
 
   const reload = useCallback(async () => {
     setErr('');
-    setLoading(true);
+    if (!seed?.dash) setLoading(true);
     try {
       const [d, w] = await Promise.all([api.dashboard(weekStart), api.weeks()]);
+      let nextLines: CommissionLine[] = [];
+      try {
+        nextLines = (await api.commissionLines(weekStart)).lines;
+      } catch {
+        nextLines = [];
+      }
+      const now = Date.now();
       setDash(d);
       setWeeks(w);
+      setLines(nextLines);
       setSeller(d.seller);
+      setUpdatedAt(now);
       try {
-        const bundle = await api.commissionLines(weekStart);
-        setLines(bundle.lines);
-      } catch {
-        setLines([]);
-      }
-      setUpdatedAt(Date.now());
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          weekStart, dash: d, weeks: w, lines: nextLines, updatedAt: now,
+        }));
+      } catch { /* ignore quota */ }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'تعذر التحميل');
     } finally {
       setLoading(false);
     }
-  }, [weekStart]);
+  }, [weekStart, seed?.dash]);
 
   useEffect(() => { void reload(); }, [reload]);
 

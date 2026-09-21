@@ -23,12 +23,15 @@ const titles: Record<string, string> = {
   '/products': 'العمولة',
 };
 
-function NavItems() {
+function NavItems({ badges }: { badges?: Partial<Record<string, number>> }) {
   return (
     <>
       {links.map(l => (
         <NavLink key={l.to} to={l.to} end={'end' in l ? l.end : false} className={({ isActive }) => isActive ? 'on' : ''}>
-          <l.icon />
+          <span className="nav-ico">
+            <l.icon />
+            {!!badges?.[l.to] && <span className="nav-badge">{badges[l.to]}</span>}
+          </span>
           {l.label}
         </NavLink>
       ))}
@@ -91,6 +94,10 @@ function Shell() {
   const loc = useLocation();
   const seller = getSeller();
   const { dash, lines, reload, loading, err, updatedAt } = useSeller();
+  const badges = useMemo(() => ({
+    '/goals': dash?.goals.filter(g => g.percent < 100).length || undefined,
+    '/products': lines.length || undefined,
+  }), [dash, lines]);
   const [askOut, setAskOut] = useState(false);
   const [profile, setProfile] = useState(false);
   const [finder, setFinder] = useState(false);
@@ -178,7 +185,7 @@ function Shell() {
               <p className="mt-1 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
             </div>
           )}
-          <NavItems />
+          <NavItems badges={badges} />
         </aside>
 
         <div className="workspace">
@@ -224,7 +231,7 @@ function Shell() {
       </div>
 
       <nav className="dock">
-        <NavItems />
+        <NavItems badges={badges} />
       </nav>
 
       <Finder

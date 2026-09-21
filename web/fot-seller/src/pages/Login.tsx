@@ -72,7 +72,7 @@ export function Login() {
           <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-teal-100">FOT SELLER</p>
           <h2 className="display mt-3 text-4xl font-black leading-tight">مساحتك الخاصة<br />للعمولة والأهداف</h2>
           <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/80">
-            شاهد عمولتك كاملة، تقدّم أهدافك، وتفاصيل كل فاتورة ووقتها — بدون مبيعات إجمالية وبدون أسماء كاشير.
+            شاهد عمولتك كاملة، تقدّم أهدافك، وتفاصيل كل فاتورة ووقتها.
           </p>
           <div className="mt-8 grid grid-cols-3 gap-2 text-center">
             {['عمولة', 'أهداف', 'فواتير'].map(x => (

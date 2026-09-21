@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { money, moneyIq, moneyK } from './api';
+import { money, moneyIq, moneyK, type WeekSummary } from './api';
 import type { DayBucket, HourBand } from './insights';
 
 export function IconHome() {
@@ -426,6 +426,31 @@ export function InsightTile({
       <p className="num mt-2 text-base font-extrabold text-gold">{value}</p>
       {hint && <p className="mt-1 text-[11px] font-bold text-muted">{hint}</p>}
     </article>
+  );
+}
+
+export function WeekCompare({ cur, prev }: { cur?: WeekSummary; prev?: WeekSummary }) {
+  if (!cur || !prev) return null;
+  const max = Math.max(cur.commissionAmount, prev.commissionAmount, 1);
+  return (
+    <section className="card compare-card">
+      <SectionHead title="مقارنة بالأسبوع السابق" kicker="عمولة فقط" />
+      <div className="compare-cols">
+        <div>
+          <p className="text-[11px] font-extrabold text-gold">هذا الأسبوع</p>
+          <p className="num mt-1 text-xl font-extrabold">{moneyIq(cur.commissionAmount)}</p>
+          <div className="mt-2"><Bar value={cur.commissionAmount} max={max} tone="gold" /></div>
+          <p className="mt-2 text-xs font-bold text-muted">{cur.receiptCount} فاتورة · {cur.mallCount} مول</p>
+        </div>
+        <div>
+          <p className="text-[11px] font-extrabold text-muted">الأسبوع السابق</p>
+          <p className="num mt-1 text-xl font-extrabold">{moneyIq(prev.commissionAmount)}</p>
+          <div className="mt-2"><Bar value={prev.commissionAmount} max={max} tone="goal" /></div>
+          <p className="mt-2 text-xs font-bold text-muted">{prev.receiptCount} فاتورة · {prev.mallCount} مول</p>
+        </div>
+      </div>
+      <div className="mt-3"><Delta value={((cur.commissionAmount - prev.commissionAmount) / Math.max(Math.abs(prev.commissionAmount), 1)) * 100} /></div>
+    </section>
   );
 }
 

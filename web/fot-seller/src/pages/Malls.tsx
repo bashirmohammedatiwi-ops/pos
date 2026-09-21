@@ -94,7 +94,7 @@ export function Malls() {
           </div>
         )}
       </Sheet>
-      <CommissionSheet line={line} onClose={() => setLine(null)} />
+      <CommissionSheet line={line} lines={mallLines} onClose={() => setLine(null)} onOpen={setLine} />
     </div>
   );
 }

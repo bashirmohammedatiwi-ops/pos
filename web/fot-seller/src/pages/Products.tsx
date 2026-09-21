@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { moneyIq } from '../api';
+import { commissionCsv, downloadText, moneyIq } from '../api';
 import type { CommissionLine } from '../api';
-import { groupDays, groupReceipts, rankProducts, uniqueMalls } from '../insights';
+import { groupDays, groupHours, groupReceipts, hourBand, rankProducts, uniqueMalls } from '../insights';
 import { CommissionList, CommissionSheet, ReceiptList } from '../lines';
 import { useSeller } from '../store';
 import { DayStrip, Empty, ErrorBox, Medal, SearchField, Skeleton } from '../ui';
@@ -20,6 +20,7 @@ export function Products() {
   const [sort, setSort] = useState<Sort>('new');
   const [open, setOpen] = useState<CommissionLine | null>(null);
   const [dayKey, setDayKey] = useState<string | null>(null);
+  const [band, setBand] = useState('');
 
   useEffect(() => {
     const next = params.get('q');
@@ -32,13 +33,14 @@ export function Products() {
     return lines.filter(l => {
       if (mall && l.mallName !== mall) return false;
       if (dayKey && l.occurredAt.slice(0, 10) !== dayKey) return false;
+      if (band && hourBand(l.occurredAt) !== band) return false;
       if (!needle) return true;
       return l.productName.includes(needle)
         || (l.groupName ?? '').includes(needle)
         || (l.mallName ?? '').includes(needle)
         || String(l.receiptNumber ?? '').includes(needle);
     });
-  }, [lines, q, mall, dayKey]);
+  }, [lines, q, mall, dayKey, band]);
 
   const sorted = useMemo(() => {
     if (sort === 'amount') return [...filtered].sort((a, b) => b.commissionAmount - a.commissionAmount);
@@ -47,6 +49,7 @@ export function Products() {
 
   const receipts = useMemo(() => groupReceipts(sorted), [sorted]);
   const days = useMemo(() => groupDays(filtered), [filtered]);
+  const hours = useMemo(() => groupHours(lines), [lines]);
   const products = useMemo(() => rankProducts(sorted), [sorted]);
   const total = sorted.reduce((s, l) => s + l.commissionAmount, 0);
 
@@ -61,6 +64,13 @@ export function Products() {
         <p className="mt-1 text-sm font-bold text-muted">
           {sorted.length} حركة · {receipts.length} فاتورة — اضغط أي سطر للتفاصيل
         </p>
+        <button
+          type="button"
+          className="pill mt-3"
+          onClick={() => downloadText(`عمولة-${(weekStart || 'week')}.csv`, commissionCsv(sorted))}
+        >
+          تصدير الحركات
+        </button>
       </section>
 
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
@@ -73,6 +83,17 @@ export function Products() {
         <button type="button" className={`chip ${sort === 'new' ? 'chip-on' : ''}`} onClick={() => setSort('new')}>الأحدث</button>
         <button type="button" className={`chip ${sort === 'amount' ? 'chip-on' : ''}`} onClick={() => setSort('amount')}>الأعلى عمولة</button>
       </div>
+
+      {hours.some(h => h.count) && (
+        <div className="toolbar">
+          <button type="button" className={`chip ${!band ? 'chip-on' : ''}`} onClick={() => setBand('')}>كل الأوقات</button>
+          {hours.filter(h => h.count).map(h => (
+            <button key={h.key} type="button" className={`chip ${band === h.key ? 'chip-on' : ''}`} onClick={() => setBand(band === h.key ? '' : h.key)}>
+              {h.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {malls.length > 1 && (
         <div className="toolbar">
@@ -128,7 +149,7 @@ export function Products() {
         ) : <Empty title="لا منتجات هذا الأسبوع" />
       )}
 
-      <CommissionSheet line={open} onClose={() => setOpen(null)} />
+      <CommissionSheet line={open} lines={lines} onClose={() => setOpen(null)} onOpen={setOpen} />
     </div>
   );
 }

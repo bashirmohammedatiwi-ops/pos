@@ -1,3 +1,5 @@
+import { scrubSellerPayload } from './privacy';
+
 const TOKEN_KEY = 'fot_seller_token';
 const SELLER_KEY = 'fot_seller_me';
 const LAST_ID_KEY = 'fot_seller_last_id';
@@ -63,7 +65,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (text && text.trimStart().startsWith('<')) {
     throw new Error('واجهة المحل لا ترد على طلب البائع — حدّث خادم نقطة البيع');
   }
-  return text ? JSON.parse(text) as T : {} as T;
+  return text ? scrubSellerPayload(JSON.parse(text) as T) : {} as T;
 }
 
 export interface SellerMe { id: number; name: string; mustChangePin: boolean }
@@ -276,4 +278,33 @@ export function weekReport(dash: Dashboard, extra?: string[]) {
     dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
     ...(extra ?? []),
   ].filter(Boolean).join('\n');
+}
+
+function csvCell(value: string | number | null | undefined) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function commissionCsv(lines: CommissionLine[]) {
+  const header = ['المنتج', 'الفاتورة', 'التاريخ', 'الوقت', 'المول', 'الكمية', 'العمولة'];
+  const rows = lines.map(l => [
+    csvCell(l.productName),
+    csvCell(l.receiptNumber ?? ''),
+    csvCell(dayLabel(l.occurredAt)),
+    csvCell(clockLabel(l.occurredAt)),
+    csvCell(l.mallName ?? ''),
+    csvCell(l.quantity),
+    csvCell(Math.round(l.commissionAmount)),
+  ].join(','));
+  return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
+}
+
+export function downloadText(name: string, text: string, type = 'text/csv;charset=utf-8') {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -69,8 +69,25 @@ function findPack(snapshot, weekStart) {
   return packs.find((p) => weekKey(p.weekStart) === key) || packs[0];
 }
 
+const CASHIER_KEY = /cashier|كاشير|cash_name|cashiername|cashierid/i;
+
+function scrub(value) {
+  if (Array.isArray(value)) return value.map(scrub);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (CASHIER_KEY.test(key)) continue;
+    if (key === 'salesAmount' || key === 'SalesAmount') {
+      out[key] = 0;
+      continue;
+    }
+    out[key] = scrub(raw);
+  }
+  return out;
+}
+
 function send(res, status, body) {
-  const json = typeof body === 'string' ? body : JSON.stringify(body);
+  const json = typeof body === 'string' ? body : JSON.stringify(scrub(body));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
@@ -131,7 +148,7 @@ function applySync(payload) {
     const me = snap.me || snap.Me || {};
     const id = Number(me.id ?? me.Id);
     if (!id) continue;
-    snapshots[id] = snap;
+    snapshots[id] = scrub(snap);
   }
   state = {
     lastSyncAt: new Date().toISOString(),
@@ -249,11 +266,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/commission-groups') {
-      send(res, 200, snap.groups || snap.Groups || []);
+      send(res, 200, []);
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/commission-products') {
-      send(res, 200, snap.products || snap.Products || []);
+      send(res, 200, []);
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/dashboard') {

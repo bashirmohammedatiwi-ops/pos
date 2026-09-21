@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { clockLabel, dayLabel, moneyIq, receiptLabel, stampLabel } from './api';
 import type { CommissionLine, GoalLine } from './api';
 import { lineText, type ReceiptGroup } from './insights';
@@ -55,23 +56,44 @@ export function ReceiptList({
   groups: ReceiptGroup[];
   onOpen: (line: CommissionLine) => void;
 }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   if (!groups.length) return <Empty title="لا فواتير هذا الأسبوع" hint="عندما تُحسب عمولة تظهر الفواتير هنا" />;
   return (
     <div className="line-stack">
-      {groups.map(g => (
-        <button key={g.id} type="button" className="receipt-card" onClick={() => onOpen(g.lines[0])}>
-          <span className="line-mark">#</span>
-          <span className="min-w-0">
-            <span className="block truncate text-[15px] font-extrabold">{receiptLabel(g.receiptNumber)}</span>
-            <span className="line-meta">
-              <span className="chip-soft">{stampLabel(g.at)}</span>
-              {g.mallName && <span className="chip-soft">{g.mallName}</span>}
-              <span className="chip-soft">{g.count} منتج</span>
-            </span>
-          </span>
-          <span className="num text-[15px] font-extrabold text-gold">{moneyIq(g.commission)}</span>
-        </button>
-      ))}
+      {groups.map(g => {
+        const open = openId === g.id;
+        return (
+          <div key={g.id} className="receipt-box">
+            <button type="button" className="receipt-card" onClick={() => setOpenId(open ? null : g.id)}>
+              <span className="line-mark">#</span>
+              <span className="min-w-0">
+                <span className="block truncate text-[15px] font-extrabold">{receiptLabel(g.receiptNumber)}</span>
+                <span className="line-meta">
+                  <span className="chip-soft">{stampLabel(g.at)}</span>
+                  {g.mallName && <span className="chip-soft">{g.mallName}</span>}
+                  <span className="chip-soft">{g.count} منتج</span>
+                </span>
+              </span>
+              <span className="num text-[15px] font-extrabold text-gold">{moneyIq(g.commission)}</span>
+            </button>
+            {open && (
+              <div className="receipt-lines">
+                {g.lines.map(l => (
+                  <LineCard
+                    key={l.id}
+                    name={l.productName}
+                    amount={moneyIq(l.commissionAmount)}
+                    receipt={l.receiptNumber}
+                    at={l.occurredAt}
+                    mall={l.mallName}
+                    onClick={() => onOpen(l)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -101,12 +123,24 @@ export function GoalLineList({
 }
 
 export function CommissionSheet({
-  line, onClose,
+  line, lines = [], onClose, onOpen,
 }: {
   line: CommissionLine | null;
+  lines?: CommissionLine[];
   onClose: () => void;
+  onOpen?: (line: CommissionLine) => void;
 }) {
   const toast = useToast();
+  const related = useMemo(
+    () => line ? lines.filter(l => l.id !== line.id && l.productName === line.productName).slice(0, 6) : [],
+    [line, lines],
+  );
+  const invoice = useMemo(
+    () => line?.receiptNumber != null
+      ? lines.filter(l => l.id !== line.id && l.receiptNumber === line.receiptNumber).slice(0, 8)
+      : [],
+    [line, lines],
+  );
   async function copy() {
     if (!line) return;
     try {
@@ -132,6 +166,42 @@ export function CommissionSheet({
           {line.groupName && <Detail label="المجموعة" value={line.groupName} />}
           <Detail label="الكمية" value={String(line.quantity)} />
           <button type="button" className="copy-btn" onClick={() => void copy()}>نسخ تفاصيل الحركة</button>
+          {invoice.length > 0 && (
+            <div>
+              <p className="kicker">باقي منتجات نفس الفاتورة</p>
+              <div className="mt-2 space-y-2">
+                {invoice.map(l => (
+                  <LineCard
+                    key={l.id}
+                    name={l.productName}
+                    amount={moneyIq(l.commissionAmount)}
+                    receipt={l.receiptNumber}
+                    at={l.occurredAt}
+                    mall={l.mallName}
+                    onClick={() => onOpen?.(l)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          {related.length > 0 && (
+            <div>
+              <p className="kicker">حركات أخرى لنفس المنتج</p>
+              <div className="mt-2 space-y-2">
+                {related.map(l => (
+                  <LineCard
+                    key={l.id}
+                    name={stampLabel(l.occurredAt)}
+                    amount={moneyIq(l.commissionAmount)}
+                    receipt={l.receiptNumber}
+                    at={l.occurredAt}
+                    mall={l.mallName}
+                    onClick={() => onOpen?.(l)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Sheet>

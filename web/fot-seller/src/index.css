@@ -320,6 +320,43 @@ h1, h2, .display { font-family: var(--font-display); }
   gap: 8px;
 }
 
+.sticky-week {
+  position: sticky;
+  top: 72px;
+  z-index: 12;
+  padding: 6px 0;
+  background: linear-gradient(180deg, rgba(247, 251, 249, 0.96), rgba(247, 251, 249, 0.86));
+}
+
+.compare-card { padding: 16px; }
+.compare-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.receipt-box { display: grid; gap: 8px; }
+.receipt-lines { display: grid; gap: 8px; padding: 0 2px 4px; }
+
+.nav-ico { position: relative; display: inline-flex; }
+.nav-badge {
+  position: absolute;
+  top: -7px;
+  left: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: #c9a227;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+.dock a.on .nav-badge,
+.side a.on .nav-badge { background: #fbbf24; color: #0b1220; }
+
 .week-arrow {
   width: 40px;
   height: 40px;
@@ -1087,4 +1124,11 @@ button:active { transform: scale(0.985); }
   }
 
   .login-card { width: 100%; margin: 0; }
+}
+
+@media print {
+  .topbar, .dock, .side, .pull, .toast, .icon-btn, .finder-bg, .hero-orbs { display: none !important; }
+  .workspace { padding: 0; }
+  .app, .main { background: #fff; max-width: none; }
+  .card, .hero { box-shadow: none; break-inside: avoid; }
 }

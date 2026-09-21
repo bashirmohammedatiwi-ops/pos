@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { greeting, goalLabel, goalTone, moneyIq, shareText, weekRange, weekReport } from '../api';
+import { commissionCsv, downloadText, greeting, goalLabel, goalTone, moneyIq, shareText, weekRange, weekReport } from '../api';
 import type { CommissionLine } from '../api';
 import { buildInsights } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller, useWeekCompare } from '../store';
 import {
   AreaChart, CountMoney, DayStrip, Delta, Donut, ErrorBox, HeroArt, HourBands, IconShare,
-  InsightTile, Legend, Medal, Ring, SectionHead, Skeleton, Track, useToast,
+  InsightTile, Legend, Medal, Ring, SectionHead, Skeleton, Track, WeekCompare, useToast,
 } from '../ui';
 import { WeekBar } from '../week';
 
@@ -58,9 +58,21 @@ export function Home() {
             <h1 className="display mt-1 text-[28px] font-black leading-tight">{dash.seller.name}</h1>
             <p className="mt-1 text-sm font-bold text-muted">أسبوع {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
           </div>
-          <button type="button" onClick={() => void share()} className="pill">
-            <IconShare /> مشاركة
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void share()} className="pill">
+              <IconShare /> مشاركة
+            </button>
+            <button
+              type="button"
+              className="pill"
+              onClick={() => {
+                downloadText(`عمولة-${dash.week.weekStart.slice(0, 10)}.csv`, commissionCsv(lines));
+                toast('تم تنزيل ملف العمولة');
+              }}
+            >
+              تصدير
+            </button>
+          </div>
         </div>
         <Link to="/products" className="hero-comm stat-link">
           <p className="text-sm font-extrabold text-gold">عمولة الأسبوع كاملة</p>
@@ -92,6 +104,7 @@ export function Home() {
       )}
 
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <WeekCompare cur={compare.cur} prev={compare.prev} />
 
       <div className="insight-grid stagger">
         <InsightTile
@@ -224,7 +237,7 @@ export function Home() {
         </section>
       </div>
 
-      <CommissionSheet line={open} onClose={() => setOpen(null)} />
+      <CommissionSheet line={open} lines={lines} onClose={() => setOpen(null)} onOpen={setOpen} />
     </div>
   );
 }
