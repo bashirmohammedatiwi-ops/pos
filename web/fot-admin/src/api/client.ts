@@ -86,6 +86,7 @@ import type {
   DiscountQrReceiptDto,
   PortalSellerAccountDto,
   PortalManagerAccountDto,
+  PortalBulkIssueResult,
   ReceiptSummary,
   SalesmanDto,
   SalesmanSalesRowDto,
@@ -397,8 +398,10 @@ export const api = {
   portalSellers: () => request<PortalSellerAccountDto[]>('/api/portal-accounts/sellers'),
   issueSellerPin: (id: number) =>
     request<PortalSellerAccountDto>(`/api/portal-accounts/sellers/${id}/issue`, { method: 'POST' }),
+  issueMissingSellerPins: () =>
+    request<PortalBulkIssueResult>('/api/portal-accounts/sellers/issue-missing', { method: 'POST' }),
   setSellerPortalActive: (id: number, active: boolean) =>
-    request<void>(`/api/portal-accounts/sellers/${id}/active${qs({ active })}`, { method: 'POST' }),
+    request<PortalSellerAccountDto>(`/api/portal-accounts/sellers/${id}/active${qs({ active })}`, { method: 'POST' }),
   portalManagers: () => request<PortalManagerAccountDto[]>('/api/portal-accounts/managers'),
   createPortalManager: (username: string, displayName: string) =>
     request<PortalManagerAccountDto>('/api/portal-accounts/managers', {
@@ -407,8 +410,13 @@ export const api = {
     }),
   resetPortalManager: (id: number) =>
     request<PortalManagerAccountDto>(`/api/portal-accounts/managers/${id}/reset`, { method: 'POST' }),
+  updatePortalManager: (id: number, displayName: string) =>
+    request<PortalManagerAccountDto>(`/api/portal-accounts/managers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ displayName }),
+    }),
   setPortalManagerActive: (id: number, active: boolean) =>
-    request<void>(`/api/portal-accounts/managers/${id}/active${qs({ active })}`, { method: 'POST' }),
+    request<PortalManagerAccountDto>(`/api/portal-accounts/managers/${id}/active${qs({ active })}`, { method: 'POST' }),
   cashiers: (search?: string) =>
     request<PagedResult<CashierDto>>(`/api/cashiers${qs({ page: 1, pageSize: 200, search })}`).then(withPages),
   cashier: (id: number) => request<CashierDetailDto>(`/api/cashiers/${id}`),

@@ -36,13 +36,45 @@ public record SellerDashboardDto(
     IReadOnlyList<SellerMallDto> Malls,
     IReadOnlyList<SellerGoalDto> Goals);
 
+public partial record SellerCommissionLineDto(
+    long Id,
+    string ProductName,
+    string? GroupName,
+    decimal Quantity,
+    decimal CommissionAmount,
+    long? ReceiptNumber,
+    DateTime OccurredAt,
+    string? MallName);
+
+public record SellerCommissionBundleDto(
+    decimal TotalCommission,
+    int LineCount,
+    IReadOnlyList<SellerCommissionLineDto> Lines);
+
+public partial record SellerGoalLineDto(
+    string ProductName,
+    decimal Quantity,
+    long? ReceiptNumber,
+    DateTime OccurredAt,
+    string? MallName);
+
+public record SellerGoalDetailDto(
+    long RuleId,
+    string RuleName,
+    string TargetType,
+    decimal Sold,
+    decimal WeeklyTarget,
+    decimal Percent,
+    IReadOnlyList<SellerGoalLineDto> Lines);
+
 public partial record PortalSellerAccountDto(
     long SalesmanId,
     string Name,
     bool HasAccount,
     bool IsActive,
     string? PinDisplay,
-    DateTime? LastLoginAt);
+    DateTime? LastLoginAt,
+    DateTime? CreatedAt);
 
 public partial record PortalManagerAccountDto(
     long Id,
@@ -53,6 +85,8 @@ public partial record PortalManagerAccountDto(
     DateTime CreatedAt);
 
 public record CreateManagerAccountRequest(string Username, string DisplayName);
+public record UpdateManagerAccountRequest(string DisplayName);
+public record PortalBulkIssueResult(int Issued, IReadOnlyList<PortalSellerAccountDto> Sellers);
 
 public record DashboardStatsDto(
     int ActiveOffers,

@@ -12,6 +12,7 @@ export interface PortalSellerAccountDto {
   isActive: boolean;
   pinDisplay?: string | null;
   lastLoginAt?: string | null;
+  createdAt?: string | null;
 }
 
 export interface PortalManagerAccountDto {
@@ -21,6 +22,11 @@ export interface PortalManagerAccountDto {
   isActive: boolean;
   passwordDisplay?: string | null;
   createdAt: string;
+}
+
+export interface PortalBulkIssueResult {
+  issued: number;
+  sellers: PortalSellerAccountDto[];
 }
 
 export interface LoginResponse {

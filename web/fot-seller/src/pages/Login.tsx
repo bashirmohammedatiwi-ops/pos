@@ -73,7 +73,7 @@ export function Login() {
           {step === 'id' ? 'مساحة البائع' : `أهلاً ${name.split(' ')[0]}`}
         </h1>
         <p className="mt-2 text-center text-sm font-bold leading-6 text-muted">
-          {step === 'id' ? 'عمولتك وأهدافك — بوضوح وبدون تشتيت' : 'أدخل الرمز السرّي من الإدارة'}
+          {step === 'id' ? 'عمولتك كاملة · أهدافك · تفاصيل الفاتورة والوقت' : 'أدخل الرمز السرّي من الإدارة'}
         </p>
 
         {step === 'id' ? (

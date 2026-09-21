@@ -99,5 +99,22 @@ public static class SellerPortalEndpoints
             if (id is null) return Results.Unauthorized();
             return Results.Ok(await sellers.ListCommissionProductsAsync(id.Value, default));
         });
+
+        seller.MapGet("/commission-lines", async (HttpContext http, SellerPortalRepository sellers, DateTime? weekStart, long? sectionId) =>
+        {
+            var id = SellerHttp.Id(http);
+            if (id is null) return Results.Unauthorized();
+            var (start, end) = await sellers.ResolveWeekAsync(weekStart, default);
+            return Results.Ok(await sellers.ListCommissionLinesAsync(id.Value, start, end, sectionId, default));
+        });
+
+        seller.MapGet("/goals/{ruleId:long}/lines", async (HttpContext http, SellerPortalRepository sellers, long ruleId, DateTime? weekStart) =>
+        {
+            var id = SellerHttp.Id(http);
+            if (id is null) return Results.Unauthorized();
+            var (start, end) = await sellers.ResolveWeekAsync(weekStart, default);
+            var row = await sellers.GetGoalDetailAsync(id.Value, ruleId, start, end, default);
+            return row is null ? Results.NotFound(new { error = "الهدف غير مربوط بك" }) : Results.Ok(row);
+        });
     }
 }

@@ -119,6 +119,8 @@ body {
   margin-top: 22px;
 }
 
+.hero.compact { padding-bottom: 22px; }
+
 .hero-num {
   margin-top: 6px;
   font-size: clamp(34px, 9vw, 50px);
@@ -255,7 +257,7 @@ body {
 .week-scroll > button { scroll-snap-align: start; }
 
 .week-chip {
-  min-width: 96px;
+  min-width: 118px;
   text-align: start;
   border-radius: 16px;
   padding: 10px 12px;
@@ -521,7 +523,94 @@ button:active { transform: scale(0.985); }
   grid-template-columns: auto 1fr;
   gap: 14px;
   align-items: center;
+  width: 100%;
   padding: 16px;
+  text-align: start;
+  color: inherit;
+}
+
+.line-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.line-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 13px 14px;
+  text-align: start;
+  color: inherit;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f8fffd 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.line-mark {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 30% 24%, #ffffff, transparent 46%),
+    linear-gradient(160deg, #ccfbf1, #e0e7ff);
+  color: #0f766e;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.line-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-hero {
+  border-radius: 18px;
+  padding: 16px;
+  background:
+    radial-gradient(90% 120% at 100% 0%, rgba(13, 148, 136, 0.12), transparent 50%),
+    #f8fffd;
+  border: 1px solid #ccfbf1;
+}
+
+.detail-hero.goal {
+  background:
+    radial-gradient(90% 120% at 100% 0%, rgba(79, 70, 229, 0.12), transparent 50%),
+    #f8f7ff;
+  border-color: #c7d2fe;
+}
+
+.detail-cell {
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.detail-cell p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.detail-cell strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
 }
 
 .goal-meta {
@@ -701,6 +790,8 @@ button:active { transform: scale(0.985); }
     grid-template-columns: 1fr 1fr;
     gap: 12px;
   }
+
+  .line-stack { display: flex; flex-direction: column; }
 
   .board-body {
     grid-template-columns: 200px 1fr;

@@ -1,14 +1,17 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { greeting, goalLabel, goalTone, moneyIq, moneyK, shareText, weekRange, weekReport } from '../api';
+import { greeting, goalLabel, goalTone, moneyIq, shareText, weekRange, weekReport } from '../api';
+import type { CommissionLine } from '../api';
+import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller, useWeekCompare } from '../store';
 import { AreaChart, Delta, Donut, ErrorBox, HeroArt, IconShare, Legend, Ring, SectionHead, Skeleton, Track, useToast } from '../ui';
 import { WeekBar } from '../week';
 
 export function Home() {
-  const { weekStart, setWeek, dash, weeks, groups, err, loading, reload } = useSeller();
+  const { weekStart, setWeek, dash, weeks, lines, err, loading, reload } = useSeller();
   const compare = useWeekCompare(weeks, weekStart);
   const toast = useToast();
+  const [open, setOpen] = useState<CommissionLine | null>(null);
   const spark = useMemo(() => [...weeks].reverse().map(w => w.commissionAmount), [weeks]);
   const totals = useMemo(() => ({
     comm: weeks.reduce((s, w) => s + w.commissionAmount, 0),
@@ -27,9 +30,10 @@ export function Home() {
   const donutItems = topMalls.map(m => ({ label: m.sectionName, value: m.commissionAmount }));
   const legendItems = topMalls.map(m => ({
     label: m.sectionName,
-    value: moneyK(m.commissionAmount),
+    value: moneyIq(m.commissionAmount),
     share: mallTotal > 0 ? (m.commissionAmount / mallTotal) * 100 : 0,
   }));
+  const preview = lines.slice(0, 5);
 
   async function share() {
     const result = await shareText('تقرير الأسبوع', weekReport(dash!));
@@ -52,15 +56,16 @@ export function Home() {
             <IconShare /> مشاركة
           </button>
         </div>
-        <div className="hero-comm">
-          <p className="text-sm font-extrabold text-gold">عمولة الأسبوع</p>
+        <Link to="/products" className="hero-comm stat-link">
+          <p className="text-sm font-extrabold text-gold">عمولة الأسبوع كاملة</p>
           <div className="hero-num num">{moneyIq(commission)}</div>
           <div className="mt-3">{compare.prev && <Delta value={compare.commDelta} />}</div>
-        </div>
+          <p className="mt-2 text-xs font-extrabold text-muted">{lines.length} منتج/فاتورة — اضغط للتفاصيل</p>
+        </Link>
         <div className="hero-pills">
           <span className="pill">{dash.week.mallCount || dash.malls.length} مول</span>
           <span className="pill">{dash.goals.length ? `${hit}/${dash.goals.length} أهداف` : 'لا أهداف'}</span>
-          {dash.balanceDue > 0 && <span className="pill">مستحق {moneyK(dash.balanceDue)}</span>}
+          {dash.balanceDue > 0 && <span className="pill">مستحق {moneyIq(dash.balanceDue)}</span>}
         </div>
       </section>
 
@@ -82,6 +87,11 @@ export function Home() {
         </div>
       )}
 
+      <section className="card p-4">
+        <SectionHead title="آخر العمولات" kicker="منتج · فاتورة · وقت" to="/products" link="الكل" />
+        <CommissionList lines={preview} onOpen={setOpen} empty="لا عمولة بعد هذا الأسبوع" />
+      </section>
+
       <section className="card board">
         <SectionHead title="أهداف الأسبوع" kicker="الإنجاز" to="/goals" link="التفاصيل" />
         {dash.goals.length ? (
@@ -95,14 +105,14 @@ export function Home() {
             </div>
             <div>
               {dash.goals.slice(0, 4).map(g => (
-                <div key={g.ruleId} className="board-row">
+                <Link key={g.ruleId} to="/goals" className="board-row stat-link">
                   <Ring value={g.percent} size={52} tone={goalTone(g.percent)} />
                   <div className="min-w-0">
                     <p className="truncate font-extrabold">{g.ruleName}</p>
                     <div className="mt-2"><Track value={g.percent} tone={goalTone(g.percent)} /></div>
                   </div>
                   <span className="text-xs font-extrabold text-muted">{goalLabel(g.percent)}</span>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -142,20 +152,7 @@ export function Home() {
         </section>
       </div>
 
-      {groups.length > 0 && (
-        <section>
-          <SectionHead title="مجموعات العمولة" kicker="نسبك" to="/products" link="المواد" />
-          <div className="group-mosaic">
-            {groups.slice(0, 4).map(g => (
-              <Link key={g.id} to="/products" className="card group-tile stat-link">
-                <p className="truncate text-sm font-extrabold">{g.name}</p>
-                <p className="mt-2 text-xl font-extrabold text-gold">{g.commissionType === 'percentage' ? `${g.commissionValue}%` : moneyK(g.commissionValue)}</p>
-                <p className="mt-1 text-[11px] font-bold text-muted">{g.productCount} منتج</p>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+      <CommissionSheet line={open} onClose={() => setOpen(null)} />
     </div>
   );
 }

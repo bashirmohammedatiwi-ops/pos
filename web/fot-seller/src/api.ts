@@ -90,6 +90,21 @@ export interface Dashboard {
   seller: SellerMe; week: WeekSummary; balanceDue: number;
   malls: MallRow[]; goals: GoalRow[];
 }
+export interface CommissionLine {
+  id: number; productName: string; groupName?: string | null;
+  quantity: number; commissionAmount: number;
+  receiptNumber?: number | null; occurredAt: string; mallName?: string | null;
+}
+export interface CommissionBundle {
+  totalCommission: number; lineCount: number; lines: CommissionLine[];
+}
+export interface GoalLine {
+  productName: string; quantity: number;
+  receiptNumber?: number | null; occurredAt: string; mallName?: string | null;
+}
+export interface GoalDetail extends GoalRow {
+  lines: GoalLine[];
+}
 
 function weekQs(weekStart?: string) {
   return weekStart ? `?weekStart=${encodeURIComponent(weekStart)}` : '';
@@ -109,6 +124,10 @@ export const api = {
   goals: (weekStart?: string) => request<GoalRow[]>(`/api/seller/goals${weekQs(weekStart)}`),
   groups: () => request<GroupRow[]>('/api/seller/commission-groups'),
   products: () => request<ProductRow[]>('/api/seller/commission-products'),
+  commissionLines: (weekStart?: string, sectionId?: number) =>
+    request<CommissionBundle>(`/api/seller/commission-lines${weekQs(weekStart)}${sectionId == null ? '' : `${weekStart ? '&' : '?'}sectionId=${sectionId}`}`),
+  goalLines: (ruleId: number, weekStart?: string) =>
+    request<GoalDetail>(`/api/seller/goals/${ruleId}/lines${weekQs(weekStart)}`),
 };
 
 export function money(n: number) {
@@ -128,6 +147,21 @@ export function dayLabel(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
   return d.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'short' });
+}
+
+export function clockLabel(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+export function stampLabel(iso: string) {
+  const clock = clockLabel(iso);
+  return clock ? `${dayLabel(iso)} · ${clock}` : dayLabel(iso);
+}
+
+export function receiptLabel(n?: number | null) {
+  return n ? `#${n}` : 'فاتورة';
 }
 
 export function weekRange(start: string, end: string) {

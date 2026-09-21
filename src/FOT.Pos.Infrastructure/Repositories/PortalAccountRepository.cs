@@ -16,7 +16,8 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
                 CAST(CASE WHEN a.salesman_id IS NULL THEN 0 ELSE 1 END AS bit) AS HasAccount,
                 CAST(COALESCE(a.is_active, 0) AS bit) AS IsActive,
                 a.pin_display AS PinDisplay,
-                a.last_login_at AS LastLoginAt
+                a.last_login_at AS LastLoginAt,
+                a.created_at AS CreatedAt
             FROM salesmen sm
             LEFT JOIN ext_seller_accounts a ON a.salesman_id = sm.id
             WHERE sm.name IS NOT NULL AND LTRIM(RTRIM(sm.name)) <> N''
@@ -51,13 +52,24 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
         return (await ListSellersAsync(ct)).FirstOrDefault(s => s.SalesmanId == salesmanId);
     }
 
-    public async Task<bool> SetSellerActiveAsync(long salesmanId, bool active, CancellationToken ct)
+    public async Task<PortalBulkIssueResult> IssueMissingSellerPinsAsync(CancellationToken ct)
+    {
+        var current = await ListSellersAsync(ct);
+        var missing = current.Where(s => !s.HasAccount).Select(s => s.SalesmanId).ToList();
+        foreach (var id in missing)
+            await IssueSellerPinAsync(id, ct);
+        return new PortalBulkIssueResult(missing.Count, await ListSellersAsync(ct));
+    }
+
+    public async Task<PortalSellerAccountDto?> SetSellerActiveAsync(long salesmanId, bool active, CancellationToken ct)
     {
         const string sql = """
             UPDATE ext_seller_accounts SET is_active = @active WHERE salesman_id = @salesmanId
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, new { salesmanId, active }, cancellationToken: ct)) > 0;
+        var n = await conn.ExecuteAsync(new CommandDefinition(sql, new { salesmanId, active }, cancellationToken: ct));
+        if (n <= 0) return null;
+        return (await ListSellersAsync(ct)).FirstOrDefault(s => s.SalesmanId == salesmanId);
     }
 
     public async Task<IReadOnlyList<PortalManagerAccountDto>> ListManagersAsync(CancellationToken ct)
@@ -116,13 +128,29 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
         return (await ListManagersAsync(ct)).FirstOrDefault(m => m.Id == id);
     }
 
-    public async Task<bool> SetManagerActiveAsync(long id, bool active, CancellationToken ct)
+    public async Task<PortalManagerAccountDto?> UpdateManagerNameAsync(long id, string displayName, CancellationToken ct)
+    {
+        displayName = (displayName ?? "").Trim();
+        if (displayName.Length < 2) return null;
+        const string sql = """
+            UPDATE ext_users SET display_name = @displayName
+            WHERE id = @id AND role = N'manager'
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var n = await conn.ExecuteAsync(new CommandDefinition(sql, new { id, displayName }, cancellationToken: ct));
+        if (n <= 0) return null;
+        return (await ListManagersAsync(ct)).FirstOrDefault(m => m.Id == id);
+    }
+
+    public async Task<PortalManagerAccountDto?> SetManagerActiveAsync(long id, bool active, CancellationToken ct)
     {
         const string sql = """
             UPDATE ext_users SET is_active = @active WHERE id = @id AND role = N'manager'
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, new { id, active }, cancellationToken: ct)) > 0;
+        var n = await conn.ExecuteAsync(new CommandDefinition(sql, new { id, active }, cancellationToken: ct));
+        if (n <= 0) return null;
+        return (await ListManagersAsync(ct)).FirstOrDefault(m => m.Id == id);
     }
 
     private static string NewManagerPassword()

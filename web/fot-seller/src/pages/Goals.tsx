@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
-import { goalLabel, goalTone, goalValue, pct, targetKind } from '../api';
+import { api, goalLabel, goalTone, goalValue, targetKind } from '../api';
+import type { GoalDetail, GoalLine, GoalRow } from '../api';
+import { GoalLineList, GoalLineSheet } from '../lines';
 import { useSeller } from '../store';
-import { Badge, Empty, ErrorBox, Ring, Skeleton, Track } from '../ui';
+import { Badge, Empty, ErrorBox, Ring, Sheet, Skeleton, Track } from '../ui';
 import { WeekBar } from '../week';
 
 type Filter = 'all' | 'done' | 'near' | 'late';
@@ -9,6 +11,9 @@ type Filter = 'all' | 'done' | 'near' | 'late';
 export function Goals() {
   const { weekStart, setWeek, dash, weeks, err, loading, reload } = useSeller();
   const [filter, setFilter] = useState<Filter>('all');
+  const [detail, setDetail] = useState<GoalDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [line, setLine] = useState<GoalLine | null>(null);
   const rows = dash?.goals ?? [];
 
   const list = useMemo(() => rows.filter(g => {
@@ -22,6 +27,17 @@ export function Goals() {
   const avg = rows.length ? rows.reduce((s, g) => s + g.percent, 0) / rows.length : 0;
   const late = rows.filter(g => g.percent < 80).length;
 
+  async function openGoal(g: GoalRow) {
+    setBusy(true);
+    try {
+      setDetail(await api.goalLines(g.ruleId, weekStart));
+    } catch {
+      setDetail({ ...g, lines: [] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
@@ -34,10 +50,7 @@ export function Goals() {
           <p className="mt-2 text-sm font-bold leading-6 text-muted">
             {rows.length ? `${hit} من ${rows.length} تحقق · ${late} يحتاج تركيز` : 'الأهداف المربوطة باسمك تظهر هنا'}
           </p>
-          <div className="goal-meta">
-            <span className="chip-soft">متوسط {pct(avg)}</span>
-            <span className="chip-soft">{rows.length} هدف</span>
-          </div>
+          <p className="mt-2 text-xs font-extrabold text-goal">اضغط الهدف لرؤية المنتجات والفواتير والوقت</p>
         </div>
       </section>
 
@@ -55,9 +68,9 @@ export function Goals() {
           const remain = Math.max(0, g.weeklyTarget - g.sold);
           const tone = goalTone(g.percent);
           return (
-            <article key={g.ruleId} className="card goal-card">
+            <button key={g.ruleId} type="button" className="card goal-card" onClick={() => void openGoal(g)}>
               <Ring value={g.percent} size={104} tone={tone} />
-              <div className="min-w-0">
+              <div className="min-w-0 text-start">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-extrabold leading-6">{g.ruleName}</h2>
@@ -65,7 +78,7 @@ export function Goals() {
                   </div>
                   <Badge tone={tone === 'goal' ? 'goal' : tone}>{goalLabel(g.percent)}</Badge>
                 </div>
-                <div className="mt-3 flex items-end justify-between gap-3">
+                <div className="mt-3">
                   <p className="text-sm font-bold text-muted">
                     <span className="num font-extrabold text-ink">{goalValue(g.targetType, g.sold)}</span>
                     <span> من </span>
@@ -77,7 +90,7 @@ export function Goals() {
                   ? <p className="mt-2 text-sm font-extrabold text-goal">المتبقي {goalValue(g.targetType, remain)}</p>
                   : <p className="mt-2 text-sm font-extrabold text-ok">الهدف اكتمل</p>}
               </div>
-            </article>
+            </button>
           );
         })}
         {!loading && !list.length && (
@@ -87,6 +100,26 @@ export function Goals() {
           />
         )}
       </div>
+
+      <Sheet open={!!detail || busy} title={detail?.ruleName || 'تفاصيل الهدف'} onClose={() => { setDetail(null); setLine(null); }}>
+        {busy && <Skeleton rows={3} />}
+        {detail && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <Ring value={detail.percent} size={88} tone={goalTone(detail.percent)} />
+              <p className="text-sm font-bold text-muted">
+                <span className="num font-extrabold text-ink">{goalValue(detail.targetType, detail.sold)}</span>
+                {' من '}
+                <span className="num">{goalValue(detail.targetType, detail.weeklyTarget)}</span>
+                <br />
+                {detail.lines.length} منتج/فاتورة
+              </p>
+            </div>
+            <GoalLineList lines={detail.lines} onOpen={setLine} />
+          </div>
+        )}
+      </Sheet>
+      <GoalLineSheet line={line} onClose={() => setLine(null)} />
     </div>
   );
 }

@@ -219,9 +219,19 @@ public partial record SellerCommissionProductDto
     public SellerCommissionProductDto() : this(null, null, null, 0, "", "", 0) { }
 }
 
+public partial record SellerCommissionLineDto
+{
+    public SellerCommissionLineDto() : this(0, "", null, 0, 0, null, default, null) { }
+}
+
+public partial record SellerGoalLineDto
+{
+    public SellerGoalLineDto() : this("", 0, null, default, null) { }
+}
+
 public partial record PortalSellerAccountDto
 {
-    public PortalSellerAccountDto() : this(0, "", false, false, null, null) { }
+    public PortalSellerAccountDto() : this(0, "", false, false, null, null, null) { }
 }
 
 public partial record PortalManagerAccountDto

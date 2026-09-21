@@ -228,6 +228,104 @@ public sealed class SellerPortalRepository(
             new CommandDefinition(sql, new { salesmanId }, cancellationToken: ct))).ToList();
     }
 
+    public async Task<SellerCommissionBundleDto> ListCommissionLinesAsync(
+        long salesmanId, DateTime start, DateTime end, long? sectionId, CancellationToken ct)
+    {
+        const string sql = """
+            SELECT TOP 500
+                c.id AS Id,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N''),
+                    NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1))), N''),
+                    NULLIF(LTRIM(RTRIM(c.commission_group_name)), N''),
+                    N'منتج'
+                ) AS ProductName,
+                NULLIF(LTRIM(RTRIM(c.commission_group_name)), N'') AS GroupName,
+                c.quantity AS Quantity,
+                c.commission_amount AS CommissionAmount,
+                r.number AS ReceiptNumber,
+                COALESCE(r.creation_date, c.calculated_at) AS OccurredAt,
+                COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'مول') AS MallName
+            FROM ext_commission_calculations c
+            LEFT JOIN reciepts r ON r.id = c.receipt_id
+            LEFT JOIN articles a ON a.Seq = c.article_id
+            LEFT JOIN articles a2 ON a2.id = c.article_id
+            LEFT JOIN cashiers cash ON cash.id = r.cashier_id
+            LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
+            LEFT JOIN sections sec ON sec.id = COALESCE(NULLIF(pos.section_id, 0), cash.section_id)
+            WHERE c.salesman_id = @salesmanId
+              AND COALESCE(r.creation_date, c.calculated_at) >= @start
+              AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
+              AND (@sectionId IS NULL OR COALESCE(sec.id, 0) = @sectionId)
+            ORDER BY COALESCE(r.creation_date, c.calculated_at) DESC
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var lines = (await conn.QueryRowsAsync<SellerCommissionLineDto>(new CommandDefinition(sql, new
+        {
+            salesmanId,
+            start = start.Date,
+            end = end.Date,
+            sectionId
+        }, cancellationToken: ct))).ToList();
+        return new SellerCommissionBundleDto(
+            lines.Sum(l => l.CommissionAmount),
+            lines.Count,
+            lines);
+    }
+
+    public async Task<SellerGoalDetailDto?> GetGoalDetailAsync(
+        long salesmanId, long ruleId, DateTime start, DateTime end, CancellationToken ct)
+    {
+        var goals = await ListGoalsAsync(salesmanId, start, end, ct);
+        var goal = goals.FirstOrDefault(g => g.RuleId == ruleId);
+        if (goal is null) return null;
+
+        var rule = await targets.GetRuleAsync(ruleId, ct);
+        if (rule is null)
+            return new SellerGoalDetailDto(goal.RuleId, goal.RuleName, goal.TargetType, goal.Sold, goal.WeeklyTarget, goal.Percent, []);
+
+        var seqs = await targets.ResolveProductSeqsForRulePublicAsync(rule, ct);
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var matchIds = seqs.Count == 0
+            ? []
+            : await ArticleMatch.ExpandReceiptMatchIdsAsync(conn, seqs, ct);
+        var lines = matchIds.Count == 0
+            ? []
+            : (await conn.QueryRowsAsync<SellerGoalLineDto>(new CommandDefinition("""
+                SELECT TOP 400
+                    COALESCE(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N''), N'منتج') AS ProductName,
+                    ri.quantity AS Quantity,
+                    r.number AS ReceiptNumber,
+                    r.creation_date AS OccurredAt,
+                    COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'مول') AS MallName
+                FROM reciepts r
+                INNER JOIN reciept_items ri ON ri.reciept_id = r.id
+                LEFT JOIN articles a ON a.id = ri.article_id
+                LEFT JOIN cashiers cash ON cash.id = r.cashier_id
+                LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
+                LEFT JOIN sections sec ON sec.id = COALESCE(NULLIF(pos.section_id, 0), cash.section_id)
+                WHERE r.creation_date >= @start
+                  AND r.creation_date < DATEADD(day, 1, CAST(@end AS DATE))
+                  AND (r.is_pending = 0 OR r.is_pending IS NULL)
+                  AND COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) = @salesmanId
+                  AND ri.article_id IN @articleIds
+                  AND NOT EXISTS (
+                      SELECT 1 FROM cashiers cx
+                      WHERE cx.id = r.cashier_id AND cx.apply_targets = 0)
+                ORDER BY r.creation_date DESC
+                """, new
+            {
+                salesmanId,
+                start = start.Date,
+                end = end.Date,
+                articleIds = matchIds.ToArray()
+            }, cancellationToken: ct))).ToList();
+
+        return new SellerGoalDetailDto(
+            goal.RuleId, goal.RuleName, goal.TargetType,
+            goal.Sold, goal.WeeklyTarget, goal.Percent, lines);
+    }
+
     private async Task<SellerWeekSummaryDto> SummarizeWeekAsync(
         long salesmanId, DateTime start, DateTime end, bool isCurrent, CancellationToken ct)
     {

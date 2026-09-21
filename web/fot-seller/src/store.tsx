@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  api, deltaPct, setSeller, type Dashboard, type GroupRow, type ProductRow, type WeekSummary,
+  api, deltaPct, setSeller,
+  type CommissionLine, type Dashboard, type GroupRow, type ProductRow, type WeekSummary,
 } from './api';
 import { useWeek } from './week';
 
@@ -11,6 +12,7 @@ type Store = {
   weeks: WeekSummary[];
   groups: GroupRow[];
   products: ProductRow[];
+  lines: CommissionLine[];
   err: string;
   loading: boolean;
   reload: () => Promise<void>;
@@ -24,6 +26,7 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   const [weeks, setWeeks] = useState<WeekSummary[]>([]);
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [lines, setLines] = useState<CommissionLine[]>([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -37,6 +40,7 @@ export function SellerProvider({ children }: { children: ReactNode }) {
       setSeller(d.seller);
       api.groups().then(setGroups).catch(() => undefined);
       api.products().then(setProducts).catch(() => undefined);
+      api.commissionLines(weekStart).then(b => setLines(b.lines)).catch(() => setLines([]));
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'تعذر التحميل');
     } finally {
@@ -47,8 +51,8 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void reload(); }, [reload]);
 
   const value = useMemo<Store>(() => ({
-    weekStart, setWeek, dash, weeks, groups, products, err, loading, reload,
-  }), [weekStart, setWeek, dash, weeks, groups, products, err, loading, reload]);
+    weekStart, setWeek, dash, weeks, groups, products, lines, err, loading, reload,
+  }), [weekStart, setWeek, dash, weeks, groups, products, lines, err, loading, reload]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
