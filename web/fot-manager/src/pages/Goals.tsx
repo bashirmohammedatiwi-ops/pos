@@ -80,7 +80,7 @@ export function Goals() {
   const near = groups.filter(g => g.avg >= 80 && g.avg < 100).length;
   const avg = groups.length ? groups.reduce((s, g) => s + g.avg, 0) / groups.length : 0;
 
-  const seller = open ? dash?.sellers.find(s => s.salesmanId === open.salesmanId) : undefined;
+  const seller = open ? dash?.sellers?.find(s => s.salesmanId === open.salesmanId) : undefined;
   const related = open ? linesForSeller(lines, open.salesmanId) : [];
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;

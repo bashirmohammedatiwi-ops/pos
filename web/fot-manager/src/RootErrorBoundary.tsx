@@ -3,13 +3,6 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 type Props = { children: ReactNode };
 type State = { error: Error | null };
 
-function showBootFallback(message?: string) {
-  const el = document.getElementById('boot-fallback');
-  const msg = document.getElementById('boot-fallback-msg');
-  if (msg && message) msg.textContent = message;
-  el?.classList.add('show');
-}
-
 function resetAppStorage() {
   try {
     localStorage.removeItem('fot_manager_cache_v3');
@@ -27,7 +20,6 @@ export class RootErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('FOT Manager boot error', error, info);
-    showBootFallback('حدث خطأ أثناء عرض الصفحة. جرّب تحديث التطبيق أو مسح الذاكرة المؤقتة.');
   }
 
   render() {

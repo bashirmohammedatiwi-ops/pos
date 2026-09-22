@@ -412,7 +412,7 @@ export function buildAlerts(
 }
 
 export function buildInsights(lines: LineRow[], dash: Dashboard | null, cashiers: CashierRow[]) {
-  const days = officialDays(dash?.days, lines, dash?.week.weekStart, dash?.week.weekEnd);
+  const days = officialDays(dash?.days, lines, dash?.week?.weekStart, dash?.week?.weekEnd);
   const products = rankProducts(lines);
   const receipts = groupReceipts(lines);
   const hours = groupHours(lines);
@@ -421,8 +421,8 @@ export function buildInsights(lines: LineRow[], dash: Dashboard | null, cashiers
   const peakHour = [...hours].sort((a, b) => b.sales - a.sales || b.commission - a.commission)[0];
   const topSeller = [...(dash?.sellers ?? [])].sort((a, b) => b.salesAmount - a.salesAmount)[0];
   const topCashier = cashiers[0];
-  const weekSales = dash?.week.salesAmount ?? 0;
-  const weekReceipts = dash?.week.receiptCount ?? receipts.length;
+  const weekSales = dash?.week?.salesAmount ?? 0;
+  const weekReceipts = dash?.week?.receiptCount ?? receipts.length;
   return {
     days,
     products,

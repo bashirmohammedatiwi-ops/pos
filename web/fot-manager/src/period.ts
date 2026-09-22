@@ -291,7 +291,7 @@ function proratePeople<T extends { salesAmount: number; commissionAmount: number
   dash: Dashboard | null | undefined,
 ): T[] {
   const official = officialPeriod(dash?.days, period.from, period.to);
-  const weekSales = Number(dash?.week.salesAmount) || rows.reduce((s, r) => s + r.salesAmount, 0);
+  const weekSales = Number(dash?.week?.salesAmount) || rows.reduce((s, r) => s + r.salesAmount, 0);
   if (!official?.sales || weekSales <= 0) return [];
   const ratio = official.sales / weekSales;
   return rows

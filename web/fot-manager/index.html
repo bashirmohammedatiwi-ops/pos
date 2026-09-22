@@ -20,7 +20,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-loading" aria-live="polite">جاري التحميل…</div>
+    </div>
     <div id="boot-fallback" hidden>
       <div class="boot-card">
         <h1>تعذّر تحميل لوحة المدير</h1>
@@ -32,15 +34,28 @@
       </div>
     </div>
     <script>
+      window.__fotAppMounted = false;
+      window.__fotMarkMounted = function () {
+        window.__fotAppMounted = true;
+        var loading = document.getElementById('boot-loading');
+        if (loading) loading.style.display = 'none';
+        var fallback = document.getElementById('boot-fallback');
+        if (fallback) {
+          fallback.hidden = true;
+          fallback.classList.remove('show');
+        }
+      };
       window.__fotResetManager = function () {
         try {
           localStorage.removeItem('fot_manager_cache_v3');
           localStorage.removeItem('fot_manager_cache');
+          localStorage.removeItem('fot_manager_cache_v2');
           sessionStorage.clear();
         } catch (e) {}
         location.reload();
       };
       window.__fotShowBoot = function (msg) {
+        if (window.__fotAppMounted) return;
         var el = document.getElementById('boot-fallback');
         var text = document.getElementById('boot-fallback-msg');
         if (text && msg) text.textContent = msg;
@@ -50,18 +65,18 @@
         }
       };
       window.addEventListener('error', function (ev) {
+        if (window.__fotAppMounted) return;
         var t = ev.target;
-        if (t && t.tagName === 'SCRIPT') window.__fotShowBoot('تعذّر تحميل ملفات التطبيق. حدّث الصفحة أو امسح الذاكرة.');
-      }, true);
-      window.addEventListener('unhandledrejection', function () {
-        window.__fotShowBoot('حدث خطأ أثناء تشغيل التطبيق. جرّب تحديث الصفحة.');
-      });
-      setTimeout(function () {
-        var root = document.getElementById('root');
-        if (root && !root.children.length) {
-          window.__fotShowBoot('التطبيق لم يكتمل التحميل. قد تحتاج تحديثاً قوياً للصفحة.');
+        if (!t || t.tagName !== 'SCRIPT') return;
+        var src = t.src || '';
+        if (src.indexOf('/assets/index-') >= 0 || src.indexOf('/src/main') >= 0) {
+          window.__fotShowBoot('تعذّر تحميل ملفات التطبيق. حدّث الصفحة أو امسح الذاكرة.');
         }
-      }, 12000);
+      }, true);
+      setTimeout(function () {
+        if (window.__fotAppMounted) return;
+        window.__fotShowBoot('التطبيق لم يكتمل التحميل. جرّب تحديث الصفحة أو مسح الذاكرة.');
+      }, 30000);
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

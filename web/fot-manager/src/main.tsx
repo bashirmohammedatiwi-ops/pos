@@ -23,7 +23,7 @@ if (!rootEl) {
         </RootErrorBoundary>
       </StrictMode>,
     );
-    document.getElementById('boot-fallback')?.classList.remove('show');
+    window.__fotMarkMounted?.();
   } catch (e) {
     console.error('FOT Manager mount failed', e);
     window.__fotShowBoot?.('تعذّر تشغيل التطبيق على هذا الجهاز. جرّب مسح الذاكرة أو متصفحاً أحدث.');

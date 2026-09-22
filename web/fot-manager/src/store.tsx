@@ -14,9 +14,45 @@ const PERIOD_KEY = 'fot_manager_period';
 const PAY_KEY = 'fot_manager_pay';
 const RANGE_KEY = 'fot_manager_range';
 
+const EMPTY_WEEK: WeekSummary = {
+  weekStart: '', weekEnd: '', isCurrent: false,
+  salesAmount: 0, commissionAmount: 0, receiptCount: 0,
+  pieceCount: 0, sellerCount: 0, cashierCount: 0,
+};
+
 function normalizeDash(d: Dashboard): Dashboard {
-  const goals = liveGoals(d.goals);
-  return { ...d, goals, sellers: attachLiveGoals(d.sellers ?? [], goals) };
+  const goals = liveGoals(d.goals ?? []);
+  return {
+    ...d,
+    goals,
+    sellers: attachLiveGoals(Array.isArray(d.sellers) ? d.sellers : [], goals),
+    cashiers: Array.isArray(d.cashiers) ? d.cashiers : [],
+    malls: Array.isArray(d.malls) ? d.malls : [],
+    products: Array.isArray(d.products) ? d.products : [],
+    days: Array.isArray(d.days) ? d.days : [],
+    week: { ...EMPTY_WEEK, ...(d.week ?? {}) },
+  };
+}
+
+function coerceDashboard(raw: unknown): Dashboard | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const d = raw as Partial<Dashboard>;
+  if (!d.manager || typeof d.manager !== 'object') return null;
+  try {
+    return normalizeDash({
+      manager: d.manager,
+      week: { ...EMPTY_WEEK, ...(d.week && typeof d.week === 'object' ? d.week : {}) },
+      sellers: Array.isArray(d.sellers) ? d.sellers : [],
+      cashiers: Array.isArray(d.cashiers) ? d.cashiers : [],
+      malls: Array.isArray(d.malls) ? d.malls : [],
+      goals: Array.isArray(d.goals) ? d.goals : [],
+      products: Array.isArray(d.products) ? d.products : [],
+      days: Array.isArray(d.days) ? d.days : [],
+      lastSyncAt: d.lastSyncAt ?? null,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function readKind(key: string, fallback: PeriodKind): PeriodKind {
@@ -57,24 +93,13 @@ function purgeCache() {
 function sanitizeCache(raw: unknown): CacheBlob | null {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw as Partial<CacheBlob>;
-  const dash = data.dash;
-  const prevDash = data.prevDash;
-  const validDash = !dash || (typeof dash === 'object' && Array.isArray(dash.sellers) && dash.week);
-  const validPrev = !prevDash || (typeof prevDash === 'object' && Array.isArray(prevDash.sellers));
-  if (!validDash || !validPrev) {
-    return {
-      weekStart: data.weekStart,
-      dash: validDash ? dash ?? null : null,
-      prevDash: validPrev ? prevDash ?? null : null,
-      weeks: Array.isArray(data.weeks) ? data.weeks : [],
-      lines: Array.isArray(data.lines) ? data.lines : [],
-      updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : null,
-    };
-  }
+  const dash = data.dash ? coerceDashboard(data.dash) : null;
+  const prevDash = data.prevDash ? coerceDashboard(data.prevDash) : null;
+  if (data.dash && !dash) return null;
   return {
     weekStart: data.weekStart,
-    dash: dash ?? null,
-    prevDash: prevDash ?? null,
+    dash,
+    prevDash,
     weeks: Array.isArray(data.weeks) ? data.weeks : [],
     lines: Array.isArray(data.lines) ? data.lines : [],
     updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : null,
@@ -221,18 +246,18 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
   );
 
   const period = useMemo(
-    () => resolveBounds(periodKind, dash?.week.weekStart, dash?.week.weekEnd, customFrom, customTo),
+    () => resolveBounds(periodKind, dash?.week?.weekStart, dash?.week?.weekEnd, customFrom, customTo),
     [periodKind, dash, customFrom, customTo],
   );
   const payPeriod = useMemo(
-    () => resolveBounds(payKind, dash?.week.weekStart, dash?.week.weekEnd, customFrom, customTo),
+    () => resolveBounds(payKind, dash?.week?.weekStart, dash?.week?.weekEnd, customFrom, customTo),
     [payKind, dash, customFrom, customTo],
   );
 
   const scopedLines = useMemo(() => filterLines(lines, period.from, period.to), [lines, period]);
   const payLines = useMemo(() => filterLines(lines, payPeriod.from, payPeriod.to), [lines, payPeriod]);
 
-  const weekSales = dash?.week.salesAmount || 0;
+  const weekSales = dash?.week?.salesAmount || 0;
   const roster = dash?.sellers ?? [];
 
   const scopedSellers = useMemo(() => {

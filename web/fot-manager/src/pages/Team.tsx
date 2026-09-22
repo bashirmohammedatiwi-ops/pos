@@ -53,7 +53,7 @@ export function Team() {
   useEffect(() => {
     const needle = params.get('q')?.trim();
     if (opened.current || !needle || !dash) return;
-    const hit = scopedSellers.find(s => s.name === needle) ?? dash.sellers.find(s => s.name === needle);
+    const hit = scopedSellers.find(s => s.name === needle) ?? dash?.sellers?.find(s => s.name === needle);
     if (hit) { opened.current = true; void openSeller(hit); }
   }, [dash, scopedSellers, params]);
 

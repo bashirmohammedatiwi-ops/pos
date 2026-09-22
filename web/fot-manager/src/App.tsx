@@ -64,8 +64,8 @@ function Shell() {
   const me = getMe();
   const { dash, cashiers, lines, paySellers, periodTotals, period, payTotals, reload, loading, err, updatedAt } = useManager();
   const badges = {
-    '/goals': dash?.goals.filter(g => g.percent < 100).length || undefined,
-    '/team': dash?.sellers.filter(s => s.salesAmount > 0 || s.receiptCount > 0).length || undefined,
+    '/goals': dash?.goals?.filter(g => g.percent < 100).length || undefined,
+    '/team': dash?.sellers?.filter(s => s.salesAmount > 0 || s.receiptCount > 0).length || undefined,
     '/cashiers': cashiers.length || undefined,
     '/commissions': payTotals.commission > 0 ? Math.min(99, paySellers.length) : undefined,
   };
@@ -251,7 +251,7 @@ function Shell() {
           const next = new URLSearchParams(loc.search);
           if (hit.to === '/moves' || hit.to === '/team' || hit.to === '/cashiers' || hit.to === '/products' || hit.to === '/goals') {
             if (hit.to === '/goals') {
-              const goal = dash?.goals.find(g => `${g.salesmanName} · ${g.ruleName}` === hit.title);
+              const goal = dash?.goals?.find(g => `${g.salesmanName} · ${g.ruleName}` === hit.title);
               if (goal) {
                 next.set('rule', String(goal.ruleId));
                 next.set('q', goal.salesmanName);

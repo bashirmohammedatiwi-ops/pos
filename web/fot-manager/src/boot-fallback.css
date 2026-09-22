@@ -1,3 +1,14 @@
+#boot-loading {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #64748b;
+  font-family: "IBM Plex Sans Arabic", "Cairo", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 #boot-fallback {
   display: none;
   position: fixed;
