@@ -1,15 +1,15 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ago, deltaPct, downloadText, goalLabel, goalTone, greeting,
+  ago, avgTicket, deltaPct, downloadText, goalLabel, goalTone, greeting,
   groupGoalsByRule, lastSyncMs, moneyIq, pct, resolveWeekSales, shareText,
   teamCsv, todayKey, weekRange, weekReport,
 } from '../api';
-import { buildAlerts, cashierShares, prevDay, sellerShares, weekPace } from '../insights';
+import { buildAlerts, cashierShares, prevDay, sellerShares } from '../insights';
 import { useManager, useShopInsights } from '../store';
 import {
   AreaChart, CountMoney, Delta, Donut, ErrorBox, LeaderCard, Legend, LiveDot, LiveTicker,
-  MetricStrip, NavHub, PaceMeter, Podium, Ring, SectionCard, Skeleton, Track, useToast,
+  MetricStrip, NavHub, Podium, Ring, SectionCard, Skeleton, Track, useToast,
 } from '../ui';
 import { PeriodBar, WeekStepper } from '../week';
 
@@ -51,7 +51,6 @@ export function Home() {
   const hit = goalRules.reduce((s, r) => s + r.hit, 0);
   const goalCount = goalRules.reduce((s, r) => s + r.total, 0);
   const avg = goalRules.length ? goalRules.reduce((s, r) => s + r.avg, 0) / goalRules.length : 0;
-  const pace = weekPace(week.weekStart, week.weekEnd, weekSales, today);
   const dayVsYest = yest ? deltaPct(daySales, yest.sales) : 0;
   const liveSellers = sellers.filter(s => s.sales > 0);
 
@@ -120,7 +119,11 @@ export function Home() {
               { label: 'عمولات', value: moneyIq(payTotals.commission), tone: 'warn' },
             ]}
           />
-          <PaceMeter progress={pace.progress} projected={pace.projected} current={weekSales} />
+          <div className="bento-hero-week">
+            <span className="bento-hero-week-label">مبيعات الأسبوع</span>
+            <strong className="num">{moneyIq(weekSales)}</strong>
+            <span className="bento-hero-week-meta">{week.receiptCount} فاتورة · متوسط {moneyIq(avgTicket(weekSales, week.receiptCount))}</span>
+          </div>
           <div className="bento-hero-actions">
             <button type="button" className="pill pill-primary" onClick={() => void share()}>مشاركة</button>
             <button

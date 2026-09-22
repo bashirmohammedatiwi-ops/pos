@@ -8,10 +8,10 @@ import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProdu
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
-  Badge, CommandRail, Delta, Empty, ErrorBox, FilterStats, LeaderCard, MetricStrip, PageHero, Podium,
-  Ring, SearchField, Sheet, Skeleton, StatGrid, Track, useToast,
+  Badge, Delta, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero, Podium,
+  Ring, SearchField, SectionCard, Sheet, Skeleton, StatGrid, Track, useToast,
 } from '../ui';
-import { todayKey } from '../api';
+import { avgTicket, todayKey } from '../api';
 import { PeriodBar } from '../week';
 
 type Sort = 'sales' | 'receipts' | 'share' | 'goals' | 'commission';
@@ -118,8 +118,8 @@ export function Team() {
           items={[
             { label: 'نشطون', value: String(activeCount), tone: 'ok' },
             { label: 'عمولات', value: moneyIq(rows.reduce((s, r) => s + r.commissionAmount, 0)), tone: 'goal' },
-            { label: 'أهداف', value: String(goalsCount), tone: 'gold' },
-            { label: 'مستحق', value: String(dueCount), tone: dueCount ? 'warn' : 'ok' },
+            { label: 'فواتير', value: String(periodTotals.receipts), tone: 'gold' },
+            { label: 'متوسط', value: moneyIq(avgTicket(salesTotal, periodTotals.receipts)), tone: 'warn' },
           ]}
         />
         <div className="hero-actions mt-3">
@@ -153,28 +153,31 @@ export function Team() {
         />
       )}
 
-      <SearchField value={q} onChange={setQ} placeholder="ابحث باسم البائع" />
-      <FilterStats
-        active={filter}
-        onPick={k => setFilter(k as Filter)}
-        items={[
-          { key: 'all', count: scopedSellers.length, label: 'الكل' },
-          { key: 'active', count: activeCount, label: 'نشط' },
-          { key: 'goals', count: goalsCount, label: 'أهداف' },
-          { key: 'due', count: dueCount, label: 'مستحق' },
-        ]}
-      />
-      <div className="sort-bar">
-        {([['sales', 'المبيعات'], ['commission', 'العمولة'], ['share', 'الحصة'], ['receipts', 'الفواتير'], ['goals', 'التاركت']] as const).map(([k, label]) => (
-          <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
-        ))}
-        <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
-          {hideZero ? 'إخفاء بلا حركة' : 'إظهار الكل'}
-        </button>
-      </div>
+      <section className="people-toolbar card">
+        <SearchField value={q} onChange={setQ} placeholder="ابحث باسم البائع" />
+        <FilterStats
+          active={filter}
+          onPick={k => setFilter(k as Filter)}
+          items={[
+            { key: 'all', count: scopedSellers.length, label: 'الكل' },
+            { key: 'active', count: activeCount, label: 'نشط' },
+            { key: 'goals', count: goalsCount, label: 'أهداف' },
+            { key: 'due', count: dueCount, label: 'مستحق' },
+          ]}
+        />
+        <div className="sort-bar">
+          {([['sales', 'المبيعات'], ['commission', 'العمولة'], ['share', 'الحصة'], ['receipts', 'الفواتير'], ['goals', 'التاركت']] as const).map(([k, label]) => (
+            <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
+          ))}
+          <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
+            {hideZero ? 'إخفاء بلا حركة' : 'إظهار الكل'}
+          </button>
+        </div>
+      </section>
       {loading && !dash && <Skeleton />}
 
-      <div className="desk-table card">
+      <SectionCard kicker={period.label} title="قائمة البائعين" className="people-roster">
+      <div className="desk-table">
         <table>
           <thead>
             <tr>
@@ -197,7 +200,7 @@ export function Team() {
         </table>
       </div>
 
-      <div className="leader-list stagger people-mobile">
+      <div className="leader-list stagger people-mobile mt-3">
         {rows.map((s, i) => {
           const share = shareOf(s.salesAmount, shareDen);
           const prev = prevDash?.sellers.find(x => x.salesmanId === s.salesmanId);
@@ -222,6 +225,7 @@ export function Team() {
         })}
         {!loading && !rows.length && <Empty title="لا بائعون في هذه المدة" hint="غيّر المدة أو الفلتر" />}
       </div>
+      </SectionCard>
 
       <Sheet open={!!open} title={open?.name || 'البائع'} onClose={() => setOpen(null)}>
         {open && (

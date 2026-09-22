@@ -3020,6 +3020,48 @@ a.stat-compare-cell { text-decoration: none; color: inherit; }
 }
 .bento-hero-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .bento-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.bento-hero-week {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+.bento-hero-week-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #94a3b8;
+}
+.bento-hero-week strong {
+  font-size: 18px;
+  font-weight: 900;
+  color: #4338ca;
+}
+.bento-hero-week-meta {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.people-toolbar {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.people-toolbar .sort-bar { margin: 0; }
+.people-roster .desk-table {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.people-roster .desk-table table { margin-top: 4px; }
+
 .bento-hero-foot { margin-top: 12px; font-size: 11px; font-weight: 700; color: #94a3b8; }
 .bento-stat-num {
   font-size: clamp(1.5rem, 6vw, 2rem);

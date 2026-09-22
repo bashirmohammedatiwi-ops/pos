@@ -4,7 +4,7 @@ import {
   avgTicket, cashierCsv, daysCsv, deltaPct, downloadText, goalLabel, goalTone, goalValue,
   groupGoalsByRule, moneyIq, pct, resolveWeekSales, teamCsv, todayKey, weekRange, weeksCsv,
 } from '../api';
-import { cashierShares, sellerShares, weekPace } from '../insights';
+import { cashierShares, sellerShares } from '../insights';
 import { commissionCsv } from '../period';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
@@ -37,8 +37,6 @@ export function Report() {
 
   const week = dash.week;
   const totalDue = due.reduce((s, x) => s + x.balanceDue, 0);
-  const pace = weekPace(week.weekStart, week.weekEnd, weekSales, todayKey());
-
   return (
     <div className="page-flow fade-up">
       <PeriodBar
@@ -78,8 +76,8 @@ export function Report() {
         { kicker: period.label, value: moneyIq(periodTotals.sales), hint: `${periodTotals.receipts} فاتورة`, tone: 'gold' },
         { kicker: 'مبيعات الأسبوع', value: moneyIq(weekSales), hint: `${week.receiptCount} فاتورة`, tone: 'goal' },
         { kicker: 'مبيعات اليوم', value: moneyIq(todayRow?.sales ?? 0), hint: todayRow ? `${todayRow.receipts} فاتورة` : 'لا حركة', tone: 'gold' },
-        { kicker: 'إيقاع متوقع', value: moneyIq(pace.projected), hint: `متوسط ${moneyIq(pace.dailyAvg)} / يوم`, tone: 'ok' },
-        { kicker: 'تقدم الأسبوع', value: `${Math.round(pace.progress)}٪`, hint: `يوم ${pace.elapsedDays} من ${pace.totalDays}`, tone: 'amber' },
+        { kicker: 'متوسط الفاتورة', value: moneyIq(periodTotals.ticket), hint: period.label, tone: 'ok' },
+        { kicker: 'العمولات', value: moneyIq(payTotals.commission), hint: payPeriod.label, tone: 'amber' },
       ]} />
 
       {insights.days.length > 0 && (

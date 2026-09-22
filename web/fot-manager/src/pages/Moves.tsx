@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, downloadText, managerCsv, moneyIq, type LineRow } from '../api';
+import { dayLabel, downloadText, managerCsv, moneyIq, todayKey, type LineRow } from '../api';
 import { groupReceipts, lineCashier, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
-import { DayStrip, Empty, ErrorBox, Medal, RecentFeed, SearchField, Skeleton, useToast } from '../ui';
+import {
+  DayStrip, Empty, ErrorBox, Medal, MetricStrip, PageHero, RecentFeed, SearchField, Skeleton, useToast,
+} from '../ui';
 import { PeriodBar } from '../week';
 
 type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
@@ -98,16 +100,20 @@ export function Moves() {
         customTo={customTo}
         setCustom={setCustom}
       />
-      <section className="card home-section">
-        <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}</p>
-        <h1 className="display text-[28px] font-black">كل التفاصيل</h1>
-        <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales || periodTotals.sales)}</p>
-        <div className="dash-kpis mt-3">
-          <div className="dash-kpi"><p>فواتير</p><strong className="num">{receipts.length}</strong></div>
-          <div className="dash-kpi"><p>حركات</p><strong className="num">{filtered.length}</strong></div>
-          <div className="dash-kpi"><p>بائعون</p><strong className="num">{sellerNames.length}</strong></div>
-          <div className="dash-kpi"><p>كاشير</p><strong className="num">{cashierNames.length}</strong></div>
-        </div>
+      <PageHero
+        kicker={day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}
+        title="كل التفاصيل"
+        value={moneyIq(totalSales || periodTotals.sales)}
+        hint={`${receipts.length} فاتورة · ${filtered.length} حركة`}
+      >
+        <MetricStrip
+          items={[
+            { label: 'فواتير', value: String(receipts.length), tone: 'goal' },
+            { label: 'حركات', value: String(filtered.length), tone: 'ok' },
+            { label: 'بائعون', value: String(sellerNames.length), tone: 'gold' },
+            { label: 'كاشير', value: String(cashierNames.length), tone: 'warn' },
+          ]}
+        />
         <div className="hero-actions mt-3">
           <button
             type="button"
@@ -121,7 +127,7 @@ export function Moves() {
           </button>
           <button type="button" className="pill" onClick={() => window.print()}>طباعة</button>
         </div>
-      </section>
+      </PageHero>
       {mode === 'invoices' && receipts.length > 0 && (
         <RecentFeed receipts={receipts} limit={5} title="آخر الفواتير المفلترة" to="/moves" />
       )}

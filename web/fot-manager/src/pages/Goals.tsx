@@ -7,7 +7,9 @@ import {
 import { groupReceipts, linesForSeller } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
-import { Badge, Empty, ErrorBox, Ring, SearchField, SectionCard, Sheet, Skeleton, Track } from '../ui';
+import {
+  Badge, Empty, ErrorBox, MetricStrip, PageHero, Ring, SearchField, SectionCard, Sheet, Skeleton, Track,
+} from '../ui';
 import { WeekStepper, WeekTimeline } from '../week';
 
 type Filter = 'all' | 'done' | 'near' | 'late';
@@ -91,27 +93,30 @@ export function Goals() {
         <WeekTimeline weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
       </SectionCard>
 
-      <section className="card section-card">
-        <div className="flex flex-wrap items-center gap-4">
-          <Ring value={view === 'by-goal' ? (activeRule?.avg ?? avg) : avg} size={100} tone="goal" label="إنجاز" />
-          <div className="min-w-0 flex-1">
-            <p className="kicker">التاركت الأسبوعي</p>
-            <h1 className="display text-2xl font-black">الأهداف</h1>
-            <p className="mt-2 text-sm font-bold leading-6 text-muted">
-              {rules.length
-                ? `${rules.length} هدف · ${groups.length} بائع`
-                : 'اربط التاركت من لوحة التحكم'}
-            </p>
-          </div>
-        </div>
+      <PageHero
+        kicker="التاركت الأسبوعي"
+        title="الأهداف"
+        value={rules.length ? `${Math.round(view === 'by-goal' ? (activeRule?.avg ?? avg) : avg)}٪` : '—'}
+        hint={rules.length ? `${rules.length} هدف · ${groups.length} بائع` : 'اربط التاركت من لوحة التحكم'}
+      >
         {rules.length > 0 && (
-          <div className="goals-summary-grid">
-            <div className="goals-summary-cell ok"><strong className="num">{hit}</strong><span>تحقق</span></div>
-            <div className="goals-summary-cell"><strong className="num">{near}</strong><span>قريب</span></div>
-            <div className="goals-summary-cell warn"><strong className="num">{late}</strong><span>تركيز</span></div>
-          </div>
+          <>
+            <MetricStrip
+              items={[
+                { label: 'تحقق', value: String(hit), tone: 'ok' },
+                { label: 'قريب', value: String(near), tone: 'gold' },
+                { label: 'تركيز', value: String(late), tone: 'warn' },
+                { label: 'متوسط', value: `${Math.round(avg)}٪`, tone: 'goal' },
+              ]}
+            />
+            <div className="goals-summary-grid mt-3">
+              <div className="goals-summary-cell ok"><strong className="num">{hit}</strong><span>تحقق</span></div>
+              <div className="goals-summary-cell"><strong className="num">{near}</strong><span>قريب</span></div>
+              <div className="goals-summary-cell warn"><strong className="num">{late}</strong><span>تركيز</span></div>
+            </div>
+          </>
         )}
-      </section>
+      </PageHero>
 
       <div className="view-toggle">
         <button type="button" className={view === 'by-goal' ? 'on' : ''} onClick={() => setView('by-goal')}>حسب الهدف</button>

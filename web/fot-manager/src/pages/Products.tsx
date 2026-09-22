@@ -4,7 +4,9 @@ import { downloadText, moneyIq, pieces, pct, productCsv, shareOf } from '../api'
 import { peopleForProduct, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
-import { Empty, ErrorBox, Medal, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
+import {
+  Empty, ErrorBox, Medal, MetricStrip, PageHero, SearchField, SectionCard, Sheet, Skeleton, Track, useToast,
+} from '../ui';
 import { PeriodBar } from '../week';
 import type { LineRow } from '../api';
 
@@ -51,16 +53,20 @@ export function Products() {
         customTo={customTo}
         setCustom={setCustom}
       />
-      <section className="card home-section">
-        <p className="kicker">منتجات {period.label}</p>
-        <h1 className="display text-[28px] font-black">ماذا يُباع</h1>
-        <p className="mt-2 text-sm font-bold text-muted">{rows.length} منتجاً · مبيعات {moneyIq(total)}</p>
-        <div className="dash-kpis mt-3">
-          <div className="dash-kpi"><p>منتجات</p><strong className="num">{rows.length}</strong></div>
-          <div className="dash-kpi"><p>حركات</p><strong className="num">{scopedLines.length}</strong></div>
-          <div className="dash-kpi"><p>أقوى</p><strong className="num truncate">{rows[0]?.name ?? '—'}</strong></div>
-          <div className="dash-kpi"><p>مبيعاته</p><strong className="num">{moneyIq(rows[0]?.sales ?? 0)}</strong></div>
-        </div>
+      <PageHero
+        kicker={`منتجات · ${period.label}`}
+        title="ماذا يُباع"
+        value={moneyIq(total)}
+        hint={`${rows.length} منتجاً · ${scopedLines.length} حركة`}
+      >
+        <MetricStrip
+          items={[
+            { label: 'منتجات', value: String(rows.length), tone: 'goal' },
+            { label: 'حركات', value: String(scopedLines.length), tone: 'ok' },
+            { label: 'أقوى', value: rows[0]?.name.slice(0, 12) ?? '—', tone: 'gold' },
+            { label: 'مبيعاته', value: moneyIq(rows[0]?.sales ?? 0), tone: 'warn' },
+          ]}
+        />
         <button
           type="button"
           className="pill mt-3"
@@ -73,15 +79,17 @@ export function Products() {
         >
           تصدير المنتجات
         </button>
+      </PageHero>
+      <section className="people-toolbar card">
+        <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المنتج" />
+        <div className="sort-bar">
+          {([['sales', 'المبيعات'], ['qty', 'القطع']] as const).map(([k, label]) => (
+            <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
+          ))}
+        </div>
       </section>
-      <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المنتج" />
-      <div className="sort-bar">
-        {([['sales', 'المبيعات'], ['qty', 'القطع']] as const).map(([k, label]) => (
-          <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
-        ))}
-      </div>
       {loading && !rows.length && <Skeleton />}
-      <div className="card p-4">
+      <SectionCard kicker={period.label} title="ترتيب المنتجات">
         {rows.map((p, i) => (
           <button key={p.name} type="button" className="rank-row stat-link" onClick={() => { setOpen(p.name); setTab('sellers'); }}>
             <Medal rank={i + 1} />
@@ -96,7 +104,7 @@ export function Products() {
           </button>
         ))}
         {!loading && !rows.length && <Empty title="لا منتجات في هذه المدة" />}
-      </div>
+      </SectionCard>
 
       <Sheet open={!!open} title={open || 'المنتج'} onClose={() => setOpen(null)}>
         {detail && (

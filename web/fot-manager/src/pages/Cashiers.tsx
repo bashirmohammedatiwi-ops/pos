@@ -9,7 +9,7 @@ import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
   Delta, Empty, ErrorBox, HourBands, LeaderCard, Medal, MetricStrip, PageHero, Podium, RecentFeed,
-  SearchField, Sheet, Skeleton, StatGrid, useToast,
+  SearchField, SectionCard, Sheet, Skeleton, StatGrid, useToast,
 } from '../ui';
 import { PeriodBar } from '../week';
 
@@ -172,15 +172,18 @@ export function Cashiers() {
         </section>
       )}
 
-      <SearchField value={q} onChange={setQ} placeholder="ابحث باسم الكاشير" />
-      <div className="sort-bar">
-        {([['sales', 'المبيعات'], ['share', 'الحصة'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
-          <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
-        ))}
-      </div>
+      <section className="people-toolbar card">
+        <SearchField value={q} onChange={setQ} placeholder="ابحث باسم الكاشير" />
+        <div className="sort-bar">
+          {([['sales', 'المبيعات'], ['share', 'الحصة'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
+            <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
+          ))}
+        </div>
+      </section>
       {loading && !dash && <Skeleton />}
 
-      <div className="desk-table card">
+      <SectionCard kicker={period.label} title="قائمة الكاشير" className="people-roster">
+      <div className="desk-table">
         <table>
           <thead>
             <tr>
@@ -202,7 +205,7 @@ export function Cashiers() {
         </table>
       </div>
 
-      <div className="leader-list stagger people-mobile">
+      <div className="leader-list stagger people-mobile mt-3">
         {rows.map((c, i) => {
           const share = shareOf(c.salesAmount, shareDen);
           const todaySales = todayMap.get(c.name)?.sales;
@@ -230,6 +233,7 @@ export function Cashiers() {
           <Empty title="لا كاشير في هذه المدة" hint="جرّب «اليوم» أو «الأسبوع كامل» — أو حدّث من لوحة التحكم" />
         )}
       </div>
+      </SectionCard>
 
       <Sheet open={!!open} title={open?.name || 'الكاشير'} onClose={() => setOpen(null)}>
         {open && (
