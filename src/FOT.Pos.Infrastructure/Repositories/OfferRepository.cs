@@ -1,7 +1,9 @@
 using Dapper;
+using FOT.Pos.Shared;
 using FOT.Pos.Shared.Dtos;
 using FOT.Pos.Infrastructure.Data;
 using FOT.Pos.Infrastructure.Edari;
+using FOT.Pos.Infrastructure.Services;
 
 namespace FOT.Pos.Infrastructure.Repositories;
 
@@ -173,6 +175,7 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var seqs = currentSeqs.ToArray();
 
+        var blocked = await TreeExclusionStore.OfferBlockedAsync(conn, offerId, ct);
         var products = (await conn.QueryAsync<TreeProductRow>(new CommandDefinition("""
             SELECT a.Seq, LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))) AS Name,
                    LTRIM(RTRIM(a.Barcode)) AS Barcode,
@@ -190,9 +193,10 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         foreach (var seq in currentSeqs)
         {
             if (!products.TryGetValue(seq, out var p)) continue;
+            var excluded = p.Excluded || blocked.Contains(seq);
             result.Add(new OfferTreeProductDto(
                 p.Seq, p.Name, p.Barcode, p.Price,
-                p.DetailId is > 0, p.Excluded, p.Discount, p.DetailId));
+                p.DetailId is > 0 && !excluded, excluded, p.Discount, p.DetailId));
         }
         return result;
     }
@@ -201,9 +205,31 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
     public async Task<bool> SetDetailExcludedAsync(long detailId, bool excluded, CancellationToken ct)
     {
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(
+        var row = await conn.QuerySingleOrDefaultAsync<(long OfferId, long? ItemId, long? TreeSeq)>(
+            new CommandDefinition("""
+                SELECT offer_id, item_id, source_tree_seq FROM offer_details WHERE id = @detailId
+                """, new { detailId }, cancellationToken: ct));
+        if (row == default) return false;
+        var ok = await conn.ExecuteAsync(new CommandDefinition(
             "UPDATE offer_details SET excluded = @excluded WHERE id = @detailId",
             new { detailId, excluded }, cancellationToken: ct)) > 0;
+        if (ok && row.ItemId is > 0)
+            await TreeExclusionStore.SetOfferAsync(conn, row.OfferId, row.ItemId.Value, row.TreeSeq, excluded, ct);
+        return ok;
+    }
+
+    public async Task SetArticleExcludedAsync(long offerId, long itemId, bool excluded, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var treeSeq = await conn.ExecuteScalarAsync<long?>(new CommandDefinition("""
+            SELECT TOP 1 source_tree_seq FROM offer_details
+            WHERE offer_id=@offerId AND item_id=@itemId
+            """, new { offerId, itemId }, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE offer_details SET excluded = @excluded
+            WHERE offer_id=@offerId AND item_id=@itemId
+            """, new { offerId, itemId, excluded }, cancellationToken: ct));
+        await TreeExclusionStore.SetOfferAsync(conn, offerId, itemId, treeSeq, excluded, ct);
     }
 
     /// <summary>Resolves the tree's current products and maps offer state — one call for the endpoint.</summary>
@@ -287,10 +313,24 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
             OUTPUT INSERTED.id VALUES (@offerId, @itemId, @discount, @discountType, @fromDate, @toDate, @unlimited, @detailRole)
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var existingId = await conn.ExecuteScalarAsync<long?>(new CommandDefinition("""
+            SELECT TOP 1 id FROM offer_details
+            WHERE offer_id=@offerId AND item_id=@itemId AND detail_role=@detailRole
+            """, new { offerId, itemId = req.ItemId, detailRole = req.DetailRole }, cancellationToken: ct));
+        if (existingId is > 0)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE offer_details SET excluded = 0 WHERE id = @id",
+                new { id = existingId.Value }, cancellationToken: ct));
+            await TreeExclusionStore.SetOfferAsync(conn, offerId, req.ItemId.Value, null, false, ct);
+            return existingId.Value;
+        }
+
+        var discountType = req.DiscountType is 1 or 2 ? req.DiscountType : 0;
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new
         {
-            offerId, itemId = req.ItemId, discount = req.Discount,
-            discountType = req.DiscountType is 1 or 2 ? req.DiscountType : 0,
+            offerId, itemId = req.ItemId, discount = NormalizeStoredDiscount(req.Discount, discountType),
+            discountType,
             fromDate = req.FromDate, toDate = req.ToDate, unlimited = req.Unlimited, detailRole = req.DetailRole
         }, cancellationToken: ct));
     }
@@ -305,6 +345,7 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         var existing = (await conn.QueryAsync<long>(new CommandDefinition(
             "SELECT item_id FROM offer_details WHERE offer_id = @offerId AND item_id IS NOT NULL",
             new { offerId }, cancellationToken: ct))).ToHashSet();
+        existing.UnionWith(await TreeExclusionStore.OfferBlockedAsync(conn, offerId, ct));
 
         var added = 0;
         var updated = 0;
@@ -402,6 +443,16 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
     public async Task<int> DeleteTreeBatchAsync(long offerId, long treeSeq, CancellationToken ct)
     {
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM offer_tree_exclusions
+            WHERE offer_id = @offerId AND (
+                source_tree_seq = @treeSeq
+                OR item_id IN (
+                    SELECT item_id FROM offer_details
+                    WHERE offer_id = @offerId AND source_tree_seq = @treeSeq AND item_id IS NOT NULL
+                )
+            )
+            """, new { offerId, treeSeq }, cancellationToken: ct));
         return await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM offer_details WHERE offer_id = @offerId AND source_tree_seq = @treeSeq",
             new { offerId, treeSeq }, cancellationToken: ct));
@@ -410,6 +461,21 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
     public async Task DeleteDetailAsync(long detailId, CancellationToken ct)
     {
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var row = await conn.QuerySingleOrDefaultAsync<(long OfferId, long? ItemId, long? TreeSeq)>(
+            new CommandDefinition("""
+                SELECT offer_id, item_id, source_tree_seq FROM offer_details WHERE id = @detailId
+                """, new { detailId }, cancellationToken: ct));
+        if (row == default) return;
+
+        if (row.TreeSeq is > 0 && row.ItemId is > 0)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE offer_details SET excluded = 1 WHERE id = @detailId",
+                new { detailId }, cancellationToken: ct));
+            await TreeExclusionStore.SetOfferAsync(conn, row.OfferId, row.ItemId.Value, row.TreeSeq, true, ct);
+            return;
+        }
+
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM offer_details WHERE id = @detailId", new { detailId }, cancellationToken: ct));
     }
@@ -427,10 +493,11 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         int? discountType = req.DiscountType is 0 or 1 or 2 ? req.DiscountType : null;
+        var storedType = discountType ?? 0;
         return await conn.ExecuteAsync(new CommandDefinition(sql, new
         {
             detailId,
-            req.Discount,
+            Discount = NormalizeStoredDiscount(req.Discount, storedType),
             DiscountType = discountType,
             req.FromDate,
             req.ToDate,
@@ -523,6 +590,8 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
     {
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM offer_tree_exclusions WHERE offer_id = @offerId", new { offerId }, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM offer_details WHERE offer_id = @offerId", new { offerId }, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM offers WHERE id = @offerId", new { offerId }, cancellationToken: ct));
@@ -538,12 +607,15 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         return await conn.ExecuteAsync(new CommandDefinition("""
             DELETE od
             FROM offer_details od
-            WHERE od.item_id IS NULL
-               OR NOT EXISTS (
+            WHERE COALESCE(od.excluded, 0) = 0
+              AND (
+                    od.item_id IS NULL
+                 OR NOT EXISTS (
                     SELECT 1 FROM articles a
                     WHERE a.Seq = od.item_id
                       AND NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N'') IS NOT NULL
-               )
+                 )
+              )
             """, cancellationToken: ct));
     }
 
@@ -600,6 +672,11 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         var live = await FilterLiveArticleSeqsAsync(seqs, ct);
         return (live, name);
     }
+
+    static decimal NormalizeStoredDiscount(decimal discount, int discountType)
+        => discountType == 2
+            ? ProductPricing.RoundToStep(Math.Max(0, discount))
+            : discount;
 
     private sealed class MembershipRow
     {

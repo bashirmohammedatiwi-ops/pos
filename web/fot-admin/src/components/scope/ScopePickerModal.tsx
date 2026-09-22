@@ -36,6 +36,8 @@ export interface ScopePickerOps {
   addProducts: { seq: number; name: string; barcode?: string; price?: number }[];
   removeTreeSeqs: number[];
   removeRowIds: number[];
+  /** منتجات داخل شجرة كاملة بلا سطر تفصيل — تُستبعد ولا تُحذف الشجرة */
+  excludeProductSeqs: number[];
 }
 
 export interface ScopePickerScope {
@@ -95,8 +97,9 @@ export function ScopePickerModal({
   const [addProducts, setAddProducts] = useState<Map<number, { seq: number; name: string; barcode?: string; price?: number }>>(new Map());
   const [removeTrees, setRemoveTrees] = useState<Set<number>>(new Set());
   const [removeRows, setRemoveRows] = useState<Map<number, number>>(new Map()); // seq → rowId
+  const [excludeSeqs, setExcludeSeqs] = useState<Set<number>>(new Set());
 
-  const stagedCount = addTrees.size + addProducts.size + removeTrees.size + removeRows.size;
+  const stagedCount = addTrees.size + addProducts.size + removeTrees.size + removeRows.size + excludeSeqs.size;
 
   // قفل تمرير الصفحة خلف النافذة + إغلاق قائمة الكلك-يمين عند أي تفاعل
   useEffect(() => {
@@ -109,7 +112,7 @@ export function ScopePickerModal({
   useEffect(() => {
     if (!open) {
       setParent(undefined); setPath([]); setSearch(''); setDebounced(''); setBarcodeHit(null);
-      setAddTrees(new Map()); setAddProducts(new Map()); setRemoveTrees(new Set()); setRemoveRows(new Map());
+      setAddTrees(new Map()); setAddProducts(new Map()); setRemoveTrees(new Set()); setRemoveRows(new Map()); setExcludeSeqs(new Set());
       setMenu(null);
       return;
     }
@@ -194,7 +197,7 @@ export function ScopePickerModal({
   }
 
   function productState(seq: number): RowState {
-    if (removeRows.has(seq)) return 'staged-remove';
+    if (removeRows.has(seq) || excludeSeqs.has(seq)) return 'staged-remove';
     if (inScope.seqRowIds.has(seq) || inScope.treeSeqs.has(seq)) return 'in-scope';
     if (addProducts.has(seq)) return 'staged-add';
     return 'normal';
@@ -213,11 +216,12 @@ export function ScopePickerModal({
     } else if (st === 'in-scope') {
       const rowId = inScope.seqRowIds.get(seq);
       if (rowId == null) {
-        toast.info('هذا الصنف داخل شجرة مضافة — أزِل الشجرة من قائمة المحتوى');
+        setExcludeSeqs(s => new Set(s).add(seq));
         return;
       }
       setRemoveRows(m => new Map(m).set(seq, rowId));
     } else {
+      setExcludeSeqs(s => { const n = new Set(s); n.delete(seq); return n; });
       setRemoveRows(m => { const n = new Map(m); n.delete(seq); return n; });
     }
   }
@@ -278,6 +282,7 @@ export function ScopePickerModal({
         addProducts: [...addProducts.values()],
         removeTreeSeqs: [...removeTrees],
         removeRowIds: [...removeRows.values()],
+        excludeProductSeqs: [...excludeSeqs],
       });
       toast.success(`طُبِّقت التعديلات — ${formatNum(addTrees.size + addProducts.size)} إضافة و${formatNum(removeTrees.size + removeRows.size)} إزالة`);
       onClose();

@@ -39,6 +39,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: '▦',
     items: [
       { path: '/products', label: 'المنتجات', icon: '▦', iconKey: 'products', hint: 'الأسعار والمخزون' },
+      { path: '/barcode-labels', label: 'طباعة الباركود', icon: '▥', iconKey: 'barcode', hint: 'ملصقات بثلاثة أعمدة حسب الطابعة' },
       { path: '/offers', label: 'العروض', icon: '%', iconKey: 'offers', hint: 'خصومات ومجموعات' },
       { path: '/groups', label: 'مجموعات الأزرار', icon: '⊞', iconKey: 'groups', hint: 'إضافة منتجات للكاشير' },
       { path: '/accounts', label: 'حسابات آجلة', icon: '﷼', iconKey: 'accounts', hint: 'حسابات بيع الآجل' },
@@ -78,6 +79,7 @@ export const PAGE_META: Record<
 > = {
   '/': { title: 'لوحة التحكم', subtitle: 'مبيعات اليوم · المتابعة · الفريق والنظام', iconKey: 'dashboard' },
   '/products': { title: 'المنتجات', subtitle: 'الكتالوج · العروض · المخزون', iconKey: 'products' },
+  '/barcode-labels': { title: 'طباعة الباركود', subtitle: 'مسح المادة · صف بثلاثة أعمدة · طباعة بالعدد', iconKey: 'barcode' },
   '/offers': { title: 'العروض', subtitle: 'القائمة · التفعيل · الأشجار والمنتجات', iconKey: 'offers' },
   '/groups': { title: 'مجموعات الأزرار', subtitle: 'إنشاء المجاميع وإضافة المنتجات لنافذة نقطة البيع', iconKey: 'groups' },
   '/accounts': { title: 'حسابات آجلة', subtitle: 'حسابات Edari الظاهرة في بيع الآجل', iconKey: 'accounts' },
@@ -104,6 +106,7 @@ export const DENSE_LIST_PATHS = new Set([
   '/receipts',
   '/activity',
   '/products',
+  '/barcode-labels',
   '/cashiers',
   '/discount-qr',
   '/accounts',

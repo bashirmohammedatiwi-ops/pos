@@ -50,47 +50,38 @@ export function CartTable({
   const pieces = cart.reduce((sum, line) => sum + line.quantity, 0);
   const amount = cart.reduce((sum, line) => sum + lineTotal(line), 0);
 
-  const revealRow = (key: string, flash: boolean) => {
+  const pinAddedRow = (key: string, flash: boolean) => {
+    const scroller = scrollerRef.current;
     const row = rowRefs.current.get(key);
-    if (!row) return;
-    if (flash) {
+    if (flash && row) {
       row.classList.remove('is-flash');
       void row.offsetWidth;
       row.classList.add('is-flash');
     }
-    const overflowParents: HTMLElement[] = [];
-    let node: HTMLElement | null = row.parentElement;
-    while (node) {
-      const oy = getComputedStyle(node).overflowY;
-      if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') overflowParents.push(node);
-      node = node.parentElement;
-    }
-    const scroller = overflowParents.find(el => el.scrollHeight > el.clientHeight + 1)
-      ?? scrollerRef.current
-      ?? overflowParents[0];
     if (!scroller) return;
-    const headerH = scroller.querySelector?.('thead')?.getBoundingClientRect().height ?? 34;
+    scroller.scrollTop = scroller.scrollHeight;
+  };
+
+  const revealSelected = (key: string) => {
+    const scroller = scrollerRef.current;
+    const row = rowRefs.current.get(key);
+    if (!scroller || !row) return;
+    const headerH = (scroller.querySelector('thead') as HTMLElement | null)?.getBoundingClientRect().height ?? 34;
     const pad = 12;
     const box = scroller.getBoundingClientRect();
     const rowBox = row.getBoundingClientRect();
-    if (rowBox.bottom > box.bottom - pad) {
-      scroller.scrollTop += rowBox.bottom - (box.bottom - pad);
-    }
-    const box2 = scroller.getBoundingClientRect();
-    const rowBox2 = row.getBoundingClientRect();
-    if (rowBox2.top < box2.top + headerH + 4) {
-      scroller.scrollTop += rowBox2.top - (box2.top + headerH + 4);
-    }
+    if (rowBox.bottom > box.bottom - pad) scroller.scrollTop += rowBox.bottom - (box.bottom - pad);
+    else if (rowBox.top < box.top + headerH + 4) scroller.scrollTop += rowBox.top - (box.top + headerH + 4);
   };
 
   useEffect(() => {
     if (!flashKey) return;
     let cancelled = false;
-    const run = () => { if (!cancelled) revealRow(flashKey, true); };
+    const run = () => { if (!cancelled) pinAddedRow(flashKey, true); };
     run();
     const frame = window.requestAnimationFrame(run);
     const t1 = window.setTimeout(run, 40);
-    const t2 = window.setTimeout(run, 140);
+    const t2 = window.setTimeout(run, 160);
     return () => {
       cancelled = true;
       window.cancelAnimationFrame(frame);
@@ -101,7 +92,7 @@ export function CartTable({
 
   useEffect(() => {
     if (!selectedKey || selectedKey === flashKey) return;
-    revealRow(selectedKey, false);
+    revealSelected(selectedKey);
   }, [flashKey, selectedKey]);
 
   return (

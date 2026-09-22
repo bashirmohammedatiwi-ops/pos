@@ -816,13 +816,30 @@ input, button, select { font-family: inherit; }
   display: flex;
   min-width: 148px;
   flex-direction: column;
+  align-items: flex-start;
   justify-content: center;
   padding: 0 8px;
   color: #fff;
+  text-align: start;
 }
 
 .pos-dock-total small { color: #94a3b8; font-size: 11px; font-weight: 700; }
 .pos-dock-total b { font-size: clamp(18px, 2vw, 26px); font-weight: 800; color: #fff; }
+.pos-dock-gross {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pos-dock-gross b {
+  display: block;
+  margin-top: 1px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #cbd5e1;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
 .pos-app.is-return .pos-dock-total b { color: #fecaca; }
 .pos-app.is-gift .pos-dock-total b { color: #ddd6fe; }
 
@@ -992,6 +1009,25 @@ input, button, select { font-family: inherit; }
   letter-spacing: -0.04em;
   color: #fff;
   text-shadow: 0 2px 16px rgb(0 0 0 / 0.18);
+}
+
+.pos-ticket-gross {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pos-ticket-gross b {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #cbd5e1;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
 }
 
 .pos-app.is-return .pos-ticket-total { color: #fecaca; }
@@ -1399,6 +1435,7 @@ input, button, select { font-family: inherit; }
 
 .pos-td-code { text-align: center; }
 .pos-td-name { text-align: right; white-space: normal; }
+.pos-td-seller { text-align: center; width: 96px; }
 .pos-td-total { font-size: 13px; font-weight: 800; }
 
 .pos-cart-barcode {
@@ -2409,6 +2446,11 @@ input, button, select { font-family: inherit; }
 }
 
 .pos-pay-confirm:disabled { opacity: 0.5; }
+
+.pos-numpad {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 
 .pos-key {
   height: var(--pos-key-h);

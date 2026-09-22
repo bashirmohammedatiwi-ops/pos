@@ -1,9 +1,9 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import { ago, getMe, getToken, lastSyncMs, moneyIq, resolveWeekSales, setMe, setToken, todayKey, weekRange } from './api';
+import { ago, getMe, getToken, lastSyncMs, moneyIq, refreshSession, setMe, setToken, weekRange } from './api';
 import { lineCashier } from './insights';
 import { ManagerProvider, useManager } from './store';
-import { Avatar, BrandMark, Finder, IconBox, IconCashier, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, IconTeam, Sheet, type FinderHit } from './ui';
+import { Avatar, BrandMark, Finder, IconBag, IconBox, IconCashier, IconGoal, IconHome, IconOut, IconRefresh, IconReport, IconSearch, IconTeam, IconWatch, Sheet, type FinderHit } from './ui';
 import { Cashiers } from './pages/Cashiers';
 import { Goals } from './pages/Goals';
 import { Home } from './pages/Home';
@@ -15,15 +15,21 @@ import { Team } from './pages/Team';
 import { Watch } from './pages/Watch';
 
 const links = [
-  { to: '/', label: 'نظرة', icon: IconHome, end: true },
+  { to: '/', label: 'اليوم', icon: IconHome, end: true },
   { to: '/team', label: 'بائعون', icon: IconTeam },
   { to: '/cashiers', label: 'كاشير', icon: IconCashier },
   { to: '/goals', label: 'أهداف', icon: IconGoal },
   { to: '/moves', label: 'فواتير', icon: IconBox },
 ] as const;
 
+const extra = [
+  { to: '/watch', label: 'المتابعة', icon: IconWatch },
+  { to: '/products', label: 'المنتجات', icon: IconBag },
+  { to: '/report', label: 'التقرير', icon: IconReport },
+] as const;
+
 const titles: Record<string, string> = {
-  '/': 'نظرة الأسبوع',
+  '/': 'مبيعات اليوم',
   '/team': 'البائعون',
   '/cashiers': 'الكاشير',
   '/goals': 'الأهداف',
@@ -53,7 +59,7 @@ function Shell() {
   const nav = useNavigate();
   const loc = useLocation();
   const me = getMe();
-  const { dash, cashiers, lines, reload, loading, err, updatedAt } = useManager();
+  const { dash, cashiers, lines, periodTotals, period, payTotals, reload, loading, err, updatedAt } = useManager();
   const badges = {
     '/goals': dash?.goals.filter(g => g.percent < 100).length || undefined,
     '/team': dash?.sellers.filter(s => s.salesAmount > 0 || s.receiptCount > 0).length || undefined,
@@ -154,27 +160,28 @@ function Shell() {
           </div>
           {dash && (
             <div className="card seller-mini">
-              <p className="kicker">مبيعات الأسبوع</p>
-              <p className="num mt-1 text-xl font-extrabold">{moneyIq(resolveWeekSales(dash))}</p>
-              <p className="mt-1 text-sm font-extrabold text-muted">{dash.week.receiptCount} فاتورة</p>
-              {!!dash.days?.length && (
-                <div className="side-pulse">
-                  <p className="kicker">اليوم</p>
-                  <p className="num mt-1 text-sm font-extrabold">
-                    {moneyIq(dash.days.find(d => String(d.day).slice(0, 10) === todayKey())?.salesAmount ?? 0)}
-                  </p>
-                </div>
-              )}
-              <p className="mt-1 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
+              <p className="kicker">{period.label}</p>
+              <p className="num mt-1 text-xl font-extrabold">{moneyIq(periodTotals.sales)}</p>
+              <p className="mt-1 text-xs font-extrabold text-muted">{periodTotals.receipts} فاتورة</p>
+              <div className="side-pulse">
+                <p className="kicker">عمولات</p>
+                <p className="num mt-1 text-sm font-extrabold">{moneyIq(payTotals.commission)}</p>
+              </div>
+              <p className="mt-2 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
               {dash.lastSyncAt && (
-                <p className="mt-2 text-[11px] font-bold text-muted">مزامنة {ago(lastSyncMs(dash.lastSyncAt) ?? Date.now())}</p>
+                <p className="mt-1 text-[11px] font-bold text-muted">مزامنة {ago(lastSyncMs(dash.lastSyncAt) ?? Date.now())}</p>
               )}
             </div>
           )}
+          <p className="side-label">المحل</p>
           <NavItems badges={badges} />
-          <NavLink to="/watch" className={({ isActive }) => isActive ? 'on' : ''}>المتابعة</NavLink>
-          <NavLink to="/products" className={({ isActive }) => isActive ? 'on' : ''}>المنتجات</NavLink>
-          <NavLink to="/report" className={({ isActive }) => isActive ? 'on' : ''}>التقرير الكامل</NavLink>
+          <p className="side-label">المزيد</p>
+          {extra.map(l => (
+            <NavLink key={l.to} to={l.to} className={({ isActive }) => isActive ? 'on' : ''}>
+              <span className="nav-ico"><l.icon /></span>
+              {l.label}
+            </NavLink>
+          ))}
         </aside>
 
         <div className="workspace">
@@ -184,6 +191,9 @@ function Shell() {
               <div>
                 <p className="text-[10px] font-extrabold tracking-[0.22em] text-goal">FOT MANAGER</p>
                 <p className="text-sm font-extrabold">{titles[loc.pathname] || me?.displayName || 'المدير'}</p>
+                {dash && (
+                  <p className="hidden text-[11px] font-bold text-muted sm:block">{period.label} · {moneyIq(periodTotals.sales)}</p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -250,12 +260,12 @@ function Shell() {
           {dash && (
             <div className="grid grid-cols-2 gap-2.5">
               <div className="card p-3.5">
-                <p className="text-[11px] font-extrabold text-goal">المبيعات</p>
-                <p className="num mt-1 text-lg font-extrabold">{moneyIq(resolveWeekSales(dash))}</p>
+                <p className="text-[11px] font-extrabold text-goal">{period.label}</p>
+                <p className="num mt-1 text-lg font-extrabold">{moneyIq(periodTotals.sales)}</p>
               </div>
               <div className="card p-3.5">
                 <p className="text-[11px] font-extrabold text-goal">الفواتير</p>
-                <p className="num mt-1 text-lg font-extrabold">{dash.week.receiptCount}</p>
+                <p className="num mt-1 text-lg font-extrabold">{periodTotals.receipts}</p>
               </div>
               <div className="card p-3.5">
                 <p className="text-[11px] font-extrabold text-goal">البائعون</p>
@@ -295,11 +305,21 @@ function Guard() {
   return <ManagerProvider><Shell /></ManagerProvider>;
 }
 
+function Boot() {
+  useEffect(() => {
+    if (getToken()) void refreshSession();
+  }, []);
+  return null;
+}
+
 export function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/*" element={<Guard />} />
-    </Routes>
+    <>
+      <Boot />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/*" element={<Guard />} />
+      </Routes>
+    </>
   );
 }

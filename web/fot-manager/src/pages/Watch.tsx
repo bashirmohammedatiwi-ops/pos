@@ -31,7 +31,7 @@ export function Watch() {
   if (loading || !dash) return <Skeleton />;
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="hero compact command">
         <p className="kicker">يحتاج متابعة</p>
         <h1 className="display text-[28px] font-black">التنبيهات</h1>

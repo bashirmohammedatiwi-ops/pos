@@ -7,13 +7,16 @@ import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProdu
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
 import { Badge, Delta, Empty, ErrorBox, Medal, Podium, Ring, SearchField, Sheet, Skeleton, StatGrid, Track, useToast } from '../ui';
-import { WeekBar } from '../week';
+import { PeriodBar } from '../week';
 
 type Sort = 'sales' | 'receipts' | 'share' | 'goals';
 type Tab = 'overview' | 'goals' | 'cashiers' | 'products' | 'invoices';
 
 export function Team() {
-  const { weekStart, setWeek, dash, prevDash, weeks, lines, err, loading, reload } = useManager();
+  const {
+    weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedSellers, period, periodKind,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+  } = useManager();
   const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -33,7 +36,6 @@ export function Team() {
     setExtraLines([]);
     try {
       const d = await api.seller(s.salesmanId, weekStart);
-      setOpen(d.seller);
       setExtraLines(d.lines);
     } catch { /* local lines */ }
   }
@@ -41,14 +43,14 @@ export function Team() {
   useEffect(() => {
     const needle = params.get('q')?.trim();
     if (opened.current || !needle || !dash) return;
-    const hit = dash.sellers.find(s => s.name === needle);
+    const hit = scopedSellers.find(s => s.name === needle) ?? dash.sellers.find(s => s.name === needle);
     if (hit) { opened.current = true; void openSeller(hit); }
-  }, [dash, params]);
+  }, [dash, scopedSellers, params]);
 
-  const total = dash ? (dash.week.salesAmount || dash.sellers.reduce((s, x) => s + x.salesAmount, 0)) : 0;
+  const total = periodTotals.sales;
 
   const rows = useMemo(() => {
-    const list = (dash?.sellers ?? []).filter(s => {
+    const list = scopedSellers.filter(s => {
       if (q.trim() && !s.name.includes(q.trim())) return false;
       if (hideZero && s.salesAmount <= 0 && s.receiptCount <= 0) return false;
       return true;
@@ -59,10 +61,10 @@ export function Team() {
       if (sort === 'goals') return (b.goalCount ? b.goalPercent : -1) - (a.goalCount ? a.goalPercent : -1);
       return b.salesAmount - a.salesAmount;
     });
-  }, [dash, q, sort, total, hideZero]);
+  }, [scopedSellers, q, sort, total, hideZero]);
 
-  const detailLines = open ? mergeLines(linesForSeller(lines, open.salesmanId), extraLines.filter(l => l.salesmanId === open.salesmanId)) : [];
-  const detailCashiers = open ? cashiersForSeller(lines, open.salesmanId) : [];
+  const detailLines = open ? mergeLines(linesForSeller(scopedLines, open.salesmanId), extraLines.filter(l => l.salesmanId === open.salesmanId && l.occurredAt.slice(0, 10) >= period.from && l.occurredAt.slice(0, 10) <= period.to)) : [];
+  const detailCashiers = open ? cashiersForSeller(scopedLines, open.salesmanId) : [];
   const detailProducts = open ? rankProducts(detailLines) : [];
   const detailReceipts = open ? groupReceipts(detailLines) : [];
   const prevSeller = open ? prevDash?.sellers.find(s => s.salesmanId === open.salesmanId) : undefined;
@@ -70,10 +72,10 @@ export function Team() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="hero compact command">
-        <p className="kicker">فريق المبيعات</p>
-        <h1 className="display text-[28px] font-black">كل بائع بالتفصيل</h1>
+        <p className="kicker">فريق المبيعات · {period.label}</p>
+        <h1 className="display text-[24px] font-black">البائعون</h1>
         <p className="mt-2 text-sm font-bold text-muted">
           {rows.length} بائعاً · إجمالي {moneyIq(total)} — اضغط على أي اسم لترى مبيعاته وفواتيره
         </p>
@@ -84,7 +86,7 @@ export function Team() {
           </div>
           <div className="hero-stat">
             <p className="kicker">فواتير</p>
-            <p className="num display text-[20px] font-black">{dash?.week.receiptCount ?? 0}</p>
+            <p className="num display text-[20px] font-black">{periodTotals.receipts}</p>
           </div>
           <div className="hero-stat">
             <p className="kicker">عليهم تاركت</p>
@@ -92,21 +94,31 @@ export function Team() {
           </div>
           <div className="hero-stat">
             <p className="kicker">متوسط</p>
-            <p className="num display text-[18px] font-black">{moneyIq(avgTicket(total, dash?.week.receiptCount ?? 0))}</p>
+            <p className="num display text-[18px] font-black">{moneyIq(periodTotals.ticket)}</p>
           </div>
         </div>
         <button
           type="button"
           className="pill mt-3"
           onClick={() => {
-            downloadText(`بائعون-${weekStart || 'week'}.csv`, teamCsv(dash?.sellers ?? [], total));
+            downloadText(`بائعون-${period.from}.csv`, teamCsv(scopedSellers, total));
             toast('تم تنزيل ملف البائعين');
           }}
         >
           تصدير الجدول
         </button>
       </section>
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <PeriodBar
+        weeks={weeks}
+        weekStart={weekStart}
+        setWeek={setWeek}
+        period={period}
+        kind={periodKind}
+        setKind={setPeriodKind}
+        customFrom={customFrom}
+        customTo={customTo}
+        setCustom={setCustom}
+      />
       {rows.filter(s => s.salesAmount > 0).length > 0 && (
         <Podium
           items={rows.filter(s => s.salesAmount > 0).slice(0, 3).map(s => ({
@@ -179,7 +191,7 @@ export function Team() {
             </button>
           );
         })}
-        {!loading && !rows.length && <Empty title="لا بائعون في هذا الأسبوع" hint="عند وجود فواتير تظهر أسماء الفريق هنا" />}
+        {!loading && !rows.length && <Empty title="لا بائعون في هذه المدة" hint="غيّر المدة أو انتظر وصول فواتير جديدة" />}
       </div>
 
       <Sheet open={!!open} title={open?.name || 'البائع'} onClose={() => setOpen(null)}>

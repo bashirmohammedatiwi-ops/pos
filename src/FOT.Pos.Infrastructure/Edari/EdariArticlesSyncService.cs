@@ -226,7 +226,7 @@ public sealed class EdariArticlesSyncService(
                         // foreign key, so leaving them behind makes deleted materials keep
                         // showing up inside offers and on the cashier's group buttons.
                         await conn.ExecuteAsync(new CommandDefinition(
-                            "DELETE FROM offer_details WHERE item_id IN @seqs",
+                            "DELETE FROM offer_details WHERE item_id IN @seqs AND COALESCE(excluded, 0) = 0",
                             new { seqs = chunk }, cancellationToken: ct));
                         await conn.ExecuteAsync(new CommandDefinition(
                             "DELETE FROM article_group_items WHERE barcode_id IN @seqs",
@@ -250,12 +250,15 @@ public sealed class EdariArticlesSyncService(
                     await conn.ExecuteAsync(new CommandDefinition("""
                         DELETE od
                         FROM offer_details od
-                        WHERE od.item_id IS NULL
-                           OR NOT EXISTS (
+                        WHERE COALESCE(od.excluded, 0) = 0
+                          AND (
+                                od.item_id IS NULL
+                             OR NOT EXISTS (
                                 SELECT 1 FROM articles a
                                 WHERE a.Seq = od.item_id
                                   AND NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N'') IS NOT NULL
-                           )
+                             )
+                          )
                         """, cancellationToken: ct));
                 }
                 catch (Exception ex)

@@ -7,18 +7,22 @@ import {
 import { cashierShares, sellerShares, weekPace } from '../insights';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import { AreaChart, CommandRail, DayStrip, Delta, Empty, ErrorBox, Medal, SectionHead, Skeleton, useToast } from '../ui';
-import { WeekBar } from '../week';
+import { PeriodBar } from '../week';
 
 export function Report() {
-  const { weekStart, setWeek, dash, prevDash, weeks, cashiers, err, loading, reload } = useManager();
+  const {
+    weekStart, setWeek, dash, prevDash, weeks, cashiers, scopedSellers, scopedCashiers,
+    period, periodKind, setPeriodKind, customFrom, customTo, setCustom, periodTotals, payTotals,
+    err, loading, reload,
+  } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
   const insights = useShopInsights();
   const toast = useToast();
 
   const spark = useMemo(() => [...weeks].reverse().map(w => w.salesAmount), [weeks]);
   const weekSales = resolveWeekSales(dash);
-  const sellers = useMemo(() => sellerShares(dash?.sellers ?? [], weekSales || 1), [dash, weekSales]);
-  const cashierRows = useMemo(() => cashierShares(cashiers, weekSales || 1), [cashiers, weekSales]);
+  const sellers = useMemo(() => sellerShares(scopedSellers, periodTotals.sales || weekSales || 1), [scopedSellers, periodTotals.sales, weekSales]);
+  const cashierRows = useMemo(() => cashierShares(scopedCashiers, periodTotals.sales || weekSales || 1), [scopedCashiers, periodTotals.sales, weekSales]);
   const due = useMemo(() => (dash?.sellers ?? []).filter(s => s.balanceDue > 0).sort((a, b) => b.balanceDue - a.balanceDue), [dash]);
   const prevById = useMemo(() => new Map((prevDash?.sellers ?? []).map(s => [s.salesmanId, s])), [prevDash]);
 
@@ -31,15 +35,16 @@ export function Report() {
   const today = insights.days.find(d => d.key === todayKey());
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="hero compact command">
-        <p className="kicker">تقرير المتابعة</p>
-        <h1 className="display text-[28px] font-black">يومي وأسبوعي</h1>
-        <p className="mt-2 text-sm font-bold text-muted">أسبوع {weekRange(week.weekStart, week.weekEnd)} · مبيعات الفواتير لكل يوم ولكل أسبوع</p>
+        <p className="kicker">تقرير المتابعة · {period.label}</p>
+        <h1 className="display text-[28px] font-black">يومي ثم أسبوعي</h1>
+        <p className="mt-2 text-sm font-bold text-muted">المدة المعروضة أولاً، ثم مقارنة الأسبوع {weekRange(week.weekStart, week.weekEnd)}</p>
         <div className="hero-pills">
-          <span className="pill">{moneyIq(weekSales)}</span>
-          <span className="pill">{week.receiptCount} فاتورة</span>
-          <span className="pill">متوسط {moneyIq(avgTicket(weekSales, week.receiptCount))}</span>
+          <span className="pill">{moneyIq(periodTotals.sales)}</span>
+          <span className="pill">{periodTotals.receipts} فاتورة</span>
+          <span className="pill">متوسط {moneyIq(periodTotals.ticket)}</span>
+          <span className="pill">عمولات {moneyIq(payTotals.commission)}</span>
           {compare.prev && <Delta value={compare.salesDelta} />}
         </div>
         <div className="toolbar mt-4">
@@ -50,8 +55,19 @@ export function Report() {
           <button type="button" className="pill" onClick={() => window.print()}>طباعة</button>
         </div>
       </section>
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <PeriodBar
+        weeks={weeks}
+        weekStart={weekStart}
+        setWeek={setWeek}
+        period={period}
+        kind={periodKind}
+        setKind={setPeriodKind}
+        customFrom={customFrom}
+        customTo={customTo}
+        setCustom={setCustom}
+      />
       <CommandRail items={[
+        { kicker: period.label, value: moneyIq(periodTotals.sales), hint: `${periodTotals.receipts} فاتورة`, tone: 'gold' },
         { kicker: 'مبيعات الأسبوع', value: moneyIq(weekSales), hint: `${week.receiptCount} فاتورة`, tone: 'goal' },
         { kicker: 'مبيعات اليوم', value: moneyIq(today?.sales ?? 0), hint: today ? `${today.receipts} فاتورة` : 'لا حركة اليوم', tone: 'gold' },
         { kicker: 'إيقاع متوقع', value: moneyIq(pace.projected), hint: `متوسط ${moneyIq(pace.dailyAvg)} / يوم`, tone: 'ok' },

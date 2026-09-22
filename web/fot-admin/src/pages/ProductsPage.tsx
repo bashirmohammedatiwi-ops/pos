@@ -362,6 +362,9 @@ export function ProductsPage() {
                 {selected.barcode && (
                   <Btn size="sm" variant="secondary" onClick={() => copy(selected.barcode!, 'الباركود')}>نسخ الباركود</Btn>
                 )}
+                <Link to={`/barcode-labels?q=${encodeURIComponent(selected.barcode || selected.num || '')}`}>
+                  <Btn size="sm" variant="secondary">طباعة باركود</Btn>
+                </Link>
                 <Btn size="sm" variant="secondary" onClick={() => copy(String(selected.seq), 'الرقم')}>نسخ Seq</Btn>
                 {selected.offerName && (
                   <Link to={`/offers?q=${encodeURIComponent(selected.offerName)}`}>

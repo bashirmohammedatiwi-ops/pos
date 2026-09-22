@@ -144,3 +144,138 @@ input[type='date']::-webkit-calendar-picker-indicator {
 button, a, [role='button'] {
   -webkit-tap-highlight-color: transparent;
 }
+
+.barcode-studio {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.barcode-scan {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background:
+    linear-gradient(180deg, #f0fdf7 0%, #ffffff 88%);
+  border-bottom: 1px solid #d1fae5;
+}
+
+.barcode-scan-input {
+  height: 46px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.barcode-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.barcode-chip.is-on {
+  border-color: #0f9f76;
+  background: #ecfdf5;
+  color: #0a6148;
+}
+
+.barcode-cols {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.barcode-col-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.barcode-col-btn.is-on {
+  border-color: #0f9f76;
+  background: #f0fdf7;
+  box-shadow: inset 0 0 0 1px #0f9f76;
+}
+
+.barcode-col-dots {
+  display: flex;
+  gap: 3px;
+  direction: ltr;
+}
+
+.barcode-col-dots span {
+  width: 10px;
+  height: 16px;
+  border-radius: 2px;
+  background: #cbd5e1;
+}
+
+.barcode-col-btn.is-on .barcode-col-dots span {
+  background: #0f9f76;
+}
+
+.barcode-sheet-stage {
+  display: flex;
+  min-height: 168px;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 14px 10px;
+  border-radius: 12px;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      #f8fafc,
+      #f8fafc 8px,
+      #f1f5f9 8px,
+      #f1f5f9 16px
+    );
+  border: 1px dashed #cbd5e1;
+}
+
+.barcode-sheet-cut {
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  background: #fff;
+}
+
+.barcode-qty {
+  display: flex;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.barcode-qty button {
+  width: 36px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f766e;
+}
+
+.barcode-qty input {
+  width: 64px;
+  border: 0;
+  border-inline: 1px solid #edf2f7;
+  text-align: center;
+  font-weight: 800;
+}

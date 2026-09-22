@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatNum } from '@/api/client';
 import type { OfferDetailDto, ProductOfferMembershipDto, TreeNodeDto } from '@/api/types';
 import { fixEdariName } from '@/lib/text';
-import { useToast } from '@/components/Toast';
 import { Btn, Input, Loading } from '@/components/ui';
 import { OfferMembershipPills } from '@/components/offers/OfferMembershipPills';
 import {
@@ -25,6 +24,7 @@ export interface OfferScopeOps {
   removeTreeSeqs: number[];
   removeRowIds: number[];
   excludeChanges: { detailId: number; excluded: boolean }[];
+  excludeArticleSeqs: { seq: number; excluded: boolean }[];
   treeDiscounts: { treeSeq: number; discount: number }[];
 }
 
@@ -35,6 +35,7 @@ export function emptyOfferScopeOps(): OfferScopeOps {
     removeTreeSeqs: [],
     removeRowIds: [],
     excludeChanges: [],
+    excludeArticleSeqs: [],
     treeDiscounts: [],
   };
 }
@@ -46,6 +47,7 @@ export function offerScopeOpsCount(ops: OfferScopeOps) {
     ops.removeTreeSeqs.length +
     ops.removeRowIds.length +
     ops.excludeChanges.length +
+    ops.excludeArticleSeqs.length +
     ops.treeDiscounts.length
   );
 }
@@ -108,13 +110,13 @@ export function OfferScopeEditor({
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [expandedTree, setExpandedTree] = useState<number | null>(null);
-  const toast = useToast();
 
   const [addTrees, setAddTrees] = useState<Map<number, { seq: number; name: string }>>(new Map());
   const [addProducts, setAddProducts] = useState<Map<number, { seq: number; name: string; barcode?: string }>>(new Map());
   const [removeTrees, setRemoveTrees] = useState<Set<number>>(new Set());
   const [removeRows, setRemoveRows] = useState<Map<number, number>>(new Map());
   const [excludeChanges, setExcludeChanges] = useState<Map<number, boolean>>(new Map());
+  const [excludeArticleSeqs, setExcludeArticleSeqs] = useState<Map<number, boolean>>(new Map());
   const [treeDiscounts, setTreeDiscounts] = useState<Map<number, number>>(new Map());
 
   useEffect(() => {
@@ -129,9 +131,10 @@ export function OfferScopeEditor({
       removeTreeSeqs: [...removeTrees],
       removeRowIds: [...removeRows.values()],
       excludeChanges: [...excludeChanges.entries()].map(([detailId, excluded]) => ({ detailId, excluded })),
+      excludeArticleSeqs: [...excludeArticleSeqs.entries()].map(([seq, excluded]) => ({ seq, excluded })),
       treeDiscounts: [...treeDiscounts.entries()].map(([treeSeq, discount]) => ({ treeSeq, discount })),
     });
-  }, [addTrees, addProducts, removeTrees, removeRows, excludeChanges, treeDiscounts, onOpsChange]);
+  }, [addTrees, addProducts, removeTrees, removeRows, excludeChanges, excludeArticleSeqs, treeDiscounts, onOpsChange]);
 
   const inScope = useMemo(
     () => buildInScopeIndex(trees, allDetails, addTrees, addProducts, removeTrees, removeRows),
@@ -146,7 +149,7 @@ export function OfferScopeEditor({
   }
 
   function productState(seq: number): RowState {
-    if (removeRows.has(seq)) return 'staged-remove';
+    if (removeRows.has(seq) || excludeArticleSeqs.get(seq) === true) return 'staged-remove';
     if (inScope.seqRowIds.has(seq)) return 'in-scope';
     if (addProducts.has(seq)) return 'staged-add';
     return 'normal';
@@ -167,11 +170,14 @@ export function OfferScopeEditor({
     else if (st === 'in-scope') {
       const rowId = inScope.seqRowIds.get(seq);
       if (rowId == null || rowId < 0) {
-        toast.info('الصنف داخل شجرة مضافة — أزِل الشجرة أو استبعده من تفاصيلها');
+        setExcludeArticleSeqs(m => new Map(m).set(seq, true));
         return;
       }
       setRemoveRows(m => new Map(m).set(seq, rowId));
-    } else setRemoveRows(m => { const n = new Map(m); n.delete(seq); return n; });
+    } else {
+      setExcludeArticleSeqs(m => { const n = new Map(m); n.delete(seq); return n; });
+      setRemoveRows(m => { const n = new Map(m); n.delete(seq); return n; });
+    }
   }
 
   function toggleStandalone(item: ScopeStandaloneItem) {
@@ -260,6 +266,7 @@ export function OfferScopeEditor({
     removeTreeSeqs: [...removeTrees],
     removeRowIds: [...removeRows.values()],
     excludeChanges: [...excludeChanges.entries()].map(([detailId, excluded]) => ({ detailId, excluded })),
+    excludeArticleSeqs: [...excludeArticleSeqs.entries()].map(([seq, excluded]) => ({ seq, excluded })),
     treeDiscounts: [...treeDiscounts.entries()].map(([treeSeq, discount]) => ({ treeSeq, discount })),
   });
 
@@ -427,7 +434,9 @@ export function OfferScopeEditor({
                     discount={treeDiscounts.get(tree.treeSeq) ?? tree.discount ?? defaultDiscount}
                     onDiscountChange={d => setTreeDiscounts(m => new Map(m).set(tree.treeSeq, d))}
                     excludeChanges={excludeChanges}
+                    excludeArticleSeqs={excludeArticleSeqs}
                     onToggleExclude={(detailId, excluded) => setExcludeChanges(m => new Map(m).set(detailId, excluded))}
+                    onToggleExcludeSeq={(seq, excluded) => setExcludeArticleSeqs(m => new Map(m).set(seq, excluded))}
                   />
                 ))}
 
@@ -552,7 +561,9 @@ function ScopeTreeCardView({
   discount,
   onDiscountChange,
   excludeChanges,
+  excludeArticleSeqs,
   onToggleExclude,
+  onToggleExcludeSeq,
 }: {
   offerId: number;
   tree: ScopeTreeCard;
@@ -565,7 +576,9 @@ function ScopeTreeCardView({
   discount: number;
   onDiscountChange: (d: number) => void;
   excludeChanges: Map<number, boolean>;
+  excludeArticleSeqs: Map<number, boolean>;
   onToggleExclude: (detailId: number, excluded: boolean) => void;
+  onToggleExcludeSeq: (seq: number, excluded: boolean) => void;
 }) {
   const [products, setProducts] = useState<ScopeTreeProduct[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -628,21 +641,24 @@ function ScopeTreeCardView({
           {loading && <Loading />}
           {products?.map(p => {
             const detailId = p.rowId;
-            const excluded = detailId != null && excludeChanges.has(detailId)
-              ? excludeChanges.get(detailId)!
-              : p.excluded;
+            const excluded = excludeArticleSeqs.has(p.seq)
+              ? excludeArticleSeqs.get(p.seq)!
+              : detailId != null && excludeChanges.has(detailId)
+                ? excludeChanges.get(detailId)!
+                : p.excluded;
             return (
               <div key={p.seq} className={`flex items-center gap-2 px-2.5 py-1 text-[11px] ${excluded ? 'opacity-50 line-through' : ''}`}>
                 <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                {detailId != null && (
-                  <button
-                    type="button"
-                    onClick={() => onToggleExclude(detailId, !excluded)}
-                    className="rounded px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:bg-slate-100"
-                  >
-                    {excluded ? 'إرجاع' : 'استبعاد'}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (detailId != null) onToggleExclude(detailId, !excluded);
+                    else onToggleExcludeSeq(p.seq, !excluded);
+                  }}
+                  className="rounded px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:bg-slate-100"
+                >
+                  {excluded ? 'إرجاع' : 'استبعاد'}
+                </button>
               </div>
             );
           })}

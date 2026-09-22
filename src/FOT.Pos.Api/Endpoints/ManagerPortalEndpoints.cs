@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using FOT.Pos.Api.Auth;
 using FOT.Pos.Infrastructure.Repositories;
 using FOT.Pos.Shared.Dtos;
@@ -34,6 +36,22 @@ public static class ManagerPortalEndpoints
             if (!BCrypt.Net.BCrypt.Verify(password, acc.PasswordHash))
                 return Results.Unauthorized();
 
+            var me = new ManagerMeDto(acc.Id, acc.Username, acc.DisplayName);
+            var token = JwtTokenIssuer.Issue(config, acc.Id, acc.Username, acc.DisplayName, "manager");
+            return Results.Ok(new ManagerLoginResponse(token, me));
+        }).AllowAnonymous();
+
+        app.MapPost("/auth/manager-refresh", async (HttpContext http, PortalAccountRepository accounts, IConfiguration config) =>
+        {
+            var principal = JwtTokenIssuer.Read(config, JwtTokenIssuer.Bearer(http.Request), ignoreLifetime: true);
+            if (principal is null || !principal.IsInRole("manager"))
+                return Results.Unauthorized();
+            if (!long.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? principal.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id))
+                return Results.Unauthorized();
+            var acc = (await accounts.ListSyncManagersAsync(default)).FirstOrDefault(m => m.Id == id);
+            if (acc is null || !acc.IsActive)
+                return Results.Unauthorized();
             var me = new ManagerMeDto(acc.Id, acc.Username, acc.DisplayName);
             var token = JwtTokenIssuer.Issue(config, acc.Id, acc.Username, acc.DisplayName, "manager");
             return Results.Ok(new ManagerLoginResponse(token, me));

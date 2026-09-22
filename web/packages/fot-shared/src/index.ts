@@ -19,9 +19,18 @@ export {
   ean13Checksum,
   formatReceiptNumber,
   receiptNumberFromScan,
+  renderProductBarcode,
   renderReceiptBarcode,
 } from './receipt-barcode';
-export { DEFAULT_TOTAL_ROUNDING, totalRoundingDiscount, totalRoundingStep } from './rounding';
+export type { BarcodeGraphic } from './receipt-barcode';
+export {
+  DEFAULT_TOTAL_ROUNDING,
+  OFFER_PRICE_STEP,
+  roundOfferSalePrice,
+  roundToStep,
+  totalRoundingDiscount,
+  totalRoundingStep,
+} from './rounding';
 export { DISCOUNT_QR_PREFIX, isDiscountQrCode, normalizeDiscountQrCode } from './discountQr';
 export type { DiscountQrPerson } from './discountQr';
 export {

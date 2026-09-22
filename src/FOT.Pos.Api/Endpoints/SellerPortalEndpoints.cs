@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using FOT.Pos.Api.Auth;
 using FOT.Pos.Infrastructure.Repositories;
 using FOT.Pos.Shared.Dtos;
@@ -42,6 +44,22 @@ public static class SellerPortalEndpoints
             var token = JwtTokenIssuer.Issue(config, seller.Id, seller.Id.ToString(), seller.Name, "seller");
             return Results.Ok(new SellerLoginResponse(token, me));
         }).AllowAnonymous().Produces<SellerLoginResponse>(200).Produces(400).Produces(401);
+
+        app.MapPost("/auth/seller-refresh", async (HttpContext http, SellerPortalRepository sellers, IConfiguration config) =>
+        {
+            var principal = JwtTokenIssuer.Read(config, JwtTokenIssuer.Bearer(http.Request), ignoreLifetime: true);
+            if (principal is null || !principal.IsInRole("seller"))
+                return Results.Unauthorized();
+            if (!long.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? principal.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id))
+                return Results.Unauthorized();
+            var (seller, _, active) = await sellers.GetAccountAsync(id, default);
+            if (seller is null || !active)
+                return Results.Unauthorized();
+            var me = await sellers.GetMeAsync(id, default) ?? new SellerMeDto(seller.Id, seller.Name, false);
+            var token = JwtTokenIssuer.Issue(config, seller.Id, seller.Id.ToString(), seller.Name, "seller");
+            return Results.Ok(new SellerLoginResponse(token, me));
+        }).AllowAnonymous();
     }
 
     public static void MapSellerPortalEndpoints(this RouteGroupBuilder api)

@@ -2,9 +2,11 @@ import { isDiscountQrCode, normalizeDiscountQrCode, type DiscountQrPerson } from
 import { api, ApiError, isPermanentReceiptError } from '@/api/client';
 import type { AccountSummaryDto, ArticleGroupDto, ArticleGroupItemDto, ProductDto, SalesmanDto } from '@/api/types';
 import { refreshAttributionCache } from '@/lib/attribution';
+import { withOfferSalePrice, withOfferSalePrices } from '@/lib/offerPrice';
 import { isServerUnreachable } from '@/lib/connectionGate';
 import { fixEdariName } from '@/lib/text';
 import { getHwId } from '@/lib/money';
+import { seedDeferredHistory, withSoldAt, type ReceiptHistoryCarrier } from './receiptHistory';
 import { db, type OutboxRow, type OutboxStatus } from './db';
 
 export const OUTBOX_MAX_RETRIES = 8;
@@ -19,15 +21,19 @@ export type FlushOutboxResult = {
 
 export async function findProductSmart(code: string, online: boolean): Promise<ProductDto | null> {
   const local = await db.findProduct(code);
-  if (local) return local;
-  if (!online || isServerUnreachable()) return null;
-  try {
-    const remote = await api.productByBarcode(code);
-    if (remote) void db.upsertProducts([remote]);
-    return remote;
-  } catch {
-    return null;
+  if (online && !isServerUnreachable()) {
+    try {
+      const remote = await api.productByBarcode(code);
+      if (remote) {
+        const priced = withOfferSalePrice(remote);
+        void db.upsertProducts([priced]);
+        return priced;
+      }
+    } catch {
+      /* offline / timeout — use the local catalog */
+    }
   }
+  return local ? withOfferSalePrice(local) : null;
 }
 
 export async function findDiscountQr(code: string, online: boolean): Promise<DiscountQrPerson | null> {
@@ -49,10 +55,10 @@ export async function findDiscountQr(code: string, online: boolean): Promise<Dis
 }
 
 export async function searchProductsSmart(q: string, online: boolean): Promise<ProductDto[]> {
-  const local = await db.searchProducts(q);
+  const local = withOfferSalePrices(await db.searchProducts(q));
   if (local.length > 0 || !online || isServerUnreachable()) return local;
   try {
-    return await api.searchProducts(q);
+    return withOfferSalePrices(await api.searchProducts(q));
   } catch {
     return local;
   }
@@ -69,7 +75,7 @@ export async function syncCatalog(): Promise<{ products: number; lastSeq: number
   for (let i = 0; i < 80; i++) {
     const batch = await api.catalogSync(since, hwId);
     if (batch.length === 0) break;
-    await db.upsertProducts(batch);
+    await db.upsertProducts(withOfferSalePrices(batch));
     since = Math.max(since, ...batch.map(p => p.changeVersion ?? p.seq));
     added += batch.length;
     await db.setMeta('last_change_ver', String(since));
@@ -142,7 +148,7 @@ export async function cacheReferenceData(force = false) {
     const itemsByGroup: Record<number, ArticleGroupItemDto[]> = {};
     await mapPool(groupsRes.value, 6, async g => {
       try {
-        itemsByGroup[g.id] = await api.groupItems(g.id);
+        itemsByGroup[g.id] = withOfferSalePrices(await api.groupItems(g.id));
       } catch {
         itemsByGroup[g.id] = [];
       }
@@ -184,8 +190,9 @@ export async function enqueueReceipt(
   preallocatedNumber?: number,
 ) {
   const localNumber = preallocatedNumber ?? await db.nextLocalNumber(cashierCode);
+  const parked = status === 'deferred' ? seedDeferredHistory(payload as unknown as ReceiptHistoryCarrier) : payload;
   await db.enqueue({
-    payload,
+    payload: parked,
     clientReceiptId: payload.clientReceiptId,
     localNumber,
     createdAt: new Date().toISOString(),
@@ -238,7 +245,7 @@ export async function flushOutbox(): Promise<FlushOutboxResult> {
       continue;
     }
     try {
-      const res = await api.createReceipt(row.payload);
+      const res = await api.createReceipt(withSoldAt(row.payload, row.createdAt));
       if (row.localNumber > 0 && res.number !== row.localNumber) {
         result.renumbered.push({ localNumber: row.localNumber, newNumber: res.number });
       }

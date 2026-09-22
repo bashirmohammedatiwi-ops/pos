@@ -41,6 +41,8 @@ function useAppRouter() {
 
 const ProductsPage = lazyPage(() => import('@/pages/ProductsPage'), 'ProductsPage');
 
+const BarcodeLabelsPage = lazyPage(() => import('@/pages/BarcodeLabelsPage'), 'BarcodeLabelsPage');
+
 const OffersPage = lazyPage(() => import('@/pages/OffersPage'), 'OffersPage');
 
 const GroupsPage = lazyPage(() => import('@/pages/GroupsPage'), 'GroupsPage');
@@ -138,6 +140,8 @@ export function App() {
                     <Route index element={<DashboardPage />} />
 
                     <Route path="products" element={<Page><ProductsPage /></Page>} />
+
+                    <Route path="barcode-labels" element={<Page><BarcodeLabelsPage /></Page>} />
 
                     <Route path="offers" element={<Page><OffersPage /></Page>} />
 

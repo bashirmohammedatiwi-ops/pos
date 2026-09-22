@@ -215,6 +215,13 @@ public static class AdminEndpoints
             }
             return ok ? Results.NoContent() : Results.NotFound();
         });
+        api.MapPost("/offers/{id:long}/articles/{itemId:long}/excluded", async (
+            OfferRepository repo, long id, long itemId, bool excluded, IHubContext<PosHub> hub) =>
+        {
+            await repo.SetArticleExcludedAsync(id, itemId, excluded, default);
+            await NotifyOfferPricesChangedAsync(repo, hub, id);
+            return Results.NoContent();
+        });
 
         api.MapGet("/terminals/monitor", async (TerminalRepository repo) =>
             await repo.MonitorGroupsAsync(default));
@@ -433,6 +440,13 @@ public static class AdminEndpoints
             if (ok) await PosHubEvents.NotifyCatalogUpdated(hub);
             return ok ? Results.NoContent() : Results.NotFound();
         });
+        api.MapPost("/commissions/groups/{id:long}/articles/{articleId:long}/excluded", async (
+            CommissionGroupRepository repo, long id, long articleId, bool excluded, IHubContext<PosHub> hub) =>
+        {
+            await repo.SetArticleExcludedAsync(id, articleId, excluded, default);
+            await PosHubEvents.NotifyCatalogUpdated(hub);
+            return Results.NoContent();
+        });
 
         api.MapPost("/targets/rules", async (TargetRepository repo, ProductAttributionRepository attr, CreateTargetRuleRequest req, IHubContext<PosHub> hub) =>
         {
@@ -455,6 +469,13 @@ public static class AdminEndpoints
         api.MapPatch("/targets/rules/{id:long}/active", async (TargetRepository repo, long id, bool active, IHubContext<PosHub> hub) =>
         {
             await repo.SetActiveAsync(id, active, default);
+            await PosHubEvents.NotifyCatalogUpdated(hub);
+            return Results.NoContent();
+        });
+        api.MapPost("/targets/rules/{id:long}/articles/{articleId:long}/excluded", async (
+            TargetRepository repo, long id, long articleId, bool excluded, IHubContext<PosHub> hub) =>
+        {
+            await repo.SetArticleExcludedAsync(id, articleId, excluded, default);
             await PosHubEvents.NotifyCatalogUpdated(hub);
             return Results.NoContent();
         });

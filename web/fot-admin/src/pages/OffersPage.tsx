@@ -361,6 +361,7 @@ function NewOfferModal({
                 </button>
               ))}
             </div>
+            <p className="mt-1.5 text-[11px] text-slate-400">سعر كل منتج بعد هذا الخصم يُقرَّب لأقرب 250 دينار عند الإرسال للكاشير.</p>
           </div>
         )}
       </div>
@@ -575,6 +576,9 @@ export function OfferEditorModal({
       for (const { detailId, excluded } of ops.excludeChanges) {
         await api.setOfferDetailExcluded(detailId, excluded);
       }
+      for (const { seq, excluded } of ops.excludeArticleSeqs) {
+        await api.setOfferArticleExcluded(offer.id, seq, excluded);
+      }
 
       const remainingTrees = trees.filter(t => !ops.removeTreeSeqs.includes(t.treeSeq));
       for (const t of remainingTrees) {
@@ -710,7 +714,7 @@ export function OfferEditorModal({
               <Input type="number" min={0} max={100} value={addDiscount} onChange={e => setAddDiscount(e.target.value)} className="w-14 text-center font-bold" />
             </label>
           )}
-          <span className="text-[10.5px] text-slate-400">كل التعديلات تُحفظ بزر «حفظ» فقط</span>
+          <span className="text-[10.5px] text-slate-400">كل التعديلات تُحفظ بزر «حفظ» فقط · سعر البيع بعد العرض يُقرَّب لأقرب 250 د.ع</span>
         </div>
       </header>
 

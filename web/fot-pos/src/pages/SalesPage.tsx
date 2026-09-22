@@ -31,6 +31,7 @@ import {
   updateDeferredPayload,
 } from '@/lib/catalogSync';
 import { QueueOverlay } from '@/components/QueueOverlay';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DeferredEditor, type EditorPayload } from '@/components/DeferredEditor';
 import { getProductAttribution, refreshAttributionCache, resolveGroupSalesman } from '@/lib/attribution';
 import { CARD_APPROVED_HOLD_MS, chargeCard, cardPayDelay, formatCardError } from '@/lib/cardPay';
@@ -44,6 +45,7 @@ import { CashBoxPicker, cashBoxLabel } from '@/components/CashBoxPicker';
 import { PosSidebar } from '@/components/PosSidebar';
 import { canUseServer } from '@/lib/connectionGate';
 import { db } from '@/lib/db';
+import { offerSalePrice, withOfferSalePrice, withOfferSalePrices } from '@/lib/offerPrice';
 import { focusInputVisualRight, onInputClickVisualRight, onInputFocusVisualRight } from '@/lib/focusInput';
 import { useBarcodeCapture } from '@/hooks/useBarcodeCapture';
 import { useFullscreen } from '@/hooks/useFullscreen';
@@ -58,6 +60,7 @@ import {
   capUserDiscount,
   cardBlockedReason,
   cartCommission,
+  cartGross,
   cartSubtotal,
   emptyGroups,
   emptySlot,
@@ -70,6 +73,7 @@ import {
   type CartLine,
   type InvoiceSlot,
 } from '@/lib/sale';
+import { applyDeferredEdit, settleEditedReceipt, toLocalDateTime } from '@/lib/receiptHistory';
 import type { ReceiptSummaryDto } from '@/api/types';
 import { NumPad } from '@/components/NumPad';
 import { PosTile } from '@/components/PosTile';
@@ -82,26 +86,36 @@ import {
   sourceLinesToCart,
 } from '@/lib/invoiceReturn';
 import { collapseRepeatedScan, createScanEchoGuard } from '@/lib/scanGuard';
+import { playErrorBeep } from '@/lib/sound';
 import { localDateTimeIso } from '@/lib/text';
 import type { CashReportDto } from '@/api/types';
 
 type SortMode = 'seq' | 'name' | 'price';
 type Overlay = 'none' | 'pay' | 'price' | 'line-price' | 'qty' | 'discount' | 'cash-report' | 'salesman' | 'line-salesman' | 'add-salesman' | 'print' | 'receipts' | 'queue' | 'deferred-edit' | 'return-invoice';
+type ConfirmAsk =
+  | { type: 'delete-line'; key: string; name: string }
+  | { type: 'cancel-sale' }
+  | { type: 'unknown-product'; code: string };
 type DiscountMode = 'amount' | 'percent';
 /** Receipts summary + local flag for invoices still sitting in the offline queue. */
 type TodayReceiptRow = ReceiptSummaryDto & { local?: boolean };
 
 function toProduct(item: ArticleGroupItemDto): ProductDto {
+  const priced = withOfferSalePrice({
+    price: item.price,
+    originalPrice: item.originalPrice,
+    discountPercent: 0,
+  });
   return {
     id: item.productId,
     seq: item.seq,
     num: item.barcode,
     name: item.name,
     barcode: item.barcode,
-    originalPrice: item.originalPrice,
-    price: item.price,
+    originalPrice: priced.originalPrice,
+    price: priced.price,
     stock: 0,
-    discountPercent: 0,
+    discountPercent: priced.discountPercent,
     offerName: null,
   };
 }
@@ -204,6 +218,7 @@ export function SalesPage({
   const [toast, setToast] = useState('');
   const toastTimer = useRef(0);
   const [overlay, setOverlay] = useState<Overlay>('none');
+  const [confirmAsk, setConfirmAsk] = useState<ConfirmAsk | null>(null);
   const [cashGiven, setCashGiven] = useState('');
   const [userDiscount, setUserDiscount] = useState(0);
   const [lastSale, setLastSale] = useState<string | null>(null);
@@ -307,13 +322,13 @@ export function SalesPage({
 
   const markScanMiss = useCallback((code: string) => {
     setScanError(code);
-    showToast('الباركود غير موجود');
-    focusScan();
+    playErrorBeep();
+    setConfirmAsk({ type: 'unknown-product', code });
     window.clearTimeout(scanMissTimer.current);
     scanMissTimer.current = window.setTimeout(() => {
       setScanError(prev => (prev === code ? null : prev));
     }, 5000);
-  }, [focusScan, showToast]);
+  }, []);
 
   useEffect(() => {
     if (overlay !== 'none') return;
@@ -496,10 +511,10 @@ export function SalesPage({
     }
     void (async () => {
       const local = await db.loadGroupItems(groupId);
-      setGroupItems(local);
+      setGroupItems(withOfferSalePrices(local));
       if (!canUseServer(online)) return;
       try {
-        setGroupItems(await api.groupItems(groupId));
+        setGroupItems(withOfferSalePrices(await api.groupItems(groupId)));
       } catch {
         /* keep the local tiles */
       }
@@ -587,8 +602,9 @@ export function SalesPage({
     maxQty?: number;
   }) => {
     let targetKey = '';
-    const price = extras?.price ?? Number(p.price);
     const originalPrice = extras?.originalPrice ?? Number(p.originalPrice || p.price);
+    const rawPrice = extras?.price ?? Number(p.price);
+    const price = extras?.sourceItemId != null ? rawPrice : offerSalePrice(rawPrice, originalPrice);
     setCart(prev => {
       const existing = prev.find(l => sameLine(l, p.id, sid, gkey, extras?.sourceItemId));
       if (existing) {
@@ -780,7 +796,7 @@ export function SalesPage({
     await addProductWithAttribution(p, qty);
   }
 
-  useBarcodeCapture((overlay === 'none' || overlay === 'return-invoice') && !busy, code => {
+  useBarcodeCapture((overlay === 'none' || overlay === 'return-invoice') && !busy && !confirmAsk, code => {
     void (async () => {
       scanValueRef.current = '';
       setScan('');
@@ -852,7 +868,14 @@ export function SalesPage({
       showToast('لا صلاحية لحذف بند');
       return;
     }
+    const line = cart.find(l => l.key === key);
+    setConfirmAsk({ type: 'delete-line', key, name: line?.name || 'البند' });
+  }
+
+  function confirmRemoveLine(key: string) {
     setCart(prev => prev.filter(l => l.key !== key));
+    setConfirmAsk(null);
+    focusScan();
   }
 
   function duplicateLine(key: string) {
@@ -888,7 +911,11 @@ export function SalesPage({
       showToast('لا صلاحية لإلغاء الفاتورة');
       return;
     }
-    resetCurrentSale();
+    if (cart.length === 0 && userDiscount <= 0 && accountId <= 0) {
+      resetCurrentSale();
+      return;
+    }
+    setConfirmAsk({ type: 'cancel-sale' });
   }
 
   function toggleKind(next: SaleKind) {
@@ -1024,6 +1051,8 @@ export function SalesPage({
   }
 
   const subtotal = useMemo(() => cartSubtotal(cart, saleKind), [cart, saleKind]);
+  const gross = useMemo(() => cartGross(cart, saleKind), [cart, saleKind]);
+  const hasOfferMarkdown = gross > subtotal + 0.005;
   // Iraqi cash settles on 250 IQD steps: the total drops to the next lower
   // multiple and the shaved amount rides along as part of the invoice discount.
   const roundStep = totalRoundingStep(printSettings);
@@ -1400,23 +1429,32 @@ export function SalesPage({
 
   async function handleSaveDeferred(next: EditorPayload) {
     if (editingRow?.id == null) return;
-    await updateDeferredPayload(editingRow.id, next);
+    const saved = applyDeferredEdit(editingRow.payload as EditorPayload, next);
+    await updateDeferredPayload(editingRow.id, saved);
     // Keep the today mirror in sync with the edited amounts.
     try {
-      const raw = (next.items ?? []).reduce((s, i) => s + i.quantity * i.price, 0);
-      const totalAmount = Math.max(0, (next.kind === 1 ? Math.abs(raw) : raw) - (next.userDiscount ?? 0));
+      const raw = (saved.items ?? []).reduce((s, i) => s + i.quantity * i.price, 0);
+      const totalAmount = Math.max(0, (saved.kind === 1 ? Math.abs(raw) : raw) - (saved.userDiscount ?? 0));
       const start = new Date();
       start.setHours(0, 0, 0, 0);
       const cached = (await db.loadTodayReceipts()) as TodayReceiptRow[];
       await db.saveTodayReceipts(cached.map(r => (
         r.number === editingRow.localNumber
-          ? { ...r, totalAmount, itemCount: next.items?.length ?? r.itemCount }
+          ? {
+            ...r,
+            totalAmount,
+            itemCount: saved.items?.length ?? r.itemCount,
+            salesmanId: saved.salesmanId,
+            salesmanName: saved.salesmanName ?? r.salesmanName,
+            payment: saved.payment ?? r.payment,
+            cashBack: 0,
+          }
           : r
       )));
     } catch { /* best-effort mirror */ }
     // Thermal reprint of the corrected invoice right after saving.
     try {
-      await reprintDeferredPayload(next, editingRow.localNumber);
+      await reprintDeferredPayload(saved, editingRow.localNumber);
     } catch { /* طباعة أفضل جهد */ }
     await loadQueue();
     setEditingRow(null);
@@ -1426,7 +1464,8 @@ export function SalesPage({
 
   async function handleTransferFromEditor(next: EditorPayload) {
     if (editingRow?.id == null) return;
-    await updateDeferredPayload(editingRow.id, next);
+    const saved = applyDeferredEdit(editingRow.payload as EditorPayload, next);
+    await updateDeferredPayload(editingRow.id, saved);
     const id = editingRow.id;
     setEditingRow(null);
     setOverlay('queue');
@@ -1439,10 +1478,11 @@ export function SalesPage({
       showToast('لا توجد إعدادات طباعة');
       return;
     }
-    const raw = (payload.items ?? []).reduce((s, i) => s + i.quantity * i.price, 0);
-    const subtotal = payload.kind === 1 ? Math.abs(raw) : raw;
-    const totalAmount = Math.max(0, subtotal - (payload.userDiscount ?? 0));
-    const paid = payload.payment ?? 0;
+    const settled = settleEditedReceipt(payload);
+    const raw = (settled.items ?? []).reduce((s, i) => s + i.quantity * i.price, 0);
+    const subtotal = settled.kind === 1 ? Math.abs(raw) : raw;
+    const totalAmount = Math.max(0, subtotal - (settled.userDiscount ?? 0));
+    const paid = settled.payment ?? 0;
     // Deferred payloads store only article ids, so product names come from the
     // local catalog — otherwise the reprint would show barcodes instead.
     const names = new Map<number, string>();
@@ -1456,26 +1496,28 @@ export function SalesPage({
     } catch { /* fall back to barcodes */ }
     await printReceipt({
       receiptNumber: localNumber,
-      printedAt: new Date().toISOString(),
-      kind: payload.kind ?? 0,
+      printedAt: settled.soldAt ?? payload.soldAt ?? new Date().toISOString(),
+      kind: settled.kind ?? 0,
       cashierName: session.cashierName,
-      salesmanName: session.salesmanName,
+      salesmanName: settled.salesmanName
+        || settled.items?.find(i => i.salesmanName)?.salesmanName
+        || session.salesmanName,
       posLabel: session.sectionName,
-      cashBoxName: boxNameOf(payload.masterAccount),
-      lines: (payload.items ?? []).map(i => ({
+      cashBoxName: boxNameOf(settled.masterAccount),
+      lines: (settled.items ?? []).map(i => ({
         name: names.get(i.articleId) || i.barcode || `#${i.articleId}`,
         barcode: i.barcode ?? '',
         articleNumber: nums.get(i.articleId) || i.barcode || '',
-        quantity: payload.kind === 1 ? -Math.abs(i.quantity) : i.quantity,
+        quantity: settled.kind === 1 ? -Math.abs(i.quantity) : i.quantity,
         unitPrice: i.price,
-        lineTotal: payload.kind === 1 ? -Math.abs(i.quantity * i.price) : i.quantity * i.price,
+        lineTotal: settled.kind === 1 ? -Math.abs(i.quantity * i.price) : i.quantity * i.price,
         originalPrice: i.originalPrice,
       })),
       subTotal: subtotal,
-      userDiscount: payload.userDiscount ?? 0,
+      userDiscount: settled.userDiscount ?? 0,
       total: totalAmount,
       paid,
-      change: Math.max(0, paid - totalAmount),
+      change: 0,
     }, settings);
   }
 
@@ -1641,10 +1683,12 @@ export function SalesPage({
       // real number seeded from the server — until they press the transfer button.
       if (px.manualTransfer) {
         const localNumber = await db.nextLocalNumber(session.cashierReceiptNum ?? 0);
+        const sellerName = salesmen.find(s => s.id === salesmanId)?.name ?? session.salesmanName;
         const payload = buildReceiptPayload({
           session,
           cart,
           salesmanId,
+          salesmanName: sellerName,
           saleKind,
           userDiscount: postedDiscount,
           accountId,
@@ -1655,13 +1699,14 @@ export function SalesPage({
           number: localNumber,
           returnOfReceiptId: returnSource?.id,
           discountQr,
+          soldAt: toLocalDateTime(),
         });
         await enqueueReceipt(payload, session.cashierReceiptNum ?? 0, 'deferred', localNumber);
         const printed = buildPrint(localNumber, payload.payment);
         const summary: TodayReceiptRow = {
           id: -localNumber,
           number: localNumber,
-          creationDate: new Date().toISOString(),
+          creationDate: payload.soldAt ?? new Date().toISOString(),
           totalAmount: total,
           payment: payload.payment,
           cashBack: 0,
@@ -1803,13 +1848,17 @@ export function SalesPage({
     if (!code) return;
     const p = await findProductSmart(code, canUseServer(online));
     setPriceHit(p);
-    if (!p) showToast('الباركود غير موجود');
+    if (!p) {
+      playErrorBeep();
+      setConfirmAsk({ type: 'unknown-product', code });
+    }
     setPriceScan('');
     requestAnimationFrame(() => focusInputVisualRight(priceScanRef.current));
   }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (confirmAsk) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
       if (e.key === 'F1') { e.preventDefault(); void fullscreen.toggle(); }
@@ -1895,7 +1944,7 @@ export function SalesPage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeGroupKey, cardBlocked, cart, cartGroups, focusLineQty, focusScan, fullscreen, lastProduct, overlay, px.deleteItem, selectedKey, slotCount]);
+  }, [activeGroupKey, cardBlocked, cart, cartGroups, confirmAsk, focusLineQty, focusScan, fullscreen, lastProduct, overlay, px.deleteItem, selectedKey, slotCount]);
 
   const modeName = returnMode ? 'مرتجع' : giftMode ? 'هدية' : creditMode ? 'آجل' : 'بيع';
 
@@ -1990,6 +2039,12 @@ export function SalesPage({
                   <span>{formatNum(cart.length)} بند</span>
                 </div>
                 <div className="pos-ticket-total num">{formatIqd(total)}</div>
+                {hasOfferMarkdown && (
+                  <div className="pos-ticket-gross">
+                    <span>قبل العروض</span>
+                    <b className="num">{formatIqd(gross)}</b>
+                  </div>
+                )}
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
                   <div>
                     <div className="text-slate-400">قبل الخصم</div>
@@ -2236,6 +2291,12 @@ export function SalesPage({
         <div className="pos-dock-total">
           <small>{modeName}</small>
           <b className="num">{formatIqd(total)}</b>
+          {hasOfferMarkdown && (
+            <span className="pos-dock-gross">
+              قبل العروض
+              <b className="num">{formatIqd(gross)}</b>
+            </span>
+          )}
         </div>
         <div className="pos-dock-ops">
           {px.discardReceipt && (
@@ -2302,6 +2363,37 @@ export function SalesPage({
 
       {toast && (
         <div className="pos-toast">{toast}</div>
+      )}
+
+      {confirmAsk?.type === 'delete-line' && (
+        <ConfirmDialog
+          title="حذف البند"
+          message={`هل تريد حذف «${confirmAsk.name}» من الفاتورة؟`}
+          confirmLabel="حذف"
+          danger
+          onConfirm={() => confirmRemoveLine(confirmAsk.key)}
+          onCancel={() => { setConfirmAsk(null); focusScan(); }}
+        />
+      )}
+      {confirmAsk?.type === 'cancel-sale' && (
+        <ConfirmDialog
+          title="إلغاء الفاتورة"
+          message="هل تريد إلغاء الفاتورة الحالية؟ سيتم حذف كل البنود والخصم."
+          confirmLabel="إلغاء الفاتورة"
+          danger
+          onConfirm={() => { setConfirmAsk(null); resetCurrentSale(); }}
+          onCancel={() => { setConfirmAsk(null); focusScan(); }}
+        />
+      )}
+      {confirmAsk?.type === 'unknown-product' && (
+        <ConfirmDialog
+          alert
+          title="المادة غير موجودة"
+          message={`لا توجد مادة للباركود ${confirmAsk.code}`}
+          confirmLabel="حسناً"
+          onConfirm={() => { setConfirmAsk(null); focusScan(); }}
+          onCancel={() => { setConfirmAsk(null); focusScan(); }}
+        />
       )}
 
       {cardPay.phase !== 'idle' && (
@@ -2710,6 +2802,7 @@ export function SalesPage({
           px={px}
           online={canUseServer(online)}
           cashBoxes={cashBoxes}
+          salesmen={salesmen}
           roundStep={roundStep}
           onSave={next => { void handleSaveDeferred(next); }}
           onReprint={next => { void reprintDeferredPayload(next, editingRow.localNumber); }}

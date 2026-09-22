@@ -135,12 +135,15 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
     }
 
     public async Task<(PortalManagerAccountDto? Row, string? Error)> CreateManagerAsync(
-        string username, string displayName, CancellationToken ct)
+        string username, string displayName, string password, CancellationToken ct)
     {
         username = (username ?? "").Trim();
         displayName = (displayName ?? "").Trim();
+        password = (password ?? "").Trim();
         if (username.Length < 2) return (null, "أدخل اسم الدخول");
         if (displayName.Length < 2) return (null, "أدخل الاسم الظاهر");
+        var pinError = ValidateManagerPassword(password);
+        if (pinError is not null) return (null, pinError);
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var taken = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
@@ -148,7 +151,6 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
             new { username }, cancellationToken: ct));
         if (taken > 0) return (null, "اسم الدخول مستخدم");
 
-        var password = NewManagerPassword();
         var hash = BCrypt.Net.BCrypt.HashPassword(password);
         const string insert = """
             INSERT INTO ext_users (username, password_hash, password_display, display_name, role, is_active)
@@ -161,9 +163,12 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
         return (row, null);
     }
 
-    public async Task<PortalManagerAccountDto?> ResetManagerPasswordAsync(long id, CancellationToken ct)
+    public async Task<(PortalManagerAccountDto? Row, string? Error)> ResetManagerPasswordAsync(
+        long id, string password, CancellationToken ct)
     {
-        var password = NewManagerPassword();
+        password = (password ?? "").Trim();
+        var pinError = ValidateManagerPassword(password);
+        if (pinError is not null) return (null, pinError);
         var hash = BCrypt.Net.BCrypt.HashPassword(password);
         const string sql = """
             UPDATE ext_users
@@ -172,8 +177,8 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var n = await conn.ExecuteAsync(new CommandDefinition(sql, new { id, hash, password }, cancellationToken: ct));
-        if (n <= 0) return null;
-        return (await ListManagersAsync(ct)).FirstOrDefault(m => m.Id == id);
+        if (n <= 0) return (null, "تعذر تحديث الرمز");
+        return ((await ListManagersAsync(ct)).FirstOrDefault(m => m.Id == id), null);
     }
 
     public async Task<PortalManagerAccountDto?> UpdateManagerNameAsync(long id, string displayName, CancellationToken ct)
@@ -201,13 +206,10 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
         return (await ListManagersAsync(ct)).FirstOrDefault(m => m.Id == id);
     }
 
-    private static string NewManagerPassword()
+    private static string? ValidateManagerPassword(string password)
     {
-        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        return string.Create(8, chars, (span, set) =>
-        {
-            for (var i = 0; i < span.Length; i++)
-                span[i] = set[RandomNumberGenerator.GetInt32(set.Length)];
-        });
+        if (password.Length < 4) return "أدخل رمزاً من 4 خانات على الأقل";
+        if (password.Length > 64) return "الرمز طويل جداً";
+        return null;
     }
 }

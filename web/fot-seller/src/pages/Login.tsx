@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, getLastId, setLastId, setSeller, setToken, tick } from '../api';
+import { api, getLastId, getToken, setLastId, setSeller, setToken, tick } from '../api';
 import { BrandMark, Keypad, LoginArt, PinDots } from '../ui';
 
 export function Login() {
@@ -13,6 +13,10 @@ export function Login() {
   const [lookErr, setLookErr] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (getToken()) nav('/', { replace: true });
+  }, [nav]);
 
   useEffect(() => {
     const n = Number(id);

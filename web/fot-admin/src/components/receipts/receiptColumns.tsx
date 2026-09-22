@@ -39,7 +39,14 @@ const baseColumns: GridColumn<ReceiptSummary>[] = [
     width: 100,
     pinned: 'start',
     mono: true,
-    render: r => <span className="font-bold text-header">{receiptDisplayNumber(r)}</span>,
+    render: r => (
+      <span className="inline-flex items-center gap-1">
+        <span className="font-bold text-header">{receiptDisplayNumber(r)}</span>
+        {r.wasEdited && (
+          <span className="rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-800">معدّلة</span>
+        )}
+      </span>
+    ),
   },
   {
     key: 'creationDate',

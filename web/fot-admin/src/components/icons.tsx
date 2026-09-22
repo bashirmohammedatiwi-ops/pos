@@ -249,6 +249,10 @@ export const IconQr = (p: IconProps) => (
   <Ic {...p}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3" /><path d="M20 14v3" /><path d="M14 20h3v-3" /><path d="M20 20h.01" /></Ic>
 );
 
+export const IconBarcode = (p: IconProps) => (
+  <Ic {...p}><path d="M3 5v14" /><path d="M6 5v14" /><path d="M8 5v14" /><path d="M11 5v14" /><path d="M13 5v14" /><path d="M17 5v14" /><path d="M21 5v14" /></Ic>
+);
+
 export const IconSparkle = (p: IconProps) => (
   <Ic {...p}><path d="M12 3v3" /><path d="M12 18v3" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="M5.6 5.6l2.1 2.1" /><path d="M16.3 16.3l2.1 2.1" /><path d="M18.4 5.6l-2.1 2.1" /><path d="M7.7 16.3l-2.1 2.1" /><circle cx="12" cy="12" r="2.5" /></Ic>
 );
@@ -268,6 +272,7 @@ export const ICONS = {
   activity: IconActivity,
   reports: IconChart,
   products: IconPackage,
+  barcode: IconBarcode,
   offers: IconPercent,
   groups: IconGrid,
   accounts: IconWallet,

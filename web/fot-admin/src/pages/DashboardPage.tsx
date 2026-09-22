@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Btn } from '@/components/ui';
 import { useLanConnection } from '@/hooks/useLanConnection';
@@ -31,6 +32,15 @@ const QUICK_LINKS: Array<{ to: string; label: string }> = [
 export function DashboardPage() {
   const { online } = useLanConnection();
   const { edariQ, terminalsQ, pullFromEdari, syncReceipts, pushToPos } = useHomeStatus();
+  const [serverHost, setServerHost] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.fotDesktop?.info?.().then(info => {
+      if (!cancelled) setServerHost(Boolean(info?.isServerEdition));
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const edari = edariQ.data ?? null;
   const terminals = terminalsQ.data ?? [];
@@ -69,6 +79,12 @@ export function DashboardPage() {
           </span>
         </div>
       </header>
+
+      {serverHost && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[12.5px] leading-6 text-slate-600">
+          الخادم يعمل في الخلفية مع ويندوز حتى لو أغلقت هذه النافذة. عند تشغيل الجهاز لا تُفتح لوحة التحكم تلقائياً — افتحها من الاختصار عندما تحتاجها.
+        </p>
+      )}
 
       <ProductOfferSearch />
 

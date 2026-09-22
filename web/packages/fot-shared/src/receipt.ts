@@ -263,8 +263,11 @@ function totalsBlock(data: ReceiptPrintPreviewDto, settings: PrintSettingsDto, c
   const combinedDisc = totalLineDiscounts(lines) + Math.max(0, data.userDiscount);
   const grossTotal = lines.reduce((sum, line) => sum + grossLineTotal(line), 0);
   const paymentRows = settings.showPaymentLines !== false
-    ? `<div class="row"><span>الدفعة</span><span class="amt ltr">${formatIqd(data.paid)}</span></div>
-       <div class="row"><span>المبلغ المرتجع</span><span class="amt ltr">${formatIqd(data.change)}</span></div>`
+    ? `<div class="row"><span>الدفعة</span><span class="amt ltr">${formatIqd(data.paid)}</span></div>${
+        data.change > 0.005
+          ? `<div class="row"><span>المبلغ المرتجع</span><span class="amt ltr">${formatIqd(data.change)}</span></div>`
+          : ''
+      }`
     : '';
 
   const body = `

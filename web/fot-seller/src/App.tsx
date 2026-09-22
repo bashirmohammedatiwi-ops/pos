@@ -1,6 +1,6 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import { ago, getSeller, getToken, moneyIq, setSeller, setToken, weekRange } from './api';
+import { ago, getSeller, getToken, moneyIq, refreshSession, setSeller, setToken, weekRange } from './api';
 import { SellerProvider, useSeller } from './store';
 import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
 import { Goals } from './pages/Goals';
@@ -286,11 +286,21 @@ function Guard() {
   return <SellerProvider><Shell /></SellerProvider>;
 }
 
+function Boot() {
+  useEffect(() => {
+    if (getToken()) void refreshSession();
+  }, []);
+  return null;
+}
+
 export function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/*" element={<Guard />} />
-    </Routes>
+    <>
+      <Boot />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/*" element={<Guard />} />
+      </Routes>
+    </>
   );
 }

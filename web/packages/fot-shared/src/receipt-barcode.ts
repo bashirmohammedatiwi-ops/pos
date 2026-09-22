@@ -137,8 +137,11 @@ export function code128Svg(text: string, opts?: { height?: number; moduleWidth?:
   return renderCode128(text, opts).svg;
 }
 
-function renderCode128(text: string, opts?: { height?: number; moduleWidth?: number; maxWidth?: number }): BarcodeGraphic {
-  const height = Math.max(160, opts?.height ?? 184);
+type BarcodeDrawOpts = { height?: number; moduleWidth?: number; maxWidth?: number; minHeight?: number };
+
+function renderCode128(text: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
+  const minH = opts?.minHeight ?? 160;
+  const height = Math.max(minH, opts?.height ?? 184);
   const codes = encodeCode128(text);
   const modules = moduleCount(codes);
   const moduleWidth = fitModuleWidth(modules, opts?.moduleWidth ?? 3, opts?.maxWidth);
@@ -146,11 +149,55 @@ function renderCode128(text: string, opts?: { height?: number; moduleWidth?: num
   return bitsToSvg(bits, height, moduleWidth);
 }
 
-function renderEan13(d12: string, opts?: { height?: number; moduleWidth?: number; maxWidth?: number }): BarcodeGraphic {
-  const height = Math.max(160, opts?.height ?? 184);
+function renderEan13(d12: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
+  const minH = opts?.minHeight ?? 160;
+  const height = Math.max(minH, opts?.height ?? 184);
   const bits = encodeEan13Bits(d12);
   const moduleWidth = fitModuleWidth(bits.length, opts?.moduleWidth ?? 3, opts?.maxWidth);
   return bitsToSvg(bits, height, moduleWidth);
+}
+
+/** Code 128 that prints the exact payload — no leading-zero pad on odd digit strings. */
+function encodeCode128Exact(text: string): number[] {
+  if (!text) throw new Error('Barcode text is empty');
+  const codes: number[] = [];
+  if (/^\d+$/.test(text) && text.length >= 2 && text.length % 2 === 0) {
+    codes.push(START_C);
+    for (let i = 0; i < text.length; i += 2) codes.push(Number(text.slice(i, i + 2)));
+  } else {
+    codes.push(START_B);
+    for (const ch of text) {
+      const code = ch.charCodeAt(0) - 32;
+      if (code < 0 || code > 94) throw new Error(`Unsupported character for Code128: ${ch}`);
+      codes.push(code);
+    }
+  }
+  codes.push(checksum(codes), STOP);
+  return codes;
+}
+
+function renderCode128Exact(text: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
+  const height = Math.max(opts?.minHeight ?? 16, opts?.height ?? 48);
+  const codes = encodeCode128Exact(text);
+  const modules = moduleCount(codes);
+  const moduleWidth = fitModuleWidth(modules, opts?.moduleWidth ?? 2, opts?.maxWidth);
+  const bits = `${'0'.repeat(QUIET_MODULES)}${codes.map(patternFor).join('')}${STOP_TERMINATOR}${'0'.repeat(QUIET_MODULES)}`;
+  return bitsToSvg(bits, height, moduleWidth);
+}
+
+/**
+ * Shelf-label barcode: EAN-13 when the digits are a valid GTIN, otherwise Code 128
+ * of the exact text. Height is not clamped to receipt size.
+ */
+export function renderProductBarcode(text: string, opts?: { height?: number; moduleWidth?: number; maxWidth?: number }): BarcodeGraphic {
+  const raw = String(text ?? '').trim();
+  if (!raw) throw new Error('Barcode text is empty');
+  const compact = { height: Math.max(16, opts?.height ?? 48), moduleWidth: opts?.moduleWidth ?? 2, maxWidth: opts?.maxWidth, minHeight: 16 };
+  if (/^\d{13}$/.test(raw) && ean13Checksum(raw.slice(0, 12)) === Number(raw[12])) {
+    return renderEan13(raw.slice(0, 12), compact);
+  }
+  if (/^\d{12}$/.test(raw)) return renderEan13(raw, compact);
+  return renderCode128Exact(raw, compact);
 }
 
 /** Price checkers read EAN-13; longer invoice numbers stay Code128-C. */

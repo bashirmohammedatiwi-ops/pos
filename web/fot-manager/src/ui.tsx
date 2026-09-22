@@ -63,6 +63,28 @@ export function IconSearch() {
     </svg>
   );
 }
+export function IconWatch() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 8v5l3 2" /><circle cx="12" cy="13" r="8" />
+    </svg>
+  );
+}
+export function IconReport() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M6 4h9l5 5v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+      <path d="M14 4v6h6M8 13h8M8 17h5" />
+    </svg>
+  );
+}
+export function IconBag() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" />
+    </svg>
+  );
+}
 
 const STROKE: Record<string, string> = {
   teal: '#0d9488', ok: '#15803d', goal: '#4338ca', warn: '#d97706', gold: '#0f766e',

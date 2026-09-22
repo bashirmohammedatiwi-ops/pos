@@ -1,3 +1,7 @@
+import { OFFER_PRICE_STEP, roundOfferSalePrice, roundToStep } from '@fot/shared';
+
+export { OFFER_PRICE_STEP };
+
 /** 0 = نسبة موحّدة، 1 = مجموعة مطلوبة، 2 = أسعار فردية لكل منتج */
 export const OFFER_TYPE = {
   percent: 0,
@@ -21,9 +25,12 @@ export function offerTypeLabel(type: number) {
 export function offerSalePrice(original: number, discount: number, discountType: number) {
   const src = Number(original) || 0;
   const value = Number(discount) || 0;
-  if (discountType === DISCOUNT_TYPE.salePrice) return Math.max(0, Math.round(value));
-  if (discountType === DISCOUNT_TYPE.amountOff) return Math.max(0, Math.round(src - value));
-  return Math.max(0, Math.round(src * (1 - value / 100)));
+  const raw = discountType === DISCOUNT_TYPE.salePrice
+    ? Math.max(0, value)
+    : discountType === DISCOUNT_TYPE.amountOff
+      ? Math.max(0, src - value)
+      : Math.max(0, src * (1 - value / 100));
+  return roundOfferSalePrice(raw, src);
 }
 
 export function offerPercent(original: number, discount: number, discountType: number) {
@@ -40,6 +47,6 @@ export function toOfferDiscount(original: number, mode: 'percent' | 'price', raw
     const pct = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
     return { discount: pct, discountType: DISCOUNT_TYPE.percent };
   }
-  const sale = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  const sale = Number.isFinite(value) ? roundToStep(Math.max(0, value)) : 0;
   return { discount: sale, discountType: DISCOUNT_TYPE.salePrice, impliedPercent: src > 0 ? Math.round((1 - sale / src) * 100) : 0 };
 }

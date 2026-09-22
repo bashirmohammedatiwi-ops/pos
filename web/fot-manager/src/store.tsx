@@ -1,14 +1,40 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, attachLiveGoals, deltaPct, liveGoals, setMe, type CashierRow, type Dashboard, type LineRow, type WeekSummary } from './api';
+import { api, attachLiveGoals, deltaPct, liveGoals, setMe, todayKey, type CashierRow, type Dashboard, type LineRow, type SellerRow, type WeekSummary } from './api';
+import { buildInsights, unifyCashiers } from './insights';
+import {
+  cashiersFromLines, filterLines, officialPeriod, periodStats, resolveBounds, sellersFromLines,
+  type PeriodBounds, type PeriodKind, type PeriodStats,
+} from './period';
+import { useWeek } from './week';
+
+const CACHE_KEY = 'fot_manager_cache';
+const PERIOD_KEY = 'fot_manager_period';
+const PAY_KEY = 'fot_manager_pay';
+const RANGE_KEY = 'fot_manager_range';
 
 function normalizeDash(d: Dashboard): Dashboard {
   const goals = liveGoals(d.goals);
   return { ...d, goals, sellers: attachLiveGoals(d.sellers ?? [], goals) };
 }
-import { buildInsights, unifyCashiers } from './insights';
-import { useWeek } from './week';
 
-const CACHE_KEY = 'fot_manager_cache';
+function readKind(key: string, fallback: PeriodKind): PeriodKind {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw === 'today' || raw === 'yesterday' || raw === 'wtd' || raw === 'week' || raw === 'custom') return raw;
+  } catch { /* ignore */ }
+  return fallback;
+}
+
+function readRange() {
+  try {
+    const raw = sessionStorage.getItem(RANGE_KEY);
+    if (!raw) return { from: todayKey(), to: todayKey() };
+    const parsed = JSON.parse(raw) as { from?: string; to?: string };
+    return { from: parsed.from || todayKey(), to: parsed.to || todayKey() };
+  } catch {
+    return { from: todayKey(), to: todayKey() };
+  }
+}
 
 function readCache() {
   try {
@@ -29,11 +55,27 @@ function readCache() {
 type Store = {
   weekStart?: string;
   setWeek: (w?: string) => void;
+  periodKind: PeriodKind;
+  setPeriodKind: (k: PeriodKind) => void;
+  payKind: PeriodKind;
+  setPayKind: (k: PeriodKind) => void;
+  customFrom: string;
+  customTo: string;
+  setCustom: (from: string, to: string) => void;
+  period: PeriodBounds;
+  payPeriod: PeriodBounds;
   dash: Dashboard | null;
   prevDash: Dashboard | null;
   weeks: WeekSummary[];
   lines: LineRow[];
+  scopedLines: LineRow[];
+  payLines: LineRow[];
   cashiers: CashierRow[];
+  scopedSellers: SellerRow[];
+  scopedCashiers: CashierRow[];
+  paySellers: SellerRow[];
+  periodTotals: PeriodStats;
+  payTotals: PeriodStats;
   err: string;
   loading: boolean;
   updatedAt: number | null;
@@ -46,6 +88,7 @@ const Ctx = createContext<Store | null>(null);
 export function ManagerProvider({ children }: { children: ReactNode }) {
   const { weekStart, setWeek } = useWeek();
   const seed = useMemo(() => readCache(), []);
+  const seedRange = useMemo(() => readRange(), []);
   const [dash, setDash] = useState<Dashboard | null>(seed?.dash ?? null);
   const [prevDash, setPrevDash] = useState<Dashboard | null>(seed?.prevDash ?? null);
   const [weeks, setWeeks] = useState<WeekSummary[]>(seed?.weeks ?? []);
@@ -54,6 +97,26 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(!seed?.dash);
   const [updatedAt, setUpdatedAt] = useState<number | null>(seed?.updatedAt ?? null);
   const [cached, setCached] = useState(!!seed?.dash);
+  const [periodKind, setPeriodKindState] = useState<PeriodKind>(() => readKind(PERIOD_KEY, 'today'));
+  const [payKind, setPayKindState] = useState<PeriodKind>(() => readKind(PAY_KEY, 'wtd'));
+  const [customFrom, setCustomFrom] = useState(seedRange.from);
+  const [customTo, setCustomTo] = useState(seedRange.to);
+
+  const setPeriodKind = useCallback((k: PeriodKind) => {
+    setPeriodKindState(k);
+    sessionStorage.setItem(PERIOD_KEY, k);
+  }, []);
+  const setPayKind = useCallback((k: PeriodKind) => {
+    setPayKindState(k);
+    sessionStorage.setItem(PAY_KEY, k);
+  }, []);
+  const setCustom = useCallback((from: string, to: string) => {
+    const a = from.slice(0, 10);
+    const b = to.slice(0, 10);
+    setCustomFrom(a);
+    setCustomTo(b);
+    sessionStorage.setItem(RANGE_KEY, JSON.stringify({ from: a, to: b }));
+  }, []);
 
   const reload = useCallback(async (quiet = false) => {
     if (!quiet) setErr('');
@@ -106,9 +169,62 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
     [dash, lines],
   );
 
+  const period = useMemo(
+    () => resolveBounds(periodKind, dash?.week.weekStart, dash?.week.weekEnd, customFrom, customTo),
+    [periodKind, dash, customFrom, customTo],
+  );
+  const payPeriod = useMemo(
+    () => resolveBounds(payKind, dash?.week.weekStart, dash?.week.weekEnd, customFrom, customTo),
+    [payKind, dash, customFrom, customTo],
+  );
+
+  const scopedLines = useMemo(() => filterLines(lines, period.from, period.to), [lines, period]);
+  const payLines = useMemo(() => filterLines(lines, payPeriod.from, payPeriod.to), [lines, payPeriod]);
+
+  const useOfficialPeople = period.kind === 'week' && (dash?.sellers.some(s => s.salesAmount > 0) ?? false);
+  const scopedSellers = useMemo(
+    () => useOfficialPeople
+      ? (dash?.sellers ?? [])
+      : sellersFromLines(scopedLines, dash?.sellers ?? []),
+    [useOfficialPeople, dash, scopedLines],
+  );
+  const scopedCashiers = useMemo(
+    () => useOfficialPeople
+      ? cashiers
+      : cashiersFromLines(scopedLines, cashiers),
+    [useOfficialPeople, cashiers, scopedLines],
+  );
+  const paySellers = useMemo(
+    () => sellersFromLines(payLines, dash?.sellers ?? []).filter(s => s.commissionAmount > 0 || s.salesAmount > 0),
+    [payLines, dash],
+  );
+
+  const periodTotals = useMemo(() => {
+    if (period.kind === 'week' && dash) {
+      const weekSales = dash.week.salesAmount || dash.sellers.reduce((s, x) => s + x.salesAmount, 0);
+      return periodStats(scopedLines, {
+        sales: weekSales,
+        receipts: dash.week.receiptCount,
+        pieces: dash.week.pieceCount,
+      });
+    }
+    return periodStats(scopedLines, officialPeriod(dash?.days, period.from, period.to));
+  }, [period, dash, scopedLines]);
+
+  const payTotals = useMemo(
+    () => periodStats(payLines, officialPeriod(dash?.days, payPeriod.from, payPeriod.to)),
+    [payLines, dash, payPeriod],
+  );
+
   const value = useMemo<Store>(() => ({
-    weekStart, setWeek, dash, prevDash, weeks, lines, cashiers, err, loading, updatedAt, cached, reload,
-  }), [weekStart, setWeek, dash, prevDash, weeks, lines, cashiers, err, loading, updatedAt, cached, reload]);
+    weekStart, setWeek, periodKind, setPeriodKind, payKind, setPayKind, customFrom, customTo, setCustom,
+    period, payPeriod, dash, prevDash, weeks, lines, scopedLines, payLines, cashiers, scopedSellers,
+    scopedCashiers, paySellers, periodTotals, payTotals, err, loading, updatedAt, cached, reload,
+  }), [
+    weekStart, setWeek, periodKind, setPeriodKind, payKind, setPayKind, customFrom, customTo, setCustom,
+    period, payPeriod, dash, prevDash, weeks, lines, scopedLines, payLines, cashiers, scopedSellers,
+    scopedCashiers, paySellers, periodTotals, payTotals, err, loading, updatedAt, cached, reload,
+  ]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -142,6 +258,9 @@ export function useWeekCompare(weeks: WeekSummary[], weekStart?: string) {
 }
 
 export function useShopInsights() {
-  const { dash, lines, cashiers } = useManager();
-  return useMemo(() => buildInsights(lines, dash, cashiers), [lines, dash, cashiers]);
+  const { dash, scopedLines, scopedSellers, scopedCashiers } = useManager();
+  return useMemo(
+    () => buildInsights(scopedLines, dash ? { ...dash, sellers: scopedSellers } : null, scopedCashiers),
+    [scopedLines, dash, scopedSellers, scopedCashiers],
+  );
 }

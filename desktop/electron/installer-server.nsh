@@ -7,7 +7,7 @@
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="FOT POS LAN Discovery (UDP 49500)" dir=in action=allow protocol=UDP localport=49500 profile=any'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="FOT POS Server App" dir=in action=allow program="$INSTDIR\FOT POS Server.exe" enable=yes profile=any'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="FOT POS API Exe" dir=in action=allow program="$INSTDIR\Api\FOT.Pos.Api.exe" enable=yes profile=any'
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "FOTPOSServerAdmin" '"$INSTDIR\FOT POS Server.exe" --background'
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "FOTPOSServerAdmin"
 !macroend
 
 !macro customUnInstall

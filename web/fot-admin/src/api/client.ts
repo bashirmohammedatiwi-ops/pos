@@ -300,6 +300,8 @@ export const api = {
     ),
   setOfferDetailExcluded: (detailId: number, excluded: boolean) =>
     request<void>(`/api/offers/details/${detailId}/excluded?excluded=${excluded}`, { method: 'POST' }),
+  setOfferArticleExcluded: (offerId: number, itemId: number, excluded: boolean) =>
+    request<void>(`/api/offers/${offerId}/articles/${itemId}/excluded?excluded=${excluded}`, { method: 'POST' }),
 
   // Dynamic tree membership (commission groups)
   refreshCommissionTree: (groupId: number, treeSeq: number) =>
@@ -309,6 +311,8 @@ export const api = {
     ),
   setCommissionItemExcluded: (itemId: number, excluded: boolean) =>
     request<void>(`/api/commissions/groups/items/${itemId}/excluded?excluded=${excluded}`, { method: 'POST' }),
+  setCommissionArticleExcluded: (groupId: number, articleId: number, excluded: boolean) =>
+    request<void>(`/api/commissions/groups/${groupId}/articles/${articleId}/excluded?excluded=${excluded}`, { method: 'POST' }),
 
   // Tree
   articleTree: (parent?: number, search?: string, limit = 200) =>
@@ -408,13 +412,16 @@ export const api = {
   publishSellerToWeb: (id: number) =>
     request<PortalPublishResult>(`/api/portal-accounts/sellers/${id}/publish`, { method: 'POST' }),
   portalManagers: () => request<PortalManagerAccountDto[]>('/api/portal-accounts/managers'),
-  createPortalManager: (username: string, displayName: string) =>
+  createPortalManager: (username: string, displayName: string, password: string) =>
     request<PortalManagerAccountDto>('/api/portal-accounts/managers', {
       method: 'POST',
-      body: JSON.stringify({ username, displayName }),
+      body: JSON.stringify({ username, displayName, password }),
     }),
-  resetPortalManager: (id: number) =>
-    request<PortalManagerAccountDto>(`/api/portal-accounts/managers/${id}/reset`, { method: 'POST' }),
+  resetPortalManager: (id: number, password: string) =>
+    request<PortalManagerAccountDto>(`/api/portal-accounts/managers/${id}/reset`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
   updatePortalManager: (id: number, displayName: string) =>
     request<PortalManagerAccountDto>(`/api/portal-accounts/managers/${id}`, {
       method: 'PUT',
@@ -566,6 +573,8 @@ export const api = {
     request<void>(`/api/targets/rules/${id}`, { method: 'DELETE' }),
   setTargetRuleActive: (id: number, active: boolean) =>
     request<void>(`/api/targets/rules/${id}/active?active=${active}`, { method: 'PATCH' }),
+  setTargetArticleExcluded: (ruleId: number, articleId: number, excluded: boolean) =>
+    request<void>(`/api/targets/rules/${ruleId}/articles/${articleId}/excluded?excluded=${excluded}`, { method: 'POST' }),
 
   // Terminals monitor
   terminalMonitor: () => request<SectionTerminalGroupDto[]>('/api/terminals/monitor'),

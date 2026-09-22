@@ -1,6 +1,7 @@
 using Dapper;
 using FOT.Pos.Infrastructure.Data;
 using FOT.Pos.Infrastructure.Edari;
+using FOT.Pos.Infrastructure.Services;
 using FOT.Pos.Shared;
 using FOT.Pos.Shared.Dtos;
 using Microsoft.Extensions.Caching.Memory;
@@ -166,6 +167,8 @@ public sealed class TargetRepository(
 
         await SaveTreesAsync(conn, tx, id, trees, ct);
         await SaveAssignmentsAsync(conn, tx, id, req.Assignments, ct);
+        if (req.ExcludedArticleIds != null)
+            await TreeExclusionStore.ReplaceTargetAsync(conn, tx, id, req.ExcludedArticleIds, ct);
         await tx.CommitAsync(ct);
         cache.Remove(ProductAttributionRepository.ArticlesCacheKey);
         return id;
@@ -209,6 +212,8 @@ public sealed class TargetRepository(
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM ext_target_assignments WHERE target_rule_id = @id", new { id }, transaction: tx, cancellationToken: ct));
         await SaveAssignmentsAsync(conn, tx, id, req.Assignments, ct);
+        if (req.ExcludedArticleIds != null)
+            await TreeExclusionStore.ReplaceTargetAsync(conn, tx, id, req.ExcludedArticleIds, ct);
         await tx.CommitAsync(ct);
         cache.Remove(ProductAttributionRepository.ArticlesCacheKey);
     }
@@ -227,6 +232,8 @@ public sealed class TargetRepository(
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM ext_target_assignments WHERE target_rule_id = @id", new { id }, transaction: tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM ext_target_rule_exclusions WHERE rule_id = @id", new { id }, transaction: tx, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM ext_target_rules WHERE id = @id", new { id }, transaction: tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         cache.Remove(ProductAttributionRepository.ArticlesCacheKey);
@@ -237,6 +244,13 @@ public sealed class TargetRepository(
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(
             "UPDATE ext_target_rules SET is_active=@active WHERE id=@id", new { id, active }, cancellationToken: ct));
+        cache.Remove(ProductAttributionRepository.ArticlesCacheKey);
+    }
+
+    public async Task SetArticleExcludedAsync(long ruleId, long articleId, bool excluded, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await TreeExclusionStore.SetTargetAsync(conn, ruleId, articleId, excluded, ct);
         cache.Remove(ProductAttributionRepository.ArticlesCacheKey);
     }
 
@@ -269,6 +283,12 @@ public sealed class TargetRepository(
             new CommandDefinition(assignSql, new { ids }, cancellationToken: ct))).ToList();
         var assignByRule = assignRows.GroupBy(a => a.RuleId).ToDictionary(g => g.Key, g => g.ToList());
 
+        var excludeRows = (await conn.QueryAsync<(long RuleId, long ArticleId)>(
+            new CommandDefinition("""
+                SELECT rule_id, article_id FROM ext_target_rule_exclusions WHERE rule_id IN @ids
+                """, new { ids }, cancellationToken: ct))).ToList();
+        var excludeByRule = excludeRows.GroupBy(x => x.RuleId).ToDictionary(g => g.Key, g => g.Select(x => x.ArticleId).ToList());
+
         return rules.Select(r =>
         {
             var trees = byRule.TryGetValue(r.Id, out var list)
@@ -282,7 +302,8 @@ public sealed class TargetRepository(
                     a.SalesmanId, a.SalesmanName, a.DailyTarget, a.WeeklyTarget, a.MonthlyTarget)).ToList()
                 : [];
 
-            return new TargetRuleDto(r.Id, r.Name, r.IsActive, trees, assignments, r.EdariTreeSeq, r.EdariTreeName, r.TargetType ?? "quantity");
+            var excluded = excludeByRule.TryGetValue(r.Id, out var ex) ? ex : [];
+            return new TargetRuleDto(r.Id, r.Name, r.IsActive, trees, assignments, r.EdariTreeSeq, r.EdariTreeName, r.TargetType ?? "quantity", excluded);
         }).ToList();
     }
 
@@ -347,6 +368,8 @@ public sealed class TargetRepository(
             foreach (var seq in await ResolveTreeProductSeqsAsync(tree.TreeSeq, ct))
                 set.Add(seq);
         }
+        if (rule.ExcludedArticleIds is { Count: > 0 })
+            set.ExceptWith(rule.ExcludedArticleIds);
         return set;
     }
 

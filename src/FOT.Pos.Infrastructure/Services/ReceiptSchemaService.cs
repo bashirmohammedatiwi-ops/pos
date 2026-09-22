@@ -15,6 +15,7 @@ public sealed class ReceiptSchemaService(ISqlConnectionFactory db)
     public bool ClientReceiptId { get; private set; }
     public bool ReturnOfReceiptId { get; private set; }
     public bool DiscountQrPerson { get; private set; }
+    public bool ReceiptEdits { get; private set; }
 
     public async Task EnsureLoadedAsync(CancellationToken ct)
     {
@@ -28,6 +29,7 @@ public sealed class ReceiptSchemaService(ISqlConnectionFactory db)
             ClientReceiptId = await ColumnExistsAsync(conn, "reciepts", "client_receipt_id", ct);
             ReturnOfReceiptId = await ColumnExistsAsync(conn, "reciepts", "return_of_receipt_id", ct);
             DiscountQrPerson = await ColumnExistsAsync(conn, "reciepts", "discount_qr_person_id", ct);
+            ReceiptEdits = await TableExistsAsync(conn, "ext_receipt_edits", ct);
             _loaded = true;
         }
         finally
@@ -44,6 +46,15 @@ public sealed class ReceiptSchemaService(ISqlConnectionFactory db)
         var n = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
             "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(@table) AND name = @column",
             new { table, column }, cancellationToken: ct));
+        return n > 0;
+    }
+
+    private static async Task<bool> TableExistsAsync(
+        System.Data.Common.DbConnection conn, string table, CancellationToken ct)
+    {
+        var n = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM sys.tables WHERE name = @table",
+            new { table }, cancellationToken: ct));
         return n > 0;
     }
 }

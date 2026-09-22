@@ -123,6 +123,7 @@ public sealed class TreeMembershipRefresher(
         var existing = (await conn.QueryAsync<long>(new CommandDefinition(
             "SELECT item_id FROM offer_details WHERE offer_id = @offerId AND item_id IS NOT NULL",
             new { offerId }, cancellationToken: ct))).ToHashSet();
+        existing.UnionWith(await TreeExclusionStore.OfferBlockedAsync(conn, offerId, ct));
 
         var liveSeqs = currentSeqs.Count == 0
             ? []
@@ -168,6 +169,7 @@ public sealed class TreeMembershipRefresher(
             "SELECT article_id FROM ext_commission_group_items WHERE group_id = @groupId",
             new { groupId }, cancellationToken: ct)))
             .Where(a => a.HasValue).Select(a => a!.Value).ToHashSet();
+        existing.UnionWith(await TreeExclusionStore.CommissionBlockedAsync(conn, groupId, ct));
 
         var toAbsorb = currentSeqs.Where(existing.Contains).Distinct().ToList();
         if (toAbsorb.Count > 0)

@@ -369,8 +369,10 @@ function openCatalogStore(dbPath) {
         args.push(Number(changes.localNumber || 0));
       }
       if (!sets.length) return;
-      sets.push('edited_at = ?');
-      args.push(new Date().toISOString());
+      if (changes.payload !== undefined) {
+        sets.push('edited_at = ?');
+        args.push(new Date().toISOString());
+      }
       args.push(Number(id));
       db.prepare(`UPDATE pending_receipts SET ${sets.join(', ')} WHERE id = ?`).run(...args);
     },

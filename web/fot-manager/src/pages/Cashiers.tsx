@@ -5,13 +5,16 @@ import { groupReceipts, linesForCashier, rankProducts, sellersThroughCashier } f
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
 import { Delta, Empty, ErrorBox, Medal, Podium, SearchField, Sheet, Skeleton, StatGrid, Track, useToast } from '../ui';
-import { WeekBar } from '../week';
+import { PeriodBar } from '../week';
 
 type Sort = 'sales' | 'receipts' | 'share';
 type Tab = 'overview' | 'sellers' | 'products' | 'invoices';
 
 export function Cashiers() {
-  const { weekStart, setWeek, dash, prevDash, weeks, lines, cashiers, err, loading, reload } = useManager();
+  const {
+    weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedCashiers, period, periodKind,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+  } = useManager();
   const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -25,33 +28,33 @@ export function Cashiers() {
   useEffect(() => {
     const needle = params.get('q')?.trim();
     if (opened.current || !needle) return;
-    const hit = cashiers.find(c => c.name === needle);
+    const hit = scopedCashiers.find(c => c.name === needle);
     if (hit) { opened.current = true; setOpen(hit); setTab('overview'); }
-  }, [cashiers, params]);
+  }, [scopedCashiers, params]);
 
-  const total = dash?.week.salesAmount || cashiers.reduce((s, c) => s + c.salesAmount, 0);
+  const total = periodTotals.sales || scopedCashiers.reduce((s, c) => s + c.salesAmount, 0);
 
   const rows = useMemo(() => {
-    const list = cashiers.filter(c => !q.trim() || c.name.includes(q.trim()));
+    const list = scopedCashiers.filter(c => !q.trim() || c.name.includes(q.trim()));
     return [...list].sort((a, b) => {
       if (sort === 'receipts') return b.receiptCount - a.receiptCount;
       if (sort === 'share') return (total ? b.salesAmount / total : 0) - (total ? a.salesAmount / total : 0);
       return b.salesAmount - a.salesAmount;
     });
-  }, [cashiers, q, sort, total]);
+  }, [scopedCashiers, q, sort, total]);
 
-  const detailLines = open ? linesForCashier(lines, open.name) : [];
-  const detailSellers = open ? sellersThroughCashier(lines, open.name) : [];
+  const detailLines = open ? linesForCashier(scopedLines, open.name) : [];
+  const detailSellers = open ? sellersThroughCashier(scopedLines, open.name) : [];
   const detailProducts = open ? rankProducts(detailLines) : [];
   const detailReceipts = open ? groupReceipts(detailLines) : [];
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="hero compact command">
-        <p className="kicker">أرض المحل</p>
-        <h1 className="display text-[28px] font-black">كل كاشير</h1>
+        <p className="kicker">أرض المحل · {period.label}</p>
+        <h1 className="display text-[24px] font-black">الكاشير</h1>
         <p className="mt-2 text-sm font-bold text-muted">
           {rows.length} كاشير · إجمالي {moneyIq(rows.reduce((s, c) => s + c.salesAmount, 0))} — المبيعات والفواتير لكل واحد
         </p>
@@ -77,14 +80,24 @@ export function Cashiers() {
           type="button"
           className="pill mt-3"
           onClick={() => {
-            downloadText(`كاشير-${weekStart || 'week'}.csv`, cashierCsv(cashiers, total));
+            downloadText(`كاشير-${period.from}.csv`, cashierCsv(scopedCashiers, total));
             toast('تم تنزيل ملف الكاشير');
           }}
         >
           تصدير الكاشير
         </button>
       </section>
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <PeriodBar
+        weeks={weeks}
+        weekStart={weekStart}
+        setWeek={setWeek}
+        period={period}
+        kind={periodKind}
+        setKind={setPeriodKind}
+        customFrom={customFrom}
+        customTo={customTo}
+        setCustom={setCustom}
+      />
       {rows.filter(c => c.salesAmount > 0).length > 0 && (
         <Podium
           items={rows.filter(c => c.salesAmount > 0).slice(0, 3).map(c => ({

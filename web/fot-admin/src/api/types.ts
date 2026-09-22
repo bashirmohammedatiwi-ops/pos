@@ -327,6 +327,7 @@ export interface ReceiptSummary {
   salesmanCount?: number;
   discountQrPersonId?: number | null;
   discountQrPersonName?: string | null;
+  wasEdited?: boolean;
 }
 
 export interface ReceiptTotalsSummary {
@@ -377,6 +378,32 @@ export interface ReceiptItemDto {
   groupLabel?: string;
 }
 
+export interface ReceiptEditLineDto {
+  articleId: number;
+  name?: string;
+  barcode?: string;
+  quantity: number;
+  price: number;
+  originalPrice: number;
+  discount: number;
+  salesmanId?: number;
+  salesmanName?: string;
+}
+
+export interface ReceiptEditSnapshotDto {
+  salesmanId: number;
+  salesmanName?: string;
+  userDiscount: number;
+  masterAccount: number;
+  items: ReceiptEditLineDto[];
+}
+
+export interface ReceiptEditRevisionDto {
+  editedAt: string;
+  before: ReceiptEditSnapshotDto;
+  after: ReceiptEditSnapshotDto;
+}
+
 export interface ReceiptDetailDto {
   id: number;
   number: number;
@@ -394,6 +421,8 @@ export interface ReceiptDetailDto {
   items: ReceiptItemDto[];
   discountQrPersonId?: number | null;
   discountQrPersonName?: string | null;
+  wasEdited?: boolean;
+  edits?: ReceiptEditRevisionDto[];
 }
 
 export interface DiscountQrPersonDto {
@@ -1155,6 +1184,7 @@ export interface TargetRuleDto {
   edariTreeName?: string;
   /** quantity | amount — amount targets measure IQD sold. */
   targetType?: string;
+  excludedArticleIds?: number[];
 }
 
 export interface TargetSalesmanAssignmentDto {
@@ -1217,6 +1247,7 @@ export interface CreateTargetRuleRequest {
   trees?: TargetTreeLinkDto[];
   assignments?: TargetSalesmanAssignmentDto[];
   targetType?: string;
+  excludedArticleIds?: number[];
 }
 
 export interface UpdateTargetRuleRequest extends CreateTargetRuleRequest {}

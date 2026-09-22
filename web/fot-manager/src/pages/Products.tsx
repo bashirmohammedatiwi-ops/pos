@@ -5,14 +5,17 @@ import { peopleForProduct, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
 import { Empty, ErrorBox, Medal, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
-import { WeekBar } from '../week';
+import { PeriodBar } from '../week';
 import type { LineRow } from '../api';
 
 type Sort = 'sales' | 'qty';
 type Tab = 'sellers' | 'cashiers' | 'invoices';
 
 export function Products() {
-  const { weekStart, setWeek, dash, weeks, lines, err, loading, reload } = useManager();
+  const {
+    weekStart, setWeek, weeks, scopedLines, period, periodKind, setPeriodKind,
+    customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+  } = useManager();
   const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -22,30 +25,30 @@ export function Products() {
   const [tab, setTab] = useState<Tab>('sellers');
   const [line, setLine] = useState<LineRow | null>(null);
 
-  const total = dash?.week.salesAmount || 0;
+  const total = periodTotals.sales;
   const rows = useMemo(() => {
-    const list = rankProducts(lines).filter(p => !q.trim() || p.name.includes(q.trim()));
+    const list = rankProducts(scopedLines).filter(p => !q.trim() || p.name.includes(q.trim()));
     return [...list].sort((a, b) => {
       if (sort === 'qty') return b.qty - a.qty;
       return b.sales - a.sales;
     });
-  }, [lines, q, sort]);
+  }, [scopedLines, q, sort]);
 
-  const detail = open ? peopleForProduct(lines, open) : null;
+  const detail = open ? peopleForProduct(scopedLines, open) : null;
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="hero compact command">
-        <p className="kicker">منتجات الأسبوع</p>
+        <p className="kicker">منتجات {period.label}</p>
         <h1 className="display text-[28px] font-black">ماذا يُباع</h1>
         <p className="mt-2 text-sm font-bold text-muted">{rows.length} منتجاً — اضغط لترى البائع والكاشير والفواتير</p>
         <button
           type="button"
           className="pill mt-3"
           onClick={() => {
-            downloadText(`منتجات-${weekStart || 'week'}.csv`, productCsv(rows.map(p => ({
+            downloadText(`منتجات-${period.from}.csv`, productCsv(rows.map(p => ({
               name: p.name, quantity: p.qty, salesAmount: p.sales, commissionAmount: 0, count: p.count,
             }))));
             toast('تم تنزيل المنتجات');
@@ -54,7 +57,17 @@ export function Products() {
           تصدير المنتجات
         </button>
       </section>
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <PeriodBar
+        weeks={weeks}
+        weekStart={weekStart}
+        setWeek={setWeek}
+        period={period}
+        kind={periodKind}
+        setKind={setPeriodKind}
+        customFrom={customFrom}
+        customTo={customTo}
+        setCustom={setCustom}
+      />
       <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المنتج" />
       <div className="toolbar">
         {([['sales', 'المبيعات'], ['qty', 'القطع']] as const).map(([k, label]) => (
@@ -76,7 +89,7 @@ export function Products() {
             </div>
           </button>
         ))}
-        {!loading && !rows.length && <Empty title="لا منتجات هذا الأسبوع" />}
+        {!loading && !rows.length && <Empty title="لا منتجات في هذه المدة" />}
       </div>
 
       <Sheet open={!!open} title={open || 'المنتج'} onClose={() => setOpen(null)}>

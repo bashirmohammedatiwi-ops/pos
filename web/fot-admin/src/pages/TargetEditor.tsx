@@ -78,6 +78,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
   const [err, setErr] = useState('');
   const [dirty, setDirty] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(!!autoOpenPicker);
+  const [excludedSeqs, setExcludedSeqs] = useState<Set<number>>(new Set());
   useUnsavedWarning(dirty);
 
   // حمّل القاعدة عند جهوزها (مرة واحدة لكل معرّف)
@@ -94,6 +95,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
       setTrees(rule.trees ?? []);
       setTargetType(rule.targetType === 'amount' ? 'amount' : 'quantity');
       setAssignments(assignmentsForIds((rule.assignments ?? []).map(a => a.salesmanId), salesmen, rule.assignments));
+      setExcludedSeqs(new Set(rule.excludedArticleIds ?? []));
       setErr('');
       setDirty(false);
     }
@@ -159,6 +161,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
         targetType,
         trees: nextTrees,
         assignments: assignments.filter(a => a.salesmanId > 0),
+        excludedArticleIds: [...excludedSeqs],
       };
       if (editRule) {
         await api.updateTargetRule(editRule.id, payload);
@@ -180,6 +183,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
         setName(rule.name);
         setTrees(rule.trees ?? []);
         setAssignments(assignmentsForIds((rule.assignments ?? []).map(a => a.salesmanId), salesmen, rule.assignments));
+        setExcludedSeqs(new Set(rule.excludedArticleIds ?? []));
       } catch { /* القائمة محدّثة */ }
     },
     onError: e => setErr(e instanceof Error ? e.message : 'فشل الحفظ'),
@@ -213,6 +217,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
         targetType: editRule.targetType,
         trees: editRule.trees ?? [],
         assignments: editRule.assignments ?? [],
+        excludedArticleIds: [...excludedSeqs],
       });
       return created.id;
     },
@@ -243,18 +248,31 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
     [trees],
   );
 
-  function commitTargetPicker(ops: ScopePickerOps) {
-    return Promise.resolve(mark(() => setTrees(prev => {
-      const removed = new Set(ops.removeTreeSeqs);
-      const next2 = prev.filter(t => !removed.has(t.treeSeq));
-      for (const t of ops.addTrees) {
-        if (!next2.some(x => x.treeSeq === t.seq)) next2.push({ treeSeq: t.seq, treeName: t.name });
+  async function commitTargetPicker(ops: ScopePickerOps) {
+    mark(() => {
+      if (ops.excludeProductSeqs.length) {
+        setExcludedSeqs(prev => {
+          const next = new Set(prev);
+          for (const seq of ops.excludeProductSeqs) next.add(seq);
+          return next;
+        });
       }
-      for (const p of ops.addProducts) {
-        if (!next2.some(x => x.treeSeq === p.seq)) next2.push({ treeSeq: p.seq, treeName: p.name });
-      }
-      return next2;
-    })));
+      setTrees(prev => {
+        const removed = new Set(ops.removeTreeSeqs);
+        const next2 = prev.filter(t => !removed.has(t.treeSeq));
+        for (const t of ops.addTrees) {
+          if (!next2.some(x => x.treeSeq === t.seq)) next2.push({ treeSeq: t.seq, treeName: t.name });
+        }
+        for (const p of ops.addProducts) {
+          if (!next2.some(x => x.treeSeq === p.seq)) next2.push({ treeSeq: p.seq, treeName: p.name });
+        }
+        return next2;
+      });
+    });
+    if (editRule) {
+      for (const seq of ops.excludeProductSeqs)
+        await api.setTargetArticleExcluded(editRule.id, seq, true);
+    }
   }
 
   const assignedCount = assignments.filter(a => a.dailyTarget || a.weeklyTarget || a.monthlyTarget).length;
@@ -273,6 +291,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
           <span>{formatNum(trees.length)} نطاق</span>
           <span>·</span>
           <span>{formatNum(assignments.length)} مندوب</span>
+          {excludedSeqs.size > 0 && <span>· {formatNum(excludedSeqs.size)} مستبعد</span>}
           {dirty && <SoftChip tone="brand">غير محفوظ</SoftChip>}
         </span>
       }
@@ -401,8 +420,8 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
                 name: r.name ?? `#${r.seq}`,
                 barcode: r.barcode,
                 price: r.price,
-                inScope: true,
-                excluded: false,
+                inScope: !excludedSeqs.has(r.seq),
+                excluded: excludedSeqs.has(r.seq),
               }));
             }}
             loadTreeSize={async seq => (await api.treeProductCount(seq)).count}
@@ -420,6 +439,18 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
               const { count } = await api.treeProductCount(seq);
               setTreeCounts(prev => ({ ...prev, [seq]: count }));
               return 0;
+            }}
+            onToggleExclude={async (_treeSeq, product) => {
+              const nextExcluded = !excludedSeqs.has(product.seq);
+              if (editRule) {
+                await api.setTargetArticleExcluded(editRule.id, product.seq, nextExcluded);
+              }
+              mark(() => setExcludedSeqs(prev => {
+                const next = new Set(prev);
+                if (nextExcluded) next.add(product.seq);
+                else next.delete(product.seq);
+                return next;
+              }));
             }}
             labels={{
               scopeTitle: 'نطاق الهدف',

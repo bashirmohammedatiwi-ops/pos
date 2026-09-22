@@ -38,6 +38,9 @@ x86/
 
 # Desktop / Electron output
 desktop/dist/
+desktop/dist-build/
+desktop/dist-out/
+desktop/dist-out73/
 desktop/release/
 desktop/out/
 

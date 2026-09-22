@@ -82,6 +82,12 @@ export function cartSubtotal(cart: CartLine[], saleKind: SaleKind) {
   return saleKind === 1 ? Math.abs(raw) : raw;
 }
 
+/** Invoice total at list price — before offer markdowns on the lines. */
+export function cartGross(cart: CartLine[], saleKind: SaleKind) {
+  const raw = cart.reduce((s, l) => s + l.quantity * (l.originalPrice || l.price), 0);
+  return saleKind === 1 ? Math.abs(raw) : raw;
+}
+
 export function slotAmount(slot: Pick<InvoiceSlot, 'cart' | 'saleKind' | 'userDiscount'>) {
   return Math.max(0, cartSubtotal(slot.cart, slot.saleKind) - slot.userDiscount);
 }
@@ -142,12 +148,17 @@ export function buildReceiptPayload(opts: {
   number?: number;
   returnOfReceiptId?: number;
   discountQr?: DiscountQrPerson | null;
+  salesmanName?: string;
+  /** Shop-local create time — used by manual transfer so posting keeps the sale clock. */
+  soldAt?: string;
 }) {
   const accountId = opts.accountId > 0 ? opts.accountId : undefined;
   const payment = opts.isHold || accountId || opts.saleKind === 2 ? 0 : opts.paid;
   return {
     cashierId: opts.session.cashierId,
     salesmanId: opts.salesmanId,
+    salesmanName: opts.salesmanName,
+    soldAt: opts.soldAt,
     posId: opts.session.posTerminalId,
     payment,
     kind: opts.saleKind,
@@ -164,6 +175,7 @@ export function buildReceiptPayload(opts: {
     discountQrPersonName: opts.discountQr?.name,
     items: opts.cart.map(l => ({
       articleId: l.articleId,
+      name: l.name,
       barcode: l.barcode,
       quantity: opts.saleKind === 1 ? Math.abs(l.quantity) : l.quantity,
       price: l.price,

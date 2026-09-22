@@ -5,12 +5,15 @@ import { groupReceipts, lineCashier, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import { DayStrip, Empty, ErrorBox, Medal, SearchField, Skeleton, useToast } from '../ui';
-import { WeekBar } from '../week';
+import { PeriodBar } from '../week';
 
 type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
 
 export function Moves() {
-  const { weekStart, setWeek, dash, weeks, lines, cashiers, err, loading, reload } = useManager();
+  const {
+    weekStart, setWeek, dash, weeks, scopedLines, scopedCashiers, period, periodKind,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+  } = useManager();
   const insights = useShopInsights();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -31,7 +34,7 @@ export function Moves() {
 
   const filtered = useMemo(() => {
     const needle = q.trim();
-    return lines.filter(l => {
+    return scopedLines.filter(l => {
       if (day && l.occurredAt.slice(0, 10) !== day) return false;
       if (seller && l.salesmanName !== seller) return false;
       if (cashier && lineCashier(l) !== cashier) return false;
@@ -41,16 +44,16 @@ export function Moves() {
         || lineCashier(l).includes(needle)
         || String(l.receiptNumber ?? '').includes(needle);
     });
-  }, [lines, q, seller, cashier, day]);
+  }, [scopedLines, q, seller, cashier, day]);
 
   const receipts = useMemo(() => groupReceipts(filtered), [filtered]);
   const products = useMemo(() => rankProducts(filtered), [filtered]);
-  const sellerNames = useMemo(() => [...new Set(lines.map(l => l.salesmanName).filter(Boolean))], [lines]);
+  const sellerNames = useMemo(() => [...new Set(scopedLines.map(l => l.salesmanName).filter(Boolean))], [scopedLines]);
   const cashierNames = useMemo(() => {
-    const fromLines = lines.map(l => lineCashier(l)).filter(Boolean);
-    const fromRows = cashiers.map(c => c.name);
+    const fromLines = scopedLines.map(l => lineCashier(l)).filter(Boolean);
+    const fromRows = scopedCashiers.map(c => c.name);
     return [...new Set([...fromRows, ...fromLines])];
-  }, [lines, cashiers]);
+  }, [scopedLines, scopedCashiers]);
 
   const bySeller = useMemo(() => {
     const map = new Map<string, { name: string; sales: number; qty: number; count: number }>();
@@ -82,11 +85,11 @@ export function Moves() {
   if (err && !dash) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="hero compact command">
-        <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : 'فواتير الأسبوع'}</p>
+        <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}</p>
         <h1 className="display text-[28px] font-black">كل التفاصيل</h1>
-        <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales)}</p>
+        <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales || periodTotals.sales)}</p>
         <p className="mt-2 text-sm font-bold text-muted">
           {receipts.length} فاتورة · {filtered.length} حركة
         </p>
@@ -94,7 +97,7 @@ export function Moves() {
           type="button"
           className="pill mt-3"
           onClick={() => {
-            downloadText(`فواتير-${weekStart || 'week'}.csv`, managerCsv(filtered));
+            downloadText(`فواتير-${period.from}.csv`, managerCsv(filtered));
             toast('تم تنزيل الملف');
           }}
         >
@@ -102,10 +105,33 @@ export function Moves() {
         </button>
         <button type="button" className="pill mt-3" onClick={() => window.print()}>طباعة</button>
       </section>
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <PeriodBar
+        weeks={weeks}
+        weekStart={weekStart}
+        setWeek={setWeek}
+        period={period}
+        kind={periodKind}
+        setKind={setPeriodKind}
+        customFrom={customFrom}
+        customTo={customTo}
+        setCustom={setCustom}
+      />
       {insights.days.length > 0 && (
         <section className="card p-4">
-          <DayStrip days={insights.days} today={todayKey()} active={day || undefined} onSelect={key => setDay(day === key ? undefined : key)} />
+          <DayStrip
+            days={insights.days}
+            today={todayKey()}
+            active={day || (period.singleDay ? period.from : undefined)}
+            onSelect={key => {
+              if (day === key) {
+                setDay();
+                return;
+              }
+              setDay(key);
+              setCustom(key, key);
+              setPeriodKind('custom');
+            }}
+          />
         </section>
       )}
       <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو البائع أو الكاشير أو رقم الفاتورة" />
@@ -135,7 +161,7 @@ export function Moves() {
           ))}
         </div>
       )}
-      {loading && !lines.length && <Skeleton />}
+      {loading && !scopedLines.length && <Skeleton />}
 
       {mode === 'invoices' && <ReceiptList groups={receipts} onOpen={setOpen} />}
       {mode === 'lines' && <MoveList lines={filtered} onOpen={setOpen} />}

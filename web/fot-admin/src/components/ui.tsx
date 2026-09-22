@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
+import { forwardRef, useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { formatNum } from '@/api/client';
 import { IconAlert, IconCheckCircle, IconChevronDown, IconInfo, IconX } from '@/components/icons';
 
@@ -97,14 +97,15 @@ export function TableSkeleton({ rows = 6, cols = 5 }: { rows?: number; cols?: nu
   );
 }
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return (
     <input
       {...props}
+      ref={ref}
       className={`w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 ${props.className ?? ''}`}
     />
   );
-}
+});
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (

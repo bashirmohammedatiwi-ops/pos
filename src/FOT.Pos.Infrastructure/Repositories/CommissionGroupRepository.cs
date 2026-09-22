@@ -4,6 +4,7 @@ using Dapper;
 using FOT.Pos.Shared.Dtos;
 using FOT.Pos.Infrastructure.Data;
 using FOT.Pos.Infrastructure.Edari;
+using FOT.Pos.Infrastructure.Services;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace FOT.Pos.Infrastructure.Repositories;
@@ -182,6 +183,8 @@ public sealed class CommissionGroupRepository(
     {
         TouchAttribution();
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM ext_commission_group_exclusions WHERE group_id = @id", new { id }, cancellationToken: ct));
         return await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM ext_commission_groups WHERE id = @id", new { id }, cancellationToken: ct)) > 0;
     }
@@ -289,6 +292,10 @@ public sealed class CommissionGroupRepository(
                 new { groupId, articleSeq }, cancellationToken: ct));
             if (exists > 0)
             {
+                await conn.ExecuteAsync(new CommandDefinition(
+                    "UPDATE ext_commission_group_items SET excluded = 0 WHERE group_id=@groupId AND article_id=@articleSeq",
+                    new { groupId, articleSeq }, cancellationToken: ct));
+                await TreeExclusionStore.SetCommissionAsync(conn, groupId, articleSeq.Value, null, false, ct);
                 return await conn.QueryRowOrDefaultAsync<CommissionGroupItemDto>(new CommandDefinition("""
                     SELECT TOP 1 i.id AS Id, i.article_id AS ArticleId, i.barcode AS Barcode,
                            COALESCE(i.article_name, @name) AS ArticleName,
@@ -316,6 +323,16 @@ public sealed class CommissionGroupRepository(
     {
         TouchAttribution();
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM ext_commission_group_exclusions
+            WHERE group_id=@groupId AND (
+                source_tree_seq=@treeSeq
+                OR article_id IN (
+                    SELECT article_id FROM ext_commission_group_items
+                    WHERE group_id=@groupId AND source_tree_seq=@treeSeq AND article_id IS NOT NULL
+                )
+            )
+            """, new { groupId, treeSeq }, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM ext_commission_group_items WHERE group_id=@groupId AND source_tree_seq=@treeSeq",
             new { groupId, treeSeq }, cancellationToken: ct));
@@ -328,6 +345,31 @@ public sealed class CommissionGroupRepository(
     {
         TouchAttribution();
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var row = await conn.QuerySingleOrDefaultAsync<(long? ArticleId, long? SourceTree)>(
+            new CommandDefinition("""
+                SELECT article_id, source_tree_seq
+                FROM ext_commission_group_items
+                WHERE id=@itemId AND group_id=@groupId
+                """, new { itemId, groupId }, cancellationToken: ct));
+        if (row == default) return false;
+
+        var keepAsExclusion = row.ArticleId is > 0 && row.SourceTree is > 0
+            && await conn.ExecuteScalarAsync<int>(new CommandDefinition("""
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM ext_commission_group_trees
+                    WHERE group_id=@groupId AND tree_seq=@treeSeq AND COALESCE(is_full_tree, 1) = 1
+                ) THEN 1 ELSE 0 END
+                """, new { groupId, treeSeq = row.SourceTree }, cancellationToken: ct)) == 1;
+
+        if (keepAsExclusion)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE ext_commission_group_items SET excluded = 1 WHERE id=@itemId AND group_id=@groupId",
+                new { itemId, groupId }, cancellationToken: ct));
+            await TreeExclusionStore.SetCommissionAsync(conn, groupId, row.ArticleId!.Value, row.SourceTree, true, ct);
+            return true;
+        }
+
         return await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM ext_commission_group_items WHERE id=@itemId AND group_id=@groupId",
             new { itemId, groupId }, cancellationToken: ct)) > 0;
@@ -367,6 +409,33 @@ public sealed class CommissionGroupRepository(
             """, new { toGroupId = req.ToGroupId, treeSeq = req.TreeSeq, name = tree.TreeName, isFull = tree.IsFullTree },
             cancellationToken: ct));
 
+        await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE x
+            FROM ext_commission_group_exclusions x
+            WHERE x.group_id=@toGroupId AND x.article_id IN (
+                SELECT article_id FROM ext_commission_group_exclusions
+                WHERE group_id=@fromGroupId AND (
+                    source_tree_seq=@treeSeq
+                    OR article_id IN (
+                        SELECT article_id FROM ext_commission_group_items
+                        WHERE group_id=@fromGroupId AND source_tree_seq=@treeSeq AND article_id IS NOT NULL
+                    )
+                )
+            )
+            """, new { toGroupId = req.ToGroupId, fromGroupId = req.FromGroupId, treeSeq = req.TreeSeq },
+            cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE ext_commission_group_exclusions SET group_id=@toGroupId
+            WHERE group_id=@fromGroupId AND (
+                source_tree_seq=@treeSeq
+                OR article_id IN (
+                    SELECT article_id FROM ext_commission_group_items
+                    WHERE group_id=@fromGroupId AND source_tree_seq=@treeSeq AND article_id IS NOT NULL
+                )
+            )
+            """, new { toGroupId = req.ToGroupId, fromGroupId = req.FromGroupId, treeSeq = req.TreeSeq },
+            cancellationToken: ct));
+
         return await conn.ExecuteAsync(new CommandDefinition("""
             UPDATE ext_commission_group_items SET group_id=@toGroupId
             WHERE group_id=@fromGroupId AND source_tree_seq=@treeSeq
@@ -381,6 +450,7 @@ public sealed class CommissionGroupRepository(
         if (seqs.Count == 0) return [];
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var blocked = await TreeExclusionStore.CommissionBlockedAsync(conn, groupId, ct);
         var state = (await conn.QueryAsync<(long ArticleId, long ItemId, bool Excluded)>(
             new CommandDefinition("""
                 SELECT article_id, id, CAST(COALESCE(excluded,0) AS BIT)
@@ -400,9 +470,10 @@ public sealed class CommissionGroupRepository(
         return rows.Select(r =>
         {
             var has = state.TryGetValue(r.Seq, out var v);
+            var excluded = (has && v.Excluded) || blocked.Contains(r.Seq);
             return new CommissionGroupTreeProductDto(
-                r.Seq, r.Name, r.Barcode, has && !v.Excluded,
-                has && v.Excluded,
+                r.Seq, r.Name, r.Barcode, has && !excluded,
+                excluded,
                 has ? v.ItemId : null,
                 r.Price);
         }).ToList();
@@ -411,10 +482,36 @@ public sealed class CommissionGroupRepository(
     /// <summary>Exclude/un-exclude one item — stays excluded across membership refreshes.</summary>
     public async Task<bool> SetItemExcludedAsync(long itemId, bool excluded, CancellationToken ct)
     {
+        TouchAttribution();
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(
+        var row = await conn.QuerySingleOrDefaultAsync<(long GroupId, long? ArticleId, long? SourceTree)>(
+            new CommandDefinition("""
+                SELECT group_id, article_id, source_tree_seq
+                FROM ext_commission_group_items WHERE id = @itemId
+                """, new { itemId }, cancellationToken: ct));
+        if (row == default) return false;
+        var ok = await conn.ExecuteAsync(new CommandDefinition(
             "UPDATE ext_commission_group_items SET excluded = @excluded WHERE id = @itemId",
             new { itemId, excluded }, cancellationToken: ct)) > 0;
+        if (ok && row.ArticleId is > 0)
+            await TreeExclusionStore.SetCommissionAsync(conn, row.GroupId, row.ArticleId.Value, row.SourceTree, excluded, ct);
+        return ok;
+    }
+
+    /// <summary>Exclude a product Seq from a full tree even when the membership row was already deleted.</summary>
+    public async Task SetArticleExcludedAsync(long groupId, long articleId, bool excluded, CancellationToken ct)
+    {
+        TouchAttribution();
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var treeSeq = await conn.ExecuteScalarAsync<long?>(new CommandDefinition("""
+            SELECT TOP 1 source_tree_seq FROM ext_commission_group_items
+            WHERE group_id=@groupId AND article_id=@articleId
+            """, new { groupId, articleId }, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE ext_commission_group_items SET excluded = @excluded
+            WHERE group_id=@groupId AND article_id=@articleId
+            """, new { groupId, articleId, excluded }, cancellationToken: ct));
+        await TreeExclusionStore.SetCommissionAsync(conn, groupId, articleId, treeSeq, excluded, ct);
     }
 
     public async Task<IReadOnlyList<GroupMatchRow>> GetActiveMatchersAsync(
@@ -605,12 +702,14 @@ public sealed class CommissionGroupRepository(
             """, new { groupId }, cancellationToken: ct)))
             .GroupBy(r => r.ArticleId)
             .ToDictionary(g => g.Key, g => g.First().SourceTreeSeq);
+        var blocked = await TreeExclusionStore.CommissionBlockedAsync(conn, groupId, ct);
 
         var added = 0;
         var skipped = 0;
         var updated = 0;
         foreach (var seq in seqs.Distinct())
         {
+            if (blocked.Contains(seq)) { skipped++; continue; }
             if (existing.TryGetValue(seq, out var currentTree))
             {
                 if (currentTree == treeSeq) { skipped++; continue; }

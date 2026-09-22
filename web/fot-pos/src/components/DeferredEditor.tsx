@@ -3,14 +3,18 @@ import { totalRoundingDiscount } from '@fot/shared';
 import { capUserDiscount } from '@/lib/sale';
 import { db } from '@/lib/db';
 import { findProductSmart, searchProductsSmart } from '@/lib/catalogSync';
-import type { ProductDto, SectionCashBoxDto } from '@/api/types';
+import type { ProductDto, SalesmanDto, SectionCashBoxDto } from '@/api/types';
 import { formatIqd, formatNum } from '@/lib/money';
 import type { ResolvedCashierPermissions } from '@/lib/permissions';
 import { CashBoxPicker } from '@/components/CashBoxPicker';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { SalesmanPicker } from '@/components/SalesmanPicker';
+import { playErrorBeep } from '@/lib/sound';
+import type { ReceiptEditHistory } from '@/lib/receiptHistory';
 
 type EditorItem = {
   articleId: number;
+  name?: string;
   barcode?: string | null;
   quantity: number;
   price: number;
@@ -25,6 +29,7 @@ type EditorItem = {
 export type EditorPayload = {
   cashierId: number;
   salesmanId: number;
+  salesmanName?: string;
   posId: number | null;
   payment: number;
   kind: number;
@@ -35,6 +40,8 @@ export type EditorPayload = {
   clientReceiptId: string;
   card?: unknown;
   number?: number;
+  soldAt?: string;
+  editHistory?: ReceiptEditHistory;
   items: EditorItem[];
 };
 
@@ -57,6 +64,7 @@ export function DeferredEditor({
   px,
   online,
   cashBoxes,
+  salesmen,
   roundStep,
   onSave,
   onReprint,
@@ -71,6 +79,7 @@ export function DeferredEditor({
   px: ResolvedCashierPermissions;
   online: boolean;
   cashBoxes: SectionCashBoxDto[];
+  salesmen: SalesmanDto[];
   roundStep: number;
   onSave: (payload: EditorPayload) => void;
   onReprint: (payload: EditorPayload) => void;
@@ -90,7 +99,41 @@ export function DeferredEditor({
   const [pctDrafts, setPctDrafts] = useState<Record<number, string>>({});
   const [addBusy, setAddBusy] = useState(false);
   const [confirm, setConfirm] = useState<'none' | 'delete' | 'transfer'>('none');
+  const [lineAsk, setLineAsk] = useState<{ idx: number; name: string } | null>(null);
+  const [missCode, setMissCode] = useState<string | null>(null);
+  const [salesmanId, setSalesmanId] = useState(payload.salesmanId ?? 0);
+  const [salesmanName, setSalesmanName] = useState(
+    payload.salesmanName || salesmen.find(s => s.id === payload.salesmanId)?.name || '',
+  );
+  const [pickFor, setPickFor] = useState<'invoice' | number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  function sellerLabel(id?: number, name?: string | null) {
+    if (name && name.trim()) return name;
+    if (id && id > 0) return salesmen.find(s => s.id === id)?.name || `#${id}`;
+    return 'بدون';
+  }
+
+  function applyInvoiceSalesman(nextId: number, nextName: string) {
+    setSalesmanId(nextId);
+    setSalesmanName(nextName);
+    setItems(prev => prev.map(i => ({ ...i, salesmanId: nextId, salesmanName: nextName || null })));
+  }
+
+  function applyLineSalesman(idx: number, nextId: number, nextName: string) {
+    setItems(prev => {
+      const next = prev.map((it, i) => (i === idx ? { ...it, salesmanId: nextId, salesmanName: nextName || null } : it));
+      const ids = Array.from(new Set(next.map(i => i.salesmanId ?? 0).filter(id => id > 0)));
+      if (ids.length === 1) {
+        setSalesmanId(ids[0]!);
+        setSalesmanName(next.find(i => (i.salesmanId ?? 0) === ids[0])?.salesmanName || nextName);
+      } else if (ids.length === 0) {
+        setSalesmanId(0);
+        setSalesmanName('');
+      }
+      return next;
+    });
+  }
 
   // Resolve display names/stock for every line from the local catalog.
   useEffect(() => {
@@ -157,7 +200,14 @@ export function DeferredEditor({
 
   function removeItem(idx: number) {
     if (!px.deleteItem) return;
+    const item = items[idx];
+    const name = products.get(item?.articleId ?? 0)?.name || item?.barcode || 'البند';
+    setLineAsk({ idx, name });
+  }
+
+  function confirmRemoveItem(idx: number) {
     setItems(prev => prev.filter((_, i) => i !== idx));
+    setLineAsk(null);
   }
 
   function addItem(p: ProductDto) {
@@ -173,8 +223,9 @@ export function DeferredEditor({
         price: Number(p.price),
         originalPrice: Number(p.originalPrice || p.price),
         discount: 0,
-        salesmanId: payload.salesmanId || 0,
-        salesmanName: null,
+        salesmanId: salesmanId || 0,
+        salesmanName: salesmanName || null,
+        name: p.name || undefined,
       }];
     });
     setSearch('');
@@ -188,6 +239,10 @@ export function DeferredEditor({
     try {
       const p = await findProductSmart(term, online);
       if (p) addItem(p);
+      else {
+        playErrorBeep();
+        setMissCode(term);
+      }
     } finally {
       setAddBusy(false);
     }
@@ -201,10 +256,18 @@ export function DeferredEditor({
   function currentPayload(): EditorPayload {
     return {
       ...payload,
+      salesmanId,
+      salesmanName: salesmanName || undefined,
       masterAccount,
       userDiscount: userDiscount + rounding,
       items: items.map(i => ({
         ...i,
+        name: i.name || products.get(i.articleId)?.name || undefined,
+        salesmanId: i.salesmanId ?? salesmanId,
+        salesmanName: i.salesmanName
+          || salesmanName
+          || salesmen.find(s => s.id === (i.salesmanId ?? salesmanId))?.name
+          || null,
         discount: Math.max(0, i.originalPrice - i.price),
       })),
     };
@@ -226,6 +289,14 @@ export function DeferredEditor({
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setPickFor('invoice')}
+              className="pos-chip h-9 px-3"
+              title="تغيير بائع الفاتورة"
+            >
+              البائع: {sellerLabel(salesmanId, salesmanName)}
+            </button>
             <div className="pos-pay-cashbox">
               <span className="pos-pay-cashbox-label">صندوق</span>
               <CashBoxPicker boxes={cashBoxes} value={masterAccount} onChange={setMasterAccount} />
@@ -288,6 +359,7 @@ export function DeferredEditor({
                 <th className="pos-td-price">السعر</th>
                 <th className="pos-td-disc">خصم%</th>
                 <th className="pos-td-qty">الكمية</th>
+                <th className="pos-td-seller">البائع</th>
                 <th className="pos-td-total">الإجمالي</th>
                 {px.deleteItem && <th className="pos-td-del" />}
               </tr>
@@ -363,6 +435,16 @@ export function DeferredEditor({
                         </div>
                       )}
                     </td>
+                    <td className="pos-td-seller">
+                      <button
+                        type="button"
+                        onClick={() => setPickFor(idx)}
+                        className="pos-chip px-2 py-1 text-[11px]"
+                        title="تغيير بائع هذا البند"
+                      >
+                        {sellerLabel(item.salesmanId ?? salesmanId, item.salesmanName || salesmanName)}
+                      </button>
+                    </td>
                     <td className="pos-td-total num">{formatIqd(item.quantity * item.price)}</td>
                     {px.deleteItem && (
                       <td className="pos-td-del">
@@ -373,7 +455,7 @@ export function DeferredEditor({
                 );
               })}
               {items.length === 0 && (
-                <tr><td colSpan={px.deleteItem ? 8 : 7} className="py-6 text-center text-slate-400">لا توجد بنود — أضف منتجات من الأعلى</td></tr>
+                <tr><td colSpan={px.deleteItem ? 9 : 8} className="py-6 text-center text-slate-400">لا توجد بنود — أضف منتجات من الأعلى</td></tr>
               )}
             </tbody>
           </table>
@@ -395,6 +477,12 @@ export function DeferredEditor({
               <span className="font-semibold">الإجمالي</span>
               <span className="num text-[15px] font-bold text-teal-700">{formatIqd(total)}</span>
             </div>
+            {items.reduce((s, i) => s + i.quantity * (i.originalPrice || i.price), 0) > subtotal + 0.005 && (
+              <div className="mt-1 flex justify-between text-slate-400">
+                <span>قبل العروض</span>
+                <span className="num line-through">{formatIqd(items.reduce((s, i) => s + i.quantity * (i.originalPrice || i.price), 0))}</span>
+              </div>
+            )}
             <p className="mt-1.5 text-[11px] text-slate-400">
               {formatNum(items.length)} بند · الدفع ونوع الفاتورة يبقيان كما حُفظا — الصندوق قابل للتغيير
             </p>
@@ -483,6 +571,44 @@ export function DeferredEditor({
           busy={busy}
           onConfirm={() => { setConfirm('none'); onDelete(); }}
           onCancel={() => setConfirm('none')}
+        />
+      )}
+      {lineAsk && (
+        <ConfirmDialog
+          title="حذف البند"
+          message={`هل تريد حذف «${lineAsk.name}» من الفاتورة؟`}
+          confirmLabel="حذف"
+          danger
+          onConfirm={() => confirmRemoveItem(lineAsk.idx)}
+          onCancel={() => setLineAsk(null)}
+        />
+      )}
+      {pickFor !== null && (
+        <SalesmanPicker
+          title={pickFor === 'invoice' ? 'بائع الفاتورة' : 'بائع هذا البند'}
+          subtitle={pickFor === 'invoice' ? 'يُطبَّق على كل البنود' : undefined}
+          salesmen={salesmen}
+          onPick={s => {
+            if (pickFor === 'invoice') applyInvoiceSalesman(s.id, s.name);
+            else applyLineSalesman(pickFor, s.id, s.name);
+            setPickFor(null);
+          }}
+          onClear={() => {
+            if (pickFor === 'invoice') applyInvoiceSalesman(0, '');
+            else applyLineSalesman(pickFor, 0, '');
+            setPickFor(null);
+          }}
+          onClose={() => setPickFor(null)}
+        />
+      )}
+      {missCode && (
+        <ConfirmDialog
+          alert
+          title="المادة غير موجودة"
+          message={`لا توجد مادة للباركود ${missCode}`}
+          confirmLabel="حسناً"
+          onConfirm={() => setMissCode(null)}
+          onCancel={() => setMissCode(null)}
         />
       )}
     </div>

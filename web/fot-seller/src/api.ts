@@ -5,24 +5,26 @@ const SELLER_KEY = 'fot_seller_me';
 const LAST_ID_KEY = 'fot_seller_last_id';
 
 export function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 }
 export function setToken(token: string | null) {
-  if (token) sessionStorage.setItem(TOKEN_KEY, token);
-  else sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
 }
 
 export function getSeller(): SellerMe | null {
   try {
-    const raw = sessionStorage.getItem(SELLER_KEY);
+    const raw = localStorage.getItem(SELLER_KEY) || sessionStorage.getItem(SELLER_KEY);
     return raw ? JSON.parse(raw) as SellerMe : null;
   } catch {
     return null;
   }
 }
 export function setSeller(seller: SellerMe | null) {
-  if (seller) sessionStorage.setItem(SELLER_KEY, JSON.stringify(seller));
-  else sessionStorage.removeItem(SELLER_KEY);
+  sessionStorage.removeItem(SELLER_KEY);
+  if (seller) localStorage.setItem(SELLER_KEY, JSON.stringify(seller));
+  else localStorage.removeItem(SELLER_KEY);
 }
 
 export function getLastId() {
@@ -32,7 +34,34 @@ export function setLastId(id: string) {
   if (id) localStorage.setItem(LAST_ID_KEY, id);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+let refreshWait: Promise<boolean> | null = null;
+
+export async function refreshSession(): Promise<boolean> {
+  if (refreshWait) return refreshWait;
+  const token = getToken();
+  if (!token) return false;
+  refreshWait = (async () => {
+    try {
+      const res = await fetch('/auth/seller-refresh', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const text = await res.text();
+      if (!res.ok) return false;
+      const data = text ? JSON.parse(text) as { token?: string; seller?: SellerMe } : {};
+      if (data.token) setToken(data.token);
+      if (data.seller) setSeller(data.seller);
+      return !!data.token;
+    } catch {
+      return false;
+    } finally {
+      refreshWait = null;
+    }
+  })();
+  return refreshWait;
+}
+
+async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -45,7 +74,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const j = JSON.parse(text) as { error?: string };
       if (j.error) msg = j.error;
     } catch { /* raw */ }
-    const authCall = path.startsWith('/auth/seller-login') || path.startsWith('/auth/seller-lookup');
+    const authCall = path.startsWith('/auth/seller-login') || path.startsWith('/auth/seller-lookup') || path.startsWith('/auth/seller-refresh');
     if (res.status === 502 || res.status === 503 || res.status === 504) {
       throw new Error('بيانات المحل لم تصل إلى السيرفر بعد — انتظر المزامنة من لوحة التحكم');
     }
@@ -53,6 +82,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       throw new Error(path.includes('lookup') ? 'لا بائع بهذا الرقم' : 'تعذر الدخول');
     }
     if (res.status === 401) {
+      if (!authCall && token && !retried && await refreshSession()) {
+        return request<T>(path, init, true);
+      }
       if (!authCall && token) {
         setToken(null);
         setSeller(null);

@@ -9,7 +9,7 @@ export function NumPad({
 }) {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'] as const;
   return (
-    <div className="grid grid-cols-3 gap-1.5">
+    <div className="pos-numpad grid grid-cols-3 gap-1.5" dir="ltr">
       {keys.map(key => (
         <button
           key={key}

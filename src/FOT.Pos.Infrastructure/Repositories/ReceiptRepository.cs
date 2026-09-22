@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Dapper;
 using FOT.Pos.Infrastructure.Services;
 using FOT.Pos.Shared.Dtos;
@@ -55,7 +57,12 @@ public sealed class ReceiptRepository(
         p.Add("offset", (page - 1) * pageSize);
         p.Add("pageSize", pageSize);
 
-        var select = """
+        await schema.EnsureLoadedAsync(ct);
+        var wasEditedExpr = schema.ReceiptEdits
+            ? "CAST(CASE WHEN EXISTS (SELECT 1 FROM ext_receipt_edits e WHERE e.receipt_id = r.id) THEN 1 ELSE 0 END AS bit) AS WasEdited"
+            : "CAST(0 AS bit) AS WasEdited";
+
+        var select = $"""
             SELECT r.id AS Id, r.number AS Number, r.creation_date AS CreationDate,
                    CAST(r.total_amount AS DECIMAL(18,2)) AS TotalAmount,
                    CAST(r.payment AS DECIMAL(18,2)) AS Payment,
@@ -84,7 +91,8 @@ public sealed class ReceiptRepository(
                    NULLIF(r.master_account, 0) AS MasterAccount,
                    box.account_num AS CashBoxNum, box.account_name AS CashBoxName,
                    r.discount_qr_person_id AS DiscountQrPersonId,
-                   COALESCE(r.discount_qr_person_name, dqp.name) AS DiscountQrPersonName
+                   COALESCE(r.discount_qr_person_name, dqp.name) AS DiscountQrPersonName,
+                   {wasEditedExpr}
             FROM reciepts r
             LEFT JOIN salesmen sm ON sm.id = r.salesman
             LEFT JOIN cashiers c ON c.id = r.cashier_id
@@ -209,11 +217,14 @@ public sealed class ReceiptRepository(
         if (header is null) return null;
         var itemsQuery = schema.LineAttribution ? itemsSql : itemsSqlLegacy;
         var items = (await conn.QueryRowsAsync<ReceiptItemDto>(new CommandDefinition(itemsQuery, new { id }, cancellationToken: ct))).ToList();
+        var edits = await LoadReceiptEditsAsync(conn, id, ct);
         return new ReceiptDetailDto(header.Id, header.Number, header.CreationDate, header.TotalAmount, header.Payment,
             header.CashBack, header.ItemsDiscount, header.OffersDiscount, header.UserDiscount,
             header.SalesmanId, header.SalesmanName, header.Synced, header.EdrNum, items,
             DiscountQrPersonId: header.DiscountQrPersonId,
-            DiscountQrPersonName: header.DiscountQrPersonName);
+            DiscountQrPersonName: header.DiscountQrPersonName,
+            WasEdited: edits.Count > 0,
+            Edits: edits);
     }
 
     public async Task<ReceiptReturnSourceDto?> GetReturnSourceByNumberAsync(long number, CancellationToken ct)
@@ -319,6 +330,9 @@ public sealed class ReceiptRepository(
             if (req.Card is not null)
                 await InsertCardPaymentAsync(conn, tx, receiptId, req.Card, ct);
 
+            if (schema.ReceiptEdits)
+                await InsertReceiptEditsAsync(conn, tx, receiptId, req.EditHistory, ct);
+
             await tx.CommitAsync(ct);
 
             if (!req.IsPending)
@@ -418,9 +432,11 @@ public sealed class ReceiptRepository(
         (long Id, string Name)? qrPerson,
         CancellationToken ct)
     {
+        var soldAt = NormalizeSoldAt(req.SoldAt);
         var args = new
         {
             number,
+            creationDate = soldAt ?? DateTime.Now,
             kind = req.Kind,
             cashierId = req.CashierId,
             total,
@@ -438,6 +454,7 @@ public sealed class ReceiptRepository(
             discountQrPersonId = qrPerson?.Id,
             discountQrPersonName = qrPerson?.Name
         };
+        var createdExpr = soldAt.HasValue ? "@creationDate" : "GETDATE()";
 
         var extraCols = "";
         var extraVals = "";
@@ -465,7 +482,7 @@ public sealed class ReceiptRepository(
             )
             OUTPUT INSERTED.id
             VALUES (
-                @number, GETDATE(), @kind, @cashierId, @total, 0, @offersDiscount,
+                @number, {createdExpr}, @kind, @cashierId, @total, 0, @offersDiscount,
                 @userDiscount, @payment, @cashBack, @accountId, @salesmanId, 0, @posId,
                 0, @isPending, @masterAccount{extraVals}
             )
@@ -688,7 +705,7 @@ public sealed class ReceiptRepository(
             r.CardAcquirer, r.CardAccNo, r.CardRrn, r.CardTerminalId, r.CardAuthCode,
             r.CardTransTime, r.CardType, r.CardRefNo,
             r.MasterAccount, r.CashBoxNum, r.CashBoxName, r.SalesmanCount,
-            r.DiscountQrPersonId, r.DiscountQrPersonName)).ToList();
+            r.DiscountQrPersonId, r.DiscountQrPersonName, r.WasEdited)).ToList();
 
     private sealed class HoldRow
     {
@@ -757,6 +774,75 @@ public sealed class ReceiptRepository(
         public int SalesmanCount { get; set; }
         public long? DiscountQrPersonId { get; set; }
         public string? DiscountQrPersonName { get; set; }
+        public bool WasEdited { get; set; }
+    }
+
+    private static readonly JsonSerializerOptions EditJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private static DateTime? NormalizeSoldAt(DateTime? soldAt)
+    {
+        if (soldAt is not DateTime sold || sold == default) return null;
+        return sold.Kind == DateTimeKind.Utc ? sold.ToLocalTime() : sold;
+    }
+
+    private async Task InsertReceiptEditsAsync(
+        System.Data.Common.DbConnection conn,
+        System.Data.Common.DbTransaction tx,
+        long receiptId,
+        ReceiptEditHistoryDto? history,
+        CancellationToken ct)
+    {
+        var revisions = history?.Revisions;
+        if (revisions is null || revisions.Count == 0) return;
+
+        foreach (var rev in revisions)
+        {
+            if (rev.Before is null || rev.After is null) continue;
+            var editedAt = rev.EditedAt == default ? DateTime.Now : NormalizeSoldAt(rev.EditedAt) ?? DateTime.Now;
+            await conn.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO ext_receipt_edits (receipt_id, edited_at, before_json, after_json)
+                VALUES (@receiptId, @editedAt, @beforeJson, @afterJson)
+                """, new
+            {
+                receiptId,
+                editedAt,
+                beforeJson = JsonSerializer.Serialize(rev.Before, EditJson),
+                afterJson = JsonSerializer.Serialize(rev.After, EditJson)
+            }, transaction: tx, cancellationToken: ct));
+        }
+    }
+
+    private async Task<IReadOnlyList<ReceiptEditRevisionDto>> LoadReceiptEditsAsync(
+        System.Data.Common.DbConnection conn, long receiptId, CancellationToken ct)
+    {
+        if (!schema.ReceiptEdits) return [];
+        var rows = await conn.QueryAsync<(DateTime EditedAt, string BeforeJson, string AfterJson)>(new CommandDefinition("""
+            SELECT edited_at AS EditedAt, before_json AS BeforeJson, after_json AS AfterJson
+            FROM ext_receipt_edits
+            WHERE receipt_id = @receiptId
+            ORDER BY id
+            """, new { receiptId }, cancellationToken: ct));
+        var list = new List<ReceiptEditRevisionDto>();
+        foreach (var row in rows)
+        {
+            try
+            {
+                var before = JsonSerializer.Deserialize<ReceiptEditSnapshotDto>(row.BeforeJson, EditJson);
+                var after = JsonSerializer.Deserialize<ReceiptEditSnapshotDto>(row.AfterJson, EditJson);
+                if (before is null || after is null) continue;
+                list.Add(new ReceiptEditRevisionDto(row.EditedAt, before, after));
+            }
+            catch (JsonException)
+            {
+                /* skip a corrupt snapshot rather than failing the receipt */
+            }
+        }
+        return list;
     }
 
     private async Task EnsureInvoiceReturnAllowedAsync(CreateReceiptRequest req, CancellationToken ct)

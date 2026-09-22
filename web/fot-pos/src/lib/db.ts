@@ -1,4 +1,5 @@
 import { formatReceiptNumber } from '@fot/shared';
+import { withOfferSalePrice, withOfferSalePrices } from '@/lib/offerPrice';
 import type { DiscountQrPerson } from '@fot/shared';
 import type { AccountSummaryDto, ArticleGroupDto, ArticleGroupItemDto, PrintSettingsDto, ProductDto, SalesmanDto } from '@/api/types';
 
@@ -318,7 +319,7 @@ const idb = {
       if (changes.payload !== undefined) row.payload = changes.payload;
       if (changes.status !== undefined) row.status = changes.status;
       if (changes.localNumber !== undefined) row.localNumber = changes.localNumber;
-      row.editedAt = new Date().toISOString();
+      if (changes.payload !== undefined) row.editedAt = new Date().toISOString();
       await req(store.put(row));
     }
     releaseDb(conn);
@@ -427,27 +428,38 @@ export const db = {
   setMeta: (key: string, value: string) => nativeStore()?.setMeta(key, value) ?? idb.setMeta(key, value),
   upsertProducts: (products: ProductDto[]) =>
     nativeCatalog()?.syncBatch(products) ?? nativeStore()?.upsertProducts(products) ?? idb.upsertProducts(products),
-  findProduct: async (code: string) =>
-    ((await nativeCatalog()?.findBarcode(code)) as ProductDto | null | undefined) ??
-    ((await nativeStore()?.findProduct(code)) as ProductDto | null | undefined) ??
-    idb.findProduct(code),
+  findProduct: async (code: string) => {
+    const p =
+      ((await nativeCatalog()?.findBarcode(code)) as ProductDto | null | undefined) ??
+      ((await nativeStore()?.findProduct(code)) as ProductDto | null | undefined) ??
+      await idb.findProduct(code);
+    return p ? withOfferSalePrice(p) : null;
+  },
   searchProducts: async (term: string, limit?: number) =>
-    ((await nativeCatalog()?.search(term, limit)) as ProductDto[] | undefined) ??
-    ((await nativeStore()?.searchProducts(term, limit)) as ProductDto[] | undefined) ??
-    idb.searchProducts(term, limit),
+    withOfferSalePrices(
+      ((await nativeCatalog()?.search(term, limit)) as ProductDto[] | undefined) ??
+      ((await nativeStore()?.searchProducts(term, limit)) as ProductDto[] | undefined) ??
+      await idb.searchProducts(term, limit),
+    ),
   productCount: () => nativeCatalog()?.productCount() ?? nativeStore()?.productCount() ?? idb.productCount(),
   pruneProducts: async (liveIds: number[]) =>
     ((await nativeCatalog()?.prune?.(liveIds)) as number | undefined) ??
     ((await nativeStore()?.pruneProducts?.(liveIds)) as number | undefined) ??
     idb.pruneProducts(liveIds),
   productsByIds: async (ids: number[]) =>
-    ((await nativeStore()?.productsByIds?.(ids)) as ProductDto[] | undefined) ?? idb.productsByIds(ids),
+    withOfferSalePrices(
+      ((await nativeStore()?.productsByIds?.(ids)) as ProductDto[] | undefined) ??
+      await idb.productsByIds(ids),
+    ),
   saveGroups: (groups: ArticleGroupDto[], itemsByGroup: Record<number, ArticleGroupItemDto[]>) =>
     nativeStore()?.saveGroups(groups, itemsByGroup) ?? idb.saveGroups(groups, itemsByGroup),
   loadGroups: async () =>
     ((await nativeStore()?.loadGroups()) as ArticleGroupDto[] | undefined) ?? idb.loadGroups(),
   loadGroupItems: async (groupId: number) =>
-    ((await nativeStore()?.loadGroupItems(groupId)) as ArticleGroupItemDto[] | undefined) ?? idb.loadGroupItems(groupId),
+    withOfferSalePrices(
+      ((await nativeStore()?.loadGroupItems(groupId)) as ArticleGroupItemDto[] | undefined) ??
+      await idb.loadGroupItems(groupId),
+    ),
   saveSalesmen: (list: SalesmanDto[]) => nativeStore()?.saveSalesmen(list) ?? idb.saveSalesmen(list),
   loadSalesmen: async () =>
     ((await nativeStore()?.loadSalesmen()) as SalesmanDto[] | undefined) ?? idb.loadSalesmen(),

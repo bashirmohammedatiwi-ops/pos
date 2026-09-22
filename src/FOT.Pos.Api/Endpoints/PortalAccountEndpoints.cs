@@ -83,16 +83,17 @@ public static class PortalAccountEndpoints
         g.MapPost("/managers", async (HttpContext http, CreateManagerAccountRequest req, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
-            var (row, error) = await repo.CreateManagerAsync(req.Username, req.DisplayName, default);
+            var (row, error) = await repo.CreateManagerAsync(req.Username, req.DisplayName, req.Password, default);
             if (error is not null) return Results.BadRequest(new { error });
             _ = sync.PushNowAsync(CancellationToken.None);
             return Results.Ok(row);
         });
 
-        g.MapPost("/managers/{id:long}/reset", async (HttpContext http, long id, PortalAccountRepository repo, ISellerHubSync sync) =>
+        g.MapPost("/managers/{id:long}/reset", async (HttpContext http, long id, ResetManagerPasswordRequest req, PortalAccountRepository repo, ISellerHubSync sync) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
-            var row = await repo.ResetManagerPasswordAsync(id, default);
+            var (row, error) = await repo.ResetManagerPasswordAsync(id, req.Password, default);
+            if (error is not null) return Results.BadRequest(new { error });
             if (row is not null) _ = sync.PushNowAsync(CancellationToken.None);
             return row is null ? Results.NotFound() : Results.Ok(row);
         });

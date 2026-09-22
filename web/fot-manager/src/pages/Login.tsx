@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, getLastUser, setLastUser, setMe, setToken, tick } from '../api';
+import { api, getLastUser, getToken, setLastUser, setMe, setToken, tick } from '../api';
 import { BrandMark } from '../ui';
 
 export function Login() {
@@ -13,6 +13,10 @@ export function Login() {
   const [lookErr, setLookErr] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (getToken()) nav('/', { replace: true });
+  }, [nav]);
 
   useEffect(() => {
     const u = username.trim();
@@ -56,28 +60,29 @@ export function Login() {
       <div className="login-stage fade-up">
         <section className="login-brand">
           <BrandMark size={56} />
-          <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-indigo-100">FOT MANAGER</p>
-          <h2 className="display mt-3 text-4xl font-black leading-tight">متابعة المحل<br />من أي مكان</h2>
-          <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/80">
-            مبيعات كل بائع وكل كاشير، إحصاء اليوم والأسبوع، إيقاع التاركت، والفواتير من أي مكان.
+          <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-white/70">FOT MANAGER</p>
+          <h2 className="display mt-3 text-4xl font-black leading-tight">المحلة أمامك<br />في شاشة واحدة</h2>
+          <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/75">
+            مبيعات اليوم، تفاصيل كل بائع وكاشير، وعمولات الأسبوع حتى الآن — بلا إعادة تسجيل دخول.
           </p>
-          <div className="mt-8 grid grid-cols-3 gap-2 text-center">
-            {['يومي', 'أسبوعي', 'تاركت'].map(x => (
-              <div key={x} className="rounded-2xl bg-white/10 px-2 py-3 text-xs font-extrabold">{x}</div>
-            ))}
-          </div>
+          <ul className="login-points">
+            <li>مبيعات اليوم أولاً</li>
+            <li>عمولات حتى اليوم</li>
+            <li>جلسة لا تنتهي</li>
+          </ul>
         </section>
 
         <div className="login-card">
-          <p className="text-center text-[11px] font-extrabold tracking-[0.32em] text-goal">FOT MANAGER</p>
-          <h1 className="display mt-2 text-center text-[30px] font-black leading-tight">
-            {name ? `أهلاً ${name.split(' ')[0]}` : 'لوحة المدير'}
+          <div className="login-card-mark"><BrandMark size={44} /></div>
+          <p className="text-center text-[11px] font-extrabold tracking-[0.28em] text-goal">FOT MANAGER</p>
+          <h1 className="display mt-2 text-center text-[28px] font-black leading-tight">
+            {name ? `أهلاً ${name.split(' ')[0]}` : 'دخول المدير'}
           </h1>
           <p className="mt-2 text-center text-sm font-bold leading-6 text-muted">
-            اسم الدخول وكلمة المرور من لوحة التحكم — المبيعات والكاشير والتاركت في شاشة واحدة
+            استخدم اسم الدخول والرمز من لوحة التحكم
           </p>
           <form onSubmit={enter} className="mt-7">
-            <label className="mb-2 block text-sm font-extrabold text-goal">اسم الدخول</label>
+            <label className="mb-2 block text-sm font-extrabold text-ink">اسم الدخول</label>
             <input
               dir="ltr"
               autoComplete="username"
@@ -89,7 +94,7 @@ export function Login() {
             <p className={`mb-4 mt-2 min-h-6 text-sm font-extrabold ${name ? 'text-ok' : lookErr ? 'text-danger' : 'text-muted'}`}>
               {name ? `● ${name}` : !username.trim() ? 'أدخل اسم الدخول ليظهر اسمك' : looking ? 'جاري التعرّف…' : lookErr || 'لا مدير بهذا الاسم'}
             </p>
-            <label className="mb-2 block text-sm font-extrabold text-goal">كلمة المرور</label>
+            <label className="mb-2 block text-sm font-extrabold text-ink">الرمز</label>
             <div className="relative">
               <input
                 dir="ltr"

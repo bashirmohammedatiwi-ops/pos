@@ -3,6 +3,7 @@ import { queryClient } from '@/lib/queryClient';
 /** Preload lazy route chunks on sidebar hover. */
 const ROUTE_CHUNKS: Record<string, () => Promise<unknown>> = {
   '/products': () => import('@/pages/ProductsPage'),
+  '/barcode-labels': () => import('@/pages/BarcodeLabelsPage'),
   '/offers': () => import('@/pages/OffersPage'),
   '/groups': () => import('@/pages/GroupsPage'),
   '/accounts': () => import('@/pages/AccountsPage'),
@@ -48,6 +49,9 @@ export async function prefetchRouteQueries(path: string) {
   switch (key) {
     case '/products':
       tasks.push(queryClient.prefetchQuery({ queryKey: ['products'], queryFn: () => api.products(1), staleTime: 120_000 }));
+      break;
+    case '/barcode-labels':
+      tasks.push(queryClient.prefetchQuery({ queryKey: ['print-settings'], queryFn: api.printSettings, staleTime: 120_000 }));
       break;
     case '/offers':
       tasks.push(queryClient.prefetchQuery({ queryKey: ['offers'], queryFn: () => api.offers(), staleTime: 120_000 }));

@@ -103,7 +103,8 @@ public record ManagerSellerDetailDto(
     ManagerSellerRowDto Seller,
     IReadOnlyList<ManagerGoalRowDto> Goals,
     IReadOnlyList<ManagerLineDto> Lines);
-public record CreateManagerAccountRequest(string Username, string DisplayName);
+public record CreateManagerAccountRequest(string Username, string DisplayName, string Password);
+public record ResetManagerPasswordRequest(string Password);
 public record UpdateManagerAccountRequest(string DisplayName);
 public record PortalBulkIssueResult(int Issued, IReadOnlyList<PortalSellerAccountDto> Sellers);
 public record PortalWebProbeDto(bool VisibleOnWeb, string Message, string WebUrl, int? StatusCode);
@@ -421,7 +422,8 @@ public partial record ReceiptSummaryDto(
     /// <summary>Distinct salesmen on the receipt's lines — more than one means it has no single owner.</summary>
     int SalesmanCount = 0,
     long? DiscountQrPersonId = null,
-    string? DiscountQrPersonName = null)
+    string? DiscountQrPersonName = null,
+    bool WasEdited = false)
 {
     public ReceiptSummaryDto() : this(
         0, 0, default, 0, 0, 0, 0, null, null, null, false, null, 0)
@@ -507,6 +509,33 @@ public partial record ReceiptItemDto(
     int? GroupKey = null,
     string? GroupLabel = null);
 
+public record ReceiptEditLineDto(
+    long ArticleId,
+    string? Name,
+    string? Barcode,
+    decimal Quantity,
+    decimal Price,
+    decimal OriginalPrice,
+    decimal Discount,
+    long SalesmanId = 0,
+    string? SalesmanName = null);
+
+public record ReceiptEditSnapshotDto(
+    long SalesmanId,
+    string? SalesmanName,
+    decimal UserDiscount,
+    long MasterAccount,
+    IReadOnlyList<ReceiptEditLineDto> Items);
+
+public record ReceiptEditRevisionDto(
+    DateTime EditedAt,
+    ReceiptEditSnapshotDto Before,
+    ReceiptEditSnapshotDto After);
+
+public record ReceiptEditHistoryDto(
+    ReceiptEditSnapshotDto? Original,
+    IReadOnlyList<ReceiptEditRevisionDto>? Revisions);
+
 public record ReceiptDetailDto(
     long Id,
     long Number,
@@ -525,7 +554,9 @@ public record ReceiptDetailDto(
     int Kind = 0,
     long? ReturnOfReceiptId = null,
     long? DiscountQrPersonId = null,
-    string? DiscountQrPersonName = null);
+    string? DiscountQrPersonName = null,
+    bool WasEdited = false,
+    IReadOnlyList<ReceiptEditRevisionDto>? Edits = null);
 
 public record ReceiptReturnLineDto(
     long ItemId,
@@ -748,7 +779,9 @@ public record CreateReceiptRequest(
     long? ReturnOfReceiptId = null,
     long? DiscountQrPersonId = null,
     string? DiscountQrPersonCode = null,
-    string? DiscountQrPersonName = null);
+    string? DiscountQrPersonName = null,
+    DateTime? SoldAt = null,
+    ReceiptEditHistoryDto? EditHistory = null);
 
 public partial record DiscountQrPersonDto(
     long Id,
@@ -876,13 +909,15 @@ public record CreateTargetRuleRequest(
     IReadOnlyList<TargetTreeLinkDto>? Trees = null,
     IReadOnlyList<TargetSalesmanAssignmentDto>? Assignments = null,
     long? EdariTreeSeq = null, string? EdariTreeName = null,
-    string TargetType = "quantity");
+    string TargetType = "quantity",
+    IReadOnlyList<long>? ExcludedArticleIds = null);
 
 public record UpdateTargetRuleRequest(
     string Name,
     IReadOnlyList<TargetTreeLinkDto>? Trees,
     IReadOnlyList<TargetSalesmanAssignmentDto>? Assignments,
-    string TargetType = "quantity");
+    string TargetType = "quantity",
+    IReadOnlyList<long>? ExcludedArticleIds = null);
 public record UpdatePermissionsRequest(
     bool MakeDiscount, bool ViewReceipts, bool CashReport, bool DeleteItem, bool DuplicateItem,
     bool OfflineLogin, bool DiscardReceipt, bool AllowCreditReceipt, bool AllowSalesReturn,
@@ -1477,7 +1512,8 @@ public record TargetRuleDto(
     IReadOnlyList<TargetTreeLinkDto> Trees,
     IReadOnlyList<TargetSalesmanAssignmentDto> Assignments,
     long? EdariTreeSeq = null, string? EdariTreeName = null,
-    string TargetType = "quantity");
+    string TargetType = "quantity",
+    IReadOnlyList<long>? ExcludedArticleIds = null);
 
 public partial record CatalogInfoDto(int TotalProducts, long MaxSeq);
 

@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { api, formatNum } from '@/api/client';
 import type { OfferDetailDto, ProductOfferLookupDto } from '@/api/types';
-import { DISCOUNT_TYPE, offerPercent, offerSalePrice } from '@/lib/offers';
+import { DISCOUNT_TYPE, OFFER_PRICE_STEP, offerPercent, offerSalePrice } from '@/lib/offers';
+import { roundToStep } from '@fot/shared';
 import { Btn, Input } from '@/components/ui';
 import { IconPackage, IconPlus, IconSearch, IconX } from '@/components/icons';
 import { OfferMembershipPills } from '@/components/offers/OfferMembershipPills';
@@ -48,7 +49,7 @@ function toDiscount(_original: number, mode: Mode, raw: string) {
     const pct = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
     return { discount: pct, discountType: DISCOUNT_TYPE.percent };
   }
-  const sale = Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+  const sale = Number.isFinite(n) ? roundToStep(Math.max(0, n)) : 0;
   return { discount: sale, discountType: DISCOUNT_TYPE.salePrice };
 }
 
@@ -105,12 +106,19 @@ function ProductPriceFields({
         max={mode === 'percent' ? 100 : undefined}
         value={value}
         onChange={e => onChange(mode, e.target.value)}
+        onBlur={() => {
+          if (mode !== 'price') return;
+          const n = Number(value);
+          if (!Number.isFinite(n)) return;
+          const snapped = String(roundToStep(Math.max(0, n)));
+          if (snapped !== value) onChange(mode, snapped);
+        }}
         placeholder={mode === 'price' ? String(original || '') : '%'}
         className="!w-[88px] !py-1 text-center font-bold"
       />
       {preview != null && (
         <span className="text-[10px] text-slate-400">
-          {mode === 'percent' ? formatNum(preview) : `${preview}%`}
+          {mode === 'percent' ? `${formatNum(preview)} · أقرب ${OFFER_PRICE_STEP}` : `${preview}%`}
         </span>
       )}
     </div>

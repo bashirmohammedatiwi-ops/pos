@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
-import { IconCloud, IconPackage, IconPercent, IconReceipt, IconSparkle, IconTarget, IconTrendUp } from '@/components/icons';
+import { IconBarcode, IconCloud, IconPackage, IconPercent, IconReceipt, IconSparkle, IconTarget, IconTrendUp } from '@/components/icons';
 
 const LINKS = [
   { to: '/receipts', label: 'الفواتير', icon: IconReceipt },
   { to: '/products', label: 'المنتجات', icon: IconPackage },
+  { to: '/barcode-labels', label: 'طباعة الباركود', icon: IconBarcode },
   { to: '/offers', label: 'العروض', icon: IconPercent },
   { to: '/targets', label: 'الأهداف', icon: IconTarget },
   { to: '/portal-accounts', label: 'حسابات الويب', icon: IconSparkle },

@@ -11,7 +11,7 @@ const DATA_DIR = process.env.FOT_HUB_DATA || '/data';
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const SYNC_KEY = process.env.FOT_HUB_SYNC_KEY || 'fot-hub-sync-e7Kq9mN2pL4xW8vR';
 const JWT_KEY = process.env.FOT_HUB_JWT_KEY || 'FOT-HUB-JWT-CHANGE-THIS-SECRET-MIN-32-CHARS';
-const JWT_HOURS = Number(process.env.FOT_HUB_JWT_HOURS || 24);
+const JWT_HOURS = Number(process.env.FOT_HUB_JWT_HOURS || 87600);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -41,7 +41,7 @@ function signJwt(payload) {
   return `${header}.${body}.${sig}`;
 }
 
-function verifyJwt(token, role) {
+function verifyJwt(token, role, opts) {
   if (!token) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -49,12 +49,39 @@ function verifyJwt(token, role) {
   if (expect !== parts[2]) return null;
   try {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (!opts?.ignoreExp && payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
     if (role && payload.role !== role) return null;
     return payload;
   } catch {
     return null;
   }
+}
+
+function bearerToken(req) {
+  const auth = req.headers.authorization || '';
+  return auth.startsWith('Bearer ') ? auth.slice(7) : '';
+}
+
+function tokenExp() {
+  return Math.floor(Date.now() / 1000) + JWT_HOURS * 3600;
+}
+
+function issueSellerToken(acc) {
+  return signJwt({
+    sub: String(acc.id),
+    role: 'seller',
+    display_name: acc.name,
+    exp: tokenExp(),
+  });
+}
+
+function issueManagerToken(acc) {
+  return signJwt({
+    sub: String(acc.id),
+    role: 'manager',
+    display_name: acc.displayName,
+    exp: tokenExp(),
+  });
 }
 
 function weekKey(value) {
@@ -145,21 +172,17 @@ function syncAuthorized(req) {
   return header === SYNC_KEY || bearer === SYNC_KEY;
 }
 
-function sellerIdFromReq(req) {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const payload = verifyJwt(token, 'seller');
+function sellerIdFromReq(req, opts) {
+  const payload = verifyJwt(bearerToken(req), 'seller', opts);
   const id = Number(payload?.sub || 0);
   return id > 0 ? id : null;
 }
 
-function managerFromReq(req) {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const payload = verifyJwt(token, 'manager');
+function managerFromReq(req, opts) {
+  const payload = verifyJwt(bearerToken(req), 'manager', opts);
   const id = Number(payload?.sub || 0);
   if (!(id > 0)) return null;
-  return state.managers?.[id] || null;
+  return state.managers?.[id] || state.managers?.[String(id)] || null;
 }
 
 function findManager(username) {
@@ -728,13 +751,20 @@ const server = http.createServer(async (req, res) => {
       }
       const snap = state.snapshots[id];
       const me = snap?.me || snap?.Me || { id: acc.id, name: acc.name, mustChangePin: acc.mustChangePin };
-      const token = signJwt({
-        sub: String(acc.id),
-        role: 'seller',
-        display_name: acc.name,
-        exp: Math.floor(Date.now() / 1000) + JWT_HOURS * 3600,
-      });
-      send(res, 200, { token, seller: me });
+      send(res, 200, { token: issueSellerToken(acc), seller: me });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/auth/seller-refresh') {
+      const id = sellerIdFromReq(req, { ignoreExp: true });
+      const acc = id ? state.accounts[id] : null;
+      if (!acc || !acc.isActive) {
+        send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
+        return;
+      }
+      const snap = state.snapshots[id];
+      const me = snap?.me || snap?.Me || { id: acc.id, name: acc.name, mustChangePin: acc.mustChangePin };
+      send(res, 200, { token: issueSellerToken(acc), seller: me });
       return;
     }
 
@@ -769,14 +799,21 @@ const server = http.createServer(async (req, res) => {
         sendOpen(res, 401, { error: 'بيانات الدخول غير صحيحة' });
         return;
       }
-      const token = signJwt({
-        sub: String(acc.id),
-        role: 'manager',
-        display_name: acc.displayName,
-        exp: Math.floor(Date.now() / 1000) + JWT_HOURS * 3600,
-      });
       sendOpen(res, 200, {
-        token,
+        token: issueManagerToken(acc),
+        manager: { id: acc.id, username: acc.username, displayName: acc.displayName },
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/auth/manager-refresh') {
+      const acc = managerFromReq(req, { ignoreExp: true });
+      if (!acc || !acc.isActive) {
+        sendOpen(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
+        return;
+      }
+      sendOpen(res, 200, {
+        token: issueManagerToken(acc),
         manager: { id: acc.id, username: acc.username, displayName: acc.displayName },
       });
       return;

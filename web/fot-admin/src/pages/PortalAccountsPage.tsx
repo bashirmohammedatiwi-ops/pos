@@ -48,7 +48,7 @@ function SecretBox({ value, onCopy }: { value?: string | null; onCopy: (v: strin
   if (!value) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-[13px] font-bold text-slate-400">
-        لا يوجد رمز بعد — ولّد الحساب ليُحفظ على السيرفر
+        لا يوجد رمز ظاهر — أدخل الرمز يدوياً عند الإنشاء أو التغيير
       </div>
     );
   }
@@ -77,6 +77,8 @@ export function PortalAccountsPage() {
   const [selectedManagerId, setSelectedManagerId] = useState<number | null>(null);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [managerPin, setManagerPin] = useState('');
+  const [resetPin, setResetPin] = useState('');
   const [editName, setEditName] = useState('');
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [freshSellers, setFreshSellers] = useState<Set<number>>(new Set());
@@ -175,10 +177,11 @@ export function PortalAccountsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
   const createMgr = useMutation({
-    mutationFn: () => api.createPortalManager(username, displayName),
+    mutationFn: () => api.createPortalManager(username, displayName, managerPin),
     onSuccess: row => {
       setUsername('');
       setDisplayName('');
+      setManagerPin('');
       qc.setQueryData<PortalManagerAccountDto[]>(['portal-managers'], old => [row, ...(old ?? [])]);
       markManager(row.id);
       setEditName(row.displayName);
@@ -189,10 +192,11 @@ export function PortalAccountsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
   const resetMgr = useMutation({
-    mutationFn: api.resetPortalManager,
+    mutationFn: ({ id, password }: { id: number; password: string }) => api.resetPortalManager(id, password),
     onSuccess: row => {
       putManager(row);
       markManager(row.id);
+      setResetPin('');
       toast.success(`حُفظ ورُفع للويب — رمز ${row.username}: ${row.passwordDisplay}`);
       if (row.passwordDisplay) void copySecret(row.passwordDisplay);
       void qc.invalidateQueries({ queryKey: ['portal-managers'] });
@@ -467,7 +471,7 @@ export function PortalAccountsPage() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-3">
-            <p className="mb-2 text-[12px] font-extrabold text-header">إنشاء مدير جديد — يُحفظ فوراً على السيرفر</p>
+            <p className="mb-2 text-[12px] font-extrabold text-header">إنشاء مدير جديد — الرمز تدخله أنت ولا يُولَّد تلقائياً</p>
             <div className="flex flex-wrap items-end gap-2">
               <FilterField label="اسم الدخول" className="w-[180px]">
                 <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="manager1" dir="ltr" />
@@ -475,9 +479,12 @@ export function PortalAccountsPage() {
               <FilterField label="الاسم الظاهر" className="w-[220px]">
                 <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="مدير المتابعة" />
               </FilterField>
+              <FilterField label="الرمز" className="w-[180px]">
+                <Input value={managerPin} onChange={e => setManagerPin(e.target.value)} placeholder="رمز من اختيارك" dir="ltr" />
+              </FilterField>
               <Btn
                 onClick={() => createMgr.mutate()}
-                disabled={createMgr.isPending || username.trim().length < 2 || displayName.trim().length < 2}
+                disabled={createMgr.isPending || username.trim().length < 2 || displayName.trim().length < 2 || managerPin.trim().length < 4}
               >
                 إنشاء وحفظ
               </Btn>
@@ -491,7 +498,7 @@ export function PortalAccountsPage() {
                 loading={managersQ.isLoading}
                 getRowId={r => r.id}
                 selectedId={selectedManagerId ?? undefined}
-                onRowClick={r => { setSelectedManagerId(r.id); setEditName(r.displayName); }}
+                onRowClick={r => { setSelectedManagerId(r.id); setEditName(r.displayName); setResetPin(''); }}
                 rowTone={r => freshManagers.has(r.id) ? 'bg-amber-50/80' : undefined}
               />
             </div>
@@ -515,15 +522,19 @@ export function PortalAccountsPage() {
                   >
                     حفظ الاسم على السيرفر
                   </Btn>
+                  <FilterField label="تعيين رمز جديد يدوياً">
+                    <Input value={resetPin} onChange={e => setResetPin(e.target.value)} placeholder="الرمز الجديد" dir="ltr" />
+                  </FilterField>
                   <Btn
+                    disabled={resetMgr.isPending || resetPin.trim().length < 4}
                     onClick={() => setConfirm({
-                      title: `إعادة رمز ${selectedManager.username}`,
-                      body: 'سيُحفظ رمز جديد على السيرفر، والرمز الحالي لن يعمل.',
-                      ok: 'إعادة الرمز',
-                      run: () => resetMgr.mutate(selectedManager.id),
+                      title: `حفظ رمز ${selectedManager.username}`,
+                      body: 'سيُستبدل الرمز الحالي بالرمز الذي أدخلته. الرمز القديم لن يعمل.',
+                      ok: 'حفظ الرمز',
+                      run: () => resetMgr.mutate({ id: selectedManager.id, password: resetPin.trim() }),
                     })}
                   >
-                    إعادة الرمز وحفظه
+                    حفظ الرمز الجديد
                   </Btn>
                   <Btn variant="secondary" onClick={() => setMgr.mutate({ id: selectedManager.id, active: !selectedManager.isActive })}>
                     {selectedManager.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}

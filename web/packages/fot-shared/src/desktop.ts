@@ -80,8 +80,8 @@ export type FotDesktopBridge = {
     html: string,
     copies?: number,
     deviceName?: string | null,
-    /** Roll width so the hidden print window uses the paper size instead of the driver default. */
-    options?: { paperWidthMm?: number },
+    /** Roll/label size so the hidden print window uses the paper instead of the driver default. */
+    options?: { paperWidthMm?: number; paperHeightMm?: number; kind?: 'receipt' | 'label' },
   ) => Promise<{ ok: boolean; message?: string }>;
   listPrinters?: () => Promise<PrinterInfo[]>;
   getPrintConfig?: () => Promise<{ printerName: string | null; askBeforePrint: boolean }>;

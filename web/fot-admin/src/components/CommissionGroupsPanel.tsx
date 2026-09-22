@@ -448,6 +448,7 @@ export function GroupEditorModal({
   async function commitPicker(ops: ScopePickerOps) {
     for (const seq of ops.removeTreeSeqs) await api.deleteCommissionGroupTree(detail.id, seq);
     for (const rowId of ops.removeRowIds) await api.deleteCommissionGroupItem(detail.id, rowId);
+    for (const seq of ops.excludeProductSeqs) await api.setCommissionArticleExcluded(detail.id, seq, true);
     let absorbed = 0;
     for (const t of ops.addTrees) {
       const r = await api.addCommissionGroupTree(detail.id, t.seq, t.name);
@@ -543,8 +544,7 @@ export function GroupEditorModal({
               }}
               onRefreshTree={async seq => (await api.refreshCommissionTree(detail.id, seq)).added}
               onToggleExclude={async (_seq, product) => {
-                if (product.rowId == null) return;
-                await api.setCommissionItemExcluded(product.rowId, !product.excluded);
+                await api.setCommissionArticleExcluded(detail.id, product.seq, !product.excluded);
                 await refreshDetail();
               }}
               labels={{

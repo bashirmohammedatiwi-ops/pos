@@ -13,15 +13,16 @@ export function setToken(token: string | null) {
 
 export function getMe(): ManagerMe | null {
   try {
-    const raw = sessionStorage.getItem(ME_KEY);
+    const raw = localStorage.getItem(ME_KEY) || sessionStorage.getItem(ME_KEY);
     return raw ? JSON.parse(raw) as ManagerMe : null;
   } catch {
     return null;
   }
 }
 export function setMe(me: ManagerMe | null) {
-  if (me) sessionStorage.setItem(ME_KEY, JSON.stringify(me));
-  else sessionStorage.removeItem(ME_KEY);
+  sessionStorage.removeItem(ME_KEY);
+  if (me) localStorage.setItem(ME_KEY, JSON.stringify(me));
+  else localStorage.removeItem(ME_KEY);
 }
 
 export function getLastUser() {
@@ -31,7 +32,34 @@ export function setLastUser(username: string) {
   if (username) localStorage.setItem(LAST_USER_KEY, username);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+let refreshWait: Promise<boolean> | null = null;
+
+export async function refreshSession(): Promise<boolean> {
+  if (refreshWait) return refreshWait;
+  const token = getToken();
+  if (!token) return false;
+  refreshWait = (async () => {
+    try {
+      const res = await fetch('/auth/manager-refresh', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const text = await res.text();
+      if (!res.ok) return false;
+      const data = text ? JSON.parse(text) as { token?: string; manager?: ManagerMe } : {};
+      if (data.token) setToken(data.token);
+      if (data.manager) setMe(data.manager);
+      return !!data.token;
+    } catch {
+      return false;
+    } finally {
+      refreshWait = null;
+    }
+  })();
+  return refreshWait;
+}
+
+async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -50,6 +78,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     if (res.status === 404 && authCall) throw new Error('لا مدير بهذا الاسم');
     if (res.status === 401) {
+      if (!authCall && token && !retried && await refreshSession()) {
+        return request<T>(path, init, true);
+      }
       if (!authCall && token) {
         setToken(null);
         setMe(null);

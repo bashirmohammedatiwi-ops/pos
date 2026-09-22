@@ -57,7 +57,11 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 const role = resolveRole();
 process.env.FOT_APP = role;
 const isDev = !app.isPackaged;
-const startBackground = process.argv.includes('--background');
+function isSilentArgv(argv = process.argv) {
+  return argv.includes('--background') || argv.includes('--hidden');
+}
+
+const startBackground = isSilentArgv();
 
 function isServerEdition() {
   if (!app.isPackaged || role !== 'admin') return false;
@@ -68,7 +72,14 @@ function isServerEdition() {
 if (isServerEdition()) {
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) app.quit();
-  else app.on('second-instance', () => showMainWindow());
+  else {
+    app.on('second-instance', (_event, commandLine) => {
+      // Login / service leftovers start a second copy with --background.
+      // Never pop the admin UI for those — only a real user launch.
+      if (isSilentArgv(commandLine)) return;
+      showMainWindow();
+    });
+  }
 }
 
 let store;
@@ -124,12 +135,22 @@ function recoveryIndex() {
 }
 
 function isLoginLaunch() {
-  if (process.argv.includes('--background')) return true;
+  if (isSilentArgv()) return true;
   try {
     return Boolean(app.getLoginItemSettings().wasOpenedAtLogin);
   } catch {
     return false;
   }
+}
+
+function isSilentServerStart() {
+  return isServerEdition() && (startBackground || isLoginLaunch());
+}
+
+/** Admin or Server started by Windows login / --background: no UI. */
+function shouldStartHidden() {
+  if (role === 'pos') return false;
+  return startBackground || isSilentServerStart();
 }
 
 function waitForDesktopSession() {
@@ -312,16 +333,17 @@ function createTray() {
   try {
     const icon = nativeImage.createFromPath(process.execPath);
     tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }));
-    tray.setToolTip('FOT POS Server');
+    tray.setToolTip('FOT POS Server — يعمل في الخلفية');
     const menu = Menu.buildFromTemplate([
-      { label: 'لوحة التحكم', click: () => showMainWindow() },
+      { label: 'الخادم يعمل في الخلفية', enabled: false },
+      { label: 'فتح لوحة التحكم', click: () => showMainWindow() },
       { label: 'إعادة تحميل الواجهة', click: () => {
         const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
         if (win && canReloadWindow('tray-reload')) loadApp(win);
         showMainWindow();
       } },
       { type: 'separator' },
-      { label: 'إنهاء FOT POS', click: () => { quitting = true; app.quit(); } },
+      { label: 'إغلاق الأيقونة فقط (الخادم يبقى يعمل)', click: () => { quitting = true; app.quit(); } },
     ]);
     tray.setContextMenu(menu);
     tray.on('double-click', () => showMainWindow());
@@ -334,7 +356,6 @@ function createWindow() {
   const userData = app.getPath('userData');
   const windowCfg = readWindowConfig(userData, { fullscreen: role === 'pos' });
   const startFullscreen = role === 'pos' && windowCfg.fullscreen !== false;
-  const hideOnLaunch = isServerEdition() && startBackground;
 
   const win = new BrowserWindow({
     width: 1480,
@@ -361,10 +382,8 @@ function createWindow() {
   win.webContents.setBackgroundThrottling(false);
 
   win.once('ready-to-show', () => {
-    if (!hideOnLaunch) {
-      revealMainWindow(win);
-      healWindowInput(win);
-    }
+    revealMainWindow(win);
+    healWindowInput(win);
   });
 
   win.on('show', () => {
@@ -380,7 +399,7 @@ function createWindow() {
   });
 
   setTimeout(() => {
-    if (win.isDestroyed() || hideOnLaunch || win.isVisible() || !win.__fotLoaded) return;
+    if (win.isDestroyed() || win.isVisible() || !win.__fotLoaded) return;
     logInfo('force-show window (ready-to-show missed)');
     revealMainWindow(win);
   }, 3500);
@@ -708,15 +727,33 @@ ipcMain.handle('card:charge', async (_event, payload) => {
 });
 
 function configureAutostart() {
-  if (!isServerEdition()) return;
+  if (role === 'pos') return;
   try {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      path: process.execPath,
-      args: ['--background'],
-    });
+    // The Windows service (FOTPOSServer) is the background server.
+    // Do not open the admin Electron app at login.
+    app.setLoginItemSettings({ openAtLogin: false });
   } catch (e) {
     console.error('[fot-autostart]', e);
+  }
+  try {
+    const { spawn } = require('child_process');
+    const keys = [
+      ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'FOT POS Server'],
+      ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'FOTPOSServerAdmin'],
+      ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'electron.app.FOT POS Server'],
+      ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'electron.app.FOT POS Admin'],
+      ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'FOTPOSServerAdmin'],
+    ];
+    for (const [hive, name] of keys) {
+      const child = spawn('reg', ['delete', hive, '/v', name, '/f'], {
+        windowsHide: true,
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+    }
+  } catch {
+    /* leftover Run keys are best-effort */
   }
 }
 
@@ -733,12 +770,16 @@ app.whenReady().then(async () => {
   }
   bindStoreIpc();
   configureAutostart();
+  if (shouldStartHidden() && !isServerEdition()) {
+    app.quit();
+    return;
+  }
   createTray();
-  // Instant visual feedback while the renderer bundle loads — this is what the user
-  // sees instead of a blank white window on slow disks / after cache wipes.
-  // Server edition starting hidden in the background skips the splash entirely.
-  if (!(isServerEdition() && startBackground)) createSplash();
-  createWindow();
+  // Boot / --background: Windows service is the server. No admin window.
+  if (!shouldStartHidden()) {
+    createSplash();
+    createWindow();
+  }
   void (async () => {
     if (isLoginLaunch()) await waitForDesktopSession();
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;

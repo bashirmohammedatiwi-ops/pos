@@ -37,7 +37,7 @@ export function Goals() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="fade-up space-y-4">
+    <div className="dash fade-up">
       <section className="card goal-hero command">
         <Ring value={avg} size={132} tone="goal" label="إنجاز" />
         <div>

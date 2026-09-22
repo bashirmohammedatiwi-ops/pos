@@ -3,7 +3,7 @@
   "productName": "FOT POS Admin",
   "copyright": "Copyright © Future of Technology",
   "directories": {
-    "output": "dist/admin"
+    "output": "dist-out73/admin"
   },
   "files": [
     "electron/**/*",

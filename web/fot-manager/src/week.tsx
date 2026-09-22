@@ -1,6 +1,7 @@
-import { useCallback, useRef, type TouchEvent } from 'react';
+import { useCallback, useRef, useState, type TouchEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, moneyIq, type WeekSummary } from './api';
+import { dayLabel, moneyIq, todayKey, type WeekSummary } from './api';
+import { PAY_CHIPS, SALES_CHIPS, addDays, type PeriodBounds, type PeriodKind } from './period';
 
 const WEEK_KEY = 'fot_manager_week';
 
@@ -69,6 +70,137 @@ export function WeekBar({
         })}
       </div>
       <button type="button" className="week-arrow" disabled={!older} onClick={() => pick(older)} aria-label="الأقدم">›</button>
+    </div>
+  );
+}
+
+export function PeriodBar({
+  weeks,
+  weekStart,
+  setWeek,
+  period,
+  kind,
+  setKind,
+  customFrom,
+  customTo,
+  setCustom,
+  chips = SALES_CHIPS,
+  compact = false,
+}: {
+  weeks: WeekSummary[];
+  weekStart?: string;
+  setWeek: (w?: string) => void;
+  period: PeriodBounds;
+  kind: PeriodKind;
+  setKind: (k: PeriodKind) => void;
+  customFrom: string;
+  customTo: string;
+  setCustom: (from: string, to: string) => void;
+  chips?: { id: PeriodKind; label: string }[];
+  compact?: boolean;
+}) {
+  const [weeksOpen, setWeeksOpen] = useState(false);
+  const current = weeks.find(w => w.isCurrent);
+  const currentKey = current?.weekStart.slice(0, 10);
+  const showWeeks = weeksOpen || kind === 'week';
+
+  function pickKind(next: PeriodKind) {
+    if (next === 'today' || next === 'yesterday' || next === 'wtd') {
+      if (weekStart && currentKey && weekStart !== currentKey) setWeek(undefined);
+    }
+    setKind(next);
+  }
+
+  function stepDay(delta: number) {
+    const next = addDays(period.from, delta);
+    setCustom(next, next);
+    setKind('custom');
+  }
+
+  return (
+    <section className={`range-bar ${compact ? 'compact' : ''}`}>
+      <div className="range-chips">
+        {chips.map(c => (
+          <button key={c.id} type="button" className={kind === c.id ? 'on' : ''} onClick={() => pickKind(c.id)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <div className="range-meta">
+        <div className="range-step">
+          <button type="button" className="week-arrow" onClick={() => stepDay(-1)} aria-label="اليوم السابق">‹</button>
+          <div>
+            <p className="kicker">{period.singleDay ? 'اليوم المعروض' : 'المدة المعروضة'}</p>
+            <p className="font-extrabold">{period.label}</p>
+          </div>
+          <button
+            type="button"
+            className="week-arrow"
+            disabled={period.to >= todayKey()}
+            onClick={() => stepDay(1)}
+            aria-label="اليوم التالي"
+          >›</button>
+        </div>
+        {kind === 'custom' && (
+          <div className="range-dates">
+            <label>
+              من
+              <input type="date" value={customFrom} onChange={e => setCustom(e.target.value, customTo || e.target.value)} />
+            </label>
+            <label>
+              إلى
+              <input type="date" value={customTo} onChange={e => setCustom(customFrom || e.target.value, e.target.value)} />
+            </label>
+          </div>
+        )}
+        {!compact && weeks.length > 1 && (
+          <button type="button" className="range-more" onClick={() => setWeeksOpen(v => !v)}>
+            {showWeeks ? 'إخفاء الأسابيع' : 'أسابيع سابقة'}
+          </button>
+        )}
+      </div>
+      {!compact && showWeeks && <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />}
+    </section>
+  );
+}
+
+export function PayPeriodBar({
+  period,
+  kind,
+  setKind,
+  customFrom,
+  customTo,
+  setCustom,
+}: {
+  period: PeriodBounds;
+  kind: PeriodKind;
+  setKind: (k: PeriodKind) => void;
+  customFrom: string;
+  customTo: string;
+  setCustom: (from: string, to: string) => void;
+}) {
+  return (
+    <div className="pay-range">
+      <div className="range-chips slim">
+        {PAY_CHIPS.map(c => (
+          <button key={c.id} type="button" className={kind === c.id ? 'on' : ''} onClick={() => setKind(c.id)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-xs font-extrabold text-muted">{period.label}</p>
+      {kind === 'custom' && (
+        <div className="range-dates mt-2">
+          <label>
+            من
+            <input type="date" value={customFrom} onChange={e => setCustom(e.target.value, customTo || e.target.value)} />
+          </label>
+          <label>
+            إلى
+            <input type="date" value={customTo} onChange={e => setCustom(customFrom || e.target.value, e.target.value)} />
+          </label>
+        </div>
+      )}
     </div>
   );
 }

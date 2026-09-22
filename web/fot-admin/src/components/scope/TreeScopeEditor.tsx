@@ -530,7 +530,7 @@ function TreeCard(props: {
   }, [products, productFilter]);
 
   async function toggleExclude(p: ScopeTreeProduct) {
-    if (!onToggleExclude || p.rowId == null) return;
+    if (!onToggleExclude) return;
     setProducts(prev => prev?.map(x => x.seq === p.seq ? { ...x, excluded: !p.excluded, inScope: p.excluded ? true : x.inScope } : x) ?? null);
     try {
       await onToggleExclude(tree.treeSeq, p);
@@ -642,7 +642,7 @@ function TreeCard(props: {
               {p.inScope && !p.excluded && (
                 <span className="shrink-0 text-emerald-500" title="داخل النطاق"><IconCheckCircle size={13} /></span>
               )}
-              {onToggleExclude && p.rowId != null && (
+              {onToggleExclude && (
                 <button
                   type="button"
                   onClick={() => void toggleExclude(p)}
