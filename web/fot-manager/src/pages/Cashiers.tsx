@@ -80,7 +80,7 @@ export function Cashiers() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="page-flow fade-up">
+    <div className="page-flow fade-up people-page">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}

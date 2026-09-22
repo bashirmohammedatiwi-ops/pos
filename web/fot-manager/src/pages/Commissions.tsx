@@ -116,15 +116,17 @@ export function Commissions() {
         </SectionCard>
       )}
 
-      <SearchField value={q} onChange={setQ} placeholder="ابحث بالاسم" />
-      <div className="sort-bar">
-        {([['commission', 'العمولة'], ['sales', 'المبيعات'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
-          <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
-        ))}
-        <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
-          {hideZero ? 'إخفاء الصفر' : 'إظهار الكل'}
-        </button>
-      </div>
+      <section className="people-toolbar card">
+        <SearchField value={q} onChange={setQ} placeholder="ابحث بالاسم" />
+        <div className="sort-bar">
+          {([['commission', 'العمولة'], ['sales', 'المبيعات'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
+            <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
+          ))}
+          <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
+            {hideZero ? 'إخفاء الصفر' : 'إظهار الكل'}
+          </button>
+        </div>
+      </section>
 
       <div className="leader-list stagger">
         {rows.map((s, i) => {
