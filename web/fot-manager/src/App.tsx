@@ -131,7 +131,7 @@ function Shell() {
   function logout() {
     setToken(null);
     setMe(null);
-    sessionStorage.removeItem('fot_manager_week');
+    try { sessionStorage.removeItem('fot_manager_week'); } catch { /* ignore */ }
     nav('/login');
   }
 

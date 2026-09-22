@@ -2,34 +2,44 @@ const TOKEN_KEY = 'fot_manager_token';
 const ME_KEY = 'fot_manager_me';
 const LAST_USER_KEY = 'fot_manager_last_user';
 
+function storageGet(store: Storage | undefined, key: string): string | null {
+  try { return store?.getItem(key) ?? null; } catch { return null; }
+}
+function storageSet(store: Storage | undefined, key: string, value: string) {
+  try { store?.setItem(key, value); } catch { /* ignore quota / private mode */ }
+}
+function storageDel(store: Storage | undefined, key: string) {
+  try { store?.removeItem(key); } catch { /* ignore */ }
+}
+
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
+  return storageGet(localStorage, TOKEN_KEY) || storageGet(sessionStorage, TOKEN_KEY);
 }
 export function setToken(token: string | null) {
-  sessionStorage.removeItem(TOKEN_KEY);
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  storageDel(sessionStorage, TOKEN_KEY);
+  if (token) storageSet(localStorage, TOKEN_KEY, token);
+  else storageDel(localStorage, TOKEN_KEY);
 }
 
 export function getMe(): ManagerMe | null {
   try {
-    const raw = localStorage.getItem(ME_KEY) || sessionStorage.getItem(ME_KEY);
+    const raw = storageGet(localStorage, ME_KEY) || storageGet(sessionStorage, ME_KEY);
     return raw ? JSON.parse(raw) as ManagerMe : null;
   } catch {
     return null;
   }
 }
 export function setMe(me: ManagerMe | null) {
-  sessionStorage.removeItem(ME_KEY);
-  if (me) localStorage.setItem(ME_KEY, JSON.stringify(me));
-  else localStorage.removeItem(ME_KEY);
+  storageDel(sessionStorage, ME_KEY);
+  if (me) storageSet(localStorage, ME_KEY, JSON.stringify(me));
+  else storageDel(localStorage, ME_KEY);
 }
 
 export function getLastUser() {
-  return localStorage.getItem(LAST_USER_KEY) ?? '';
+  return storageGet(localStorage, LAST_USER_KEY) ?? '';
 }
 export function setLastUser(username: string) {
-  if (username) localStorage.setItem(LAST_USER_KEY, username);
+  if (username) storageSet(localStorage, LAST_USER_KEY, username);
 }
 
 let refreshWait: Promise<boolean> | null = null;

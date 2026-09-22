@@ -9,15 +9,17 @@ const WEEK_KEY = 'fot_manager_week';
 export function useWeek() {
   const [params, setParams] = useSearchParams();
   const fromUrl = params.get('week');
-  const weekStart = fromUrl || sessionStorage.getItem(WEEK_KEY) || undefined;
+  let stored: string | null = null;
+  try { stored = sessionStorage.getItem(WEEK_KEY); } catch { /* private mode */ }
+  const weekStart = fromUrl || stored || undefined;
   const setWeek = useCallback((w?: string) => {
     const next = new URLSearchParams(params);
     if (w) {
       next.set('week', w);
-      sessionStorage.setItem(WEEK_KEY, w);
+      try { sessionStorage.setItem(WEEK_KEY, w); } catch { /* ignore */ }
     } else {
       next.delete('week');
-      sessionStorage.removeItem(WEEK_KEY);
+      try { sessionStorage.removeItem(WEEK_KEY); } catch { /* ignore */ }
     }
     setParams(next, { replace: true });
   }, [params, setParams]);
