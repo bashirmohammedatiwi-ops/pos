@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  avgTicket, cashierCsv, dayKey, deltaPct, downloadText, lastSyncMs, moneyIq, pieces, pct, shareOf, todayKey,
+  avgTicket, cashierCsv, dayKey, deltaPct, downloadText, lastSyncMs, moneyIq, pieces, todayKey,
   type CashierRow, type LineRow,
 } from '../api';
 import { groupReceipts, lineCashier, linesForCashier, rankProducts, sellersThroughCashier } from '../insights';
@@ -13,7 +13,7 @@ import {
 } from '../ui';
 import { PeriodBar } from '../week';
 
-type Sort = 'sales' | 'receipts' | 'share';
+type Sort = 'sales' | 'receipts';
 type Tab = 'overview' | 'sellers' | 'products' | 'invoices';
 
 export function Cashiers() {
@@ -43,7 +43,6 @@ export function Cashiers() {
   }, [scopedCashiers, params]);
 
   const salesTotal = periodTotals.sales || shareBase;
-  const shareDen = shareBase;
   const todayRow = insights.days.find(d => d.key === todayKey());
   const todayKey_ = todayKey();
 
@@ -66,10 +65,9 @@ export function Cashiers() {
     const list = scopedCashiers.filter(c => !q.trim() || c.name.includes(q.trim()));
     return [...list].sort((a, b) => {
       if (sort === 'receipts') return b.receiptCount - a.receiptCount;
-      if (sort === 'share') return shareOf(b.salesAmount, shareDen) - shareOf(a.salesAmount, shareDen);
       return b.salesAmount - a.salesAmount;
     });
-  }, [scopedCashiers, q, sort, shareDen]);
+  }, [scopedCashiers, q, sort]);
 
   const detailLines = open ? linesForCashier(scopedLines, open.name) : [];
   const detailSellers = open ? sellersThroughCashier(scopedLines, open.name) : [];
@@ -156,7 +154,7 @@ export function Cashiers() {
             id: `${c.cashierId}-${c.name}`,
             name: c.name,
             value: moneyIq(c.salesAmount),
-            hint: `${c.receiptCount} فاتورة · ${pct(shareOf(c.salesAmount, shareDen))}`,
+            hint: `${c.receiptCount} فاتورة`,
           }))}
           onPick={item => {
             const hit = rows.find(c => c.name === item.name);
@@ -175,7 +173,7 @@ export function Cashiers() {
       <section className="people-toolbar card">
         <SearchField value={q} onChange={setQ} placeholder="ابحث باسم الكاشير" />
         <div className="sort-bar">
-          {([['sales', 'المبيعات'], ['share', 'الحصة'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
+          {([['sales', 'المبيعات'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
             <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
           ))}
         </div>
@@ -187,7 +185,7 @@ export function Cashiers() {
         <table>
           <thead>
             <tr>
-              <th>#</th><th>الكاشير</th><th>المبيعات</th><th>الحصة</th><th>فواتير</th><th>متوسط</th>
+              <th>#</th><th>الكاشير</th><th>المبيعات</th><th>فواتير</th><th>متوسط</th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +194,6 @@ export function Cashiers() {
                 <td><Medal rank={i + 1} /></td>
                 <td className="font-extrabold">{c.name}</td>
                 <td className="num">{moneyIq(c.salesAmount)}</td>
-                <td className="num">{pct(shareOf(c.salesAmount, shareDen))}</td>
                 <td className="num">{c.receiptCount}</td>
                 <td className="num">{moneyIq(avgTicket(c.salesAmount, c.receiptCount))}</td>
               </tr>
@@ -207,7 +204,6 @@ export function Cashiers() {
 
       <div className="leader-list stagger people-mobile mt-3">
         {rows.map((c, i) => {
-          const share = shareOf(c.salesAmount, shareDen);
           const todaySales = todayMap.get(c.name)?.sales;
           return (
             <div key={`${c.cashierId}-${c.name}`}>
@@ -215,8 +211,7 @@ export function Cashiers() {
                 rank={i + 1}
                 name={c.name}
                 sales={c.salesAmount}
-                meta={`${c.receiptCount} فاتورة · ${pct(share)} · متوسط ${moneyIq(avgTicket(c.salesAmount, c.receiptCount))}${todaySales ? ` · اليوم ${moneyIq(todaySales)}` : ''}`}
-                share={share}
+                meta={`${c.receiptCount} فاتورة · متوسط ${moneyIq(avgTicket(c.salesAmount, c.receiptCount))}${todaySales ? ` · اليوم ${moneyIq(todaySales)}` : ''}`}
                 tone="gold"
                 onClick={() => { setOpen(c); setTab('overview'); }}
               />
@@ -245,7 +240,7 @@ export function Cashiers() {
             </div>
             {tab === 'overview' && (
               <>
-                <StatGrid sales={open.salesAmount} receipts={open.receiptCount} totalSales={salesTotal} />
+                <StatGrid sales={open.salesAmount} receipts={open.receiptCount} />
                 {openToday && (
                   <div className="detail-cell highlight">
                     <p>مبيعات اليوم</p>
@@ -259,7 +254,7 @@ export function Cashiers() {
                 ? detailSellers.map(s => (
                   <Link key={s.id} to={`/team?q=${encodeURIComponent(s.name)}`} className="detail-cell stat-link">
                     <p>{s.name}</p>
-                    <strong className="num">{moneyIq(s.sales)} · {pct(s.share)}</strong>
+                    <strong className="num">{moneyIq(s.sales)}</strong>
                     <p className="mt-1 text-xs font-bold text-muted">{s.receipts} فاتورة</p>
                   </Link>
                 ))

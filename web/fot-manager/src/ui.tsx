@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { avgTicket, money, moneyIq, moneyK, pct, shareOf } from './api';
+import { avgTicket, money, moneyIq, moneyK } from './api';
 import type { HourBand, PersonShare, ReceiptGroup } from './insights';
 import type { PeriodBounds, PeriodKind } from './period';
 
@@ -652,17 +653,18 @@ export function PersonAvatar({ name, tone = 'goal', size = 42 }: { name: string;
 }
 
 export function LeaderCard({
-  rank, name, sales, meta, share, onClick, tone = 'goal', badge,
+  rank, name, sales, meta, onClick, tone = 'goal', badge, showSales = true,
 }: {
   rank: number;
   name: string;
-  sales: number;
+  sales?: number;
   meta?: string;
-  share?: number;
   onClick?: () => void;
   tone?: 'goal' | 'gold';
   badge?: ReactNode;
+  showSales?: boolean;
 }) {
+  const roster = !showSales;
   const inner = (
     <>
       <Medal rank={rank} />
@@ -673,17 +675,16 @@ export function LeaderCard({
           {badge}
         </div>
         {meta && <p className="leader-card-meta">{meta}</p>}
-        {share != null && share > 0 && (
-          <div className="mt-2"><Track value={share} tone={tone === 'gold' ? 'gold' : 'goal'} /></div>
-        )}
       </div>
-      <p className="leader-card-val num">{moneyIq(sales)}</p>
+      {showSales && sales != null && <p className="leader-card-val num">{moneyIq(sales)}</p>}
+      {roster && onClick && <span className="leader-card-chevron" aria-hidden>←</span>}
     </>
   );
+  const cls = `leader-card tone-${tone}${roster ? ' roster' : ''}`;
   if (onClick) {
-    return <button type="button" className={`leader-card tone-${tone}`} onClick={onClick}>{inner}</button>;
+    return <button type="button" className={cls} onClick={onClick}>{inner}</button>;
   }
-  return <div className={`leader-card tone-${tone}`}>{inner}</div>;
+  return <div className={cls}>{inner}</div>;
 }
 
 export function NavHub() {
@@ -845,9 +846,8 @@ export function ShareRow({
           <p className="truncate font-extrabold">{row.name}</p>
           <p className="num shrink-0 text-sm font-extrabold">{moneyIq(row.sales)}</p>
         </div>
-        <div className="mt-2"><Bar value={row.share} max={100} tone="goal" /></div>
         <p className="mt-1 text-xs font-bold text-muted">
-          {pct(row.share)} من المبيعات · {row.receipts} فاتورة · متوسط {moneyIq(row.avg)}
+          {row.receipts} فاتورة · متوسط {moneyIq(row.avg)}
         </p>
       </div>
     </>
@@ -859,16 +859,22 @@ export function ShareRow({
 }
 
 export function StatGrid({
-  sales, receipts, totalSales,
+  sales, receipts, commission, pieceCount,
 }: {
-  sales: number; commission?: number; pieceCount?: number; receipts: number; totalSales?: number;
+  sales: number; commission?: number; pieceCount?: number; receipts: number;
 }) {
   return (
     <div className="grid grid-cols-2 gap-2.5">
       <div className="detail-cell"><p>المبيعات</p><strong className="num">{moneyIq(sales)}</strong></div>
       <div className="detail-cell"><p>الفواتير</p><strong className="num">{receipts}</strong></div>
       <div className="detail-cell"><p>متوسط الفاتورة</p><strong className="num">{moneyIq(avgTicket(sales, receipts))}</strong></div>
-      <div className="detail-cell"><p>حصة الأسبوع</p><strong className="num">{pct(shareOf(sales, totalSales ?? sales))}</strong></div>
+      {commission != null ? (
+        <div className="detail-cell"><p>العمولة</p><strong className="num">{moneyIq(commission)}</strong></div>
+      ) : pieceCount != null ? (
+        <div className="detail-cell"><p>القطع</p><strong className="num">{pieceCount}</strong></div>
+      ) : (
+        <div className="detail-cell"><p>الحركة</p><strong className="num">{receipts > 0 ? 'نشط' : '—'}</strong></div>
+      )}
     </div>
   );
 }
@@ -883,9 +889,21 @@ export function SearchField({ value, onChange, placeholder }: { value: string; o
 }
 
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
-  return (
-    <div className="sheet-bg" onClick={onClose}>
+  return createPortal(
+    <div className="sheet-bg" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet-handle" />
         <div className="mb-3 flex items-start justify-between gap-3">
@@ -894,7 +912,8 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

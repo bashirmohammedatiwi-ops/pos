@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  api, deltaPct, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, shareOf, teamCsv,
+  api, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, teamCsv,
   type LineRow, type SellerRow,
 } from '../api';
 import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
-  Badge, Delta, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero, Podium,
+  Badge, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero, Podium,
   Ring, SearchField, SectionCard, Sheet, Skeleton, StatGrid, Track, useToast,
 } from '../ui';
 import { avgTicket, todayKey } from '../api';
 import { PeriodBar } from '../week';
 
-type Sort = 'sales' | 'receipts' | 'share' | 'goals' | 'commission';
+type Sort = 'sales' | 'goals' | 'commission' | 'name';
 type Tab = 'overview' | 'goals' | 'cashiers' | 'products' | 'invoices';
 type Filter = 'all' | 'active' | 'goals' | 'due';
 
@@ -28,7 +28,7 @@ export function Team() {
   const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
-  const [sort, setSort] = useState<Sort>('sales');
+  const [sort, setSort] = useState<Sort>('commission');
   const [filter, setFilter] = useState<Filter>('all');
   const [open, setOpen] = useState<SellerRow | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
@@ -58,7 +58,6 @@ export function Team() {
   }, [dash, scopedSellers, params]);
 
   const salesTotal = periodTotals.sales || shareBase;
-  const shareDen = shareBase;
   const rows = useMemo(() => {
     const list = scopedSellers.filter(s => {
       if (q.trim() && !s.name.includes(q.trim())) return false;
@@ -69,13 +68,13 @@ export function Team() {
       return true;
     });
     return [...list].sort((a, b) => {
-      if (sort === 'receipts') return b.receiptCount - a.receiptCount;
-      if (sort === 'share') return shareOf(b.salesAmount, shareDen) - shareOf(a.salesAmount, shareDen);
+      if (sort === 'name') return a.name.localeCompare(b.name, 'ar');
       if (sort === 'goals') return (b.goalCount ? b.goalPercent : -1) - (a.goalCount ? a.goalPercent : -1);
       if (sort === 'commission') return b.commissionAmount - a.commissionAmount;
-      return b.salesAmount - a.salesAmount;
+      if (sort === 'sales') return b.salesAmount - a.salesAmount;
+      return b.commissionAmount - a.commissionAmount;
     });
-  }, [scopedSellers, q, sort, shareDen, hideZero, filter]);
+  }, [scopedSellers, q, sort, hideZero, filter]);
 
   const activeCount = scopedSellers.filter(s => s.salesAmount > 0).length;
   const goalsCount = scopedSellers.filter(s => s.goalCount > 0).length;
@@ -143,8 +142,8 @@ export function Team() {
           items={rows.filter(s => s.salesAmount > 0).slice(0, 3).map(s => ({
             id: String(s.salesmanId),
             name: s.name,
-            value: moneyIq(s.salesAmount),
-            hint: `${s.receiptCount} فاتورة · عمولة ${moneyIq(s.commissionAmount)}`,
+            value: moneyIq(s.commissionAmount),
+            hint: s.goalCount > 0 ? `تاركت ${Math.round(s.goalPercent)}%` : 'أعلى عمولة',
           }))}
           onPick={item => {
             const hit = rows.find(s => s.name === item.name);
@@ -166,7 +165,7 @@ export function Team() {
           ]}
         />
         <div className="sort-bar">
-          {([['sales', 'المبيعات'], ['commission', 'العمولة'], ['share', 'الحصة'], ['receipts', 'الفواتير'], ['goals', 'التاركت']] as const).map(([k, label]) => (
+          {([['commission', 'العمولة'], ['goals', 'التاركت'], ['sales', 'المبيعات'], ['name', 'الاسم']] as const).map(([k, label]) => (
             <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
           ))}
           <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
@@ -181,7 +180,7 @@ export function Team() {
         <table>
           <thead>
             <tr>
-              <th>#</th><th>البائع</th><th>المبيعات</th><th>العمولة</th><th>الحصة</th><th>فواتير</th><th>تاركت</th>
+              <th>#</th><th>البائع</th><th>العمولة</th><th>تاركت</th><th>مستحق</th>
             </tr>
           </thead>
           <tbody>
@@ -189,11 +188,9 @@ export function Team() {
               <tr key={s.salesmanId} onClick={() => void openSeller(s)}>
                 <td><Medal rank={i + 1} /></td>
                 <td className="font-extrabold">{s.name}</td>
-                <td className="num">{moneyIq(s.salesAmount)}</td>
                 <td className="num">{moneyIq(s.commissionAmount)}</td>
-                <td className="num">{pct(shareOf(s.salesAmount, shareDen))}</td>
-                <td className="num">{s.receiptCount}</td>
                 <td>{s.goalCount ? `${Math.round(s.goalPercent)}%` : '—'}</td>
+                <td className="num">{s.balanceDue > 0 ? moneyIq(s.balanceDue) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -202,24 +199,21 @@ export function Team() {
 
       <div className="leader-list stagger people-mobile mt-3">
         {rows.map((s, i) => {
-          const share = shareOf(s.salesAmount, shareDen);
-          const prev = prevDash?.sellers.find(x => x.salesmanId === s.salesmanId);
+          const chips: string[] = [];
+          if (s.commissionAmount > 0) chips.push(`عمولة ${moneyIq(s.commissionAmount)}`);
+          if (s.goalCount > 0) chips.push(`تاركت ${Math.round(s.goalPercent)}%`);
+          if (s.balanceDue > 0) chips.push(`مستحق ${moneyIq(s.balanceDue)}`);
           return (
             <div key={s.salesmanId}>
               <LeaderCard
                 rank={i + 1}
                 name={s.name}
-                sales={s.salesAmount}
-                meta={`عمولة ${moneyIq(s.commissionAmount)} · ${s.receiptCount} فاتورة · ${pct(share)}`}
-                share={share}
+                meta={chips.join(' · ') || 'اضغط للتفاصيل'}
+                showSales={false}
                 tone="goal"
                 badge={s.goalCount > 0 ? <Badge tone={goalTone(s.goalPercent) === 'goal' ? 'goal' : goalTone(s.goalPercent)}>{goalLabel(s.goalPercent)}</Badge> : undefined}
                 onClick={() => void openSeller(s)}
               />
-              {prev && prev.salesAmount > 0 && (
-                <div className="px-4 pb-1"><Delta value={deltaPct(s.salesAmount, prev.salesAmount)} /></div>
-              )}
-              {s.balanceDue > 0 && <p className="px-4 pb-2 text-xs font-bold text-warn">مستحق {moneyIq(s.balanceDue)}</p>}
             </div>
           );
         })}
@@ -237,7 +231,7 @@ export function Team() {
             </div>
             {tab === 'overview' && (
               <>
-                <StatGrid sales={open.salesAmount} receipts={open.receiptCount} commission={open.commissionAmount} totalSales={salesTotal} />
+                <StatGrid sales={open.salesAmount} receipts={open.receiptCount} commission={open.commissionAmount} />
                 {prevSeller && (
                   <div className="detail-cell">
                     <p>مقابل الأسبوع السابق</p>
@@ -268,7 +262,7 @@ export function Team() {
                 ? detailCashiers.map(c => (
                   <div key={c.id} className="detail-cell">
                     <p>{c.name}</p>
-                    <strong className="num">{moneyIq(c.sales)} · {pct(c.share)}</strong>
+                    <strong className="num">{moneyIq(c.sales)}</strong>
                     <p className="mt-1 text-xs font-bold text-muted">{c.receipts} فاتورة</p>
                   </div>
                 ))

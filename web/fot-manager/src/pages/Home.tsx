@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ago, avgTicket, deltaPct, downloadText, goalLabel, goalTone, greeting,
-  groupGoalsByRule, lastSyncMs, moneyIq, pct, resolveWeekSales, shareText,
+  groupGoalsByRule, lastSyncMs, moneyIq, resolveWeekSales, shareText,
   teamCsv, todayKey, weekRange, weekReport,
 } from '../api';
 import { buildAlerts, cashierShares, prevDay, sellerShares } from '../insights';
@@ -182,28 +182,38 @@ export function Home() {
         <SectionCard kicker={period.label} title="البائعون" to="/team" linkLabel="كل البائعين" className="bento-sellers">
           {liveSellers.length > 2 && (
             <Podium
-              items={liveSellers.slice(0, 3).map(s => ({
-                id: s.id,
-                name: s.name,
-                value: moneyIq(s.sales),
-                hint: `${s.receipts} فاتورة`,
-              }))}
+              items={liveSellers.slice(0, 3).map(s => {
+                const seller = scopedSellers.find(x => x.name === s.name);
+                return {
+                  id: s.id,
+                  name: s.name,
+                  value: moneyIq(s.sales),
+                  hint: seller && seller.commissionAmount > 0 ? `عمولة ${moneyIq(seller.commissionAmount)}` : undefined,
+                };
+              })}
               onPick={item => nav(`/team?q=${encodeURIComponent(item.name)}`)}
             />
           )}
           <div className="leader-list mt-3">
-            {sellers.slice(0, 5).map((s, i) => (
-              <LeaderCard
-                key={s.id}
-                rank={i + 1}
-                name={s.name}
-                sales={s.sales}
-                meta={`${s.receipts} فاتورة · ${pct(s.share)}`}
-                share={s.share}
-                tone="goal"
-                onClick={() => nav(`/team?q=${encodeURIComponent(s.name)}`)}
-              />
-            ))}
+            {sellers.slice(0, 5).map((s, i) => {
+              const seller = scopedSellers.find(x => x.name === s.name);
+              const meta = seller && seller.commissionAmount > 0
+                ? `عمولة ${moneyIq(seller.commissionAmount)}`
+                : seller && seller.goalCount > 0
+                  ? `تاركت ${Math.round(seller.goalPercent)}%`
+                  : 'اضغط للتفاصيل';
+              return (
+                <LeaderCard
+                  key={s.id}
+                  rank={i + 1}
+                  name={s.name}
+                  meta={meta}
+                  showSales={false}
+                  tone="goal"
+                  onClick={() => nav(`/team?q=${encodeURIComponent(s.name)}`)}
+                />
+              );
+            })}
           </div>
           {!sellers.length && <p className="empty-line">لا حركة بائعين في هذه المدة</p>}
         </SectionCard>
@@ -216,8 +226,7 @@ export function Home() {
                 rank={i + 1}
                 name={c.name}
                 sales={c.sales}
-                meta={`${c.receipts} فاتورة · ${pct(c.share)}`}
-                share={c.share}
+                meta={`${c.receipts} فاتورة`}
                 tone="gold"
                 onClick={() => nav(`/cashiers?q=${encodeURIComponent(c.name)}`)}
               />
@@ -266,7 +275,7 @@ export function Home() {
         </Link>
 
         {donutSellers.length >= 2 && (
-          <SectionCard kicker="توزيع" title="حصة البائعين" className="bento-donut">
+          <SectionCard kicker="توزيع" title="أعلى البائعين" className="bento-donut">
             <div className="donut-panel">
               <Donut items={donutSellers} center={moneyIq(periodTotals.sales)} />
               <Legend items={donutSellers.map(s => ({ label: s.label, value: moneyIq(s.value) }))} />

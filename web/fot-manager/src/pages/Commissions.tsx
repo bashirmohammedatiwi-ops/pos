@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { commissionCsv } from '../period';
-import { downloadText, moneyIq, pct, shareOf, weekRange } from '../api';
+import { downloadText, moneyIq, weekRange } from '../api';
 import { useManager, useWeekCompare } from '../store';
 import {
   Donut, Empty, ErrorBox, Legend, Medal, MetricStrip, PageHero, Podium, SearchField,
-  SectionCard, Skeleton, Track, useToast, WeekCompare,
+  SectionCard, Skeleton, useToast, WeekCompare,
 } from '../ui';
 import { WeekStepper, WeekTimeline } from '../week';
 
@@ -95,7 +95,7 @@ export function Commissions() {
       )}
 
       {donutItems.length >= 2 && (
-        <SectionCard kicker="توزيع" title="حصة العمولات">
+        <SectionCard kicker="توزيع" title="توزيع العمولات">
           <div className="donut-panel">
             <Donut items={donutItems} center={moneyIq(totalComm)} />
             <Legend items={donutItems.map(s => ({ label: s.label, value: moneyIq(s.value) }))} />
@@ -129,9 +129,7 @@ export function Commissions() {
       </section>
 
       <div className="leader-list stagger">
-        {rows.map((s, i) => {
-          const share = shareOf(s.commissionAmount, totalComm || 1);
-          return (
+        {rows.map((s, i) => (
             <Link
               key={s.salesmanId}
               to={`/team?q=${encodeURIComponent(s.name)}`}
@@ -141,9 +139,8 @@ export function Commissions() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-extrabold">{s.name}</p>
                 <p className="text-xs font-bold text-muted">
-                  {s.receiptCount} فاتورة · مبيعات {moneyIq(s.salesAmount)} · {pct(share)}
+                  مبيعات {moneyIq(s.salesAmount)}
                 </p>
-                <div className="mt-2"><Track value={share} tone="goal" /></div>
               </div>
               <div className="text-end">
                 <p className="num text-base font-black text-goal">{moneyIq(s.commissionAmount)}</p>
@@ -155,8 +152,7 @@ export function Commissions() {
                 })()}
               </div>
             </Link>
-          );
-        })}
+        ))}
         {!rows.length && (
           <Empty title="لا عمولات في هذا الأسبوع" hint="اختر أسبوعاً من الخط الزمني أو استخدم ‹ ›" />
         )}

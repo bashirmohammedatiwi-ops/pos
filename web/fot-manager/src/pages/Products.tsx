@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { downloadText, moneyIq, pieces, pct, productCsv, shareOf } from '../api';
+import { downloadText, moneyIq, pieces, productCsv } from '../api';
 import { peopleForProduct, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
 import {
-  Empty, ErrorBox, Medal, MetricStrip, PageHero, SearchField, SectionCard, Sheet, Skeleton, Track, useToast,
+  Empty, ErrorBox, Medal, MetricStrip, PageHero, SearchField, SectionCard, Sheet, Skeleton, useToast,
 } from '../ui';
 import { PeriodBar } from '../week';
 import type { LineRow } from '../api';
@@ -95,8 +95,7 @@ export function Products() {
             <Medal rank={i + 1} />
             <div className="min-w-0 text-start">
               <p className="truncate font-extrabold">{p.name}</p>
-              <p className="text-xs font-bold text-muted">{pieces(p.qty)} · {p.count} حركة · {pct(shareOf(p.sales, total))}</p>
-              <div className="mt-2"><Track value={shareOf(p.sales, total)} tone="gold" /></div>
+              <p className="text-xs font-bold text-muted">{pieces(p.qty)} · {p.count} حركة</p>
             </div>
             <div className="text-end">
               <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
@@ -117,7 +116,7 @@ export function Products() {
             {tab === 'sellers' && detail.sellers.map(s => (
               <div key={s.id} className="detail-cell">
                 <p>{s.name}</p>
-                <strong className="num">{moneyIq(s.sales)} · {pct(s.share)}</strong>
+                <strong className="num">{moneyIq(s.sales)}</strong>
                 <p className="mt-1 text-xs font-bold text-muted">{pieces(s.pieces)} · {s.receipts} فاتورة</p>
               </div>
             ))}
@@ -126,7 +125,7 @@ export function Products() {
                 ? detail.cashiers.map(c => (
                   <div key={c.id} className="detail-cell">
                     <p>{c.name}</p>
-                    <strong className="num">{moneyIq(c.sales)} · {pct(c.share)}</strong>
+                    <strong className="num">{moneyIq(c.sales)}</strong>
                   </div>
                 ))
                 : <p className="text-sm font-bold text-muted">لا كاشير ظاهر على هذا المنتج</p>

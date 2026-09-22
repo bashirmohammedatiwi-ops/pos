@@ -346,19 +346,19 @@ export function managerCsv(lines: LineRow[]) {
 }
 
 export function teamCsv(sellers: SellerRow[], totalSales: number) {
-  const header = ['الترتيب', 'البائع', 'المبيعات', 'الحصة', 'الفواتير', 'متوسط الفاتورة', 'الأهداف', 'المستحق'];
+  const header = ['الترتيب', 'البائع', 'المبيعات', 'الفواتير', 'متوسط الفاتورة', 'العمولة', 'الأهداف', 'المستحق'];
   const rows = [...sellers].sort((a, b) => b.salesAmount - a.salesAmount).map((s, i) => [
-    i + 1, s.name, Math.round(s.salesAmount), `${Math.round(shareOf(s.salesAmount, totalSales))}%`,
-    s.receiptCount, Math.round(avgTicket(s.salesAmount, s.receiptCount)),
+    i + 1, s.name, Math.round(s.salesAmount),
+    s.receiptCount, Math.round(avgTicket(s.salesAmount, s.receiptCount)), Math.round(s.commissionAmount),
     s.goalCount ? `${s.goalsHit}/${s.goalCount}` : '—', Math.round(s.balanceDue),
   ].join(','));
   return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
 }
 
 export function cashierCsv(rows: CashierRow[], totalSales: number) {
-  const header = ['الترتيب', 'الكاشير', 'المبيعات', 'الحصة', 'الفواتير', 'متوسط الفاتورة'];
+  const header = ['الترتيب', 'الكاشير', 'المبيعات', 'الفواتير', 'متوسط الفاتورة'];
   const lines = [...rows].sort((a, b) => b.salesAmount - a.salesAmount).map((c, i) => [
-    i + 1, c.name, Math.round(c.salesAmount), `${Math.round(shareOf(c.salesAmount, totalSales))}%`,
+    i + 1, c.name, Math.round(c.salesAmount),
     c.receiptCount, Math.round(avgTicket(c.salesAmount, c.receiptCount)),
   ].join(','));
   return `\uFEFF${[header.join(','), ...lines].join('\n')}`;

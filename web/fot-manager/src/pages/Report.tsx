@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   avgTicket, cashierCsv, daysCsv, deltaPct, downloadText, goalLabel, goalTone, goalValue,
-  groupGoalsByRule, moneyIq, pct, resolveWeekSales, teamCsv, todayKey, weekRange, weeksCsv,
+  groupGoalsByRule, moneyIq, resolveWeekSales, teamCsv, todayKey, weekRange, weeksCsv,
 } from '../api';
 import { cashierShares, sellerShares } from '../insights';
 import { commissionCsv } from '../period';
@@ -192,7 +192,7 @@ export function Report() {
               <Medal rank={i + 1} />
               <div className="min-w-0">
                 <p className="truncate font-extrabold">{s.name}</p>
-                <p className="text-xs font-bold text-muted">{pct(s.share)} · {s.receipts} فاتورة</p>
+                <p className="text-xs font-bold text-muted">{s.receipts} فاتورة</p>
               </div>
               <div className="text-end">
                 <p className="num text-sm font-extrabold">{moneyIq(s.sales)}</p>
@@ -204,13 +204,13 @@ export function Report() {
       </section>
 
       <section className="card p-4">
-        <SectionHead title="الكاشير" kicker="حصة كل واحد" to="/cashiers" link="التفاصيل" />
+        <SectionHead title="الكاشير" kicker="ترتيب الكاشير" to="/cashiers" link="التفاصيل" />
         {cashierRows.length ? cashierRows.map((c, i) => (
           <Link key={c.id} to={`/cashiers?q=${encodeURIComponent(c.name)}`} className="rank-row stat-link">
             <Medal rank={i + 1} />
             <div className="min-w-0">
               <p className="truncate font-extrabold">{c.name}</p>
-              <p className="text-xs font-bold text-muted">{pct(c.share)} · {c.receipts} فاتورة</p>
+              <p className="text-xs font-bold text-muted">{c.receipts} فاتورة</p>
             </div>
             <p className="num text-sm font-extrabold">{moneyIq(c.sales)}</p>
           </Link>
