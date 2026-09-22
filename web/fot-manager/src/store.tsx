@@ -8,7 +8,8 @@ import {
 } from './period';
 import { useWeek } from './week';
 
-const CACHE_KEY = 'fot_manager_cache';
+const CACHE_KEY = 'fot_manager_cache_v3';
+const LEGACY_CACHE_KEYS = ['fot_manager_cache', 'fot_manager_cache_v2'];
 const PERIOD_KEY = 'fot_manager_period';
 const PAY_KEY = 'fot_manager_pay';
 const RANGE_KEY = 'fot_manager_range';
@@ -37,20 +38,67 @@ function readRange() {
   }
 }
 
+type CacheBlob = {
+  weekStart?: string;
+  dash: Dashboard | null;
+  prevDash: Dashboard | null;
+  weeks: WeekSummary[];
+  lines: LineRow[];
+  updatedAt: number | null;
+};
+
+function purgeCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+    for (const key of LEGACY_CACHE_KEYS) localStorage.removeItem(key);
+  } catch { /* ignore */ }
+}
+
+function sanitizeCache(raw: unknown): CacheBlob | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Partial<CacheBlob>;
+  const dash = data.dash;
+  const prevDash = data.prevDash;
+  const validDash = !dash || (typeof dash === 'object' && Array.isArray(dash.sellers) && dash.week);
+  const validPrev = !prevDash || (typeof prevDash === 'object' && Array.isArray(prevDash.sellers));
+  if (!validDash || !validPrev) {
+    return {
+      weekStart: data.weekStart,
+      dash: validDash ? dash ?? null : null,
+      prevDash: validPrev ? prevDash ?? null : null,
+      weeks: Array.isArray(data.weeks) ? data.weeks : [],
+      lines: Array.isArray(data.lines) ? data.lines : [],
+      updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : null,
+    };
+  }
+  return {
+    weekStart: data.weekStart,
+    dash: dash ?? null,
+    prevDash: prevDash ?? null,
+    weeks: Array.isArray(data.weeks) ? data.weeks : [],
+    lines: Array.isArray(data.lines) ? data.lines : [],
+    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : null,
+  };
+}
+
 function readCache() {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) as {
-      weekStart?: string;
-      dash: Dashboard | null;
-      prevDash: Dashboard | null;
-      weeks: WeekSummary[];
-      lines: LineRow[];
-      updatedAt: number | null;
-    } : null;
+    for (const key of [CACHE_KEY, ...LEGACY_CACHE_KEYS]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = sanitizeCache(JSON.parse(raw));
+      if (key !== CACHE_KEY) {
+        localStorage.removeItem(key);
+        if (parsed) {
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(parsed)); } catch { /* ignore quota */ }
+        }
+      }
+      return parsed;
+    }
   } catch {
-    return null;
+    purgeCache();
   }
+  return null;
 }
 
 type Store = {
@@ -107,18 +155,18 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
 
   const setPeriodKind = useCallback((k: PeriodKind) => {
     setPeriodKindState(k);
-    sessionStorage.setItem(PERIOD_KEY, k);
+    try { sessionStorage.setItem(PERIOD_KEY, k); } catch { /* ignore */ }
   }, []);
   const setPayKind = useCallback((k: PeriodKind) => {
     setPayKindState(k);
-    sessionStorage.setItem(PAY_KEY, k);
+    try { sessionStorage.setItem(PAY_KEY, k); } catch { /* ignore */ }
   }, []);
   const setCustom = useCallback((from: string, to: string) => {
     const a = from.slice(0, 10);
     const b = to.slice(0, 10);
     setCustomFrom(a);
     setCustomTo(b);
-    sessionStorage.setItem(RANGE_KEY, JSON.stringify({ from: a, to: b }));
+    try { sessionStorage.setItem(RANGE_KEY, JSON.stringify({ from: a, to: b })); } catch { /* ignore */ }
   }, []);
 
   const reload = useCallback(async (quiet = false) => {

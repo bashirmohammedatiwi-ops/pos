@@ -68,7 +68,7 @@ export function Team() {
       return true;
     });
     return [...list].sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name, 'ar');
+      if (sort === 'name') return a.name.localeCompare(b.name);
       if (sort === 'goals') return (b.goalCount ? b.goalPercent : -1) - (a.goalCount ? a.goalPercent : -1);
       if (sort === 'commission') return b.commissionAmount - a.commissionAmount;
       if (sort === 'sales') return b.salesAmount - a.salesAmount;

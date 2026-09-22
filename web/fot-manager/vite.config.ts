@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    target: 'es2019',
+    cssTarget: 'chrome64',
+  },
   server: {
     host: true,
     port: 4703,
