@@ -23,6 +23,9 @@ import {
   findDiscountQr,
   findProductSmart,
   flushOutbox,
+  rememberOfficialNumber,
+  takeReceiptNumber,
+  type FlushOutboxResult,
   outboxStats,
   removeLocalReceipt,
   resetDeadReceipt,
@@ -91,7 +94,7 @@ import { localDateTimeIso } from '@/lib/text';
 import type { CashReportDto } from '@/api/types';
 
 type SortMode = 'seq' | 'name' | 'price';
-type Overlay = 'none' | 'pay' | 'price' | 'line-price' | 'qty' | 'discount' | 'cash-report' | 'salesman' | 'line-salesman' | 'add-salesman' | 'print' | 'receipts' | 'queue' | 'deferred-edit' | 'return-invoice';
+type Overlay = 'none' | 'pay' | 'price' | 'line-price' | 'qty' | 'discount' | 'cash-report' | 'salesman' | 'line-salesman' | 'add-salesman' | 'print' | 'receipts' | 'queue' | 'deferred-edit' | 'return-invoice' | 'return-pick';
 type ConfirmAsk =
   | { type: 'delete-line'; key: string; name: string }
   | { type: 'cancel-sale' }
@@ -186,6 +189,7 @@ export function SalesPage({
   const priceScanRef = useRef<HTMLInputElement>(null);
   const cardPayErrorRef = useRef(false);
   const cardRetryRef = useRef<(() => void) | null>(null);
+  const reprintOfficialRef = useRef<(flushed: FlushOutboxResult) => Promise<void>>(async () => {});
   const [scan, setScan] = useState('');
   useEffect(() => { scanValueRef.current = scan; }, [scan]);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -231,6 +235,7 @@ export function SalesPage({
   const [qtyDraft, setQtyDraft] = useState<{ key: string; text: string } | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [returnSource, setReturnSource] = useState<ReceiptReturnSourceDto | null>(null);
+  const [returnChoices, setReturnChoices] = useState<ReceiptReturnSourceDto[]>([]);
   const [discountQr, setDiscountQr] = useState<DiscountQrPerson | null>(null);
   const [invoiceDraft, setInvoiceDraft] = useState('');
   const [priceScan, setPriceScan] = useState('');
@@ -412,8 +417,7 @@ export function SalesPage({
         showToast(`حُذف ${catalog.removed} منتج من الجهاز بعد حذفه من الإداري`);
       }
       if (flushed.renumbered.length > 0) {
-        const note = flushed.renumbered.map(r => `#${r.localNumber} ← ${r.newNumber}`).join('، ');
-        showToast(`تغيّر رقم فاتورة محلية بعد الرفع: ${note} — أعد طباعتها من الفواتير المحلية`);
+        await reprintOfficialRef.current(flushed);
       } else if (flushed.uploaded > 0) {
         showToast(`رُفعت ${flushed.uploaded} فاتورة معلّقة`);
       } else if (flushed.dead > 0) {
@@ -490,7 +494,8 @@ export function SalesPage({
         if (stats.queued > 0) {
           const flushed = await flushOutbox();
           await refreshLocal();
-          if (flushed.uploaded > 0) showToast(`رُفعت ${flushed.uploaded} فاتورة معلّقة`);
+          if (flushed.renumbered.length > 0) await reprintOfficialRef.current(flushed);
+          else if (flushed.uploaded > 0) showToast(`رُفعت ${flushed.uploaded} فاتورة معلّقة`);
         } else {
           await refreshLocal();
         }
@@ -717,6 +722,30 @@ export function SalesPage({
     addProductDirect(p, qty, sid, sname, gkey, glabel);
   }, [activeGroupKey, addProductDirect, attrFlags, cart, cartGroups, focusScan, loadAllowedSalesmen, online, px.invoiceBoundReturn, pushLine, returnSource, salesmanId, salesmen, session.salesmanName, showToast, singleSeller]);
 
+  function applyReturnSource(src: ReceiptReturnSourceDto) {
+    if (src.kind !== 0) {
+      showToast('لا يمكن الإرجاع إلا من فاتورة بيع');
+      return;
+    }
+    if (!src.items.some(item => item.remainingQty > 0)) {
+      showToast('تم إرجاع هذه الفاتورة بالكامل');
+      return;
+    }
+    setReturnSource(src);
+    setSaleKind(1);
+    setCart([]);
+    setInvoiceDraft('');
+    setReturnChoices([]);
+    setOverlay('none');
+    setScan('');
+    setScanError(null);
+    focusScan();
+    const paper = src.printedNumber && src.printedNumber !== src.number
+      ? ` — الورق #${src.printedNumber}`
+      : '';
+    showToast(`مردود فاتورة #${src.number}${paper}`);
+  }
+
   async function loadReturnInvoice(raw: string): Promise<boolean> {
     const number = parseInvoiceNumber(raw);
     if (!number) return false;
@@ -729,24 +758,22 @@ export function SalesPage({
       return true;
     }
     try {
-      const src = await api.receiptByNumber(number);
-      if (src.kind !== 0) {
-        showToast('لا يمكن الإرجاع إلا من فاتورة بيع');
+      const matches = await api.receiptByNumber(number);
+      const sales = matches.filter(s => s.kind === 0);
+      if (sales.length === 0) {
+        if (matches.length > 0) {
+          showToast('لا يمكن الإرجاع إلا من فاتورة بيع');
+          return true;
+        }
+        return false;
+      }
+      if (sales.length === 1) {
+        applyReturnSource(sales[0]);
         return true;
       }
-      if (!src.items.some(item => item.remainingQty > 0)) {
-        showToast('تم إرجاع هذه الفاتورة بالكامل');
-        return true;
-      }
-      setReturnSource(src);
-      setSaleKind(1);
-      setCart([]);
+      setReturnChoices(sales);
       setInvoiceDraft('');
-      setOverlay('none');
-      setScan('');
-      setScanError(null);
-      focusScan();
-      showToast(`مردود فاتورة #${src.number}`);
+      setOverlay('return-pick');
       return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) return false;
@@ -1387,8 +1414,7 @@ export function SalesPage({
       await refreshLocal();
       await loadQueue();
       if (flushed.renumbered.length > 0) {
-        const note = flushed.renumbered.map(r => `#${r.localNumber} ← ${r.newNumber}`).join('، ');
-        showToast(`رُحّلت ${moved} — تغيّر رقم: ${note}`);
+        await reprintOfficialNumbers(flushed);
       } else if (flushed.uploaded > 0) {
         showToast(`رُحّلت ${flushed.uploaded} فاتورة إلى الإدارة`);
       } else if (flushed.dead > 0) {
@@ -1561,6 +1587,49 @@ export function SalesPage({
     await printReceipt(last.data, last.settings);
   }
 
+  async function reprintOfficialNumbers(flushed: FlushOutboxResult) {
+    for (const row of flushed.renumbered) {
+      if (row.receiptId <= 0) continue;
+      try {
+        await reprintFromReceiptId(row.receiptId);
+      } catch {
+        /* reprint is best-effort — the official number is already stored */
+      }
+    }
+    const note = flushed.renumbered.map(r => `#${r.localNumber} → #${r.newNumber}`).join('، ');
+    showToast(`طُبع الرقم الرسمي: ${note}`);
+  }
+  reprintOfficialRef.current = reprintOfficialNumbers;
+
+  async function reprintFromReceiptId(receiptId: number) {
+    const detail = await api.receiptDetail(receiptId);
+    const settings = printSettings ?? await db.loadPrintSettings();
+    if (!settings) return;
+    await printReceipt({
+      receiptNumber: detail.number,
+      printedAt: detail.creationDate,
+      kind: detail.kind ?? 0,
+      cashierName: session.cashierName,
+      salesmanName: detail.salesmanName ?? session.salesmanName,
+      posLabel: session.sectionName,
+      cashBoxName: null,
+      lines: detail.items.map(item => ({
+        name: item.name || item.barcode || `#${item.articleId}`,
+        barcode: item.barcode ?? '',
+        articleNumber: item.barcode ?? '',
+        quantity: item.quantity,
+        unitPrice: item.price,
+        lineTotal: item.lineTotal,
+        originalPrice: item.originalPrice,
+      })),
+      subTotal: detail.items.reduce((s, i) => s + i.lineTotal, 0),
+      userDiscount: detail.userDiscount,
+      total: detail.totalAmount,
+      paid: detail.payment,
+      change: detail.cashBack,
+    }, settings);
+  }
+
   async function reprintReceipt(row: TodayReceiptRow) {
     try {
       const detail = await api.receiptDetail(row.id);
@@ -1682,7 +1751,11 @@ export function SalesPage({
       // Manual-transfer cashiers always park invoices locally (deferred) — printed with a
       // real number seeded from the server — until they press the transfer button.
       if (px.manualTransfer) {
-        const localNumber = await db.nextLocalNumber(session.cashierReceiptNum ?? 0);
+        const localNumber = await takeReceiptNumber({
+          cashierId: session.cashierId,
+          cashierCode: session.cashierReceiptNum ?? 0,
+          online: canUseServer(online),
+        });
         const sellerName = salesmen.find(s => s.id === salesmanId)?.name ?? session.salesmanName;
         const payload = buildReceiptPayload({
           session,
@@ -1741,7 +1814,11 @@ export function SalesPage({
       });
 
       if (!canUseServer(online)) {
-        const localNumber = await db.nextLocalNumber(session.cashierReceiptNum ?? 0);
+        const localNumber = await takeReceiptNumber({
+          cashierId: session.cashierId,
+          cashierCode: session.cashierReceiptNum ?? 0,
+          online: false,
+        });
         await enqueueReceipt(
           { ...payload, number: localNumber },
           session.cashierReceiptNum ?? 0,
@@ -1773,6 +1850,7 @@ export function SalesPage({
 
       try {
         const res = await api.createReceipt(payload);
+        await rememberOfficialNumber(res.number);
         const printed = buildPrint(res.number, payload.payment);
         const summary: TodayReceiptRow = {
           id: res.receiptId,
@@ -1804,7 +1882,11 @@ export function SalesPage({
         // rejects it outright — losing it would take the customer's money with no invoice.
         const canQueue = !isPermanentReceiptError(e) || Boolean(card);
         if (!canQueue) throw e;
-        const localNumber = await db.nextLocalNumber(session.cashierReceiptNum ?? 0);
+        const localNumber = await takeReceiptNumber({
+          cashierId: session.cashierId,
+          cashierCode: session.cashierReceiptNum ?? 0,
+          online: canUseServer(online),
+        });
         await enqueueReceipt(
           { ...payload, number: localNumber },
           session.cashierReceiptNum ?? 0,
@@ -1899,9 +1981,10 @@ export function SalesPage({
           return;
         }
         if (overlay === 'qty') setQtyDraft(null);
-        if (overlay === 'return-invoice') {
+        if (overlay === 'return-invoice' || overlay === 'return-pick') {
           setOverlay('none');
           setInvoiceDraft('');
+          setReturnChoices([]);
           focusScan();
           return;
         }
@@ -2171,7 +2254,12 @@ export function SalesPage({
             {returnSource && (
               <div className="pos-return-source">
                 <div>
-                  <strong>مردود فاتورة <span className="num" dir="ltr">#{returnSource.number}</span></strong>
+                  <strong>
+                    مردود فاتورة <span className="num" dir="ltr">#{returnSource.number}</span>
+                    {returnSource.printedNumber && returnSource.printedNumber !== returnSource.number && (
+                      <span className="ms-1 text-[11px] font-semibold text-amber-800">ورق #{returnSource.printedNumber}</span>
+                    )}
+                  </strong>
                   <span>نفس سعر البيع والبائع من الفاتورة الأصلية</span>
                 </div>
                 <button type="button" className="pos-chip" onClick={fillReturnAll}>استرجاع الكل</button>
@@ -2402,6 +2490,46 @@ export function SalesPage({
           onRetry={() => cardRetryRef.current?.()}
           onCancel={cancelCardPay}
         />
+      )}
+
+      {overlay === 'return-pick' && (
+        <div className="pos-overlay" onClick={() => { setOverlay('none'); setReturnChoices([]); }}>
+          <div className="pos-dialog pos-pay-dialog" onClick={e => e.stopPropagation()}>
+            <div className="pos-pay-head">
+              <small>أكثر من فاتورة بنفس الرقم المطبوع</small>
+              <b>اختر فاتورة المرتجع</b>
+            </div>
+            <p className="mb-2 text-center text-[12px] text-slate-500">
+              الرقم على الورق استُخدم أيضاً لفاتورة أقدم — اختر حسب الوقت والمبلغ
+            </p>
+            <div className="flex max-h-[52vh] flex-col gap-2 overflow-auto">
+              {returnChoices.map(src => {
+                const names = src.items.slice(0, 2).map(i => i.name || i.barcode || `#${i.articleId}`).join(' · ');
+                const when = new Date(src.creationDate).toLocaleString('ar');
+                return (
+                  <button
+                    key={src.id}
+                    type="button"
+                    className="pos-chip h-auto min-h-14 flex-col items-stretch gap-0.5 px-3 py-2 text-right"
+                    onClick={() => applyReturnSource(src)}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-bold">رسمي #{src.number}</span>
+                      <span className="num font-bold">{formatIqd(src.totalAmount)}</span>
+                    </div>
+                    {src.printedNumber && src.printedNumber !== src.number && (
+                      <div className="text-[11px] text-amber-700">طُبع على الورق #{src.printedNumber}</div>
+                    )}
+                    <div className="text-[11px] text-slate-500">{when}{names ? ` · ${names}` : ''}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="pos-pay-actions mt-2">
+              <button type="button" onClick={() => { setOverlay('none'); setReturnChoices([]); }} className="pos-chip h-12">رجوع</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {overlay === 'return-invoice' && (
@@ -2787,7 +2915,8 @@ export function SalesPage({
             const flushed = await flushOutbox();
             await refreshLocal();
             await loadQueue();
-            showToast(flushed.uploaded > 0 ? `رُفعت ${flushed.uploaded}` : 'لا شيء للرفع');
+            if (flushed.renumbered.length > 0) await reprintOfficialNumbers(flushed);
+            else showToast(flushed.uploaded > 0 ? `رُفعت ${flushed.uploaded}` : 'لا شيء للرفع');
           }}
           onClose={() => { setOverlay('none'); focusScan(); }}
           onReprint={row => { void reprintDeferredPayload(row.payload as EditorPayload, row.localNumber); }}

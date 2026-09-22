@@ -395,7 +395,17 @@ try {
     $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
     $e.Graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
     $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
-    $e.Graphics.DrawImage($img, 0, 0, $w, $h)
+    $srcW = [double]$img.Width / [Math]::Max(1.0, [double]$img.HorizontalResolution) * 100.0
+    $srcH = [double]$img.Height / [Math]::Max(1.0, [double]$img.VerticalResolution) * 100.0
+    if ($srcW -lt 1) { $srcW = $w }
+    if ($srcH -lt 1) { $srcH = $h }
+    $fit = [Math]::Min($w / $srcW, $h / $srcH)
+    if ($fit -gt 1) { $fit = 1 }
+    $drawW = $srcW * $fit
+    $drawH = $srcH * $fit
+    $x = ($w - $drawW) / 2
+    $y = ($h - $drawH) / 2
+    $e.Graphics.DrawImage($img, [single]$x, [single]$y, [single]$drawW, [single]$drawH)
     $e.HasMorePages = $false
   })
   for ($i = 0; $i -lt ${Math.max(1, copies)}; $i++) { $doc.Print() }

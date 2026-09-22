@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
 using FOT.Pos.Infrastructure.Services;
+using FOT.Pos.Shared;
 using FOT.Pos.Shared.Dtos;
 using FOT.Pos.Infrastructure.Data;
 using Microsoft.Data.SqlClient;
@@ -38,11 +39,15 @@ public sealed class ReceiptRepository(
         long? sectionId, long? posId, long? cashierId, int? kind, bool? syncedOnly, bool? unsyncedOnly,
         DateTime? from, DateTime? to, bool? holdOnly, CancellationToken ct)
     {
+        await schema.EnsureLoadedAsync(ct);
         var where = holdOnly == true ? "WHERE r.is_pending = 1" : "WHERE r.is_pending = 0";
         var p = new DynamicParameters();
         if (!string.IsNullOrWhiteSpace(search))
         {
-            where += " AND (CAST(r.number AS NVARCHAR(20)) LIKE @s OR sm.name LIKE @s OR CAST(r.edr_num AS NVARCHAR(20)) LIKE @s OR c.username LIKE @s)";
+            var printedSearch = schema.PrintedNumber
+                ? " OR CAST(r.printed_number AS NVARCHAR(20)) LIKE @s"
+                : "";
+            where += $" AND (CAST(r.number AS NVARCHAR(20)) LIKE @s OR sm.name LIKE @s OR CAST(r.edr_num AS NVARCHAR(20)) LIKE @s OR c.username LIKE @s{printedSearch})";
             p.Add("s", $"%{search.Trim()}%");
         }
         if (sectionId.HasValue) { where += " AND sec.id = @sectionId"; p.Add("sectionId", sectionId); }
@@ -57,7 +62,6 @@ public sealed class ReceiptRepository(
         p.Add("offset", (page - 1) * pageSize);
         p.Add("pageSize", pageSize);
 
-        await schema.EnsureLoadedAsync(ct);
         var wasEditedExpr = schema.ReceiptEdits
             ? "CAST(CASE WHEN EXISTS (SELECT 1 FROM ext_receipt_edits e WHERE e.receipt_id = r.id) THEN 1 ELSE 0 END AS bit) AS WasEdited"
             : "CAST(0 AS bit) AS WasEdited";
@@ -92,7 +96,8 @@ public sealed class ReceiptRepository(
                    box.account_num AS CashBoxNum, box.account_name AS CashBoxName,
                    r.discount_qr_person_id AS DiscountQrPersonId,
                    COALESCE(r.discount_qr_person_name, dqp.name) AS DiscountQrPersonName,
-                   {wasEditedExpr}
+                   {wasEditedExpr},
+                   {(schema.PrintedNumber ? "r.printed_number AS PrintedNumber" : "CAST(NULL AS BIGINT) AS PrintedNumber")}
             FROM reciepts r
             LEFT JOIN salesmen sm ON sm.id = r.salesman
             LEFT JOIN cashiers c ON c.id = r.cashier_id
@@ -168,7 +173,11 @@ public sealed class ReceiptRepository(
 
     public async Task<ReceiptDetailDto?> GetByIdAsync(long id, CancellationToken ct)
     {
-        const string headerSql = """
+        await schema.EnsureLoadedAsync(ct);
+        var printedCol = schema.PrintedNumber
+            ? "r.printed_number AS PrintedNumber"
+            : "CAST(NULL AS BIGINT) AS PrintedNumber";
+        var headerSql = $"""
             SELECT r.id AS Id, r.number AS Number, r.creation_date AS CreationDate,
                    CAST(r.total_amount AS DECIMAL(18,2)) AS TotalAmount,
                    CAST(r.payment AS DECIMAL(18,2)) AS Payment,
@@ -179,7 +188,8 @@ public sealed class ReceiptRepository(
                    r.salesman AS SalesmanId, s.name AS SalesmanName,
                    CAST(r.synced AS bit) AS Synced, r.edr_num AS EdrNum,
                    r.discount_qr_person_id AS DiscountQrPersonId,
-                   COALESCE(r.discount_qr_person_name, dqp.name) AS DiscountQrPersonName
+                   COALESCE(r.discount_qr_person_name, dqp.name) AS DiscountQrPersonName,
+                   {printedCol}
             FROM reciepts r
             LEFT JOIN salesmen s ON s.id = r.salesman
             LEFT JOIN ext_discount_qr_people dqp ON dqp.id = r.discount_qr_person_id
@@ -211,7 +221,6 @@ public sealed class ReceiptRepository(
             WHERE ri.reciept_id = @id ORDER BY ri.id
             """;
 
-        await schema.EnsureLoadedAsync(ct);
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var header = await conn.QuerySingleOrDefaultAsync<HeaderRow>(new CommandDefinition(headerSql, new { id }, cancellationToken: ct));
         if (header is null) return null;
@@ -224,28 +233,39 @@ public sealed class ReceiptRepository(
             DiscountQrPersonId: header.DiscountQrPersonId,
             DiscountQrPersonName: header.DiscountQrPersonName,
             WasEdited: edits.Count > 0,
-            Edits: edits);
+            Edits: edits,
+            PrintedNumber: header.PrintedNumber);
     }
 
-    public async Task<ReceiptReturnSourceDto?> GetReturnSourceByNumberAsync(long number, CancellationToken ct)
+    public async Task<IReadOnlyList<ReceiptReturnSourceDto>> GetReturnSourcesByNumberAsync(long number, CancellationToken ct)
     {
-        if (number <= 0) return null;
+        if (number <= 0) return [];
         await schema.EnsureLoadedAsync(ct);
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        const string headerSql = """
-            SELECT TOP 1 r.id AS Id, r.number AS Number, r.creation_date AS CreationDate,
+        var printedCol = schema.PrintedNumber
+            ? "r.printed_number AS PrintedNumber"
+            : "CAST(NULL AS BIGINT) AS PrintedNumber";
+        var printedMatch = schema.PrintedNumber ? " OR r.printed_number = @number" : "";
+        var headerSql = $"""
+            SELECT r.id AS Id, r.number AS Number, r.creation_date AS CreationDate,
                    r.kind AS Kind, CAST(r.total_amount AS DECIMAL(18,2)) AS TotalAmount,
-                   r.salesman AS SalesmanId, s.name AS SalesmanName
+                   r.salesman AS SalesmanId, s.name AS SalesmanName,
+                   {printedCol}
             FROM reciepts r
             LEFT JOIN salesmen s ON s.id = r.salesman
-            WHERE r.number = @number AND r.is_pending = 0
-            ORDER BY r.id DESC
+            WHERE r.is_pending = 0 AND (r.number = @number{printedMatch})
+            ORDER BY CASE WHEN r.number = @number THEN 0 ELSE 1 END, r.id DESC
             """;
-        var header = await conn.QuerySingleOrDefaultAsync<ReturnHeaderRow>(
-            new CommandDefinition(headerSql, new { number }, cancellationToken: ct));
-        if (header is null) return null;
-        return await BuildReturnSourceAsync(conn, header, ct);
+        var headers = (await conn.QueryAsync<ReturnHeaderRow>(
+            new CommandDefinition(headerSql, new { number }, cancellationToken: ct))).ToList();
+        var list = new List<ReceiptReturnSourceDto>(headers.Count);
+        foreach (var header in headers)
+            list.Add(await BuildReturnSourceAsync(conn, header, ct));
+        return list;
     }
+
+    public async Task<ReceiptReturnSourceDto?> GetReturnSourceByNumberAsync(long number, CancellationToken ct) =>
+        (await GetReturnSourcesByNumberAsync(number, ct)).FirstOrDefault();
 
     public async Task<CreateReceiptResponse> CreateAsync(CreateReceiptRequest req, CancellationToken ct)
     {
@@ -305,8 +325,8 @@ public sealed class ReceiptRepository(
             else if (await receiptNumbers.AdoptClientNumberAsync(conn, tx, req.CashierId, req.Number, ct) is { } adopted)
             {
                 number = adopted;
-                // Rare: the client number already exists for this terminal (e.g. re-seeded counter).
-                if (await NumberInUseAsync(conn, tx, number, req.PosId, ct))
+                // Rare: the client number already exists anywhere in the shop.
+                if (await NumberInUseAsync(conn, tx, number, ct))
                 {
                     number = await receiptNumbers.AllocateAsync(conn, tx, req.CashierId, ct);
                     renumbered = true;
@@ -321,7 +341,10 @@ public sealed class ReceiptRepository(
             var qrPerson = req.UserDiscount > 0
                 ? await discountQr.ResolveForReceiptAsync(req.DiscountQrPersonId, req.DiscountQrPersonCode, ct)
                 : null;
-            var receiptId = await InsertReceiptAsync(conn, tx, req, number, total, offersDiscount, cashBack, masterAccount, qrPerson, ct);
+            long? printedNumber = !req.IsPending && req.Number is > 0 && req.Number.Value != number
+                ? req.Number
+                : null;
+            var receiptId = await InsertReceiptAsync(conn, tx, req, number, total, offersDiscount, cashBack, masterAccount, qrPerson, printedNumber, ct);
 
             var headerSalesman = ResolveHeaderSalesman(req);
             foreach (var item in req.Items)
@@ -347,6 +370,52 @@ public sealed class ReceiptRepository(
             if (existing is not null)
                 return ToCreateResponse(existing);
             throw;
+        }
+        catch
+        {
+            await SafeRollbackAsync(tx);
+            throw;
+        }
+    }
+
+    public async Task<ReceiptDetailDto?> SetPrintedNumberAsync(long id, long? printedNumber, CancellationToken ct)
+    {
+        await schema.EnsureLoadedAsync(ct);
+        if (!schema.PrintedNumber)
+            throw new InvalidOperationException("حدّث برنامج الخادم لربط الرقم المطبوع بالفاتورة");
+
+        if (printedNumber is <= 0) printedNumber = null;
+
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var official = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(
+            "SELECT number FROM reciepts WHERE id = @id",
+            new { id }, cancellationToken: ct));
+        if (official is null) return null;
+        if (printedNumber == official) printedNumber = null;
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE reciepts SET printed_number = @printedNumber WHERE id = @id",
+            new { id, printedNumber }, cancellationToken: ct));
+        return await GetByIdAsync(id, ct);
+    }
+
+    /// <summary>
+    /// Reserves the next official receipt number for this cashier so the POS can print it
+    /// before the sale is posted. Create then adopts the same number (seq == last_seq).
+    /// </summary>
+    public async Task<AllocateReceiptNumberResponse> AllocateNumberAsync(long cashierId, CancellationToken ct)
+    {
+        if (cashierId <= 0)
+            throw new InvalidOperationException("الكاشير غير محدد");
+
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            var number = await receiptNumbers.AllocateAsync(conn, tx, cashierId, ct);
+            ReceiptNumberFormatter.TryDecompose(number, out var year, out var cashierCode, out var seq);
+            await tx.CommitAsync(ct);
+            return new AllocateReceiptNumberResponse(number, year, cashierCode, seq);
         }
         catch
         {
@@ -407,18 +476,16 @@ public sealed class ReceiptRepository(
         return req.SalesmanId > 0 ? req.SalesmanId : 0;
     }
 
-    /// <summary>Whether a receipt already occupies this number for the terminal (matches sync_constraint).</summary>
+    /// <summary>Whether any posted receipt already occupies this display number in the shop.</summary>
     private static async Task<bool> NumberInUseAsync(
         System.Data.Common.DbConnection conn,
         System.Data.Common.DbTransaction tx,
         long number,
-        long? posId,
         CancellationToken ct) =>
         await conn.ExecuteScalarAsync<int>(new CommandDefinition("""
             SELECT COUNT(1) FROM reciepts WITH (UPDLOCK, HOLDLOCK)
             WHERE number = @number AND state = 0
-              AND (@posId IS NULL OR point_of_sale_id = @posId)
-            """, new { number, posId }, transaction: tx, cancellationToken: ct)) > 0;
+            """, new { number }, transaction: tx, cancellationToken: ct)) > 0;
 
     private async Task<long> InsertReceiptAsync(
         System.Data.Common.DbConnection conn,
@@ -430,6 +497,7 @@ public sealed class ReceiptRepository(
         decimal cashBack,
         long masterAccount,
         (long Id, string Name)? qrPerson,
+        long? printedNumber,
         CancellationToken ct)
     {
         var soldAt = NormalizeSoldAt(req.SoldAt);
@@ -452,7 +520,8 @@ public sealed class ReceiptRepository(
             clientReceiptId = req.ClientReceiptId,
             returnOfReceiptId = req.Kind == 1 ? req.ReturnOfReceiptId : null,
             discountQrPersonId = qrPerson?.Id,
-            discountQrPersonName = qrPerson?.Name
+            discountQrPersonName = qrPerson?.Name,
+            printedNumber
         };
         var createdExpr = soldAt.HasValue ? "@creationDate" : "GETDATE()";
 
@@ -472,6 +541,11 @@ public sealed class ReceiptRepository(
         {
             extraCols += ", discount_qr_person_id, discount_qr_person_name";
             extraVals += ", @discountQrPersonId, @discountQrPersonName";
+        }
+        if (schema.PrintedNumber)
+        {
+            extraCols += ", printed_number";
+            extraVals += ", @printedNumber";
         }
 
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"""
@@ -976,7 +1050,7 @@ public sealed class ReceiptRepository(
 
         return new ReceiptReturnSourceDto(
             header.Id, header.Number, header.CreationDate, header.Kind, header.TotalAmount,
-            header.SalesmanId, header.SalesmanName, lines);
+            header.SalesmanId, header.SalesmanName, lines, header.PrintedNumber);
     }
 
     private static decimal TakeReturned(List<ReturnedBucket> buckets, long articleId, long salesmanId, decimal price, decimal max)
@@ -1006,6 +1080,7 @@ public sealed class ReceiptRepository(
         public decimal TotalAmount { get; set; }
         public long SalesmanId { get; set; }
         public string? SalesmanName { get; set; }
+        public long? PrintedNumber { get; set; }
     }
 
     private sealed class ReturnLineRow
@@ -1057,6 +1132,7 @@ public sealed class ReceiptRepository(
         public long? EdrNum { get; set; }
         public long? DiscountQrPersonId { get; set; }
         public string? DiscountQrPersonName { get; set; }
+        public long? PrintedNumber { get; set; }
     }
 
     private sealed record ExistingReceiptRow(long Id, long Number, decimal TotalAmount, decimal CashBack);

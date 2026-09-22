@@ -118,7 +118,7 @@ export function PeriodBar({
   }
 
   return (
-    <section className={`range-bar ${compact ? 'compact' : ''}`}>
+    <section className={`range-bar mobile-period ${compact ? 'compact' : ''}`}>
       <div className="range-chips">
         {chips.map(c => (
           <button key={c.id} type="button" className={kind === c.id ? 'on' : ''} onClick={() => pickKind(c.id)}>

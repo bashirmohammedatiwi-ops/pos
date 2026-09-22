@@ -9,10 +9,12 @@ import type {
   CatalogInfoDto,
   CashReportDto,
   CashierPermissionsDto,
+  AllocateReceiptNumberResponse,
   CreateReceiptResponse,
   HoldReceiptDto,
   PosSessionDto,
   ReceiptDetailDto,
+  ReceiptReturnMatchesDto,
   ReceiptReturnSourceDto,
   PrintSettingsDto,
   ProductDto,
@@ -287,8 +289,19 @@ export const api = {
 
   receiptDetail: (id: number) => request<ReceiptDetailDto>(`/api/receipts/${id}`),
 
-  receiptByNumber: (number: number) =>
-    request<ReceiptReturnSourceDto>(`/api/receipts/by-number/${number}`, LOOKUP),
+  receiptByNumber: async (number: number): Promise<ReceiptReturnSourceDto[]> => {
+    const raw = await request<ReceiptReturnMatchesDto | ReceiptReturnSourceDto>(
+      `/api/receipts/by-number/${number}`,
+      LOOKUP,
+    );
+    if (raw && 'kind' in raw && typeof raw.kind === 'number' && 'number' in raw) {
+      return [raw];
+    }
+    if (raw && 'items' in raw && Array.isArray(raw.items) && raw.items.every(item => 'kind' in item)) {
+      return raw.items;
+    }
+    return [];
+  },
 
   completeHold: (id: number, payment: number) =>
     request<ReceiptDetailDto>(`/api/receipts/hold/${id}/complete?payment=${payment}`, {
@@ -301,6 +314,13 @@ export const api = {
       method: 'POST',
       timeoutMs: SALE_TIMEOUT_MS,
       body: JSON.stringify(body),
+    }),
+
+  nextReceiptNumber: (cashierId: number) =>
+    request<AllocateReceiptNumberResponse>('/api/receipts/next-number', {
+      method: 'POST',
+      timeoutMs: SALE_TIMEOUT_MS,
+      body: JSON.stringify({ cashierId }),
     }),
 
   heartbeat: async (

@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, attachLiveGoals, deltaPct, liveGoals, setMe, todayKey, type CashierRow, type Dashboard, type LineRow, type SellerRow, type WeekSummary } from './api';
 import { buildInsights, unifyCashiers } from './insights';
 import {
-  cashiersFromLines, filterLines, officialPeriod, periodStats, resolveBounds, sellersFromLines,
+  applyPeriodCommission, cashiersFromLines, enrichSellerCommissions, filterLines, officialPeriod,
+  periodStats, resolveBounds, salesShareBase, sellersFromLines,
   type PeriodBounds, type PeriodKind, type PeriodStats,
 } from './period';
 import { useWeek } from './week';
@@ -76,6 +77,8 @@ type Store = {
   paySellers: SellerRow[];
   periodTotals: PeriodStats;
   payTotals: PeriodStats;
+  shareBase: number;
+  linesTruncated: boolean;
   err: string;
   loading: boolean;
   updatedAt: number | null;
@@ -182,48 +185,75 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
   const payLines = useMemo(() => filterLines(lines, payPeriod.from, payPeriod.to), [lines, payPeriod]);
 
   const useOfficialPeople = period.kind === 'week' && (dash?.sellers.some(s => s.salesAmount > 0) ?? false);
-  const scopedSellers = useMemo(
-    () => useOfficialPeople
-      ? (dash?.sellers ?? [])
-      : sellersFromLines(scopedLines, dash?.sellers ?? []),
-    [useOfficialPeople, dash, scopedLines],
-  );
+  const weekSales = dash?.week.salesAmount || 0;
+  const roster = dash?.sellers ?? [];
+
+  const scopedSellers = useMemo(() => {
+    const base = useOfficialPeople
+      ? roster
+      : enrichSellerCommissions(
+        sellersFromLines(scopedLines, roster),
+        roster,
+        { prorate: period.kind !== 'week', periodSales: scopedLines.reduce((s, l) => s + (Number(l.salesAmount) || 0), 0), weekSales },
+      );
+    return attachLiveGoals(base, dash?.goals ?? []);
+  }, [useOfficialPeople, roster, scopedLines, dash?.goals, period.kind, weekSales]);
   const scopedCashiers = useMemo(
     () => useOfficialPeople
       ? cashiers
       : cashiersFromLines(scopedLines, cashiers),
     [useOfficialPeople, cashiers, scopedLines],
   );
-  const paySellers = useMemo(
-    () => sellersFromLines(payLines, dash?.sellers ?? []).filter(s => s.commissionAmount > 0 || s.salesAmount > 0),
-    [payLines, dash],
-  );
+  const paySellers = useMemo(() => {
+    if (payPeriod.kind === 'week' && roster.some(s => s.commissionAmount > 0 || s.salesAmount > 0)) {
+      return [...roster]
+        .filter(s => s.commissionAmount > 0 || s.salesAmount > 0)
+        .sort((a, b) => b.commissionAmount - a.commissionAmount || b.salesAmount - a.salesAmount);
+    }
+    const fromLines = sellersFromLines(payLines, roster);
+    const paySales = fromLines.reduce((s, x) => s + x.salesAmount, 0);
+    return enrichSellerCommissions(fromLines, roster, {
+      prorate: payPeriod.kind !== 'week',
+      periodSales: paySales,
+      weekSales,
+    }).filter(s => s.commissionAmount > 0 || s.salesAmount > 0);
+  }, [payPeriod.kind, payLines, roster, weekSales]);
 
   const periodTotals = useMemo(() => {
+    let stats: PeriodStats;
     if (period.kind === 'week' && dash) {
-      const weekSales = dash.week.salesAmount || dash.sellers.reduce((s, x) => s + x.salesAmount, 0);
-      return periodStats(scopedLines, {
-        sales: weekSales,
+      const sales = dash.week.salesAmount || dash.sellers.reduce((s, x) => s + x.salesAmount, 0);
+      stats = periodStats(scopedLines, {
+        sales,
         receipts: dash.week.receiptCount,
         pieces: dash.week.pieceCount,
       });
+    } else {
+      stats = periodStats(scopedLines, officialPeriod(dash?.days, period.from, period.to));
     }
-    return periodStats(scopedLines, officialPeriod(dash?.days, period.from, period.to));
+    return applyPeriodCommission(stats, dash, period);
   }, [period, dash, scopedLines]);
 
-  const payTotals = useMemo(
-    () => periodStats(payLines, officialPeriod(dash?.days, payPeriod.from, payPeriod.to)),
-    [payLines, dash, payPeriod],
+  const payTotals = useMemo(() => {
+    const stats = periodStats(payLines, officialPeriod(dash?.days, payPeriod.from, payPeriod.to));
+    return applyPeriodCommission(stats, dash, payPeriod);
+  }, [payLines, dash, payPeriod]);
+
+  const shareBase = useMemo(
+    () => salesShareBase(periodTotals.sales, scopedSellers),
+    [periodTotals.sales, scopedSellers],
   );
+
+  const linesTruncated = lines.length >= 1200;
 
   const value = useMemo<Store>(() => ({
     weekStart, setWeek, periodKind, setPeriodKind, payKind, setPayKind, customFrom, customTo, setCustom,
     period, payPeriod, dash, prevDash, weeks, lines, scopedLines, payLines, cashiers, scopedSellers,
-    scopedCashiers, paySellers, periodTotals, payTotals, err, loading, updatedAt, cached, reload,
+    scopedCashiers, paySellers, periodTotals, payTotals, shareBase, linesTruncated, err, loading, updatedAt, cached, reload,
   }), [
     weekStart, setWeek, periodKind, setPeriodKind, payKind, setPayKind, customFrom, customTo, setCustom,
     period, payPeriod, dash, prevDash, weeks, lines, scopedLines, payLines, cashiers, scopedSellers,
-    scopedCashiers, paySellers, periodTotals, payTotals, err, loading, updatedAt, cached, reload,
+    scopedCashiers, paySellers, periodTotals, payTotals, shareBase, linesTruncated, err, loading, updatedAt, cached, reload,
   ]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -328,6 +328,7 @@ export interface ReceiptSummary {
   discountQrPersonId?: number | null;
   discountQrPersonName?: string | null;
   wasEdited?: boolean;
+  printedNumber?: number | null;
 }
 
 export interface ReceiptTotalsSummary {
@@ -423,6 +424,7 @@ export interface ReceiptDetailDto {
   discountQrPersonName?: string | null;
   wasEdited?: boolean;
   edits?: ReceiptEditRevisionDto[];
+  printedNumber?: number | null;
 }
 
 export interface DiscountQrPersonDto {

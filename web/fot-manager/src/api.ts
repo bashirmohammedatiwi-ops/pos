@@ -138,6 +138,10 @@ export interface Dashboard {
 export interface SellerGoalGroup {
   salesmanId: number; salesmanName: string; goals: GoalRow[]; avg: number; hit: number;
 }
+export interface GoalRuleGroup {
+  ruleId: number; ruleName: string; targetType: string; weeklyTarget: number;
+  members: GoalRow[]; avg: number; hit: number; total: number;
+}
 export interface SellerDetail {
   seller: SellerRow; goals: GoalRow[]; lines: LineRow[];
 }
@@ -260,6 +264,35 @@ export function goalValue(type: string, n: number) {
 export function liveGoals(goals?: GoalRow[] | null) {
   return (goals ?? []).filter(g => Number(g.weeklyTarget) > 0);
 }
+export function groupGoalsByRule(goals?: GoalRow[] | null): GoalRuleGroup[] {
+  const map = new Map<number, GoalRuleGroup>();
+  for (const g of liveGoals(goals)) {
+    const cur = map.get(g.ruleId) ?? {
+      ruleId: g.ruleId,
+      ruleName: g.ruleName,
+      targetType: g.targetType,
+      weeklyTarget: g.weeklyTarget,
+      members: [],
+      avg: 0,
+      hit: 0,
+      total: 0,
+    };
+    cur.members.push(g);
+    map.set(g.ruleId, cur);
+  }
+  return [...map.values()].map(row => {
+    const list = [...row.members].sort((a, b) => b.percent - a.percent || a.salesmanName.localeCompare(b.salesmanName, 'ar'));
+    const avg = list.length ? list.reduce((s, x) => s + x.percent, 0) / list.length : 0;
+    return {
+      ...row,
+      members: list,
+      avg,
+      hit: list.filter(x => x.percent >= 100).length,
+      total: list.length,
+    };
+  }).sort((a, b) => a.avg - b.avg || a.ruleName.localeCompare(b.ruleName, 'ar'));
+}
+
 export function groupGoalsBySeller(goals?: GoalRow[] | null): SellerGoalGroup[] {
   const map = new Map<number, SellerGoalGroup>();
   for (const g of liveGoals(goals)) {

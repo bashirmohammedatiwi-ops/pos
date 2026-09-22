@@ -2,14 +2,14 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ago, cashierCsv, deltaPct, downloadText, goalLabel, goalTone, goalValue, greeting,
-  groupGoalsBySeller, lastSyncMs, moneyIq, pct, resolveWeekSales, shareOf, shareText,
+  groupGoalsByRule, groupGoalsBySeller, lastSyncMs, moneyIq, pct, resolveWeekSales, shareOf, shareText,
   teamCsv, todayKey, weekRange, weekReport,
 } from '../api';
 import { buildAlerts, cashierShares, prevDay, sellerShares, shopHealth, weekPace } from '../insights';
 import { commissionCsv } from '../period';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
-  CountMoney, DayStrip, Delta, ErrorBox, HourBands, LiveDot, Medal, Podium, Ring,
+  CountMoney, DayStrip, Delta, ErrorBox, HourBands, LiveDot, Medal, PeriodCompareStrip, Podium, QuickNav, Ring,
   SectionHead, ShareRow, Skeleton, Track, useToast,
 } from '../ui';
 import { PayPeriodBar, PeriodBar } from '../week';
@@ -18,7 +18,7 @@ export function Home() {
   const {
     weekStart, setWeek, dash, prevDash, weeks, cashiers, scopedSellers, scopedCashiers, paySellers,
     period, periodKind, setPeriodKind, payPeriod, payKind, setPayKind, customFrom, customTo, setCustom,
-    periodTotals, payTotals, err, loading, cached, reload,
+    periodTotals, payTotals, shareBase, linesTruncated, err, loading, cached, reload,
   } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
   const insights = useShopInsights();
@@ -29,9 +29,11 @@ export function Home() {
   const stale = syncMs != null && Date.now() - syncMs > 15 * 60 * 1000;
   const alerts = useMemo(() => buildAlerts(dash, prevDash, cashiers, stale), [dash, prevDash, cashiers, stale]);
   const weekSales = resolveWeekSales(dash);
-  const sellers = useMemo(() => sellerShares(scopedSellers, periodTotals.sales || 1), [scopedSellers, periodTotals.sales]);
-  const cashierRows = useMemo(() => cashierShares(scopedCashiers, periodTotals.sales || 1), [scopedCashiers, periodTotals.sales]);
+  const sellers = useMemo(() => sellerShares(scopedSellers, shareBase), [scopedSellers, shareBase]);
+  const cashierRows = useMemo(() => cashierShares(scopedCashiers, shareBase), [scopedCashiers, shareBase]);
   const goalGroups = useMemo(() => groupGoalsBySeller(dash?.goals), [dash]);
+  const goalRules = useMemo(() => groupGoalsByRule(dash?.goals), [dash]);
+  const todayRow = useMemo(() => insights.days.find(d => d.key === todayKey()), [insights.days]);
   const payRows = useMemo(
     () => [...paySellers].filter(s => s.commissionAmount > 0).sort((a, b) => b.commissionAmount - a.commissionAmount),
     [paySellers],
@@ -75,7 +77,7 @@ export function Home() {
   }
 
   return (
-    <div className="dash fade-up">
+    <div className="dash mobile-layout fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -87,6 +89,10 @@ export function Home() {
         customTo={customTo}
         setCustom={setCustom}
       />
+
+      {linesTruncated && (
+        <p className="data-note">تُعرض آخر 1200 حركة — الإجماليات من السيرفر دقيقة، تفاصيل البائع/الكاشير قد تكون جزئية.</p>
+      )}
 
       <section className="hero dash-hero">
         <div className="dash-hero-top">
@@ -145,6 +151,20 @@ export function Home() {
         {stale && <p className="mt-3 text-sm font-extrabold text-warn">افتح لوحة التحكم حتى تُرفع البيانات من جديد</p>}
         {cached && <p className="mt-2 text-sm font-extrabold text-muted">تُعرض بيانات محفوظة حتى تكتمل المزامنة</p>}
       </section>
+
+      <PeriodCompareStrip
+        todaySales={todayRow?.sales ?? 0}
+        todayReceipts={todayRow?.receipts ?? 0}
+        period={period}
+        periodTotals={periodTotals}
+        periodKind={periodKind}
+        setPeriodKind={setPeriodKind}
+        weekSales={weekSales}
+        weekReceipts={dash.week.receiptCount}
+        payCommission={payTotals.commission}
+        payLabel={payPeriod.label}
+      />
+      <QuickNav />
 
       {insights.days.length > 0 && (
         <section className="panel">
@@ -244,6 +264,8 @@ export function Home() {
         <SectionHead
           title="عمولات الموظفين"
           kicker={payPeriod.label}
+          to="/commissions"
+          link="كل العمولات"
           action={(
             <button
               type="button"
@@ -287,24 +309,24 @@ export function Home() {
       <div className="dash-split">
         <section className="panel">
           <SectionHead title="التاركت" kicker="هذا الأسبوع" to="/goals" link="الكل" />
-          {goalGroups.length ? (
+          {goalRules.length ? (
             <>
               <div className="goal-summary">
                 <Ring value={avg} size={86} tone="goal" label="متوسط" />
                 <div>
                   <p className="font-extrabold">{hit} من {goalCount} تحقق</p>
-                  <p className="mt-1 text-xs font-bold text-muted">{late && late.avg < 100 ? `أضعف: ${late.salesmanName}` : health.label}</p>
+                  <p className="mt-1 text-xs font-bold text-muted">{goalRules.length} هدف · {late && late.avg < 100 ? `أضعف: ${late.salesmanName}` : health.label}</p>
                 </div>
               </div>
-              {goalGroups.slice(0, 4).map(group => (
-                <Link key={group.salesmanId} to={`/goals?q=${encodeURIComponent(group.salesmanName)}`} className="board-row stat-link">
-                  <Ring value={group.avg} size={46} tone={goalTone(group.avg)} />
+              {goalRules.slice(0, 4).map(rule => (
+                <Link key={rule.ruleId} to={`/goals?rule=${rule.ruleId}`} className="board-row stat-link">
+                  <Ring value={rule.avg} size={46} tone={goalTone(rule.avg)} />
                   <div className="min-w-0">
-                    <p className="truncate font-extrabold">{group.salesmanName}</p>
-                    <p className="truncate text-xs font-bold text-muted">{group.hit}/{group.goals.length} · {goalValue(group.goals[0].targetType, group.goals[0].sold)}</p>
-                    <div className="mt-2"><Track value={group.avg} tone={goalTone(group.avg)} /></div>
+                    <p className="truncate font-extrabold">{rule.ruleName}</p>
+                    <p className="truncate text-xs font-bold text-muted">{rule.hit}/{rule.total} حققوا · {goalValue(rule.targetType, rule.weeklyTarget)}</p>
+                    <div className="mt-2"><Track value={rule.avg} tone={goalTone(rule.avg)} /></div>
                   </div>
-                  <span className="text-xs font-extrabold text-muted">{goalLabel(group.avg)}</span>
+                  <span className="text-xs font-extrabold text-muted">{goalLabel(rule.avg)}</span>
                 </Link>
               ))}
             </>

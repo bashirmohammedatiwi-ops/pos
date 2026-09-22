@@ -1,4 +1,4 @@
-import { avgTicket, dayLabel, todayKey, type CashierRow, type DayRow, type LineRow, type SellerRow } from './api';
+import { avgTicket, dayLabel, todayKey, type CashierRow, type Dashboard, type DayRow, type LineRow, type SellerRow } from './api';
 import { lineCashier } from './insights';
 
 export type PeriodKind = 'today' | 'yesterday' | 'wtd' | 'week' | 'custom';
@@ -131,6 +131,56 @@ export function officialPeriod(days: DayRow[] | undefined, from: string, to: str
     receipts: slice.reduce((s, d) => s + (Number(d.receiptCount) || 0), 0),
     pieces: slice.reduce((s, d) => s + (Number(d.pieceCount) || 0), 0),
   };
+}
+
+export function salesShareBase(periodTotal: number, people: Array<{ salesAmount: number }>) {
+  const sum = people.reduce((s, row) => s + (Number(row.salesAmount) || 0), 0);
+  return Math.max(Number(periodTotal) || 0, sum, 1);
+}
+
+export function prorateCommission(periodSales: number, weekSales: number, weekCommission: number) {
+  const sales = Number(periodSales) || 0;
+  const base = Number(weekSales) || 0;
+  const comm = Number(weekCommission) || 0;
+  if (comm <= 0 || sales <= 0 || base <= 0) return 0;
+  return Math.round((comm * sales) / base);
+}
+
+export function applyPeriodCommission(
+  stats: PeriodStats,
+  dash: Dashboard | null | undefined,
+  period: PeriodBounds,
+): PeriodStats {
+  if (!dash) return stats;
+  const weekComm = Number(dash.week.commissionAmount) || 0;
+  const weekSales = Number(dash.week.salesAmount) || 0;
+  if (weekComm <= 0) return stats;
+  if (period.kind === 'week') return { ...stats, commission: weekComm };
+  if (stats.sales > 0 && weekSales > 0) {
+    return { ...stats, commission: prorateCommission(stats.sales, weekSales, weekComm) };
+  }
+  return stats;
+}
+
+export function enrichSellerCommissions(
+  rows: SellerRow[],
+  roster: SellerRow[],
+  options?: { prorate?: boolean; periodSales?: number; weekSales?: number },
+): SellerRow[] {
+  const rosterMap = new Map(roster.map(s => [s.salesmanId, s]));
+  return rows.map(row => {
+    const official = rosterMap.get(row.salesmanId);
+    if (!official?.commissionAmount) return row;
+    if (!options?.prorate) {
+      return { ...row, commissionAmount: official.commissionAmount };
+    }
+    const weekSales = options.weekSales || roster.reduce((s, x) => s + (Number(x.salesAmount) || 0), 0);
+    if (weekSales <= 0 || row.salesAmount <= 0) return { ...row, commissionAmount: 0 };
+    return {
+      ...row,
+      commissionAmount: Math.round((official.commissionAmount * row.salesAmount) / official.salesAmount),
+    };
+  });
 }
 
 export function periodStats(lines: LineRow[], official?: { sales: number; receipts: number; pieces: number } | null): PeriodStats {

@@ -129,6 +129,13 @@ export type CreateReceiptResponse = {
   renumbered?: boolean;
 };
 
+export type AllocateReceiptNumberResponse = {
+  number: number;
+  year: number;
+  cashierCode: number;
+  seq: number;
+};
+
 export type ReceiptSummaryDto = {
   id: number;
   number: number;
@@ -204,6 +211,8 @@ export type ReceiptDetailDto = {
   salesmanId: number;
   salesmanName?: string | null;
   items: ReceiptItemDto[];
+  kind?: number;
+  printedNumber?: number | null;
 };
 
 export type ReceiptReturnLineDto = {
@@ -232,6 +241,11 @@ export type ReceiptReturnSourceDto = {
   salesmanId: number;
   salesmanName?: string | null;
   items: ReceiptReturnLineDto[];
+  printedNumber?: number | null;
+};
+
+export type ReceiptReturnMatchesDto = {
+  items: ReceiptReturnSourceDto[];
 };
 
 export type CatalogInfoDto = {

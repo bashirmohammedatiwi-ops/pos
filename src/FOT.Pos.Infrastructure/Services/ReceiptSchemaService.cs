@@ -16,6 +16,7 @@ public sealed class ReceiptSchemaService(ISqlConnectionFactory db)
     public bool ReturnOfReceiptId { get; private set; }
     public bool DiscountQrPerson { get; private set; }
     public bool ReceiptEdits { get; private set; }
+    public bool PrintedNumber { get; private set; }
 
     public async Task EnsureLoadedAsync(CancellationToken ct)
     {
@@ -30,6 +31,7 @@ public sealed class ReceiptSchemaService(ISqlConnectionFactory db)
             ReturnOfReceiptId = await ColumnExistsAsync(conn, "reciepts", "return_of_receipt_id", ct);
             DiscountQrPerson = await ColumnExistsAsync(conn, "reciepts", "discount_qr_person_id", ct);
             ReceiptEdits = await TableExistsAsync(conn, "ext_receipt_edits", ct);
+            PrintedNumber = await ColumnExistsAsync(conn, "reciepts", "printed_number", ct);
             _loaded = true;
         }
         finally

@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
-    <Version>2.2.74</Version>
-    <AssemblyVersion>2.2.74.0</AssemblyVersion>
-    <FileVersion>2.2.74.0</FileVersion>
-    <InformationalVersion>2.2.74</InformationalVersion>
+    <Version>2.2.75</Version>
+    <AssemblyVersion>2.2.75.0</AssemblyVersion>
+    <FileVersion>2.2.75.0</FileVersion>
+    <InformationalVersion>2.2.75</InformationalVersion>
     <Company>Future of Technology</Company>
     <Product>FOT POS</Product>
     <Authors>Future of Technology</Authors>

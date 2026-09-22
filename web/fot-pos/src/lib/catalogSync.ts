@@ -1,4 +1,4 @@
-import { isDiscountQrCode, normalizeDiscountQrCode, type DiscountQrPerson } from '@fot/shared';
+import { isDiscountQrCode, normalizeDiscountQrCode, parseReceiptNumber, type DiscountQrPerson } from '@fot/shared';
 import { api, ApiError, isPermanentReceiptError } from '@/api/client';
 import type { AccountSummaryDto, ArticleGroupDto, ArticleGroupItemDto, ProductDto, SalesmanDto } from '@/api/types';
 import { refreshAttributionCache } from '@/lib/attribution';
@@ -16,8 +16,39 @@ export type FlushOutboxResult = {
   failed: number;
   dead: number;
   stopped: boolean;
-  renumbered: Array<{ localNumber: number; newNumber: number }>;
+  renumbered: Array<{ localNumber: number; newNumber: number; receiptId: number }>;
 };
+
+/** Advance the local counter so the next offline number stays after an official one. */
+export async function rememberOfficialNumber(number: number) {
+  const parsed = parseReceiptNumber(number);
+  if (!parsed) return;
+  await db.seedReceiptSeq(parsed.cashierCode, parsed.seq);
+}
+
+/**
+ * Official number before print: reserve from the shop when online, otherwise a local
+ * sequence that the server will adopt (or reject if stale, then we reprint).
+ */
+export async function takeReceiptNumber(opts: {
+  cashierId: number;
+  cashierCode: number;
+  online: boolean;
+}): Promise<number> {
+  if (opts.online && !isServerUnreachable()) {
+    try {
+      const reserved = await api.nextReceiptNumber(opts.cashierId);
+      if (reserved.number > 0) {
+        if (reserved.seq > 0) await db.seedReceiptSeq(opts.cashierCode || reserved.cashierCode, reserved.seq);
+        else await rememberOfficialNumber(reserved.number);
+        return reserved.number;
+      }
+    } catch {
+      /* shop unreachable — fall back to a local number */
+    }
+  }
+  return db.nextLocalNumber(opts.cashierCode);
+}
 
 export async function findProductSmart(code: string, online: boolean): Promise<ProductDto | null> {
   const local = await db.findProduct(code);
@@ -246,8 +277,13 @@ export async function flushOutbox(): Promise<FlushOutboxResult> {
     }
     try {
       const res = await api.createReceipt(withSoldAt(row.payload, row.createdAt));
+      if (res.number > 0) await rememberOfficialNumber(res.number);
       if (row.localNumber > 0 && res.number !== row.localNumber) {
-        result.renumbered.push({ localNumber: row.localNumber, newNumber: res.number });
+        result.renumbered.push({
+          localNumber: row.localNumber,
+          newNumber: res.number,
+          receiptId: res.receiptId,
+        });
       }
       // Only removed after the server confirms — nothing is ever dropped on failure.
       await db.removeOutbox(row.id);

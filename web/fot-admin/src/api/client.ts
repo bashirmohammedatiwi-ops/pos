@@ -339,6 +339,11 @@ export const api = {
     to?: string;
   }) => request<ReceiptSearchResult>(`/api/receipts${qs(p)}`),
   receiptDetail: (id: number) => request<ReceiptDetailDto>(`/api/receipts/${id}`),
+  setReceiptPrintedNumber: (id: number, printedNumber: number | null) =>
+    request<ReceiptDetailDto>(`/api/receipts/${id}/printed-number`, {
+      method: 'POST',
+      body: JSON.stringify({ printedNumber }),
+    }),
   holdReceipts: (sectionId?: number, posId?: number) =>
     request<HoldReceiptDto[]>(`/api/receipts/holds${qs({ sectionId, posId })}`),
   completeHold: (id: number, payment: number) =>

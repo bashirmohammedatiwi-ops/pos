@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { downloadText, moneyIq, pieces, pct, productCsv, shareOf } from '../api';
+import { downloadText, moneyIq, pieces, pct, productCsv, resolveWeekSales, shareOf, todayKey } from '../api';
 import { peopleForProduct, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
-import { useManager } from '../store';
-import { Empty, ErrorBox, Medal, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
+import { useManager, useShopInsights } from '../store';
+import { Empty, ErrorBox, Medal, PeriodCompareStrip, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
 import { PeriodBar } from '../week';
 import type { LineRow } from '../api';
 
@@ -13,9 +13,11 @@ type Tab = 'sellers' | 'cashiers' | 'invoices';
 
 export function Products() {
   const {
-    weekStart, setWeek, weeks, scopedLines, period, periodKind, setPeriodKind,
-    customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+    weekStart, setWeek, dash, weeks, scopedLines, period, periodKind, setPeriodKind,
+    customFrom, customTo, setCustom, periodTotals, payTotals, payPeriod, err, loading, reload,
   } = useManager();
+  const insights = useShopInsights();
+  const todayRow = insights.days.find(d => d.key === todayKey());
   const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -39,11 +41,40 @@ export function Products() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="dash fade-up">
+    <div className="dash mobile-layout fade-up">
+      <PeriodBar
+        weeks={weeks}
+        weekStart={weekStart}
+        setWeek={setWeek}
+        period={period}
+        kind={periodKind}
+        setKind={setPeriodKind}
+        customFrom={customFrom}
+        customTo={customTo}
+        setCustom={setCustom}
+      />
+      <PeriodCompareStrip
+        todaySales={todayRow?.sales ?? 0}
+        todayReceipts={todayRow?.receipts ?? 0}
+        period={period}
+        periodTotals={periodTotals}
+        periodKind={periodKind}
+        setPeriodKind={setPeriodKind}
+        weekSales={resolveWeekSales(dash)}
+        weekReceipts={dash?.week.receiptCount ?? 0}
+        payCommission={payTotals.commission}
+        payLabel={payPeriod.label}
+      />
       <section className="hero compact command">
         <p className="kicker">منتجات {period.label}</p>
         <h1 className="display text-[28px] font-black">ماذا يُباع</h1>
-        <p className="mt-2 text-sm font-bold text-muted">{rows.length} منتجاً — اضغط لترى البائع والكاشير والفواتير</p>
+        <p className="mt-2 text-sm font-bold text-muted">{rows.length} منتجاً · مبيعات {moneyIq(total)}</p>
+        <div className="dash-kpis mt-3">
+          <div className="dash-kpi"><p>منتجات</p><strong className="num">{rows.length}</strong></div>
+          <div className="dash-kpi"><p>حركات</p><strong className="num">{scopedLines.length}</strong></div>
+          <div className="dash-kpi"><p>أقوى</p><strong className="num truncate">{rows[0]?.name ?? '—'}</strong></div>
+          <div className="dash-kpi"><p>مبيعاته</p><strong className="num">{moneyIq(rows[0]?.sales ?? 0)}</strong></div>
+        </div>
         <button
           type="button"
           className="pill mt-3"
@@ -57,21 +88,10 @@ export function Products() {
           تصدير المنتجات
         </button>
       </section>
-      <PeriodBar
-        weeks={weeks}
-        weekStart={weekStart}
-        setWeek={setWeek}
-        period={period}
-        kind={periodKind}
-        setKind={setPeriodKind}
-        customFrom={customFrom}
-        customTo={customTo}
-        setCustom={setCustom}
-      />
       <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المنتج" />
-      <div className="toolbar">
+      <div className="sort-bar">
         {([['sales', 'المبيعات'], ['qty', 'القطع']] as const).map(([k, label]) => (
-          <button key={k} type="button" className={`chip ${sort === k ? 'chip-on' : ''}`} onClick={() => setSort(k)}>{label}</button>
+          <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
         ))}
       </div>
       {loading && !rows.length && <Skeleton />}
@@ -95,9 +115,9 @@ export function Products() {
       <Sheet open={!!open} title={open || 'المنتج'} onClose={() => setOpen(null)}>
         {detail && (
           <div className="space-y-3">
-            <div className="toolbar">
+            <div className="view-toggle">
               {([['sellers', 'البائعون'], ['cashiers', 'الكاشير'], ['invoices', 'فواتير']] as const).map(([k, label]) => (
-                <button key={k} type="button" className={`chip ${tab === k ? 'chip-on' : ''}`} onClick={() => setTab(k)}>{label}</button>
+                <button key={k} type="button" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
               ))}
             </div>
             {tab === 'sellers' && detail.sellers.map(s => (

@@ -103,7 +103,9 @@ export type LabelSettings = {
   heightMm: number;
   fields: LabelFields;
   align: 'center' | 'start';
-  nameLines: 1 | 2;
+  nameLines: 1 | 2 | 3;
+  codeSize: 'sm' | 'md' | 'lg';
+  insetMm: number;
   printerName: string;
   autoPrint: boolean;
   columns: number;
@@ -120,6 +122,8 @@ export const DEFAULT_LABEL_SETTINGS: LabelSettings = {
   fields: { ...DEFAULT_LABEL_FIELDS },
   align: 'center',
   nameLines: 2,
+  codeSize: 'md',
+  insetMm: 1.4,
   printerName: '',
   autoPrint: false,
   columns: 3,
@@ -230,68 +234,161 @@ function clamp(n: number, min: number, max: number) {
 
 function productBarcodeSvg(code: string, height: number, maxWidth: number) {
   try {
-    return renderProductBarcode(code, { height, maxWidth, moduleWidth: 2 }).svg;
+    return renderProductBarcode(code, {
+      height,
+      maxWidth,
+      moduleWidth: 2,
+      minModuleWidth: 1,
+      quietModules: 3,
+    }).svg;
   } catch {
     return '';
   }
 }
 
+function estimateTextWidth(text: string, fontPx: number) {
+  let w = 0;
+  for (const ch of text) {
+    const c = ch.charCodeAt(0);
+    if (c >= 0x0600 && c <= 0x06FF) w += fontPx * 0.86;
+    else if (c > 255) w += fontPx * 0.9;
+    else if (ch === ' ') w += fontPx * 0.3;
+    else if (/\d/.test(ch)) w += fontPx * 0.58;
+    else w += fontPx * 0.54;
+  }
+  return w;
+}
+
+export function fitLabelFont(text: string, maxWidth: number, maxLines: number, maxPx: number, minPx: number) {
+  if (!text || maxWidth <= 0) return minPx;
+  const lines = Math.max(1, maxLines);
+  for (let px = maxPx; px >= minPx; px--) {
+    if (estimateTextWidth(text, px) <= maxWidth * lines) return px;
+  }
+  return minPx;
+}
+
+export function labelNameLooksLong(name: string) {
+  return (name || '').trim().length > 22;
+}
+
+function codeFontPx(code: string, innerW: number, size: LabelSettings['codeSize'], compact: boolean) {
+  const digits = Math.max(6, code.replace(/\s/g, '').length);
+  const fitted = Math.floor(innerW / (digits * 0.62));
+  const max = size === 'lg' ? 26 : size === 'sm' ? 15 : 21;
+  const min = compact ? 12 : 14;
+  return clamp(fitted, min, max);
+}
+
 function labelInner(item: LabelItem, settings: LabelSettings, widthPx: number, heightPx: number) {
-  const compact = heightPx < mmToThermalPx(26);
-  const padX = compact ? 4 : clamp(Math.round(widthPx * 0.04), 5, 12);
-  const padY = compact ? 3 : clamp(Math.round(heightPx * 0.05), 3, 10);
-  const innerW = Math.max(20, widthPx - padX * 2);
+  const compact = heightPx < mmToThermalPx(24);
+  const insetMm = clamp(Number(settings.insetMm) || 1.4, 0.6, 3);
+  const padX = Math.max(3, mmToThermalPx(insetMm));
+  const padY = Math.max(3, mmToThermalPx(Math.max(0.7, insetMm * 0.8)));
+  const innerW = Math.max(16, widthPx - padX * 2);
+  const innerH = Math.max(16, heightPx - padY * 2);
   const f = settings.fields;
   const hasOfferPrice = item.originalPrice > item.price + 0.005;
-  const namePx = clamp(Math.round(heightPx * (f.barcode ? 0.12 : 0.16)), compact ? 11 : 13, 30);
-  const pricePx = clamp(Math.round(heightPx * (f.barcode ? 0.18 : 0.26)), compact ? 14 : 18, 48);
-  const metaPx = clamp(Math.round(heightPx * 0.072), compact ? 9 : 10, 16);
-  const shopPx = clamp(Math.round(heightPx * 0.065), 9, 14);
-  const barcodeH = clamp(Math.round(heightPx * (f.name || f.price ? 0.28 : 0.48)), compact ? 18 : 22, 80);
-  const align = settings.align === 'start' ? 'flex-end' : 'center';
+  const wantedNameLines = settings.nameLines === 1 ? 1 : settings.nameLines === 3 ? 3 : 2;
   const textAlign = settings.align === 'start' ? 'right' : 'center';
-  const nameLines = settings.nameLines === 1 ? 1 : 2;
+  const align = settings.align === 'start' ? 'flex-end' : 'center';
+  const stackGap = compact ? 1 : 2;
+  const code = (item.barcode || item.articleNum).trim();
+  const showBars = Boolean(f.barcode && code);
+  const showHri = Boolean(f.barcodeText && code);
+  const showName = Boolean(f.name && item.name);
+  const showShop = Boolean(f.shop && item.shopName);
+  const showOffer = Boolean(f.offer && item.offerName);
+  const showDiscount = Boolean(f.discount && item.discountPercent > 0);
+  const showPrice = Boolean(f.price || (f.originalPrice && hasOfferPrice));
+  const showArticle = Boolean(f.articleNum && item.articleNum && item.articleNum !== item.barcode);
 
-  const parts: string[] = [];
-  if (f.shop && item.shopName) parts.push(`<div class="l-shop">${esc(item.shopName)}</div>`);
-  if (f.name && item.name) parts.push(`<div class="l-name">${esc(item.name)}</div>`);
-  if (f.offer && item.offerName) parts.push(`<div class="l-offer">${esc(item.offerName)}</div>`);
-  if (f.discount && item.discountPercent > 0) {
-    parts.push(`<div class="l-offer">خصم ${esc(String(Math.round(item.discountPercent)))}%</div>`);
+  const minBars = compact ? 18 : 24;
+  const minHri = compact ? 13 : 15;
+  let nameLines = wantedNameLines;
+  let namePx = showName
+    ? fitLabelFont(item.name, innerW, nameLines, clamp(Math.round(heightPx * 0.14), compact ? 12 : 14, 26), compact ? 10 : 11)
+    : 12;
+  let pricePx = clamp(Math.round(heightPx * (showBars ? 0.16 : 0.24)), compact ? 13 : 16, 40);
+  let shopPx = clamp(Math.round(heightPx * 0.07), 9, 13);
+  let metaPx = clamp(Math.round(heightPx * 0.068), 9, 13);
+  let codePx = showHri ? codeFontPx(code, innerW, settings.codeSize, compact) : 14;
+
+  const topCount = [showShop, showName, showOffer, showDiscount, showPrice, showArticle].filter(Boolean).length;
+  const scanCount = (showBars ? 1 : 0) + (showHri ? 1 : 0);
+  const gaps = Math.max(0, topCount + (scanCount ? 1 : 0) - 1) * stackGap;
+  const scanPairGap = showBars && showHri ? 1 : 0;
+
+  const nameHeight = (lines: number, px: number) => {
+    if (!showName) return 0;
+    const used = Math.min(lines, Math.max(1, Math.ceil(estimateTextWidth(item.name, px) / Math.max(1, innerW))));
+    return Math.round(px * 1.12 * used);
+  };
+
+  const fixedH = (lines: number) =>
+    (showShop ? Math.round(shopPx * 1.12) : 0)
+    + nameHeight(lines, namePx)
+    + (showOffer ? Math.round(metaPx * 1.15) : 0)
+    + (showDiscount ? Math.round(metaPx * 1.15) : 0)
+    + (showPrice ? Math.round(pricePx * 1.02) : 0)
+    + (showArticle ? Math.round(metaPx * 1.1) : 0)
+    + (showHri ? Math.round(codePx * 1.05) : 0)
+    + gaps + scanPairGap;
+
+  if (showBars && innerH - fixedH(nameLines) < minBars && nameLines > 1) {
+    nameLines = 1;
+    namePx = fitLabelFont(item.name, innerW, 1, namePx, compact ? 10 : 11);
   }
+  if (showBars && innerH - fixedH(nameLines) < minBars) {
+    namePx = Math.max(compact ? 10 : 11, namePx - 2);
+    pricePx = Math.max(compact ? 12 : 14, pricePx - 3);
+    codePx = Math.max(minHri, codePx - 2);
+  }
+
+  const leftover = innerH - fixedH(nameLines);
+  const barcodeH = showBars ? Math.max(compact ? 14 : 16, leftover) : 0;
+
+  const top: string[] = [];
+  if (showShop) top.push(`<div class="l-shop">${esc(item.shopName)}</div>`);
+  if (showName) top.push(`<div class="l-name">${esc(item.name)}</div>`);
+  if (showOffer) top.push(`<div class="l-offer">${esc(item.offerName)}</div>`);
+  if (showDiscount) top.push(`<div class="l-offer">خصم ${esc(String(Math.round(item.discountPercent)))}%</div>`);
 
   const priceBits: string[] = [];
-  if (f.originalPrice && hasOfferPrice) {
-    priceBits.push(`<span class="l-was">${esc(formatIqd(item.originalPrice))}</span>`);
-  }
+  if (f.originalPrice && hasOfferPrice) priceBits.push(`<span class="l-was">${esc(formatIqd(item.originalPrice))}</span>`);
   if (f.price) priceBits.push(`<span class="l-now">${esc(formatIqd(item.price))}</span>`);
-  if (priceBits.length) parts.push(`<div class="l-price">${priceBits.join('')}</div>`);
+  if (priceBits.length) top.push(`<div class="l-price">${priceBits.join('')}</div>`);
+  if (showArticle) top.push(`<div class="l-num" dir="ltr">${esc(item.articleNum)}</div>`);
 
-  const code = item.barcode || item.articleNum;
-  if (f.barcode && code) {
-    const svg = productBarcodeSvg(code, barcodeH, innerW);
-    if (svg) parts.push(`<div class="l-bars">${svg}</div>`);
+  const scan: string[] = [];
+  if (showBars) {
+    const svg = productBarcodeSvg(code, Math.max(16, barcodeH), innerW);
+    if (svg) scan.push(`<div class="l-bars">${svg}</div>`);
   }
-  if (f.barcodeText && code) parts.push(`<div class="l-code" dir="ltr">${esc(code)}</div>`);
-  if (f.articleNum && item.articleNum && item.articleNum !== item.barcode) {
-    parts.push(`<div class="l-num" dir="ltr">${esc(item.articleNum)}</div>`);
-  }
+  if (showHri) scan.push(`<div class="l-code" dir="ltr">${esc(code)}</div>`);
+
+  const body = [
+    top.length ? `<div class="l-top">${top.join('')}</div>` : '',
+    scan.length ? `<div class="l-scan">${scan.join('')}</div>` : '',
+  ].filter(Boolean).join('') || '<div class="l-name">ملصق فارغ</div>';
 
   const css = `
-    .label{width:${widthPx}px;height:${heightPx}px;box-sizing:border-box;padding:${padY}px ${padX}px;display:flex;flex-direction:column;align-items:${align};justify-content:space-between;overflow:hidden;background:#fff;color:#000;font-family:Tahoma,'Segoe UI',Arial,sans-serif}
+    .label{width:${widthPx}px;height:${heightPx}px;box-sizing:border-box;padding:${padY}px ${padX}px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:${stackGap}px;overflow:hidden;min-width:0;min-height:0;background:#fff;color:#000;font-family:Tahoma,'Segoe UI',Arial,sans-serif}
+    .l-top{display:flex;flex-direction:column;align-items:${align};gap:${stackGap}px;width:100%;min-width:0;flex:0 0 auto}
+    .l-scan{margin-top:auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:1px;width:100%;min-width:0;min-height:0;flex:1 1 auto}
     .l-shop{font-size:${shopPx}px;font-weight:700;line-height:1.1;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:${textAlign}}
-    .l-name{font-size:${namePx}px;font-weight:700;line-height:1.12;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:${nameLines};text-align:${textAlign}}
+    .l-name{font-size:${namePx}px;font-weight:700;line-height:1.12;max-width:100%;min-width:0;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:${nameLines};text-align:${textAlign}}
     .l-offer{font-size:${metaPx}px;font-weight:700;color:#111;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:${textAlign}}
-    .l-price{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:${settings.align === 'start' ? 'flex-end' : 'center'};gap:2px ${Math.round(widthPx * 0.03)}px;direction:ltr}
-    .l-now{font-size:${pricePx}px;font-weight:800;line-height:1;letter-spacing:-0.02em}
-    .l-was{font-size:${metaPx}px;font-weight:600;text-decoration:line-through;opacity:.7}
-    .l-bars{width:100%;display:flex;justify-content:center;align-items:center;line-height:0}
-    .l-bars svg{display:block;max-width:100%;height:auto}
-    .l-code{font-size:${metaPx}px;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums;text-align:center}
-    .l-num{font-size:${Math.max(9, metaPx - 2)}px;font-weight:600;opacity:.85;text-align:center}
+    .l-price{display:flex;flex-wrap:nowrap;align-items:baseline;justify-content:${settings.align === 'start' ? 'flex-end' : 'center'};gap:3px;direction:ltr;max-width:100%;min-width:0}
+    .l-now{font-size:${pricePx}px;font-weight:800;line-height:1;letter-spacing:-0.03em;white-space:nowrap}
+    .l-was{font-size:${Math.max(9, metaPx)}px;font-weight:600;text-decoration:line-through;opacity:.7;white-space:nowrap}
+    .l-bars{width:100%;max-width:100%;min-width:0;display:flex;justify-content:center;align-items:flex-end;line-height:0;overflow:hidden}
+    .l-bars svg{display:block;width:100%;max-width:100%;height:${Math.max(16, barcodeH)}px}
+    .l-code{font-size:${codePx}px;font-weight:800;line-height:1;letter-spacing:0.01em;font-variant-numeric:tabular-nums;font-family:Consolas,'Cascadia Mono','Courier New',Tahoma,monospace;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden}
+    .l-num{font-size:${Math.max(10, metaPx)}px;font-weight:700;line-height:1.1;opacity:.9;text-align:center;max-width:100%;overflow:hidden;white-space:nowrap}
   `;
 
-  return { css, body: parts.join('') || '<div class="l-name">ملصق فارغ</div>' };
+  return { css, body };
 }
 
 function sheetCss(settings: LabelSettings, metrics: SheetMetrics, labelCss: string) {
@@ -303,8 +400,9 @@ function sheetCss(settings: LabelSettings, metrics: SheetMetrics, labelCss: stri
   const rowGap = mmToThermalPx(metrics.rowGap);
   const margin = mmToThermalPx(metrics.margin);
   return `
-    .sheet{width:${pageW}px;height:${pageH}px;box-sizing:border-box;padding:${margin}px;display:grid;grid-template-columns:repeat(${metrics.columns},${labelW}px);grid-template-rows:repeat(${metrics.rows},${labelH}px);column-gap:${gap}px;row-gap:${rowGap}px;direction:ltr;background:#fff}
-    .cell{width:${labelW}px;height:${labelH}px;overflow:hidden;background:#fff}
+    html,body{width:${pageW}px;height:${pageH}px;overflow:hidden}
+    .sheet{width:${pageW}px;height:${pageH}px;box-sizing:border-box;padding:${margin}px;display:grid;grid-template-columns:repeat(${metrics.columns},${labelW}px);grid-template-rows:repeat(${metrics.rows},${labelH}px);column-gap:${gap}px;row-gap:${rowGap}px;direction:ltr;background:#fff;overflow:hidden}
+    .cell{width:${labelW}px;height:${labelH}px;overflow:hidden;min-width:0;min-height:0;background:#fff}
     ${labelCss}
   `;
 }

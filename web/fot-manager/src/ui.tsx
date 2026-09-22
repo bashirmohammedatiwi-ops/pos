@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { avgTicket, money, moneyIq, moneyK, pct, shareOf } from './api';
-import type { HourBand, PersonShare } from './insights';
+import type { HourBand, PersonShare, ReceiptGroup } from './insights';
+import type { PeriodBounds, PeriodKind } from './period';
 
 export function IconHome() {
   return (
@@ -82,6 +83,14 @@ export function IconBag() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" />
+    </svg>
+  );
+}
+export function IconComm() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v8M9 11h6" />
     </svg>
   );
 }
@@ -393,6 +402,150 @@ export function LiveDot({ stale }: { stale?: boolean }) {
       <i className="live-dot" />
       {stale ? 'مزامنة قديمة' : 'مباشر'}
     </span>
+  );
+}
+
+export function PeriodCompareStrip({
+  todaySales,
+  todayReceipts,
+  period,
+  periodTotals,
+  periodKind,
+  setPeriodKind,
+  weekSales,
+  weekReceipts,
+  payCommission,
+  payLabel,
+}: {
+  todaySales: number;
+  todayReceipts: number;
+  period: PeriodBounds;
+  periodTotals: { sales: number; receipts: number };
+  periodKind: PeriodKind;
+  setPeriodKind: (k: PeriodKind) => void;
+  weekSales: number;
+  weekReceipts: number;
+  payCommission: number;
+  payLabel: string;
+}) {
+  return (
+    <section className="stat-compare">
+      <button
+        type="button"
+        className={`stat-compare-cell ${periodKind === 'today' ? 'on' : ''}`}
+        onClick={() => setPeriodKind('today')}
+      >
+        <p>اليوم</p>
+        <strong className="num">{moneyIq(todaySales)}</strong>
+        <span>{todayReceipts} فاتورة</span>
+      </button>
+      <div className={`stat-compare-cell highlight ${periodKind !== 'today' && periodKind !== 'week' ? 'on' : ''}`}>
+        <p>{period.label}</p>
+        <strong className="num">{moneyIq(periodTotals.sales)}</strong>
+        <span>{periodTotals.receipts} فاتورة</span>
+      </div>
+      <button
+        type="button"
+        className={`stat-compare-cell ${periodKind === 'week' ? 'on' : ''}`}
+        onClick={() => setPeriodKind('week')}
+      >
+        <p>الأسبوع</p>
+        <strong className="num">{moneyIq(weekSales)}</strong>
+        <span>{weekReceipts} فاتورة</span>
+      </button>
+      <Link to="/commissions" className="stat-compare-cell comm">
+        <p>العمولات</p>
+        <strong className="num">{moneyIq(payCommission)}</strong>
+        <span>{payLabel}</span>
+      </Link>
+    </section>
+  );
+}
+
+export function QuickNav() {
+  const items = [
+    { to: '/', label: 'اليوم', ico: '🏠' },
+    { to: '/team', label: 'بائعون', ico: '👥' },
+    { to: '/cashiers', label: 'كاشير', ico: '🧾' },
+    { to: '/commissions', label: 'عمولات', ico: '💰' },
+    { to: '/goals', label: 'أهداف', ico: '🎯' },
+    { to: '/moves', label: 'فواتير', ico: '📦' },
+    { to: '/watch', label: 'مباشر', ico: '📡' },
+    { to: '/report', label: 'تقرير', ico: '📊' },
+  ];
+  return (
+    <nav className="quick-nav" aria-label="اختصارات">
+      {items.map(item => (
+        <Link key={item.to} to={item.to} className="quick-nav-item">
+          <span className="quick-nav-ico">{item.ico}</span>
+          <span>{item.label}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+export function RecentFeed({
+  receipts,
+  limit = 8,
+  title = 'آخر الفواتير',
+  to = '/moves',
+}: {
+  receipts: ReceiptGroup[];
+  limit?: number;
+  title?: string;
+  to?: string;
+}) {
+  const list = receipts.slice(0, limit);
+  if (!list.length) return null;
+  return (
+    <section className="panel live-feed">
+      <SectionHead title={title} kicker="مباشر" to={to} link="الكل" />
+      <div className="live-feed-list">
+        {list.map(r => (
+          <Link
+            key={r.id}
+            to={`/moves?q=${encodeURIComponent(String(r.receiptNumber || r.sellers[0] || ''))}`}
+            className="live-feed-row stat-link"
+          >
+            <span className="live-feed-dot" />
+            <div className="min-w-0 flex-1">
+              <p className="font-extrabold">{r.receiptNumber ? `#${r.receiptNumber}` : 'فاتورة'}</p>
+              <p className="truncate text-xs font-bold text-muted">
+                {r.sellers.join(' · ') || '—'}{r.cashierName ? ` · ${r.cashierName}` : ''}
+              </p>
+            </div>
+            <p className="num text-sm font-extrabold">{moneyIq(r.sales)}</p>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function FilterStats({
+  items,
+  active,
+  onPick,
+}: {
+  items: { key: string; count: number; label: string }[];
+  active: string;
+  onPick: (key: string) => void;
+}) {
+  return (
+    <div className="filter-stats">
+      {items.map(item => (
+        <button
+          key={item.key}
+          type="button"
+          className={`filter-stat ${active === item.key ? 'on' : ''}`}
+          onClick={() => onPick(item.key)}
+        >
+          <strong className="num">{item.count}</strong>
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 

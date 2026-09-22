@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -65,6 +65,7 @@ function FilterField({ label, children, className }: { label: string; children: 
 }
 
 export function ReceiptsPage() {
+  const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const highlight = Number(params.get('highlight') || 0) || null;
   const saved = loadReceiptFilters();
@@ -323,6 +324,10 @@ export function ReceiptsPage() {
                     receipt={r}
                     detail={openDetailId === r.id ? detailQ.data : undefined}
                     loadingDetail={openDetailId === r.id && detailQ.isLoading}
+                    onChanged={() => {
+                      void queryClient.invalidateQueries({ queryKey: ['receipts'] });
+                      void queryClient.invalidateQueries({ queryKey: ['receipt-detail', r.id] });
+                    }}
                     onComplete={
                       r.number === 0
                         ? () => setHoldTarget({

@@ -14,8 +14,10 @@ import {
   DEFAULT_LABEL_SETTINGS,
   LABEL_SIZES,
   LAYOUT_PRESETS,
+  buildLabelPreview,
   buildSheetPreview,
   clampColumns,
+  labelNameLooksLong,
   printProductLabels,
   productToLabelItem,
   sheetMetrics,
@@ -27,7 +29,7 @@ import {
 } from '@/lib/labelPrint';
 import { fixEdariName } from '@/lib/text';
 
-const STORE_KEY = 'fot-barcode-label-v2';
+const STORE_KEY = 'fot-barcode-label-v3';
 const FIELD_OPTIONS: { key: keyof LabelFields; label: string }[] = [
   { key: 'name', label: 'اسم المادة' },
   { key: 'price', label: 'السعر' },
@@ -44,14 +46,18 @@ type QueueRow = LabelItem & { id: string; productId: number };
 
 function loadSettings(): LabelSettings {
   try {
-    const raw = localStorage.getItem(STORE_KEY) || localStorage.getItem('fot-barcode-label-v1');
+    const raw = localStorage.getItem(STORE_KEY)
+      || localStorage.getItem('fot-barcode-label-v2')
+      || localStorage.getItem('fot-barcode-label-v1');
     if (!raw) return { ...DEFAULT_LABEL_SETTINGS, fields: { ...DEFAULT_LABEL_SETTINGS.fields } };
     const parsed = JSON.parse(raw) as Partial<LabelSettings>;
     return {
       ...DEFAULT_LABEL_SETTINGS,
       ...parsed,
       fields: { ...DEFAULT_LABEL_SETTINGS.fields, ...parsed.fields },
-      nameLines: parsed.nameLines === 1 ? 1 : 2,
+      nameLines: parsed.nameLines === 1 || parsed.nameLines === 3 ? parsed.nameLines : 2,
+      codeSize: parsed.codeSize === 'sm' || parsed.codeSize === 'lg' ? parsed.codeSize : 'md',
+      insetMm: Math.max(0.6, Math.min(3, Number(parsed.insetMm) || DEFAULT_LABEL_SETTINGS.insetMm)),
       align: parsed.align === 'start' ? 'start' : 'center',
       columns: clampColumns(parsed.columns ?? 3),
       gapMm: Math.max(0, Math.min(10, Number(parsed.gapMm) || 2)),
@@ -94,6 +100,7 @@ export function BarcodeLabelsPage() {
   const [settings, setSettings] = useState<LabelSettings>(loadSettings);
   const [printing, setPrinting] = useState(false);
   const [miss, setMiss] = useState('');
+  const [previewMode, setPreviewMode] = useState<'label' | 'sheet'>('label');
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 220);
@@ -285,7 +292,13 @@ export function BarcodeLabelsPage() {
     () => buildSheetPreview([previewItem], settings),
     [previewItem, settings],
   );
+  const labelPreview = useMemo(
+    () => buildLabelPreview(previewItem, settings),
+    [previewItem, settings],
+  );
   const previewScale = Math.min(1, 360 / preview.widthPx, 168 / preview.heightPx);
+  const labelScale = Math.min(2.4, 300 / labelPreview.widthPx, 210 / labelPreview.heightPx);
+  const longName = labelNameLooksLong(previewItem.name);
   const totalLabels = queue.reduce((n, r) => n + r.copies, 0);
   const queueRows = totalLabels ? Math.ceil(totalLabels / metrics.columns) : 0;
 
@@ -423,7 +436,9 @@ export function BarcodeLabelsPage() {
             <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-[16px] font-bold text-header">{fixEdariName(current.name) || current.barcode}</p>
+                  <p className="text-[16px] font-bold text-header" title={fixEdariName(current.name) || current.barcode}>
+                    {fixEdariName(current.name) || current.barcode}
+                  </p>
                   <p className="mt-0.5 font-mono text-[12px] text-slate-500" dir="ltr">{current.barcode || current.num || '—'}</p>
                 </div>
                 <button
@@ -486,33 +501,69 @@ export function BarcodeLabelsPage() {
         <aside className="flex min-h-0 flex-col gap-3 overflow-auto bg-slate-50/60 p-3">
           <section className="rounded-xl border border-slate-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[12px] font-bold text-header">معاينة صف الطابعة</p>
-              <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-bold text-brand-800">
-                {formatNum(metrics.columns)} أعمدة
-              </span>
-            </div>
-            <div className="barcode-sheet-stage">
-              <div
-                className="barcode-sheet-cut overflow-hidden"
-                style={{ width: preview.widthPx * previewScale, height: preview.heightPx * previewScale }}
-              >
-                <div
-                  style={{
-                    width: preview.widthPx,
-                    height: preview.heightPx,
-                    transform: `scale(${previewScale})`,
-                    transformOrigin: 'top left',
-                  }}
-                  dangerouslySetInnerHTML={{ __html: preview.html }}
-                />
+              <p className="text-[12px] font-bold text-header">معاينة الملصق</p>
+              <div className="barcode-preview-tabs">
+                <button type="button" className={previewMode === 'label' ? 'is-on' : ''} onClick={() => setPreviewMode('label')}>ملصق</button>
+                <button type="button" className={previewMode === 'sheet' ? 'is-on' : ''} onClick={() => setPreviewMode('sheet')}>صف الطابعة</button>
               </div>
             </div>
-            <p className="mt-2 text-center text-[11px] leading-5 text-slate-500">
-              ملصق {settings.widthMm} × {settings.heightMm} مم
-              {' · '}
-              الصفحة {metrics.pageWidthMm} × {metrics.pageHeightMm} مم
-              {metrics.gap > 0 ? ` · فراغ ${metrics.gap} مم` : ''}
-            </p>
+            {previewMode === 'label' ? (
+              <>
+                <div className="barcode-sheet-stage barcode-sheet-stage-label">
+                  <div
+                    className="barcode-label-frame"
+                    style={{ width: labelPreview.widthPx * labelScale, height: labelPreview.heightPx * labelScale }}
+                  >
+                    <div
+                      className="barcode-sheet-cut overflow-hidden"
+                      style={{ width: labelPreview.widthPx * labelScale, height: labelPreview.heightPx * labelScale }}
+                    >
+                      <div
+                        style={{
+                          width: labelPreview.widthPx,
+                          height: labelPreview.heightPx,
+                          transform: `scale(${labelScale})`,
+                          transformOrigin: 'top left',
+                        }}
+                        dangerouslySetInnerHTML={{ __html: labelPreview.html }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="barcode-hri-live" dir="ltr">{previewItem.barcode || previewItem.articleNum || '—'}</p>
+                <p className="mt-1 text-center text-[11px] leading-5 text-slate-500">
+                  {settings.widthMm} × {settings.heightMm} مم · الرقم يُطبع كما هو بدون خانة زائدة
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="barcode-sheet-stage">
+                  <div
+                    className="barcode-sheet-cut overflow-hidden"
+                    style={{ width: preview.widthPx * previewScale, height: preview.heightPx * previewScale }}
+                  >
+                    <div
+                      style={{
+                        width: preview.widthPx,
+                        height: preview.heightPx,
+                        transform: `scale(${previewScale})`,
+                        transformOrigin: 'top left',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: preview.html }}
+                    />
+                  </div>
+                </div>
+                <p className="mt-2 text-center text-[11px] leading-5 text-slate-500">
+                  الصفحة {metrics.pageWidthMm} × {metrics.pageHeightMm} مم
+                  {metrics.gap > 0 ? ` · فراغ ${metrics.gap} مم` : ''}
+                  {' · '}
+                  طابق عرض الصفحة مع عرض الرول في تعريف الطابعة
+                </p>
+              </>
+            )}
+            {longName && (
+              <p className="barcode-warn">الاسم طويل — سيُضغط داخل حدود الملصق دون الخروج عن مكان الطباعة</p>
+            )}
           </section>
 
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
@@ -573,8 +624,8 @@ export function BarcodeLabelsPage() {
                 </FilterField>
               </div>
             )}
-            <div className="grid grid-cols-3 gap-2">
-              <FilterField label="فراغ أفقي">
+            <div className="grid grid-cols-2 gap-2">
+              <FilterField label="فراغ بين الملصقات">
                 <Input
                   type="number"
                   min={0}
@@ -584,7 +635,7 @@ export function BarcodeLabelsPage() {
                   onChange={e => setSettings(s => ({ ...s, gapMm: Math.max(0, Math.min(10, Number(e.target.value) || 0)) }))}
                 />
               </FilterField>
-              <FilterField label="هامش">
+              <FilterField label="هامش الصفحة">
                 <Input
                   type="number"
                   min={0}
@@ -592,6 +643,16 @@ export function BarcodeLabelsPage() {
                   step={0.5}
                   value={settings.marginMm}
                   onChange={e => setSettings(s => ({ ...s, marginMm: Math.max(0, Math.min(8, Number(e.target.value) || 0)) }))}
+                />
+              </FilterField>
+              <FilterField label="هامش آمن داخل الملصق">
+                <Input
+                  type="number"
+                  min={0.6}
+                  max={3}
+                  step={0.1}
+                  value={settings.insetMm}
+                  onChange={e => setSettings(s => ({ ...s, insetMm: Math.max(0.6, Math.min(3, Number(e.target.value) || 1.4)) }))}
                 />
               </FilterField>
               <FilterField label="صفوف/صفحة">
@@ -605,7 +666,7 @@ export function BarcodeLabelsPage() {
               </FilterField>
             </div>
             <p className="text-[11px] leading-5 text-slate-500">
-              للرول ذي ثلاثة أعمدة اترك الصفوف 1. اضبط الفراغ ليطابق المسافة بين الملصقات على الرول.
+              للرول ذي ثلاثة أعمدة اترك الصفوف 1. الهامش الآمن يُبقي الأشرطة والرقم داخل حدود الملصق.
             </p>
           </section>
 
@@ -641,10 +702,27 @@ export function BarcodeLabelsPage() {
               <FilterField label="سطور الاسم">
                 <Select
                   value={String(settings.nameLines)}
-                  onChange={e => setSettings(s => ({ ...s, nameLines: e.target.value === '1' ? 1 : 2 }))}
+                  onChange={e => setSettings(s => ({
+                    ...s,
+                    nameLines: e.target.value === '1' ? 1 : e.target.value === '3' ? 3 : 2,
+                  }))}
                 >
-                  <option value="2">سطران</option>
                   <option value="1">سطر واحد</option>
+                  <option value="2">سطران</option>
+                  <option value="3">ثلاثة — للأسماء الطويلة</option>
+                </Select>
+              </FilterField>
+              <FilterField label="حجم رقم الباركود">
+                <Select
+                  value={settings.codeSize}
+                  onChange={e => setSettings(s => ({
+                    ...s,
+                    codeSize: e.target.value === 'sm' || e.target.value === 'lg' ? e.target.value : 'md',
+                  }))}
+                >
+                  <option value="sm">صغير</option>
+                  <option value="md">واضح</option>
+                  <option value="lg">كبير</option>
                 </Select>
               </FilterField>
               <FilterField label="المحاذاة">
@@ -657,6 +735,9 @@ export function BarcodeLabelsPage() {
                 </Select>
               </FilterField>
             </div>
+            <p className="mt-2 text-[11px] leading-5 text-slate-500">
+              الرقم أسفل الأشرطة هو نفس باركود المادة — بلا خانة تحقق زائدة في النهاية.
+            </p>
           </section>
 
           <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">

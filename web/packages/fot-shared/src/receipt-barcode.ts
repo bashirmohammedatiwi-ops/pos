@@ -88,25 +88,31 @@ function moduleCount(codes: number[]): number {
   return codes.reduce((n, code) => n + patternFor(code).length, 0) + STOP_TERMINATOR.length + QUIET_MODULES * 2;
 }
 
-function bitsToSvg(bits: string, height: number, moduleWidth: number): BarcodeGraphic {
-  const width = bits.length * moduleWidth;
+function bitsToSvg(bits: string, height: number, moduleWidth: number, maxWidth?: number): BarcodeGraphic {
+  const modules = bits.length;
+  const natural = modules * moduleWidth;
+  const mustFit = Boolean(maxWidth && maxWidth > 0 && natural > maxWidth);
+  const width = mustFit ? Math.max(1, Math.floor(maxWidth!)) : natural;
   let x = 0;
   let bars = '';
-  for (let i = 0; i < bits.length; i++) {
+  const step = mustFit ? 1 : moduleWidth;
+  for (let i = 0; i < modules; i++) {
     if (bits[i] === '1') {
-      bars += `<rect x="${x}" y="0" width="${moduleWidth}" height="${height}" fill="#000"/>`;
+      bars += `<rect x="${x}" y="0" width="${step}" height="${height}" fill="#000"/>`;
     }
-    x += moduleWidth;
+    x += step;
   }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" shape-rendering="crispEdges">${bars}</svg>`;
+  const vbW = mustFit ? modules : width;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${vbW} ${height}" preserveAspectRatio="${mustFit ? 'none' : 'xMidYMid meet'}" shape-rendering="crispEdges">${bars}</svg>`;
   return { svg, width, height };
 }
 
-function fitModuleWidth(modules: number, preferred: number, maxWidth?: number) {
-  let moduleWidth = Math.max(2, Math.round(preferred));
-  if (maxWidth && maxWidth > 0) {
+function fitModuleWidth(modules: number, preferred: number, maxWidth?: number, minModuleWidth = 2) {
+  const minMw = Math.max(1, Math.round(minModuleWidth));
+  let moduleWidth = Math.max(minMw, Math.round(preferred));
+  if (maxWidth && maxWidth > 0 && modules > 0) {
     const fitted = Math.floor(maxWidth / modules);
-    moduleWidth = Math.max(2, Math.min(moduleWidth, fitted || 2));
+    moduleWidth = fitted >= minMw ? Math.min(moduleWidth, fitted) : minMw;
   }
   return moduleWidth;
 }
@@ -118,7 +124,7 @@ export function ean13Checksum(d12: string): number {
   return (10 - (sum % 10)) % 10;
 }
 
-export function encodeEan13Bits(d12: string): string {
+export function encodeEan13Bits(d12: string, quietLeft = 11, quietRight = 7): string {
   const check = ean13Checksum(d12);
   const full = `${d12}${check}`;
   const parity = EAN_PARITY[Number(full[0])];
@@ -130,14 +136,22 @@ export function encodeEan13Bits(d12: string): string {
   bits += '01010';
   for (let i = 7; i < 13; i++) bits += EAN_R[Number(full[i])];
   bits += '101';
-  return `${'0'.repeat(11)}${bits}${'0'.repeat(7)}`;
+  return `${'0'.repeat(Math.max(0, quietLeft))}${bits}${'0'.repeat(Math.max(0, quietRight))}`;
 }
 
 export function code128Svg(text: string, opts?: { height?: number; moduleWidth?: number; maxWidth?: number }) {
   return renderCode128(text, opts).svg;
 }
 
-type BarcodeDrawOpts = { height?: number; moduleWidth?: number; maxWidth?: number; minHeight?: number };
+type BarcodeDrawOpts = {
+  height?: number;
+  moduleWidth?: number;
+  maxWidth?: number;
+  minHeight?: number;
+  minModuleWidth?: number;
+  quietModules?: number;
+  quietRight?: number;
+};
 
 function renderCode128(text: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
   const minH = opts?.minHeight ?? 160;
@@ -146,15 +160,17 @@ function renderCode128(text: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
   const modules = moduleCount(codes);
   const moduleWidth = fitModuleWidth(modules, opts?.moduleWidth ?? 3, opts?.maxWidth);
   const bits = `${'0'.repeat(QUIET_MODULES)}${codes.map(patternFor).join('')}${STOP_TERMINATOR}${'0'.repeat(QUIET_MODULES)}`;
-  return bitsToSvg(bits, height, moduleWidth);
+  return bitsToSvg(bits, height, moduleWidth, opts?.maxWidth);
 }
 
 function renderEan13(d12: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
   const minH = opts?.minHeight ?? 160;
   const height = Math.max(minH, opts?.height ?? 184);
-  const bits = encodeEan13Bits(d12);
-  const moduleWidth = fitModuleWidth(bits.length, opts?.moduleWidth ?? 3, opts?.maxWidth);
-  return bitsToSvg(bits, height, moduleWidth);
+  const quietL = opts?.quietModules ?? 11;
+  const quietR = opts?.quietRight ?? opts?.quietModules ?? 7;
+  const bits = encodeEan13Bits(d12, quietL, quietR);
+  const moduleWidth = fitModuleWidth(bits.length, opts?.moduleWidth ?? 3, opts?.maxWidth, opts?.minModuleWidth ?? 2);
+  return bitsToSvg(bits, height, moduleWidth, opts?.maxWidth);
 }
 
 /** Code 128 that prints the exact payload — no leading-zero pad on odd digit strings. */
@@ -178,25 +194,39 @@ function encodeCode128Exact(text: string): number[] {
 
 function renderCode128Exact(text: string, opts?: BarcodeDrawOpts): BarcodeGraphic {
   const height = Math.max(opts?.minHeight ?? 16, opts?.height ?? 48);
+  const quiet = Math.max(2, Math.round(opts?.quietModules ?? QUIET_MODULES));
   const codes = encodeCode128Exact(text);
-  const modules = moduleCount(codes);
-  const moduleWidth = fitModuleWidth(modules, opts?.moduleWidth ?? 2, opts?.maxWidth);
-  const bits = `${'0'.repeat(QUIET_MODULES)}${codes.map(patternFor).join('')}${STOP_TERMINATOR}${'0'.repeat(QUIET_MODULES)}`;
-  return bitsToSvg(bits, height, moduleWidth);
+  const modules = codes.reduce((n, code) => n + patternFor(code).length, 0) + STOP_TERMINATOR.length + quiet * 2;
+  const moduleWidth = fitModuleWidth(modules, opts?.moduleWidth ?? 2, opts?.maxWidth, opts?.minModuleWidth ?? 1);
+  const bits = `${'0'.repeat(quiet)}${codes.map(patternFor).join('')}${STOP_TERMINATOR}${'0'.repeat(quiet)}`;
+  return bitsToSvg(bits, height, moduleWidth, opts?.maxWidth);
 }
 
 /**
- * Shelf-label barcode: EAN-13 when the digits are a valid GTIN, otherwise Code 128
- * of the exact text. Height is not clamped to receipt size.
+ * Shelf-label barcode: encode the stored digits only.
+ * Valid 13-digit EAN-13 stays EAN-13. 12-digit codes are NOT padded with a
+ * check digit — that extra trailing number is what scanners used to read.
  */
-export function renderProductBarcode(text: string, opts?: { height?: number; moduleWidth?: number; maxWidth?: number }): BarcodeGraphic {
+export function renderProductBarcode(text: string, opts?: {
+  height?: number;
+  moduleWidth?: number;
+  maxWidth?: number;
+  minModuleWidth?: number;
+  quietModules?: number;
+}): BarcodeGraphic {
   const raw = String(text ?? '').trim();
   if (!raw) throw new Error('Barcode text is empty');
-  const compact = { height: Math.max(16, opts?.height ?? 48), moduleWidth: opts?.moduleWidth ?? 2, maxWidth: opts?.maxWidth, minHeight: 16 };
+  const compact: BarcodeDrawOpts = {
+    height: Math.max(16, opts?.height ?? 48),
+    moduleWidth: opts?.moduleWidth ?? 2,
+    maxWidth: opts?.maxWidth,
+    minHeight: 16,
+    minModuleWidth: opts?.minModuleWidth ?? 1,
+    quietModules: opts?.quietModules ?? 4,
+  };
   if (/^\d{13}$/.test(raw) && ean13Checksum(raw.slice(0, 12)) === Number(raw[12])) {
-    return renderEan13(raw.slice(0, 12), compact);
+    return renderEan13(raw.slice(0, 12), { ...compact, quietRight: compact.quietModules });
   }
-  if (/^\d{12}$/.test(raw)) return renderEan13(raw, compact);
   return renderCode128Exact(raw, compact);
 }
 
@@ -246,4 +276,18 @@ export function receiptNumberFromScan(raw: string): number {
 
 export function formatReceiptNumber(year: number, cashierCode: number, sequence: number) {
   return Number(`${year}${cashierCode}${String(sequence).padStart(6, '0')}`);
+}
+
+/** Inverse of formatReceiptNumber: year (4) + cashier code + sequence (6). */
+export function parseReceiptNumber(number: number): { year: number; cashierCode: number; seq: number } | null {
+  const text = String(number);
+  if (!number || text.length < 11) return null;
+  const year = Number(text.slice(0, 4));
+  const seq = Number(text.slice(-6));
+  const cashierCode = Number(text.slice(4, -6));
+  if (!Number.isInteger(year) || year < 2000 || year > 9999) return null;
+  if (!Number.isInteger(cashierCode) || cashierCode <= 0) return null;
+  if (!Number.isInteger(seq) || seq <= 0 || seq > 999_999) return null;
+  if (formatReceiptNumber(year, cashierCode, seq) !== number) return null;
+  return { year, cashierCode, seq };
 }

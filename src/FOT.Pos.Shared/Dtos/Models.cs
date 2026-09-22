@@ -423,7 +423,8 @@ public partial record ReceiptSummaryDto(
     int SalesmanCount = 0,
     long? DiscountQrPersonId = null,
     string? DiscountQrPersonName = null,
-    bool WasEdited = false)
+    bool WasEdited = false,
+    long? PrintedNumber = null)
 {
     public ReceiptSummaryDto() : this(
         0, 0, default, 0, 0, 0, 0, null, null, null, false, null, 0)
@@ -556,7 +557,8 @@ public record ReceiptDetailDto(
     long? DiscountQrPersonId = null,
     string? DiscountQrPersonName = null,
     bool WasEdited = false,
-    IReadOnlyList<ReceiptEditRevisionDto>? Edits = null);
+    IReadOnlyList<ReceiptEditRevisionDto>? Edits = null,
+    long? PrintedNumber = null);
 
 public record ReceiptReturnLineDto(
     long ItemId,
@@ -582,7 +584,12 @@ public record ReceiptReturnSourceDto(
     decimal TotalAmount,
     long SalesmanId,
     string? SalesmanName,
-    IReadOnlyList<ReceiptReturnLineDto> Items);
+    IReadOnlyList<ReceiptReturnLineDto> Items,
+    long? PrintedNumber = null);
+
+public record ReceiptReturnMatchesDto(IReadOnlyList<ReceiptReturnSourceDto> Items);
+
+public record SetReceiptPrintedNumberRequest(long? PrintedNumber);
 
 public record SectionCashBoxDto(
     long MasterAccount, int MasterAccountBank,
@@ -851,6 +858,11 @@ public record ProductAllowedSalesmenDto(
 
 /// <summary>True when the server had to re-allocate the receipt number (client number collided).</summary>
 public record CreateReceiptResponse(long ReceiptId, long Number, decimal TotalAmount, decimal CashBack, bool Renumbered = false);
+
+public record AllocateReceiptNumberRequest(long CashierId);
+
+/// <summary>Official receipt number reserved from the shop sequence before print/upload.</summary>
+public record AllocateReceiptNumberResponse(long Number, int Year, int CashierCode, int Seq);
 
 public record CashierLoginRequest(string? Username, string Password, string? HwId = null);
 public record CashierRefreshRequest(string Token);

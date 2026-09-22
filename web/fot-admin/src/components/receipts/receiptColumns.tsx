@@ -45,6 +45,11 @@ const baseColumns: GridColumn<ReceiptSummary>[] = [
         {r.wasEdited && (
           <span className="rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-800">معدّلة</span>
         )}
+        {r.printedNumber && r.printedNumber !== r.number && (
+          <span className="rounded bg-sky-100 px-1 text-[10px] font-bold text-sky-800" title="الرقم المطبوع على الورق">
+            ورق {r.printedNumber}
+          </span>
+        )}
       </span>
     ),
   },

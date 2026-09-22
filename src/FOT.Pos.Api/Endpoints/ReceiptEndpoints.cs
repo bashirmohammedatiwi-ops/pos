@@ -20,11 +20,40 @@ public static class ReceiptEndpoints
         api.MapGet("/receipts/holds", async (ReceiptRepository repo, long? sectionId, long? posId) =>
             await repo.ListAllHoldAsync(sectionId, posId, default));
 
+        api.MapPost("/receipts/next-number", async (ReceiptRepository repo, AllocateReceiptNumberRequest req) =>
+        {
+            try
+            {
+                return Results.Ok(await repo.AllocateNumberAsync(req.CashierId, default));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        }).Produces<AllocateReceiptNumberResponse>(200).Produces(400);
+
         api.MapGet("/receipts/by-number/{number:long}", async (ReceiptRepository repo, long number) =>
-            await repo.GetReturnSourceByNumberAsync(number, default) is { } r ? Results.Ok(r) : Results.NotFound());
+        {
+            var items = await repo.GetReturnSourcesByNumberAsync(number, default);
+            return items.Count == 0 ? Results.NotFound() : Results.Ok(new ReceiptReturnMatchesDto(items));
+        }).Produces<ReceiptReturnMatchesDto>(200).Produces(404);
 
         api.MapGet("/receipts/{id:long}", async (ReceiptRepository repo, long id) =>
             await repo.GetByIdAsync(id, default) is { } r ? Results.Ok(r) : Results.NotFound());
+
+        api.MapPost("/receipts/{id:long}/printed-number", async (ReceiptRepository repo, long id, SetReceiptPrintedNumberRequest req) =>
+        {
+            try
+            {
+                return await repo.SetPrintedNumberAsync(id, req.PrintedNumber, default) is { } r
+                    ? Results.Ok(r)
+                    : Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        }).Produces<ReceiptDetailDto>(200).Produces(400).Produces(404);
 
         api.MapPost("/receipts", async (ReceiptRepository repo, CreateReceiptRequest req, IHubContext<PosHub> hub) =>
         {

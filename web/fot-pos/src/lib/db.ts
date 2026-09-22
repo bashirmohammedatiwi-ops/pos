@@ -1,4 +1,4 @@
-import { formatReceiptNumber } from '@fot/shared';
+import { formatReceiptNumber, parseReceiptNumber } from '@fot/shared';
 import { withOfferSalePrice, withOfferSalePrices } from '@/lib/offerPrice';
 import type { DiscountQrPerson } from '@fot/shared';
 import type { AccountSummaryDto, ArticleGroupDto, ArticleGroupItemDto, PrintSettingsDto, ProductDto, SalesmanDto } from '@/api/types';
@@ -276,7 +276,14 @@ const idb = {
     const code = cashierCode > 0 ? cashierCode : 9;
     const key = `offline_receipt_seq_${year}_${code}`;
     const raw = await this.getMeta(key);
-    const next = (raw ? Number(raw) : 0) + 1;
+    let next = (raw ? Number(raw) : 0) + 1;
+    const parked = await this.pending();
+    for (const row of parked) {
+      const parsed = parseReceiptNumber(row.localNumber);
+      if (parsed && parsed.year === year && parsed.cashierCode === code && parsed.seq >= next) {
+        next = parsed.seq + 1;
+      }
+    }
     await this.setMeta(key, String(next));
     return formatReceiptNumber(year, code, next);
   },

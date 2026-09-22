@@ -102,15 +102,23 @@ public sealed class ReceiptNumberAllocator
 
         if (cashierCode <= 0) return null;
 
-        var text = clientNumber.Value.ToString();
-        var prefix = $"{year}{cashierCode}";
-        if (!text.StartsWith(prefix, StringComparison.Ordinal) ||
-            !int.TryParse(text[prefix.Length..], out var seq) ||
-            seq <= 0 || seq > ReceiptNumberFormatter.MaxSequence ||
-            ReceiptNumberFormatter.Compose(year, cashierCode, seq) != clientNumber.Value)
+        if (!ReceiptNumberFormatter.TryDecompose(clientNumber.Value, out var parsedYear, out var parsedCode, out var seq) ||
+            parsedYear != year ||
+            parsedCode != cashierCode)
         {
             return null;
         }
+
+        var lastSeq = await conn.ExecuteScalarAsync<int?>(new CommandDefinition("""
+            SELECT last_seq FROM receipt_number_sequences WITH (UPDLOCK, HOLDLOCK)
+            WHERE [year] = @year AND cashier_id = @cashierId
+            """, new { year, cashierId }, transaction: tx, cancellationToken: ct));
+
+        // A stale local counter (paper printed 172 after the server had already
+        // handed out 173–234) must not be adopted — that is how the printed copy
+        // and the control panel ended up with different numbers.
+        if (lastSeq is int current && seq < current)
+            return null;
 
         var updated = await conn.ExecuteAsync(new CommandDefinition("""
             UPDATE receipt_number_sequences WITH (UPDLOCK, HOLDLOCK)
@@ -118,7 +126,7 @@ public sealed class ReceiptNumberAllocator
             WHERE [year] = @year AND cashier_id = @cashierId AND last_seq < @seq
             """, new { year, cashierId, seq }, transaction: tx, cancellationToken: ct));
 
-        if (updated == 0)
+        if (updated == 0 && lastSeq is null)
         {
             try
             {

@@ -1,4 +1,7 @@
 # FOT POS — publish three Electron installers (server / admin / cashier)
+param(
+    [switch]$KeepRunning
+)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $root "publish\desktop"
@@ -61,7 +64,11 @@ function Stop-FotPosProcesses {
     Start-Sleep -Seconds 2
 }
 
-Stop-FotPosProcesses
+if ($KeepRunning) {
+    Write-Host "Keeping the live shop server running (no process/service stop)." -ForegroundColor DarkYellow
+} else {
+    Stop-FotPosProcesses
+}
 
 foreach ($dir in @($serverDir, $installerOut)) {
     Ensure-PublishDirectory $dir

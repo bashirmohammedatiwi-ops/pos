@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   api,
   formatCurrency,
@@ -69,16 +69,46 @@ export function ReceiptDetailSheet({
   detail,
   loadingDetail,
   onComplete,
+  onChanged,
 }: {
   receipt: ReceiptSummary;
   detail?: ReceiptDetailDto;
   loadingDetail: boolean;
   onComplete?: () => void;
+  onChanged?: () => void;
 }) {
   const toast = useToast();
   const printQ = useQuery({ queryKey: ['print-settings'], queryFn: api.printSettings });
   const t = receiptTotals(receipt, detail);
   const discount = t.offers + t.user + t.items;
+  const linkedPrinted = detail?.printedNumber ?? receipt.printedNumber ?? null;
+  const [printedDraft, setPrintedDraft] = useState(linkedPrinted ? String(linkedPrinted) : '');
+  const [savingPrinted, setSavingPrinted] = useState(false);
+
+  useEffect(() => {
+    setPrintedDraft(linkedPrinted ? String(linkedPrinted) : '');
+  }, [receipt.id, linkedPrinted]);
+
+  async function savePrintedNumber() {
+    const raw = printedDraft.replace(/\D/g, '');
+    const next = raw ? Number(raw) : null;
+    if (next != null && (!Number.isFinite(next) || next <= 0)) {
+      toast.error('رقم مطبوع غير صالح');
+      return;
+    }
+    setSavingPrinted(true);
+    try {
+      await api.setReceiptPrintedNumber(receipt.id, next);
+      toast.success(next
+        ? 'رُبط الرقم المطبوع — مسح باركود الورق يفتح هذه الفاتورة في المرتجع'
+        : 'أُزيل ربط الرقم المطبوع');
+      onChanged?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر ربط الرقم المطبوع');
+    } finally {
+      setSavingPrinted(false);
+    }
+  }
 
   async function printThermal() {
     if (!printQ.data || !detail) return;
@@ -136,7 +166,12 @@ export function ReceiptDetailSheet({
       <table className="w-full border-separate border-spacing-0 text-[12px]">
         <tbody>
           <tr>
-            <InfoCell label="الرقم" value={receiptDisplayNumber(receipt)} />
+            <InfoCell
+              label="الرقم"
+              value={linkedPrinted && linkedPrinted !== receipt.number
+                ? `${receiptDisplayNumber(receipt)} · ورق ${linkedPrinted}`
+                : receiptDisplayNumber(receipt)}
+            />
             <InfoCell label="التاريخ" value={formatDate(receipt.creationDate)} />
             <InfoCell label="النوع" value={receiptKindLabel(receipt)} />
             <InfoCell label="الكاشير" value={receipt.cashierName ?? '—'} />
@@ -157,6 +192,25 @@ export function ReceiptDetailSheet({
           )}
         </tbody>
       </table>
+
+      {receipt.number > 0 && (
+        <div className="flex flex-wrap items-end gap-2 rounded-lg border border-sky-200 bg-sky-50 px-2 py-2">
+          <label className="min-w-[180px] flex-1">
+            <span className="mb-0.5 block text-[10px] font-semibold text-sky-800">الرقم المطبوع على الورق إن اختلف</span>
+            <input
+              className="h-8 w-full rounded border border-sky-200 bg-white px-2 text-[12px] font-semibold tabular-nums"
+              dir="ltr"
+              inputMode="numeric"
+              placeholder="مثال 20263000172"
+              value={printedDraft}
+              onChange={e => setPrintedDraft(e.target.value.replace(/\D/g, ''))}
+            />
+          </label>
+          <Btn size="sm" disabled={savingPrinted} onClick={() => void savePrintedNumber()}>
+            {savingPrinted ? 'جاري الربط…' : 'ربط للمرتجع'}
+          </Btn>
+        </div>
+      )}
 
       {loadingDetail && <Loading />}
       {!loadingDetail && detail && (

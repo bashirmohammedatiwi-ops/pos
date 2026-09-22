@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, downloadText, managerCsv, moneyIq, todayKey, type LineRow } from '../api';
+import { dayLabel, downloadText, managerCsv, moneyIq, resolveWeekSales, todayKey, type LineRow } from '../api';
 import { groupReceipts, lineCashier, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
-import { DayStrip, Empty, ErrorBox, Medal, SearchField, Skeleton, useToast } from '../ui';
+import { DayStrip, Empty, ErrorBox, Medal, PeriodCompareStrip, RecentFeed, SearchField, Skeleton, useToast } from '../ui';
 import { PeriodBar } from '../week';
 
 type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
@@ -12,7 +12,8 @@ type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
 export function Moves() {
   const {
     weekStart, setWeek, dash, weeks, scopedLines, scopedCashiers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals, payTotals, payPeriod,
+    err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
   const toast = useToast();
@@ -84,27 +85,11 @@ export function Moves() {
 
   if (err && !dash) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
+  const todayRow = insights.days.find(d => d.key === todayKey());
+  const weekSales = resolveWeekSales(dash);
+
   return (
-    <div className="dash fade-up">
-      <section className="hero compact command">
-        <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}</p>
-        <h1 className="display text-[28px] font-black">كل التفاصيل</h1>
-        <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales || periodTotals.sales)}</p>
-        <p className="mt-2 text-sm font-bold text-muted">
-          {receipts.length} فاتورة · {filtered.length} حركة
-        </p>
-        <button
-          type="button"
-          className="pill mt-3"
-          onClick={() => {
-            downloadText(`فواتير-${period.from}.csv`, managerCsv(filtered));
-            toast('تم تنزيل الملف');
-          }}
-        >
-          تصدير الحركات
-        </button>
-        <button type="button" className="pill mt-3" onClick={() => window.print()}>طباعة</button>
-      </section>
+    <div className="dash mobile-layout fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -116,6 +101,45 @@ export function Moves() {
         customTo={customTo}
         setCustom={setCustom}
       />
+      <PeriodCompareStrip
+        todaySales={todayRow?.sales ?? 0}
+        todayReceipts={todayRow?.receipts ?? 0}
+        period={period}
+        periodTotals={periodTotals}
+        periodKind={periodKind}
+        setPeriodKind={setPeriodKind}
+        weekSales={weekSales}
+        weekReceipts={dash?.week.receiptCount ?? 0}
+        payCommission={payTotals.commission}
+        payLabel={payPeriod.label}
+      />
+      <section className="hero compact command">
+        <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}</p>
+        <h1 className="display text-[28px] font-black">كل التفاصيل</h1>
+        <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales || periodTotals.sales)}</p>
+        <div className="dash-kpis mt-3">
+          <div className="dash-kpi"><p>فواتير</p><strong className="num">{receipts.length}</strong></div>
+          <div className="dash-kpi"><p>حركات</p><strong className="num">{filtered.length}</strong></div>
+          <div className="dash-kpi"><p>بائعون</p><strong className="num">{sellerNames.length}</strong></div>
+          <div className="dash-kpi"><p>كاشير</p><strong className="num">{cashierNames.length}</strong></div>
+        </div>
+        <div className="hero-actions mt-3">
+          <button
+            type="button"
+            className="pill"
+            onClick={() => {
+              downloadText(`فواتير-${period.from}.csv`, managerCsv(filtered));
+              toast('تم تنزيل الملف');
+            }}
+          >
+            تصدير
+          </button>
+          <button type="button" className="pill" onClick={() => window.print()}>طباعة</button>
+        </div>
+      </section>
+      {mode === 'invoices' && receipts.length > 0 && (
+        <RecentFeed receipts={receipts} limit={5} title="آخر الفواتير المفلترة" to="/moves" />
+      )}
       {insights.days.length > 0 && (
         <section className="card p-4">
           <DayStrip
@@ -135,16 +159,16 @@ export function Moves() {
         </section>
       )}
       <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو البائع أو الكاشير أو رقم الفاتورة" />
-      <div className="toolbar">
-        {([['invoices', 'الفواتير'], ['lines', 'الحركات'], ['products', 'المنتجات'], ['sellers', 'حسب البائع'], ['cashiers', 'حسب الكاشير']] as const).map(([k, label]) => (
-          <button key={k} type="button" className={`chip ${mode === k ? 'chip-on' : ''}`} onClick={() => setMode(k)}>{label}</button>
+      <div className="view-toggle">
+        {([['invoices', 'الفواتير'], ['lines', 'الحركات'], ['products', 'المنتجات'], ['sellers', 'البائع'], ['cashiers', 'الكاشير']] as const).map(([k, label]) => (
+          <button key={k} type="button" className={mode === k ? 'on' : ''} onClick={() => setMode(k)}>{label}</button>
         ))}
-        {day && (
-          <button type="button" className="chip chip-on" onClick={() => setDay()}>
-            يوم {dayLabel(day)} ×
-          </button>
-        )}
       </div>
+      {day && (
+        <button type="button" className="pill mt-2" onClick={() => setDay()}>
+          إلغاء فلتر {dayLabel(day)}
+        </button>
+      )}
       {(sellerNames.length > 1 || cashierNames.length > 1) && (
         <div className="toolbar">
           <button type="button" className={`chip ${!seller ? 'chip-on' : ''}`} onClick={() => setSeller('')}>كل البائعين</button>

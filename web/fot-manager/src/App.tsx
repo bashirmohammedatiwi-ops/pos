@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { ago, getMe, getToken, lastSyncMs, moneyIq, refreshSession, setMe, setToken, weekRange } from './api';
 import { lineCashier } from './insights';
 import { ManagerProvider, useManager } from './store';
-import { Avatar, BrandMark, Finder, IconBag, IconBox, IconCashier, IconGoal, IconHome, IconOut, IconRefresh, IconReport, IconSearch, IconTeam, IconWatch, Sheet, type FinderHit } from './ui';
+import { Avatar, BrandMark, Finder, IconBag, IconBox, IconCashier, IconComm, IconGoal, IconHome, IconOut, IconRefresh, IconReport, IconSearch, IconTeam, IconWatch, Sheet, type FinderHit } from './ui';
 import { Cashiers } from './pages/Cashiers';
+import { Commissions } from './pages/Commissions';
 import { Goals } from './pages/Goals';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
@@ -23,6 +24,7 @@ const links = [
 ] as const;
 
 const extra = [
+  { to: '/commissions', label: 'العمولات', icon: IconComm },
   { to: '/watch', label: 'المتابعة', icon: IconWatch },
   { to: '/products', label: 'المنتجات', icon: IconBag },
   { to: '/report', label: 'التقرير', icon: IconReport },
@@ -33,6 +35,7 @@ const titles: Record<string, string> = {
   '/team': 'البائعون',
   '/cashiers': 'الكاشير',
   '/goals': 'الأهداف',
+  '/commissions': 'العمولات',
   '/moves': 'الفواتير',
   '/report': 'التقرير',
   '/products': 'المنتجات',
@@ -215,6 +218,20 @@ function Shell() {
             </div>
           </header>
 
+          {dash && (
+            <div className="mobile-summary" aria-label="ملخص سريع">
+              <div className="mobile-summary-main">
+                <span className="mobile-summary-label">{period.label}</span>
+                <strong className="num mobile-summary-val">{moneyIq(periodTotals.sales)}</strong>
+              </div>
+              <div className="mobile-summary-side">
+                <span>{periodTotals.receipts} فاتورة</span>
+                <span className="mobile-summary-dot" />
+                <span>{moneyIq(payTotals.commission)} عمولات</span>
+              </div>
+            </div>
+          )}
+
           <div className="pull" style={{ height: pull }}>{pull > 48 ? 'أفلت للتحديث' : 'اسحب للتحديث'}</div>
 
           <main className="main">
@@ -224,6 +241,7 @@ function Shell() {
               <Route path="/cashiers" element={<Cashiers />} />
               <Route path="/floor" element={<Navigate to="/cashiers" replace />} />
               <Route path="/goals" element={<Goals />} />
+              <Route path="/commissions" element={<Commissions />} />
               <Route path="/moves" element={<Moves />} />
               <Route path="/products" element={<Products />} />
               <Route path="/watch" element={<Watch />} />
@@ -246,7 +264,17 @@ function Shell() {
           setFinder(false);
           const next = new URLSearchParams(loc.search);
           if (hit.to === '/moves' || hit.to === '/team' || hit.to === '/cashiers' || hit.to === '/products' || hit.to === '/goals') {
-            next.set('q', hit.to === '/goals' ? hit.title.split(' · ')[0] : hit.title);
+            if (hit.to === '/goals') {
+              const goal = dash?.goals.find(g => `${g.salesmanName} · ${g.ruleName}` === hit.title);
+              if (goal) {
+                next.set('rule', String(goal.ruleId));
+                next.set('q', goal.salesmanName);
+              } else {
+                next.set('q', hit.title.split(' · ')[0]);
+              }
+            } else {
+              next.set('q', hit.title);
+            }
           }
           else next.delete('q');
           const qs = next.toString();

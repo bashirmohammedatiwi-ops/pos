@@ -141,6 +141,19 @@ function openCatalogStore(dbPath) {
     return Number(`${year}${cashierCode}${String(seq).padStart(6, '0')}`);
   }
 
+  function parseReceiptNumber(number) {
+    const text = String(number);
+    if (!number || text.length < 11) return null;
+    const year = Number(text.slice(0, 4));
+    const seq = Number(text.slice(-6));
+    const cashierCode = Number(text.slice(4, -6));
+    if (!Number.isInteger(year) || year < 2000 || year > 9999) return null;
+    if (!Number.isInteger(cashierCode) || cashierCode <= 0) return null;
+    if (!Number.isInteger(seq) || seq <= 0 || seq > 999999) return null;
+    if (formatReceiptNumber(year, cashierCode, seq) !== number) return null;
+    return { year, cashierCode, seq };
+  }
+
   function rowToProduct(r) {
     if (!r) return null;
     return {
@@ -307,7 +320,14 @@ function openCatalogStore(dbPath) {
       const code = cashierCode > 0 ? cashierCode : 9;
       const key = `offline_receipt_seq_${year}_${code}`;
       const raw = this.getMeta(key);
-      const next = (raw ? Number(raw) : 0) + 1;
+      let next = (raw ? Number(raw) : 0) + 1;
+      const parked = db.prepare('SELECT local_number FROM pending_receipts WHERE synced = 0').all();
+      for (const row of parked) {
+        const parsed = parseReceiptNumber(row.local_number);
+        if (parsed && parsed.year === year && parsed.cashierCode === code && parsed.seq >= next) {
+          next = parsed.seq + 1;
+        }
+      }
       this.setMeta(key, String(next));
       return formatReceiptNumber(year, code, next);
     },
