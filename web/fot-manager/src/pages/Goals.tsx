@@ -7,8 +7,8 @@ import {
 import { groupReceipts, linesForSeller } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
-import { Badge, Empty, ErrorBox, Ring, SearchField, Sheet, Skeleton, Track } from '../ui';
-import { WeekBar } from '../week';
+import { Badge, Empty, ErrorBox, Ring, SearchField, SectionCard, Sheet, Skeleton, Track } from '../ui';
+import { WeekStepper, WeekTimeline } from '../week';
 
 type Filter = 'all' | 'done' | 'near' | 'late';
 type View = 'by-goal' | 'by-seller';
@@ -84,21 +84,34 @@ export function Goals() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="dash mobile-layout fade-up">
-      <section className="card goal-hero command">
-        <Ring value={view === 'by-goal' ? (activeRule?.avg ?? avg) : avg} size={120} tone="goal" label="إنجاز" />
-        <div>
-          <p className="kicker">التاركت الأسبوعي</p>
-          <h1 className="display text-[26px] font-black">الأهداف</h1>
-          <p className="mt-2 text-sm font-bold leading-6 text-muted">
-            {rules.length
-              ? `${rules.length} هدف · ${groups.length} بائع · ${hit} تحقق · ${near} قريب · ${late} يحتاج تركيز`
-              : 'لا يظهر إلا البائعون المربوط عليهم تاركت من لوحة التحكم'}
-          </p>
-        </div>
-      </section>
+    <div className="page-flow fade-up">
+      <WeekStepper weeks={weeks} weekStart={weekStart} setWeek={setWeek} kicker="أهداف الأسبوع" />
 
-      <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      <SectionCard kicker="تصفح" title="الأسابيع" className="week-timeline-wrap">
+        <WeekTimeline weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      </SectionCard>
+
+      <section className="card section-card">
+        <div className="flex flex-wrap items-center gap-4">
+          <Ring value={view === 'by-goal' ? (activeRule?.avg ?? avg) : avg} size={100} tone="goal" label="إنجاز" />
+          <div className="min-w-0 flex-1">
+            <p className="kicker">التاركت الأسبوعي</p>
+            <h1 className="display text-2xl font-black">الأهداف</h1>
+            <p className="mt-2 text-sm font-bold leading-6 text-muted">
+              {rules.length
+                ? `${rules.length} هدف · ${groups.length} بائع`
+                : 'اربط التاركت من لوحة التحكم'}
+            </p>
+          </div>
+        </div>
+        {rules.length > 0 && (
+          <div className="goals-summary-grid">
+            <div className="goals-summary-cell ok"><strong className="num">{hit}</strong><span>تحقق</span></div>
+            <div className="goals-summary-cell"><strong className="num">{near}</strong><span>قريب</span></div>
+            <div className="goals-summary-cell warn"><strong className="num">{late}</strong><span>تركيز</span></div>
+          </div>
+        )}
+      </section>
 
       <div className="view-toggle">
         <button type="button" className={view === 'by-goal' ? 'on' : ''} onClick={() => setView('by-goal')}>حسب الهدف</button>
@@ -122,7 +135,7 @@ export function Goals() {
           </div>
 
           {activeRule && (
-            <section className="panel goal-focus">
+            <section className="card home-section goal-focus">
               <div className="goal-focus-head">
                 <div>
                   <p className="kicker">{targetKind(activeRule.targetType)}</p>
@@ -131,7 +144,7 @@ export function Goals() {
                     الهدف {goalValue(activeRule.targetType, activeRule.weeklyTarget)} · {activeRule.hit} من {activeRule.total} حققوا
                   </p>
                 </div>
-                <Ring value={activeRule.avg} size={88} tone={goalTone(activeRule.avg)} label="متوسط" />
+                <Ring value={activeRule.avg} size={80} tone={goalTone(activeRule.avg)} label="متوسط" />
               </div>
             </section>
           )}
@@ -151,7 +164,7 @@ export function Goals() {
             {ruleMembers.map((m, i) => {
               const remain = Math.max(0, m.weeklyTarget - m.sold);
               return (
-                <button key={`${m.ruleId}-${m.salesmanId}`} type="button" className="goal-member-row" onClick={() => setOpen(m)}>
+                <button key={`${m.ruleId}-${m.salesmanId}`} type="button" className="goal-member-row card" onClick={() => setOpen(m)}>
                   <span className="goal-member-rank num">{i + 1}</span>
                   <Ring value={m.percent} size={52} tone={goalTone(m.percent)} />
                   <div className="min-w-0 flex-1 text-start">

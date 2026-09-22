@@ -638,6 +638,200 @@ export function HealthMeter({
   );
 }
 
+export function PersonAvatar({ name, tone = 'goal', size = 42 }: { name: string; tone?: 'goal' | 'gold' | 'ok' | 'warn'; size?: number }) {
+  const letter = (name || '؟').trim().charAt(0);
+  return (
+    <span
+      className={`person-avatar tone-${tone}`}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.4) }}
+      aria-hidden
+    >
+      {letter}
+    </span>
+  );
+}
+
+export function LeaderCard({
+  rank, name, sales, meta, share, onClick, tone = 'goal', badge,
+}: {
+  rank: number;
+  name: string;
+  sales: number;
+  meta?: string;
+  share?: number;
+  onClick?: () => void;
+  tone?: 'goal' | 'gold';
+  badge?: ReactNode;
+}) {
+  const inner = (
+    <>
+      <Medal rank={rank} />
+      <PersonAvatar name={name} tone={tone} />
+      <div className="leader-card-body">
+        <div className="leader-card-top">
+          <p className="leader-card-name">{name}</p>
+          {badge}
+        </div>
+        {meta && <p className="leader-card-meta">{meta}</p>}
+        {share != null && share > 0 && (
+          <div className="mt-2"><Track value={share} tone={tone === 'gold' ? 'gold' : 'goal'} /></div>
+        )}
+      </div>
+      <p className="leader-card-val num">{moneyIq(sales)}</p>
+    </>
+  );
+  if (onClick) {
+    return <button type="button" className={`leader-card tone-${tone}`} onClick={onClick}>{inner}</button>;
+  }
+  return <div className={`leader-card tone-${tone}`}>{inner}</div>;
+}
+
+export function NavHub() {
+  const items = [
+    { to: '/team', label: 'البائعون', sub: 'ترتيب ومبيعات', Icon: IconTeam, tone: 'goal' },
+    { to: '/cashiers', label: 'الكاشير', sub: 'أرض المحل', Icon: IconCashier, tone: 'gold' },
+    { to: '/commissions', label: 'العمولات', sub: 'أسبوع بأسبوع', Icon: IconComm, tone: 'comm' },
+    { to: '/goals', label: 'الأهداف', sub: 'التاركت', Icon: IconGoal, tone: 'ok' },
+    { to: '/moves', label: 'الفواتير', sub: 'كل التفاصيل', Icon: IconBox, tone: 'muted' },
+    { to: '/watch', label: 'مباشر', sub: 'تنبيهات', Icon: IconWatch, tone: 'warn' },
+  ] as const;
+  return (
+    <nav className="nav-hub" aria-label="أقسام المحل">
+      {items.map(i => (
+        <Link key={i.to} to={i.to} className={`nav-hub-item tone-${i.tone}`}>
+          <span className="nav-hub-icon-wrap"><i.Icon /></span>
+          <span className="nav-hub-label">{i.label}</span>
+          <span className="nav-hub-sub">{i.sub}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+export function MetricStrip({
+  items,
+}: {
+  items: { label: string; value: string; tone?: 'goal' | 'gold' | 'ok' | 'warn' | 'default' }[];
+}) {
+  return (
+    <div className="metric-strip">
+      {items.map(item => (
+        <div key={item.label} className={`metric-tile tone-${item.tone || 'default'}`}>
+          <p>{item.label}</p>
+          <strong className="num">{item.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SectionCard({
+  kicker, title, to, linkLabel = 'المزيد', action, children, className = '',
+}: {
+  kicker?: string;
+  title: string;
+  to?: string;
+  linkLabel?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`section-card card ${className}`.trim()}>
+      <div className="section-card-head">
+        <div>
+          {kicker && <p className="kicker">{kicker}</p>}
+          <h2 className="section-card-title">{title}</h2>
+        </div>
+        <div className="section-card-actions">
+          {action}
+          {to && <Link to={to} className="section-more">{linkLabel}</Link>}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export function LiveTicker({
+  receipts,
+  limit = 5,
+}: {
+  receipts: ReceiptGroup[];
+  limit?: number;
+}) {
+  const list = receipts.slice(0, limit);
+  if (!list.length) return null;
+  return (
+    <div className="live-ticker">
+      {list.map(r => (
+        <Link
+          key={r.id}
+          to={`/moves?q=${encodeURIComponent(String(r.receiptNumber || ''))}`}
+          className="live-ticker-item stat-link"
+        >
+          <span className="live-ticker-pulse" />
+          <span className="live-ticker-num">{r.receiptNumber ? `#${r.receiptNumber}` : 'فاتورة'}</span>
+          <span className="live-ticker-meta truncate">{r.sellers[0] || r.cashierName || '—'}</span>
+          <span className="live-ticker-val num">{moneyIq(r.sales)}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export function PaceMeter({
+  progress, projected, current, label = 'إيقاع الأسبوع',
+}: {
+  progress: number;
+  projected: number;
+  current: number;
+  label?: string;
+}) {
+  const v = Math.min(100, Math.max(0, progress));
+  return (
+    <div className="pace-meter">
+      <div className="pace-meter-head">
+        <p className="kicker">{label}</p>
+        <p className="pace-meter-val num">{moneyIq(projected)}</p>
+      </div>
+      <div className="pace-meter-track">
+        <div className="pace-meter-fill" style={{ width: `${v}%` }} />
+        <div className="pace-meter-marker" style={{ left: `${v}%` }} />
+      </div>
+      <p className="pace-meter-foot text-xs font-bold text-muted">
+        حتى الآن {moneyIq(current)} · {Math.round(v)}٪ من أيام الأسبوع
+      </p>
+    </div>
+  );
+}
+
+export function PageHero({
+  kicker, title, value, hint, stale, children,
+}: {
+  kicker: string;
+  title: string;
+  value?: string;
+  hint?: string;
+  stale?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="card page-hero">
+      <div className="page-hero-top">
+        <div>
+          <p className="kicker">{kicker}</p>
+          <h1 className="display page-hero-title">{title}</h1>
+          {hint && <p className="page-hero-hint">{hint}</p>}
+        </div>
+        {stale != null && <LiveDot stale={stale} />}
+      </div>
+      {value && <p className="page-hero-value num">{value}</p>}
+      {children}
+    </section>
+  );
+}
+
 export function ShareRow({
   rank, row, onClick,
 }: {

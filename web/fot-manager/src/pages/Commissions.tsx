@@ -1,24 +1,30 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { commissionCsv, type PeriodKind } from '../period';
-import { downloadText, moneyIq, pct, shareOf } from '../api';
-import { useManager } from '../store';
+import { commissionCsv } from '../period';
+import { downloadText, moneyIq, pct, shareOf, weekRange } from '../api';
+import { useManager, useWeekCompare } from '../store';
 import {
-  Empty, ErrorBox, Medal, Podium, SearchField, Skeleton, Track, useToast,
+  Donut, Empty, ErrorBox, Legend, Medal, MetricStrip, PageHero, Podium, SearchField,
+  SectionCard, Skeleton, Track, useToast, WeekCompare,
 } from '../ui';
-import { PayPeriodBar } from '../week';
+import { WeekStepper, WeekTimeline } from '../week';
 
 type Sort = 'commission' | 'sales' | 'receipts';
 
 export function Commissions() {
   const {
-    paySellers, payPeriod, payKind, setPayKind, customFrom, customTo, setCustom,
-    payTotals, periodTotals, err, loading, reload,
+    weekStart, setWeek, weeks, dash, prevDash, paySellers, payPeriod, payKind, setPayKind,
+    payTotals, err, loading, reload,
   } = useManager();
+  const compare = useWeekCompare(weeks, weekStart);
   const toast = useToast();
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('commission');
   const [hideZero, setHideZero] = useState(true);
+
+  useEffect(() => {
+    if (payKind !== 'week') setPayKind('week');
+  }, [payKind, setPayKind]);
 
   const rows = useMemo(() => {
     const list = paySellers.filter(s => {
@@ -36,28 +42,40 @@ export function Commissions() {
   const top = rows.slice(0, 3);
   const totalComm = payTotals.commission || rows.reduce((s, r) => s + r.commissionAmount, 0);
   const totalSales = payTotals.sales || rows.reduce((s, r) => s + r.salesAmount, 0);
+  const week = dash?.week;
+  const donutItems = useMemo(
+    () => rows.slice(0, 5).map(s => ({ label: s.name, value: s.commissionAmount })),
+    [rows],
+  );
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading && !rows.length) return <Skeleton rows={6} />;
 
   return (
-    <div className="dash mobile-layout fade-up">
-      <section className="hero compact command comm-hero">
-        <p className="kicker">أجور البائعين · {payPeriod.label}</p>
-        <h1 className="display text-[26px] font-black">العمولات</h1>
-        <p className="mt-2 text-sm font-bold text-muted">
-          {rows.length} موظفاً · {payTotals.receipts} فاتورة · مبيعات {moneyIq(totalSales)}
-        </p>
-        <p className="comm-total num">{moneyIq(totalComm)}</p>
-        <div className="dash-kpis mt-3">
-          <div className="dash-kpi"><p>متوسط عمولة</p><strong className="num">{moneyIq(rows.length ? totalComm / rows.length : 0)}</strong></div>
-          <div className="dash-kpi"><p>أعلى عمولة</p><strong className="num">{moneyIq(rows[0]?.commissionAmount ?? 0)}</strong></div>
-          <div className="dash-kpi"><p>نسبة من المبيعات</p><strong className="num">{totalSales > 0 ? pct((totalComm / totalSales) * 100) : '—'}</strong></div>
-          <div className="dash-kpi"><p>مبيعات المدة</p><strong className="num">{moneyIq(periodTotals.sales)}</strong></div>
-        </div>
+    <div className="page-flow fade-up">
+      <WeekStepper weeks={weeks} weekStart={weekStart} setWeek={setWeek} kicker="عمولات الأسبوع" />
+
+      <SectionCard kicker="تصفح" title="الأسابيع" className="week-timeline-wrap">
+        <WeekTimeline weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
+      </SectionCard>
+
+      <PageHero
+        kicker="أجور البائعين"
+        title="العمولات"
+        value={moneyIq(totalComm)}
+        hint={week ? weekRange(week.weekStart, week.weekEnd) : undefined}
+      >
+        <MetricStrip
+          items={[
+            { label: 'موظفون', value: String(rows.length), tone: 'goal' },
+            { label: 'فواتير', value: String(payTotals.receipts), tone: 'ok' },
+            { label: 'مبيعات', value: moneyIq(totalSales), tone: 'gold' },
+            { label: 'متوسط', value: moneyIq(rows.length ? totalComm / rows.length : 0), tone: 'warn' },
+          ]}
+        />
         <button
           type="button"
-          className="pill mt-3"
+          className="pill pill-primary mt-4"
           onClick={() => {
             downloadText(`عمولات-${payPeriod.from}.csv`, commissionCsv(rows));
             toast('تم تنزيل العمولات');
@@ -65,31 +83,37 @@ export function Commissions() {
         >
           تصدير CSV
         </button>
-      </section>
+      </PageHero>
 
-      <section className="panel pay-board">
-        <PayPeriodBar
-          period={payPeriod}
-          kind={payKind}
-          setKind={setPayKind as (k: PeriodKind) => void}
-          customFrom={customFrom}
-          customTo={customTo}
-          setCustom={setCustom}
+      {compare.cur && compare.prev && (
+        <WeekCompare
+          cur={compare.cur}
+          prev={compare.prev}
+          salesDelta={compare.salesDelta}
+          receiptDelta={compare.receiptDelta}
         />
-      </section>
+      )}
+
+      {donutItems.length >= 2 && (
+        <SectionCard kicker="توزيع" title="حصة العمولات">
+          <div className="donut-panel">
+            <Donut items={donutItems} center={moneyIq(totalComm)} />
+            <Legend items={donutItems.map(s => ({ label: s.label, value: moneyIq(s.value) }))} />
+          </div>
+        </SectionCard>
+      )}
 
       {top.length >= 2 && (
-        <section className="panel">
-          <p className="kicker mb-3">أعلى ثلاثة</p>
+        <SectionCard kicker="أعلى ثلاثة" title="منصة التكريم">
           <Podium
             items={top.map(s => ({
               id: String(s.salesmanId),
               name: s.name,
               value: moneyIq(s.commissionAmount),
-              hint: `${s.receiptCount} فاتورة · مبيعات ${moneyIq(s.salesAmount)}`,
+              hint: `${s.receiptCount} فاتورة · ${moneyIq(s.salesAmount)}`,
             }))}
           />
-        </section>
+        </SectionCard>
       )}
 
       <SearchField value={q} onChange={setQ} placeholder="ابحث بالاسم" />
@@ -102,34 +126,37 @@ export function Commissions() {
         </button>
       </div>
 
-      <div className="comm-list stagger">
+      <div className="leader-list stagger">
         {rows.map((s, i) => {
           const share = shareOf(s.commissionAmount, totalComm || 1);
           return (
             <Link
               key={s.salesmanId}
               to={`/team?q=${encodeURIComponent(s.name)}`}
-              className="comm-row stat-link"
+              className="comm-row stat-link card"
             >
               <Medal rank={i + 1} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-extrabold">{s.name}</p>
                 <p className="text-xs font-bold text-muted">
-                  {s.receiptCount} فاتورة · مبيعات {moneyIq(s.salesAmount)} · {pct(share)} من العمولات
+                  {s.receiptCount} فاتورة · مبيعات {moneyIq(s.salesAmount)} · {pct(share)}
                 </p>
                 <div className="mt-2"><Track value={share} tone="goal" /></div>
               </div>
               <div className="text-end">
                 <p className="num text-base font-black text-goal">{moneyIq(s.commissionAmount)}</p>
-                {s.goalCount > 0 && (
-                  <p className="mt-1 text-[11px] font-extrabold text-muted">{Math.round(s.goalPercent)}٪ أهداف</p>
-                )}
+                {prevDash && (() => {
+                  const prev = prevDash.sellers.find(x => x.salesmanId === s.salesmanId);
+                  return prev && prev.commissionAmount > 0
+                    ? <p className="mt-1 text-[10px] font-bold text-muted">سابق {moneyIq(prev.commissionAmount)}</p>
+                    : null;
+                })()}
               </div>
             </Link>
           );
         })}
         {!rows.length && (
-          <Empty title="لا عمولات في هذه المدة" hint="جرّب مدة أوسع أو أزل فلتر الصفر" />
+          <Empty title="لا عمولات في هذا الأسبوع" hint="اختر أسبوعاً من الخط الزمني أو استخدم ‹ ›" />
         )}
       </div>
     </div>

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, downloadText, managerCsv, moneyIq, resolveWeekSales, todayKey, type LineRow } from '../api';
+import { dayLabel, downloadText, managerCsv, moneyIq, type LineRow } from '../api';
 import { groupReceipts, lineCashier, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
-import { DayStrip, Empty, ErrorBox, Medal, PeriodCompareStrip, RecentFeed, SearchField, Skeleton, useToast } from '../ui';
+import { DayStrip, Empty, ErrorBox, Medal, RecentFeed, SearchField, Skeleton, useToast } from '../ui';
 import { PeriodBar } from '../week';
 
 type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
@@ -12,7 +12,7 @@ type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
 export function Moves() {
   const {
     weekStart, setWeek, dash, weeks, scopedLines, scopedCashiers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom, periodTotals, payTotals, payPeriod,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals,
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
@@ -85,11 +85,8 @@ export function Moves() {
 
   if (err && !dash) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
-  const todayRow = insights.days.find(d => d.key === todayKey());
-  const weekSales = resolveWeekSales(dash);
-
   return (
-    <div className="dash mobile-layout fade-up">
+    <div className="page-flow fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -101,19 +98,7 @@ export function Moves() {
         customTo={customTo}
         setCustom={setCustom}
       />
-      <PeriodCompareStrip
-        todaySales={todayRow?.sales ?? 0}
-        todayReceipts={todayRow?.receipts ?? 0}
-        period={period}
-        periodTotals={periodTotals}
-        periodKind={periodKind}
-        setPeriodKind={setPeriodKind}
-        weekSales={weekSales}
-        weekReceipts={dash?.week.receiptCount ?? 0}
-        payCommission={payTotals.commission}
-        payLabel={payPeriod.label}
-      />
-      <section className="hero compact command">
+      <section className="card home-section">
         <p className="kicker">{day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}</p>
         <h1 className="display text-[28px] font-black">كل التفاصيل</h1>
         <p className="num mt-3 text-[30px] font-black">{moneyIq(totalSales || periodTotals.sales)}</p>

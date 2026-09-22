@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, attachLiveGoals, deltaPct, liveGoals, setMe, todayKey, type CashierRow, type Dashboard, type LineRow, type SellerRow, type WeekSummary } from './api';
 import { buildInsights, unifyCashiers } from './insights';
 import {
-  applyPeriodCommission, cashiersFromLines, enrichSellerCommissions, filterLines, officialPeriod,
-  periodStats, resolveBounds, salesShareBase, sellersFromLines,
+  applyPeriodCommission, enrichSellerCommissions, filterLines, mergeScopedCashiers, mergeScopedSellers,
+  officialPeriod, periodStats, resolveBounds, salesShareBase,
   type PeriodBounds, type PeriodKind, type PeriodStats,
 } from './period';
 import { useWeek } from './week';
@@ -184,25 +184,24 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
   const scopedLines = useMemo(() => filterLines(lines, period.from, period.to), [lines, period]);
   const payLines = useMemo(() => filterLines(lines, payPeriod.from, payPeriod.to), [lines, payPeriod]);
 
-  const useOfficialPeople = period.kind === 'week' && (dash?.sellers.some(s => s.salesAmount > 0) ?? false);
   const weekSales = dash?.week.salesAmount || 0;
   const roster = dash?.sellers ?? [];
 
   const scopedSellers = useMemo(() => {
-    const base = useOfficialPeople
-      ? roster
-      : enrichSellerCommissions(
-        sellersFromLines(scopedLines, roster),
-        roster,
-        { prorate: period.kind !== 'week', periodSales: scopedLines.reduce((s, l) => s + (Number(l.salesAmount) || 0), 0), weekSales },
-      );
-    return attachLiveGoals(base, dash?.goals ?? []);
-  }, [useOfficialPeople, roster, scopedLines, dash?.goals, period.kind, weekSales]);
+    const base = mergeScopedSellers(scopedLines, roster, period, dash);
+    const periodSales = base.reduce((s, r) => s + r.salesAmount, 0);
+    return attachLiveGoals(
+      enrichSellerCommissions(base, roster, {
+        prorate: period.kind !== 'week',
+        periodSales,
+        weekSales,
+      }),
+      dash?.goals ?? [],
+    );
+  }, [roster, scopedLines, dash, period, weekSales]);
   const scopedCashiers = useMemo(
-    () => useOfficialPeople
-      ? cashiers
-      : cashiersFromLines(scopedLines, cashiers),
-    [useOfficialPeople, cashiers, scopedLines],
+    () => mergeScopedCashiers(scopedLines, cashiers, period, dash),
+    [cashiers, scopedLines, period, dash],
   );
   const paySellers = useMemo(() => {
     if (payPeriod.kind === 'week' && roster.some(s => s.commissionAmount > 0 || s.salesAmount > 0)) {

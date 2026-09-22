@@ -16,22 +16,22 @@ import { Team } from './pages/Team';
 import { Watch } from './pages/Watch';
 
 const links = [
-  { to: '/', label: 'اليوم', icon: IconHome, end: true },
+  { to: '/', label: 'الرئيسية', icon: IconHome, end: true },
   { to: '/team', label: 'بائعون', icon: IconTeam },
   { to: '/cashiers', label: 'كاشير', icon: IconCashier },
+  { to: '/commissions', label: 'عمولات', icon: IconComm },
   { to: '/goals', label: 'أهداف', icon: IconGoal },
-  { to: '/moves', label: 'فواتير', icon: IconBox },
 ] as const;
 
 const extra = [
-  { to: '/commissions', label: 'العمولات', icon: IconComm },
+  { to: '/moves', label: 'الفواتير', icon: IconBox },
   { to: '/watch', label: 'المتابعة', icon: IconWatch },
   { to: '/products', label: 'المنتجات', icon: IconBag },
   { to: '/report', label: 'التقرير', icon: IconReport },
 ] as const;
 
 const titles: Record<string, string> = {
-  '/': 'مبيعات اليوم',
+  '/': 'الرئيسية',
   '/team': 'البائعون',
   '/cashiers': 'الكاشير',
   '/goals': 'الأهداف',
@@ -62,12 +62,12 @@ function Shell() {
   const nav = useNavigate();
   const loc = useLocation();
   const me = getMe();
-  const { dash, cashiers, lines, periodTotals, period, payTotals, reload, loading, err, updatedAt } = useManager();
+  const { dash, cashiers, lines, paySellers, periodTotals, period, payTotals, reload, loading, err, updatedAt } = useManager();
   const badges = {
     '/goals': dash?.goals.filter(g => g.percent < 100).length || undefined,
     '/team': dash?.sellers.filter(s => s.salesAmount > 0 || s.receiptCount > 0).length || undefined,
     '/cashiers': cashiers.length || undefined,
-    '/moves': lines.length || undefined,
+    '/commissions': payTotals.commission > 0 ? Math.min(99, paySellers.length) : undefined,
   };
   const [askOut, setAskOut] = useState(false);
   const [profile, setProfile] = useState(false);
@@ -153,7 +153,7 @@ function Shell() {
   return (
     <div className="app" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <div className="app-body">
-        <aside className="side">
+        <aside className="side side-v5">
           <div className="side-brand">
             <BrandMark />
             <div>
@@ -217,20 +217,6 @@ function Shell() {
               </button>
             </div>
           </header>
-
-          {dash && (
-            <div className="mobile-summary" aria-label="ملخص سريع">
-              <div className="mobile-summary-main">
-                <span className="mobile-summary-label">{period.label}</span>
-                <strong className="num mobile-summary-val">{moneyIq(periodTotals.sales)}</strong>
-              </div>
-              <div className="mobile-summary-side">
-                <span>{periodTotals.receipts} فاتورة</span>
-                <span className="mobile-summary-dot" />
-                <span>{moneyIq(payTotals.commission)} عمولات</span>
-              </div>
-            </div>
-          )}
 
           <div className="pull" style={{ height: pull }}>{pull > 48 ? 'أفلت للتحديث' : 'اسحب للتحديث'}</div>
 

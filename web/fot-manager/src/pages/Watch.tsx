@@ -5,14 +5,14 @@ import {
 import { buildAlerts, lineCashier, shopHealth } from '../insights';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
-  Empty, ErrorBox, HealthMeter, LiveDot, Medal, PeriodCompareStrip, RecentFeed, SectionHead, Skeleton,
+  Empty, ErrorBox, HealthMeter, LiveDot, Medal, RecentFeed, SectionHead, Skeleton,
 } from '../ui';
 import { WeekBar } from '../week';
 
 export function Watch() {
   const {
     weekStart, setWeek, dash, prevDash, weeks, cashiers, lines, scopedCashiers,
-    period, periodKind, setPeriodKind, periodTotals, payTotals, payPeriod,
+    periodTotals,
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
@@ -65,8 +65,8 @@ export function Watch() {
   const todayRow = insights.days.find(d => d.key === today);
 
   return (
-    <div className="dash mobile-layout fade-up">
-      <section className="hero compact command">
+    <div className="page-flow fade-up">
+      <section className="card home-section">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="kicker">متابعة مباشرة</p>
@@ -84,19 +84,6 @@ export function Watch() {
           <div className="dash-kpi"><p>صحة المحل</p><strong className="num">{health.score}٪</strong></div>
         </div>
       </section>
-
-      <PeriodCompareStrip
-        todaySales={todayRow?.sales ?? todaySales}
-        todayReceipts={todayRow?.receipts ?? todayReceipts}
-        period={period}
-        periodTotals={periodTotals}
-        periodKind={periodKind}
-        setPeriodKind={setPeriodKind}
-        weekSales={resolveWeekSales(dash)}
-        weekReceipts={dash.week.receiptCount}
-        payCommission={payTotals.commission}
-        payLabel={payPeriod.label}
-      />
 
       <HealthMeter score={health.score} label={health.label} tone={health.tone} />
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />

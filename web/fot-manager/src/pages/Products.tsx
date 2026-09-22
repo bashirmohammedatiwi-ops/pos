@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { downloadText, moneyIq, pieces, pct, productCsv, resolveWeekSales, shareOf, todayKey } from '../api';
+import { downloadText, moneyIq, pieces, pct, productCsv, shareOf } from '../api';
 import { peopleForProduct, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
-import { useManager, useShopInsights } from '../store';
-import { Empty, ErrorBox, Medal, PeriodCompareStrip, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
+import { useManager } from '../store';
+import { Empty, ErrorBox, Medal, SearchField, Sheet, Skeleton, Track, useToast } from '../ui';
 import { PeriodBar } from '../week';
 import type { LineRow } from '../api';
 
@@ -14,10 +14,8 @@ type Tab = 'sellers' | 'cashiers' | 'invoices';
 export function Products() {
   const {
     weekStart, setWeek, dash, weeks, scopedLines, period, periodKind, setPeriodKind,
-    customFrom, customTo, setCustom, periodTotals, payTotals, payPeriod, err, loading, reload,
+    customFrom, customTo, setCustom, periodTotals, err, loading, reload,
   } = useManager();
-  const insights = useShopInsights();
-  const todayRow = insights.days.find(d => d.key === todayKey());
   const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -41,7 +39,7 @@ export function Products() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="dash mobile-layout fade-up">
+    <div className="page-flow fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -53,19 +51,7 @@ export function Products() {
         customTo={customTo}
         setCustom={setCustom}
       />
-      <PeriodCompareStrip
-        todaySales={todayRow?.sales ?? 0}
-        todayReceipts={todayRow?.receipts ?? 0}
-        period={period}
-        periodTotals={periodTotals}
-        periodKind={periodKind}
-        setPeriodKind={setPeriodKind}
-        weekSales={resolveWeekSales(dash)}
-        weekReceipts={dash?.week.receiptCount ?? 0}
-        payCommission={payTotals.commission}
-        payLabel={payPeriod.label}
-      />
-      <section className="hero compact command">
+      <section className="card home-section">
         <p className="kicker">منتجات {period.label}</p>
         <h1 className="display text-[28px] font-black">ماذا يُباع</h1>
         <p className="mt-2 text-sm font-bold text-muted">{rows.length} منتجاً · مبيعات {moneyIq(total)}</p>

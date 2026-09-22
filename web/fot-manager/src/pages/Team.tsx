@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  api, deltaPct, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, resolveWeekSales, shareOf, teamCsv, todayKey,
+  api, deltaPct, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, shareOf, teamCsv,
   type LineRow, type SellerRow,
 } from '../api';
 import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProducts } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
-  Badge, Delta, Empty, ErrorBox, FilterStats, LiveDot, Medal, PeriodCompareStrip, Podium, QuickNav, Ring, SearchField, Sheet, Skeleton, StatGrid, Track, useToast,
+  Badge, CommandRail, Delta, Empty, ErrorBox, FilterStats, LeaderCard, MetricStrip, PageHero, Podium,
+  Ring, SearchField, Sheet, Skeleton, StatGrid, Track, useToast,
 } from '../ui';
+import { todayKey } from '../api';
 import { PeriodBar } from '../week';
 
 type Sort = 'sales' | 'receipts' | 'share' | 'goals' | 'commission';
@@ -19,7 +21,7 @@ type Filter = 'all' | 'active' | 'goals' | 'due';
 export function Team() {
   const {
     weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedSellers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom,     periodTotals, payTotals, payPeriod, shareBase,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
@@ -57,9 +59,6 @@ export function Team() {
 
   const salesTotal = periodTotals.sales || shareBase;
   const shareDen = shareBase;
-  const weekSales = resolveWeekSales(dash);
-  const todayRow = insights.days.find(d => d.key === todayKey());
-
   const rows = useMemo(() => {
     const list = scopedSellers.filter(s => {
       if (q.trim() && !s.name.includes(q.trim())) return false;
@@ -91,7 +90,7 @@ export function Team() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="dash mobile-layout fade-up">
+    <div className="page-flow fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -102,38 +101,27 @@ export function Team() {
         customFrom={customFrom}
         customTo={customTo}
         setCustom={setCustom}
+        days={insights.days}
+        activeDay={period.singleDay ? period.from : undefined}
+        today={todayKey()}
+        onDaySelect={key => { setCustom(key, key); setPeriodKind('custom'); }}
       />
-      <PeriodCompareStrip
-        todaySales={todayRow?.sales ?? 0}
-        todayReceipts={todayRow?.receipts ?? 0}
-        period={period}
-        periodTotals={periodTotals}
-        periodKind={periodKind}
-        setPeriodKind={setPeriodKind}
-        weekSales={weekSales}
-        weekReceipts={dash?.week.receiptCount ?? 0}
-        payCommission={payTotals.commission}
-        payLabel={payPeriod.label}
-      />
-      <QuickNav />
 
-      <section className="hero compact command">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="kicker">فريق المبيعات · {period.label}</p>
-            <h1 className="display text-[24px] font-black">البائعون</h1>
-            <p className="mt-2 text-sm font-bold text-muted">
-              {rows.length} بائعاً · إجمالي {moneyIq(salesTotal)}
-            </p>
-          </div>
-          <LiveDot stale={stale} />
-        </div>
-        <div className="dash-kpis mt-4">
-          <div className="dash-kpi"><p>المبيعات</p><strong className="num">{moneyIq(salesTotal)}</strong></div>
-          <div className="dash-kpi"><p>فواتير</p><strong className="num">{periodTotals.receipts}</strong></div>
-          <div className="dash-kpi"><p>نشطون</p><strong className="num">{activeCount}</strong></div>
-          <div className="dash-kpi"><p>عمولات</p><strong className="num">{moneyIq(rows.reduce((s, r) => s + r.commissionAmount, 0))}</strong></div>
-        </div>
+      <PageHero
+        kicker={`فريق المبيعات · ${period.label}`}
+        title="البائعون"
+        value={moneyIq(salesTotal)}
+        hint={`${rows.length} بائعاً · ${periodTotals.receipts} فاتورة`}
+        stale={stale}
+      >
+        <MetricStrip
+          items={[
+            { label: 'نشطون', value: String(activeCount), tone: 'ok' },
+            { label: 'عمولات', value: moneyIq(rows.reduce((s, r) => s + r.commissionAmount, 0)), tone: 'goal' },
+            { label: 'أهداف', value: String(goalsCount), tone: 'gold' },
+            { label: 'مستحق', value: String(dueCount), tone: dueCount ? 'warn' : 'ok' },
+          ]}
+        />
         <div className="hero-actions mt-3">
           <button
             type="button"
@@ -145,9 +133,10 @@ export function Team() {
           >
             تصدير
           </button>
-          <Link to="/commissions" className="pill">كل العمولات</Link>
+          <Link to="/commissions" className="pill">العمولات</Link>
+          <Link to="/goals" className="pill">الأهداف</Link>
         </div>
-      </section>
+      </PageHero>
 
       {rows.filter(s => s.salesAmount > 0).length > 0 && (
         <Podium
@@ -208,30 +197,27 @@ export function Team() {
         </table>
       </div>
 
-      <div className="stack-grid stagger people-mobile">
+      <div className="leader-list stagger people-mobile">
         {rows.map((s, i) => {
           const share = shareOf(s.salesAmount, shareDen);
           const prev = prevDash?.sellers.find(x => x.salesmanId === s.salesmanId);
           return (
-            <button key={s.salesmanId} type="button" className="card person-card" onClick={() => void openSeller(s)}>
-              <div className="flex items-start gap-3">
-                <Medal rank={i + 1} />
-                <div className="min-w-0 flex-1 text-start">
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-lg font-extrabold">{s.name}</h2>
-                    {s.goalCount > 0 && <Badge tone={goalTone(s.goalPercent) === 'goal' ? 'goal' : goalTone(s.goalPercent)}>{goalLabel(s.goalPercent)}</Badge>}
-                  </div>
-                  <p className="num mt-2 text-[26px] font-black text-goal">{moneyIq(s.salesAmount)}</p>
-                  {prev && <div className="mt-1"><Delta value={deltaPct(s.salesAmount, prev.salesAmount)} /></div>}
-                  <p className="mt-1 text-sm font-extrabold text-muted">
-                    عمولة {moneyIq(s.commissionAmount)} · {pct(share)} · {s.receiptCount} فاتورة
-                  </p>
-                  <div className="mt-2"><Track value={share} tone="goal" /></div>
-                  {s.goalCount > 0 && <div className="mt-2"><Track value={s.goalPercent} tone={goalTone(s.goalPercent)} /></div>}
-                  {s.balanceDue > 0 && <p className="mt-2 text-xs font-bold text-warn">مستحق {moneyIq(s.balanceDue)}</p>}
-                </div>
-              </div>
-            </button>
+            <div key={s.salesmanId}>
+              <LeaderCard
+                rank={i + 1}
+                name={s.name}
+                sales={s.salesAmount}
+                meta={`عمولة ${moneyIq(s.commissionAmount)} · ${s.receiptCount} فاتورة · ${pct(share)}`}
+                share={share}
+                tone="goal"
+                badge={s.goalCount > 0 ? <Badge tone={goalTone(s.goalPercent) === 'goal' ? 'goal' : goalTone(s.goalPercent)}>{goalLabel(s.goalPercent)}</Badge> : undefined}
+                onClick={() => void openSeller(s)}
+              />
+              {prev && prev.salesAmount > 0 && (
+                <div className="px-4 pb-1"><Delta value={deltaPct(s.salesAmount, prev.salesAmount)} /></div>
+              )}
+              {s.balanceDue > 0 && <p className="px-4 pb-2 text-xs font-bold text-warn">مستحق {moneyIq(s.balanceDue)}</p>}
+            </div>
           );
         })}
         {!loading && !rows.length && <Empty title="لا بائعون في هذه المدة" hint="غيّر المدة أو الفلتر" />}

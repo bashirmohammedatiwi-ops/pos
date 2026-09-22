@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  avgTicket, cashierCsv, deltaPct, downloadText, lastSyncMs, moneyIq, pieces, pct, resolveWeekSales, shareOf, todayKey,
+  avgTicket, cashierCsv, dayKey, deltaPct, downloadText, lastSyncMs, moneyIq, pieces, pct, shareOf, todayKey,
   type CashierRow, type LineRow,
 } from '../api';
 import { groupReceipts, lineCashier, linesForCashier, rankProducts, sellersThroughCashier } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
-  Delta, Empty, ErrorBox, HourBands, LiveDot, Medal, PeriodCompareStrip, Podium, QuickNav, RecentFeed, SearchField, Sheet, Skeleton, StatGrid, Track, useToast,
+  Delta, Empty, ErrorBox, HourBands, LeaderCard, Medal, MetricStrip, PageHero, Podium, RecentFeed,
+  SearchField, Sheet, Skeleton, StatGrid, useToast,
 } from '../ui';
 import { PeriodBar } from '../week';
 
@@ -17,8 +18,8 @@ type Tab = 'overview' | 'sellers' | 'products' | 'invoices';
 
 export function Cashiers() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedCashiers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom,     periodTotals, payTotals, payPeriod, shareBase,
+    weekStart, setWeek, dash, prevDash, weeks, lines, scopedLines, scopedCashiers, period, periodKind,
+    setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
@@ -43,13 +44,12 @@ export function Cashiers() {
 
   const salesTotal = periodTotals.sales || shareBase;
   const shareDen = shareBase;
-  const weekSales = resolveWeekSales(dash);
   const todayRow = insights.days.find(d => d.key === todayKey());
   const todayKey_ = todayKey();
 
   const todayCashiers = useMemo(() => {
     const map = new Map<string, { name: string; sales: number; receipts: Set<string | number> }>();
-    for (const l of scopedLines.filter(x => x.occurredAt.slice(0, 10) === todayKey_)) {
+    for (const l of lines.filter(x => dayKey(x.occurredAt) === todayKey_)) {
       const name = lineCashier(l) || 'كاشير';
       const row = map.get(name) ?? { name, sales: 0, receipts: new Set() };
       row.sales += l.salesAmount;
@@ -59,7 +59,7 @@ export function Cashiers() {
     return [...map.values()]
       .map(r => ({ name: r.name, sales: r.sales, receipts: r.receipts.size }))
       .sort((a, b) => b.sales - a.sales);
-  }, [scopedLines, todayKey_]);
+  }, [lines, todayKey_]);
   const todayMap = useMemo(() => new Map(todayCashiers.map(c => [c.name, c])), [todayCashiers]);
 
   const rows = useMemo(() => {
@@ -80,7 +80,7 @@ export function Cashiers() {
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
   return (
-    <div className="dash mobile-layout fade-up">
+    <div className="page-flow fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -91,38 +91,27 @@ export function Cashiers() {
         customFrom={customFrom}
         customTo={customTo}
         setCustom={setCustom}
+        days={insights.days}
+        activeDay={period.singleDay ? period.from : undefined}
+        today={todayKey()}
+        onDaySelect={key => { setCustom(key, key); setPeriodKind('custom'); }}
       />
-      <PeriodCompareStrip
-        todaySales={todayRow?.sales ?? 0}
-        todayReceipts={todayRow?.receipts ?? 0}
-        period={period}
-        periodTotals={periodTotals}
-        periodKind={periodKind}
-        setPeriodKind={setPeriodKind}
-        weekSales={weekSales}
-        weekReceipts={dash?.week.receiptCount ?? 0}
-        payCommission={payTotals.commission}
-        payLabel={payPeriod.label}
-      />
-      <QuickNav />
 
-      <section className="hero compact command">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="kicker">أرض المحل · {period.label}</p>
-            <h1 className="display text-[24px] font-black">الكاشير</h1>
-            <p className="mt-2 text-sm font-bold text-muted">
-              {rows.length} كاشير · مبيعات {moneyIq(salesTotal)}
-            </p>
-          </div>
-          <LiveDot stale={stale} />
-        </div>
-        <div className="dash-kpis mt-4">
-          <div className="dash-kpi"><p>المبيعات</p><strong className="num">{moneyIq(salesTotal)}</strong></div>
-          <div className="dash-kpi"><p>فواتير</p><strong className="num">{periodTotals.receipts}</strong></div>
-          <div className="dash-kpi"><p>نشط</p><strong className="num">{rows.filter(c => c.salesAmount > 0).length}</strong></div>
-          <div className="dash-kpi"><p>اليوم</p><strong className="num">{moneyIq(todayRow?.sales ?? 0)}</strong></div>
-        </div>
+      <PageHero
+        kicker={`أرض المحل · ${period.label}`}
+        title="الكاشير"
+        value={moneyIq(salesTotal)}
+        hint={`${rows.filter(c => c.salesAmount > 0).length} كاشير نشط · ${periodTotals.receipts} فاتورة`}
+        stale={stale}
+      >
+        <MetricStrip
+          items={[
+            { label: 'اليوم', value: moneyIq(todayRow?.sales ?? 0), tone: 'gold' },
+            { label: 'فواتير', value: String(todayRow?.receipts ?? todayCashiers.reduce((s, c) => s + c.receipts, 0)), tone: 'goal' },
+            { label: 'متوسط', value: moneyIq(avgTicket(salesTotal, periodTotals.receipts)), tone: 'ok' },
+            { label: 'كاشير اليوم', value: String(todayCashiers.length), tone: 'gold' },
+          ]}
+        />
         <button
           type="button"
           className="pill mt-3"
@@ -131,12 +120,12 @@ export function Cashiers() {
             toast('تم تنزيل ملف الكاشير');
           }}
         >
-          تصدير الكاشير
+          تصدير CSV
         </button>
-      </section>
+      </PageHero>
 
       {todayCashiers.length > 0 && (
-        <section className="panel today-live">
+        <section className="card home-section today-live">
           <p className="kicker mb-2">مبيعات اليوم · مباشر</p>
           <div className="today-live-grid">
             {todayCashiers.slice(0, 4).map((c, i) => (
@@ -213,33 +202,32 @@ export function Cashiers() {
         </table>
       </div>
 
-      <div className="stack-grid stagger people-mobile">
-        {rows.map((c, i) => (
-          <button key={`${c.cashierId}-${c.name}`} type="button" className="card person-card cashier-card" onClick={() => { setOpen(c); setTab('overview'); }}>
-            <div className="flex items-start gap-3">
-              <Medal rank={i + 1} />
-              <div className="min-w-0 flex-1 text-start">
-                <h2 className="text-lg font-extrabold">{c.name}</h2>
-                <p className="num mt-2 text-[26px] font-black text-gold">{moneyIq(c.salesAmount)}</p>
-                {(() => {
-                  const prev = prevDash?.cashiers.find(x => x.name === c.name)
-                    || prevDash?.malls.find(x => x.sectionName === c.name);
-                  const prevSales = prev && 'salesAmount' in prev ? prev.salesAmount : 0;
-                  return prev && prevSales > 0 ? <div className="mt-1"><Delta value={deltaPct(c.salesAmount, prevSales)} /></div> : null;
-                })()}
-                <p className="mt-1 text-sm font-extrabold text-muted">
-                  {pct(shareOf(c.salesAmount, shareDen))} · {c.receiptCount} فاتورة · متوسط {moneyIq(avgTicket(c.salesAmount, c.receiptCount))}
-                </p>
-                <div className="mt-2"><Track value={shareOf(c.salesAmount, shareDen)} tone="gold" /></div>
-                {todayMap.get(c.name) && (
-                  <p className="mt-2 text-xs font-extrabold text-ok">اليوم {moneyIq(todayMap.get(c.name)!.sales)}</p>
-                )}
-              </div>
+      <div className="leader-list stagger people-mobile">
+        {rows.map((c, i) => {
+          const share = shareOf(c.salesAmount, shareDen);
+          const todaySales = todayMap.get(c.name)?.sales;
+          return (
+            <div key={`${c.cashierId}-${c.name}`}>
+              <LeaderCard
+                rank={i + 1}
+                name={c.name}
+                sales={c.salesAmount}
+                meta={`${c.receiptCount} فاتورة · ${pct(share)} · متوسط ${moneyIq(avgTicket(c.salesAmount, c.receiptCount))}${todaySales ? ` · اليوم ${moneyIq(todaySales)}` : ''}`}
+                share={share}
+                tone="gold"
+                onClick={() => { setOpen(c); setTab('overview'); }}
+              />
+              {(() => {
+                const prev = prevDash?.cashiers.find(x => x.name === c.name)
+                  || prevDash?.malls.find(x => x.sectionName === c.name);
+                const prevSales = prev && 'salesAmount' in prev ? prev.salesAmount : 0;
+                return prev && prevSales > 0 ? <div className="px-4 pb-1"><Delta value={deltaPct(c.salesAmount, prevSales)} /></div> : null;
+              })()}
             </div>
-          </button>
-        ))}
+          );
+        })}
         {!loading && !rows.length && (
-          <Empty title="لا كاشير في هذه المدة" hint="تظهر الأسماء بعد مزامنة لوحة التحكم" />
+          <Empty title="لا كاشير في هذه المدة" hint="جرّب «اليوم» أو «الأسبوع كامل» — أو حدّث من لوحة التحكم" />
         )}
       </div>
 

@@ -8,8 +8,8 @@ import { cashierShares, sellerShares, weekPace } from '../insights';
 import { commissionCsv } from '../period';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
-  AreaChart, CommandRail, DayStrip, Delta, Empty, ErrorBox, HourBands, Medal, PeriodCompareStrip,
-  QuickNav, Ring, SectionHead, Skeleton, Track, useToast,
+  AreaChart, CommandRail, DayStrip, Delta, Empty, ErrorBox, HourBands, Medal,
+  Ring, SectionHead, Skeleton, Track, useToast,
 } from '../ui';
 import { PeriodBar } from '../week';
 
@@ -40,7 +40,7 @@ export function Report() {
   const pace = weekPace(week.weekStart, week.weekEnd, weekSales, todayKey());
 
   return (
-    <div className="dash mobile-layout fade-up">
+    <div className="page-flow fade-up">
       <PeriodBar
         weeks={weeks}
         weekStart={weekStart}
@@ -52,21 +52,8 @@ export function Report() {
         customTo={customTo}
         setCustom={setCustom}
       />
-      <PeriodCompareStrip
-        todaySales={todayRow?.sales ?? 0}
-        todayReceipts={todayRow?.receipts ?? 0}
-        period={period}
-        periodTotals={periodTotals}
-        periodKind={periodKind}
-        setPeriodKind={setPeriodKind}
-        weekSales={weekSales}
-        weekReceipts={week.receiptCount}
-        payCommission={payTotals.commission}
-        payLabel={payPeriod.label}
-      />
-      <QuickNav />
 
-      <section className="hero compact command">
+      <section className="card home-section">
         <p className="kicker">تقرير المتابعة · {period.label}</p>
         <h1 className="display text-[28px] font-black">يومي · أسبوعي · دقيق</h1>
         <p className="mt-2 text-sm font-bold text-muted">أسبوع {weekRange(week.weekStart, week.weekEnd)}</p>

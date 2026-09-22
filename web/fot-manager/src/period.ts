@@ -1,4 +1,4 @@
-import { avgTicket, dayLabel, todayKey, type CashierRow, type Dashboard, type DayRow, type LineRow, type SellerRow } from './api';
+import { avgTicket, dayKey, dayLabel, todayKey, type CashierRow, type Dashboard, type DayRow, type LineRow, type SellerRow } from './api';
 import { lineCashier } from './insights';
 
 export type PeriodKind = 'today' | 'yesterday' | 'wtd' | 'week' | 'custom';
@@ -55,7 +55,7 @@ export function yesterdayKey() {
 }
 
 export function inRange(iso: string, from: string, to: string) {
-  const key = dateKey(iso);
+  const key = dayKey(iso);
   return key >= from && key <= to;
 }
 
@@ -260,8 +260,7 @@ export function cashiersFromLines(lines: LineRow[], roster: CashierRow[] = []): 
     });
   }
   for (const line of lines) {
-    const name = lineCashier(line);
-    if (!name) continue;
+    const name = lineCashier(line) || 'كاشير';
     const key = name.toLowerCase();
     const cur = map.get(key) ?? {
       cashierId: map.size + 1,
@@ -284,6 +283,57 @@ export function cashiersFromLines(lines: LineRow[], roster: CashierRow[] = []): 
     .map(({ recs: _recs, ...row }) => row)
     .filter(c => c.salesAmount > 0 || c.receiptCount > 0 || c.commissionAmount > 0)
     .sort((a, b) => b.salesAmount - a.salesAmount);
+}
+
+function proratePeople<T extends { salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number }>(
+  rows: T[],
+  period: PeriodBounds,
+  dash: Dashboard | null | undefined,
+): T[] {
+  const official = officialPeriod(dash?.days, period.from, period.to);
+  const weekSales = Number(dash?.week.salesAmount) || rows.reduce((s, r) => s + r.salesAmount, 0);
+  if (!official?.sales || weekSales <= 0) return [];
+  const ratio = official.sales / weekSales;
+  return rows
+    .filter(r => r.salesAmount > 0 || r.receiptCount > 0)
+    .map(r => ({
+      ...r,
+      salesAmount: Math.round(r.salesAmount * ratio),
+      commissionAmount: Math.round(r.commissionAmount * ratio),
+      receiptCount: Math.max(r.receiptCount > 0 ? 1 : 0, Math.round(r.receiptCount * ratio)),
+      pieceCount: Math.round(r.pieceCount * ratio),
+    }))
+    .filter(r => r.salesAmount > 0 || r.receiptCount > 0);
+}
+
+export function mergeScopedCashiers(
+  periodLines: LineRow[],
+  roster: CashierRow[],
+  period: PeriodBounds,
+  dash: Dashboard | null | undefined,
+): CashierRow[] {
+  if (period.kind === 'week' && roster.some(c => c.salesAmount > 0)) {
+    return roster.filter(c => c.salesAmount > 0 || c.receiptCount > 0);
+  }
+  const fromLines = cashiersFromLines(periodLines, roster);
+  const lineSales = fromLines.reduce((s, c) => s + c.salesAmount, 0);
+  if (fromLines.length > 0 && lineSales > 0) return fromLines;
+  const prorated = proratePeople(roster, period, dash);
+  return prorated.length ? prorated : fromLines;
+}
+
+export function mergeScopedSellers(
+  periodLines: LineRow[],
+  roster: SellerRow[],
+  period: PeriodBounds,
+  dash: Dashboard | null | undefined,
+): SellerRow[] {
+  if (period.kind === 'week' && roster.some(s => s.salesAmount > 0)) return roster;
+  const fromLines = sellersFromLines(periodLines, roster);
+  const lineSales = fromLines.reduce((s, r) => s + r.salesAmount, 0);
+  if (fromLines.length > 0 && lineSales > 0) return fromLines;
+  const prorated = proratePeople(roster, period, dash);
+  return prorated.length ? prorated : fromLines;
 }
 
 export function commissionCsv(rows: SellerRow[]) {
