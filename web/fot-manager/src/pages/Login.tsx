@@ -118,7 +118,7 @@ export function Login() {
             {err && <p className="mt-3 text-center text-sm font-extrabold text-danger">{err}</p>}
             <button
               disabled={busy || !name || password.length < 4}
-              className="mt-5 w-full rounded-2xl bg-goal py-4 text-lg font-extrabold text-white disabled:opacity-45"
+              className="login-go mt-5 w-full rounded-2xl py-4 text-lg font-extrabold disabled:opacity-45"
             >
               {busy ? 'جارٍ الدخول…' : 'دخول'}
             </button>

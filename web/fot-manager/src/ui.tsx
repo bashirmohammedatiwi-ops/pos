@@ -106,11 +106,11 @@ export function BrandMark({ size = 40 }: { size?: number }) {
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden>
       <defs>
         <linearGradient id="bm" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#3730a3" />
-          <stop offset="100%" stopColor="#0f766e" />
+          <stop offset="0%" stopColor="#1a2236" />
+          <stop offset="100%" stopColor="#101628" />
         </linearGradient>
       </defs>
-      <rect width="64" height="64" rx="18" fill="url(#bm)" />
+      <rect width="64" height="64" rx="32" fill="url(#bm)" />
       <path d="M18 40 V24 l14-8 14 8 v16" fill="none" stroke="#ffffff" strokeWidth="3.2" />
       <circle cx="32" cy="34" r="6" fill="#fbbf24" />
     </svg>
@@ -118,7 +118,7 @@ export function BrandMark({ size = 40 }: { size?: number }) {
 }
 
 export function Avatar({ name, onClick }: { name: string; onClick?: () => void }) {
-  const cls = 'grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-goal-soft text-base font-extrabold text-goal';
+  const cls = 'user-avatar grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-base font-extrabold';
   const letter = (name || 'م').trim().charAt(0);
   if (onClick) return <button type="button" onClick={onClick} className={cls} aria-label="حسابي">{letter}</button>;
   return <span className={cls}>{letter}</span>;

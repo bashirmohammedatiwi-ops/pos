@@ -1,8 +1,8 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: Tahoma, Arial, system-ui, sans-serif;
-  --font-display: Tahoma, Arial, system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans Arabic", Tahoma, Arial, system-ui, sans-serif;
+  --font-display: "IBM Plex Sans Arabic", Tahoma, Arial, system-ui, sans-serif;
   --color-ink: #0b1220;
   --color-ink-soft: #1e293b;
   --color-muted: #64748b;
@@ -742,8 +742,8 @@ button:active { transform: scale(0.985); }
   margin: 0 0 4px;
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.16em;
-  color: #0f766e;
+  letter-spacing: 0;
+  color: #8a7340;
 }
 
 .section-link {
@@ -3933,6 +3933,12 @@ a.stat-compare-cell { text-decoration: none; color: inherit; }
   color: rgba(255, 255, 255, 0.78);
 }
 .login-kicker { display: none; }
+.login-go {
+  background: #101628;
+  color: #f6e7b8;
+  border: 0;
+}
+.login-go:disabled { background: #cfc6b4; color: #fff; }
 
 .section-card,
 .period-card,
@@ -4029,6 +4035,204 @@ a.stat-compare-cell { text-decoration: none; color: inherit; }
     box-shadow: 0 -1px 0 #e6eaf2, 0 -12px 30px rgba(15, 23, 42, 0.06);
   }
   .sheet { box-shadow: 0 -18px 50px rgba(15, 23, 42, 0.16); }
+}
+
+/* ═══ v7 — حبر وذهب ═══ */
+body { background: #f4f1ea; }
+.app {
+  background:
+    radial-gradient(70% 40% at 100% -10%, rgba(212, 168, 74, 0.16), transparent 50%),
+    #f4f1ea;
+}
+.user-avatar {
+  background: #101628;
+  color: #f6e7b8;
+  box-shadow: 0 0 0 2px #e4c56a;
+}
+
+.surface-hero {
+  background:
+    radial-gradient(80% 70% at 100% 0%, rgba(228, 197, 106, 0.22), transparent 42%),
+    linear-gradient(165deg, #1a2236 0%, #101628 70%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 22px 48px rgba(16, 22, 40, 0.28);
+}
+.surface-hero .kicker { color: #e4c56a; letter-spacing: 0; }
+.surface-hero .bento-hero-num,
+.surface-hero .page-hero-value {
+  color: #fbf7ee;
+  letter-spacing: -0.03em;
+  border-bottom: 2px solid #e4c56a;
+  display: inline-block;
+  padding-bottom: 4px;
+}
+.surface-hero .metric-tile,
+.surface-hero .dash-kpi,
+.surface-hero .goals-summary-cell,
+.surface-hero .bento-hero-week {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.surface-hero .pill-primary {
+  background: #e4c56a !important;
+  color: #101628 !important;
+}
+.login-crest {
+  background:
+    radial-gradient(70% 80% at 100% 0%, rgba(228, 197, 106, 0.28), transparent 46%),
+    linear-gradient(165deg, #1a2236, #101628 70%);
+}
+.period-chip.on {
+  background: #101628;
+  color: #f6e7b8;
+  border-color: transparent;
+  box-shadow: none;
+}
+.week-day-pill.on {
+  border-color: #c9a227;
+  background: linear-gradient(180deg, #fffaf0, #fff);
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.25);
+}
+
+@media (min-width: 900px) {
+  .side-v5 {
+    width: 272px;
+    background: #101628;
+    color: #f4f1ea;
+    border-left: 0;
+  }
+  .side-v5 .side-brand { border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .side-v5 .text-goal,
+  .side-v5 .side-label { color: #e4c56a; }
+  .side-v5 a { color: #c5cedd; }
+  .side-v5 a.on {
+    background: rgba(228, 197, 106, 0.14);
+    color: #fbf7ee;
+    box-shadow: none;
+  }
+  .side-v5 .seller-mini {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+    color: #fbf7ee;
+  }
+  .side-v5 .seller-mini .num { color: #fff; }
+  .side-v5 .text-muted,
+  .side-v5 .kicker { color: #aeb8c9; }
+  .side-v5 .side-pulse { border-color: rgba(255, 255, 255, 0.08); }
+  .login-brand {
+    background:
+      radial-gradient(70% 80% at 100% 0%, rgba(228, 197, 106, 0.28), transparent 46%),
+      linear-gradient(165deg, #1a2236, #101628 72%);
+  }
+}
+
+@media (max-width: 899px) {
+  .app, .topbar { background: #f4f1ea; }
+  .topbar { background: rgba(244, 241, 234, 0.94); }
+  .dock {
+    background: #101628;
+    border: 0;
+    box-shadow: 0 -12px 32px rgba(16, 22, 40, 0.28);
+  }
+  .dock a,
+  .dock > button { color: #aeb8c9; }
+  .dock a.on,
+  .dock > button.on {
+    background: transparent;
+    color: #f6e7b8;
+    box-shadow: none;
+  }
+  .dock a.on::before,
+  .dock > button.on::before {
+    background: #e4c56a;
+    top: auto;
+    bottom: 5px;
+    width: 18px;
+  }
+  .phone-more button {
+    background: #fffdf8;
+    border-color: #eadfc8;
+  }
+  .phone-more button.on {
+    background: #101628;
+    border-color: #101628;
+    color: #f6e7b8;
+  }
+  .nav-badge { background: #e4c56a; color: #101628; }
+}
+
+/* ═══ v8 — أشكال ═══ */
+.surface-hero {
+  border-radius: 32px 32px 10px 32px;
+  overflow: hidden;
+}
+.surface-hero .bento-hero-num,
+.surface-hero .page-hero-value {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.surface-hero .bento-hero-num::after,
+.surface-hero .page-hero-value::after {
+  content: '';
+  display: block;
+  width: 42px;
+  height: 3px;
+  margin-top: 10px;
+  border-radius: 99px;
+  background: #e4c56a;
+}
+.surface-hero .metric-tile,
+.surface-hero .dash-kpi,
+.surface-hero .goals-summary-cell {
+  border-radius: 14px;
+}
+.surface-hero .bento-hero-week { border-radius: 14px 14px 14px 4px; }
+.pill,
+.period-chip,
+.sort-bar button,
+.view-toggle button,
+.login-go {
+  border-radius: 12px;
+}
+.icon-btn,
+.user-avatar { border-radius: 999px; }
+.week-day-pill { border-radius: 22px 22px 8px 8px; }
+.period-chips {
+  padding: 4px;
+  border-radius: 16px;
+  background: rgba(16, 22, 40, 0.04);
+}
+.section-card { border-radius: 22px; }
+.people-roster.section-card { border-radius: 24px 24px 16px 16px; }
+.phone-more button { border-radius: 20px 20px 8px 20px; }
+.sheet { border-radius: 28px 28px 0 0; }
+.nav-hub-item { border-radius: 16px 16px 16px 6px; }
+
+@media (max-width: 899px) {
+  .dock {
+    border-radius: 26px 26px 0 0;
+  }
+  .dock .nav-ico {
+    width: 42px;
+    height: 30px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+  }
+  .dock a.on .nav-ico,
+  .dock > button.on .nav-ico {
+    background: rgba(228, 197, 106, 0.16);
+  }
+  .dock a.on::before,
+  .dock > button.on::before { display: none; }
+  .card,
+  .period-card,
+  .people-toolbar,
+  .chart-panel-v5 {
+    border-radius: 22px;
+  }
+  .surface-hero { border-radius: 30px 30px 12px 30px; }
 }
 
 @media print {
