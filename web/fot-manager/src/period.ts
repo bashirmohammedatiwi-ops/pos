@@ -164,6 +164,20 @@ export function applyPeriodCommission(
   return stats;
 }
 
+export function withLineCommissions(rows: SellerRow[], lines: LineRow[]): SellerRow[] {
+  const sums = new Map<number, number>();
+  for (const line of lines) {
+    const id = Number(line.salesmanId) || 0;
+    if (!id) continue;
+    sums.set(id, (sums.get(id) ?? 0) + (Number(line.commissionAmount) || 0));
+  }
+  return rows.map(row => {
+    if ((Number(row.commissionAmount) || 0) > 0) return row;
+    const extra = sums.get(row.salesmanId) || 0;
+    return extra > 0 ? { ...row, commissionAmount: extra } : row;
+  });
+}
+
 export function enrichSellerCommissions(
   rows: SellerRow[],
   roster: SellerRow[],

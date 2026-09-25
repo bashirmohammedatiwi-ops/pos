@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, asGoals, asLines, asProducts, attachLiveGoals, deltaPct, liveGoals, setMe, todayKey, type CashierRow, type Dashboard, type LineRow, type SellerRow, type WeekSummary } from './api';
 import { buildInsights, unifyCashiers } from './insights';
 import {
-  applyPeriodCommission, enrichSellerCommissions, filterLines, mergeScopedCashiers, mergeScopedSellers,
+  applyPeriodCommission, enrichSellerCommissions, filterLines, mergeScopedCashiers, mergeScopedSellers, withLineCommissions,
   officialPeriod, periodStats, resolveBounds, salesShareBase, sellersFromLines,
   type PeriodBounds, type PeriodKind, type PeriodStats,
 } from './period';
@@ -275,17 +275,17 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
       const base = mergeScopedSellers(scopedLines, roster, period, dash);
       const periodSales = base.reduce((s, r) => s + r.salesAmount, 0);
       return attachLiveGoals(
-        enrichSellerCommissions(base, roster, {
+        withLineCommissions(enrichSellerCommissions(base, roster, {
           prorate: period.kind !== 'week',
           periodSales,
           weekSales,
-        }),
+        }), lines),
         dash?.goals ?? [],
       );
     } catch {
       return roster;
     }
-  }, [roster, scopedLines, dash, period, weekSales]);
+  }, [roster, scopedLines, dash, period, weekSales, lines]);
   const scopedCashiers = useMemo(() => {
     try {
       return mergeScopedCashiers(scopedLines, cashiers, period, dash);
@@ -296,21 +296,21 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
   const paySellers = useMemo(() => {
     try {
       if (payPeriod.kind === 'week' && roster.some(s => s.commissionAmount > 0 || s.salesAmount > 0)) {
-        return [...roster]
+        return withLineCommissions([...roster], lines)
           .filter(s => s.commissionAmount > 0 || s.salesAmount > 0)
           .sort((a, b) => b.commissionAmount - a.commissionAmount || b.salesAmount - a.salesAmount);
       }
       const fromLines = sellersFromLines(payLines, roster);
       const paySales = fromLines.reduce((s, x) => s + x.salesAmount, 0);
-      return enrichSellerCommissions(fromLines, roster, {
+      return withLineCommissions(enrichSellerCommissions(fromLines, roster, {
         prorate: payPeriod.kind !== 'week',
         periodSales: paySales,
         weekSales,
-      }).filter(s => s.commissionAmount > 0 || s.salesAmount > 0);
+      }), payLines).filter(s => s.commissionAmount > 0 || s.salesAmount > 0);
     } catch {
       return roster.filter(s => s.commissionAmount > 0 || s.salesAmount > 0);
     }
-  }, [payPeriod.kind, payLines, roster, weekSales]);
+  }, [payPeriod.kind, payLines, roster, weekSales, lines]);
 
   const periodTotals = useMemo(() => {
     try {

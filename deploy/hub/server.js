@@ -433,6 +433,32 @@ function packSales(pack) {
   return n(week.salesAmount ?? week.SalesAmount);
 }
 
+function packCommission(pack) {
+  const week = pack?.week || pack?.Week || {};
+  const weekComm = n(week.commissionAmount ?? week.CommissionAmount);
+  if (weekComm > 0) return weekComm;
+  return (pack?.sellers || pack?.Sellers || []).reduce((sum, row) => sum + n(row.commissionAmount ?? row.CommissionAmount), 0);
+}
+
+function overlaySellerCommission(officialSellers, builtSellers) {
+  const built = new Map((builtSellers || []).map((s) => [Number(s.salesmanId ?? s.SalesmanId) || 0, s]));
+  return (officialSellers || []).map((s) => {
+    const extra = built.get(Number(s.salesmanId ?? s.SalesmanId) || 0);
+    const comm = n(s.commissionAmount ?? s.CommissionAmount);
+    const extraComm = n(extra?.commissionAmount ?? extra?.CommissionAmount);
+    if (comm > 0 || extraComm <= 0) return s;
+    return { ...s, commissionAmount: extraComm, CommissionAmount: extraComm };
+  });
+}
+
+function overlayWeekCommission(officialWeek, builtWeek) {
+  const week = officialWeek || {};
+  const comm = n(week.commissionAmount ?? week.CommissionAmount);
+  const extra = n((builtWeek || {}).commissionAmount ?? (builtWeek || {}).CommissionAmount);
+  if (comm > 0 || extra <= 0) return week;
+  return { ...week, commissionAmount: extra, CommissionAmount: extra };
+}
+
 function packCashierCount(pack) {
   return (pack?.cashiers || pack?.Cashiers || []).length + (pack?.malls || pack?.Malls || []).length;
 }
@@ -466,13 +492,20 @@ function mergeManager(official, built) {
     const needLines = oLines.length === 0 && bLines.length > 0;
     const needProducts = oProducts.length === 0 && bProducts.length > 0;
     const needGoals = oGoals.length === 0 && bGoals.length > 0;
-    if (!needSales && !needCash && !needLines && !needProducts && !needGoals) return p;
+    const needCommission = packCommission(p) <= 0 && packCommission(b) > 0;
+    if (!needSales && !needCash && !needLines && !needProducts && !needGoals && !needCommission) return p;
+    const sellers = needSales
+      ? (b.sellers || b.Sellers || p.sellers || p.Sellers || [])
+      : (needCommission ? overlaySellerCommission(p.sellers || p.Sellers, b.sellers || b.Sellers) : (p.sellers || p.Sellers));
+    const week = needSales
+      ? (b.week || b.Week || p.week || p.Week)
+      : (needCommission ? overlayWeekCommission(p.week || p.Week, b.week || b.Week) : (p.week || p.Week));
     return {
       ...p,
-      week: needSales ? (b.week || b.Week || p.week) : (p.week || p.Week),
-      Week: needSales ? (b.week || b.Week || p.week) : (p.week || p.Week),
-      sellers: needSales ? (b.sellers || b.Sellers || p.sellers) : (p.sellers || p.Sellers),
-      Sellers: needSales ? (b.sellers || b.Sellers || p.sellers) : (p.sellers || p.Sellers),
+      week,
+      Week: week,
+      sellers,
+      Sellers: sellers,
       cashiers: needCash ? (b.cashiers || b.Cashiers || []) : (p.cashiers || p.Cashiers || []),
       Cashiers: needCash ? (b.cashiers || b.Cashiers || []) : (p.cashiers || p.Cashiers || []),
       malls: needCash ? (b.malls || b.Malls || []) : (p.malls || p.Malls || []),
@@ -660,8 +693,8 @@ function presentPack(pack) {
     Malls: malls,
     lines,
     Lines: lines,
-    sellers: pack.sellers || pack.Sellers || [],
-    Sellers: pack.sellers || pack.Sellers || [],
+    sellers: presentSellers(pack.sellers || pack.Sellers || []),
+    Sellers: presentSellers(pack.sellers || pack.Sellers || []),
     goals: pack.goals || pack.Goals || [],
     Goals: pack.goals || pack.Goals || [],
     products: presentProducts(pack.products || pack.Products || []),
@@ -676,6 +709,21 @@ function presentPack(pack) {
 
 function managerPack(weekStart) {
   return presentPack(findPack(ensureManagerSnapshot(), weekStart));
+}
+
+function presentSellers(sellers) {
+  return (sellers || []).map((s) => ({
+    salesmanId: Number(s.salesmanId ?? s.SalesmanId) || 0,
+    name: String(s.name ?? s.Name ?? '').trim() || 'بائع',
+    salesAmount: n(s.salesAmount ?? s.SalesAmount),
+    commissionAmount: n(s.commissionAmount ?? s.CommissionAmount),
+    receiptCount: n(s.receiptCount ?? s.ReceiptCount),
+    pieceCount: n(s.pieceCount ?? s.PieceCount),
+    goalCount: n(s.goalCount ?? s.GoalCount),
+    goalsHit: n(s.goalsHit ?? s.GoalsHit),
+    goalPercent: n(s.goalPercent ?? s.GoalPercent),
+    balanceDue: n(s.balanceDue ?? s.BalanceDue),
+  }));
 }
 
 function presentProducts(products) {
