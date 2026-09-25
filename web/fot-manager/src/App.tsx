@@ -244,7 +244,7 @@ function Shell() {
           <NavLink key={l.to} to={l.to} end={'end' in l ? l.end : false} className={({ isActive }) => isActive ? 'on' : ''}>
             <span className="nav-ico">
               <l.icon />
-              {!!badges[l.to] && <span className="nav-badge">{badges[l.to]}</span>}
+              {l.to !== '/' && !!badges[l.to] && <span className="nav-badge">{badges[l.to]}</span>}
             </span>
             {l.label}
           </NavLink>

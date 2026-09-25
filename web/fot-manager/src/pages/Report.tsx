@@ -1,28 +1,26 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  avgTicket, cashierCsv, daysCsv, deltaPct, downloadText, goalLabel, goalTone, goalValue,
-  groupGoalsByRule, moneyIq, resolveWeekSales, teamCsv, todayKey, weekRange, weeksCsv,
+  avgTicket, deltaPct, goalLabel, goalTone, goalValue,
+  groupGoalsByRule, moneyIq, resolveWeekSales, todayKey, weekRange,
 } from '../api';
 import { cashierShares, sellerShares } from '../insights';
-import { commissionCsv } from '../period';
+import { ExportMenu } from '../ExportMenu';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
   AreaChart, CommandRail, DayStrip, Delta, Empty, ErrorBox, HourBands, Medal,
-  Ring, SectionHead, Skeleton, Track, useToast,
+  Ring, SectionHead, Skeleton, Track,
 } from '../ui';
 import { PeriodBar } from '../week';
 
 export function Report() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, cashiers, scopedSellers, scopedCashiers, paySellers,
+    weekStart, setWeek, dash, prevDash, weeks, scopedSellers, scopedCashiers, paySellers,
     period, periodKind, setPeriodKind, customFrom, customTo, setCustom,     periodTotals, payTotals, payPeriod, shareBase,
     err, loading, reload,
   } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
   const insights = useShopInsights();
-  const toast = useToast();
-
   const spark = useMemo(() => [...weeks].reverse().map(w => w.salesAmount), [weeks]);
   const weekSales = resolveWeekSales(dash);
   const sellers = useMemo(() => sellerShares(scopedSellers, shareBase), [scopedSellers, shareBase]);
@@ -63,12 +61,7 @@ export function Report() {
           {compare.prev && <Delta value={compare.salesDelta} />}
         </div>
         <div className="toolbar mt-4">
-          <button type="button" className="pill" onClick={() => { downloadText(`أسابيع.csv`, weeksCsv(weeks)); toast('تم تنزيل الأسابيع'); }}>الأسابيع</button>
-          <button type="button" className="pill" onClick={() => { downloadText(`أيام.csv`, daysCsv(insights.days)); toast('تم تنزيل الأيام'); }}>الأيام</button>
-          <button type="button" className="pill" onClick={() => { downloadText(`بائعون.csv`, teamCsv(dash.sellers, weekSales)); toast('تم تنزيل البائعين'); }}>البائعون</button>
-          <button type="button" className="pill" onClick={() => { downloadText(`كاشير.csv`, cashierCsv(cashiers, weekSales)); toast('تم تنزيل الكاشير'); }}>الكاشير</button>
-          <button type="button" className="pill" onClick={() => { downloadText(`عمولات.csv`, commissionCsv(paySellers)); toast('تم تنزيل العمولات'); }}>العمولات</button>
-          <button type="button" className="pill" onClick={() => window.print()}>طباعة</button>
+          <ExportMenu title="تقرير المتابعة" />
         </div>
       </section>
 

@@ -426,7 +426,7 @@ export function managerCsv(lines: LineRow[]) {
   return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
 }
 
-export function teamCsv(sellers: SellerRow[], totalSales: number) {
+export function teamCsv(sellers: SellerRow[], _totalSales: number) {
   const header = ['الترتيب', 'البائع', 'المبيعات', 'الفواتير', 'متوسط الفاتورة', 'العمولة', 'الأهداف', 'المستحق'];
   const rows = [...sellers].sort((a, b) => b.salesAmount - a.salesAmount).map((s, i) => [
     i + 1, s.name, Math.round(s.salesAmount),
@@ -436,7 +436,7 @@ export function teamCsv(sellers: SellerRow[], totalSales: number) {
   return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
 }
 
-export function cashierCsv(rows: CashierRow[], totalSales: number) {
+export function cashierCsv(rows: CashierRow[], _totalSales: number) {
   const header = ['الترتيب', 'الكاشير', 'المبيعات', 'الفواتير', 'متوسط الفاتورة'];
   const lines = [...rows].sort((a, b) => b.salesAmount - a.salesAmount).map((c, i) => [
     i + 1, c.name, Math.round(c.salesAmount),

@@ -12,7 +12,6 @@ import { WeekBar } from '../week';
 export function Watch() {
   const {
     weekStart, setWeek, dash, prevDash, weeks, cashiers, lines, scopedCashiers,
-    periodTotals,
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, downloadText, managerCsv, moneyIq, todayKey, type LineRow } from '../api';
+import { dayLabel, moneyIq, todayKey, type LineRow } from '../api';
 import { groupReceipts, lineCashier, rankProducts } from '../insights';
-import { LineSheet, MoveList, ReceiptList } from '../lines';
+import { LineSheet, MoveList, PhoneTable, ReceiptList } from '../lines';
+import { ExportMenu } from '../ExportMenu';
 import { useManager, useShopInsights } from '../store';
 import {
-  DayStrip, Empty, ErrorBox, Medal, MetricStrip, PageHero, RecentFeed, SearchField, Skeleton, useToast,
+  DayStrip, Empty, ErrorBox, MetricStrip, PageHero, RecentFeed, SearchField, Skeleton,
 } from '../ui';
 import { PeriodBar } from '../week';
 
@@ -18,7 +19,6 @@ export function Moves() {
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
-  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
   useEffect(() => { setQ(params.get('q') ?? ''); }, [params]);
@@ -126,17 +126,7 @@ export function Moves() {
           ]}
         />
         <div className="hero-actions mt-3">
-          <button
-            type="button"
-            className="pill"
-            onClick={() => {
-              downloadText(`فواتير-${period.from}.csv`, managerCsv(filtered));
-              toast('تم تنزيل الملف');
-            }}
-          >
-            تصدير
-          </button>
-          <button type="button" className="pill" onClick={() => window.print()}>طباعة</button>
+          <ExportMenu title="تقرير الفواتير" />
         </div>
       </PageHero>
       {mode === 'invoices' && receipts.length > 0 && (
@@ -194,50 +184,49 @@ export function Moves() {
       {mode === 'lines' && <MoveList lines={filtered} onOpen={setOpen} />}
       {mode === 'products' && (
         products.length ? (
-          <div className="card p-4">
-            {products.map((p, i) => (
-              <div key={p.name} className="rank-row">
-                <Medal rank={i + 1} />
-                <div className="min-w-0">
-                  <p className="truncate font-extrabold">{p.name}</p>
-                  <p className="text-xs font-bold text-muted">{p.count} حركة</p>
-                </div>
-                <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
-              </div>
-            ))}
-          </div>
+          <PhoneTable
+            columns={['#', 'المنتج', 'المبلغ']}
+            rows={products.map((p, i) => ({
+              key: p.name,
+              cells: [
+                { text: String(i + 1), num: true },
+                { text: p.name, sub: `${p.count} حركة · ${p.qty} قطعة` },
+                { text: moneyIq(p.sales), num: true },
+              ],
+            }))}
+          />
         ) : <Empty title="لا منتجات هذا الأسبوع" />
       )}
       {mode === 'sellers' && (
         bySeller.length ? (
-          <div className="card p-4">
-            {bySeller.map((s, i) => (
-              <button key={s.name} type="button" className="rank-row stat-link" onClick={() => setSeller(s.name)}>
-                <Medal rank={i + 1} />
-                <div className="min-w-0 text-start">
-                  <p className="truncate font-extrabold">{s.name}</p>
-                  <p className="text-xs font-bold text-muted">{s.count} حركة</p>
-                </div>
-                <p className="num text-sm font-extrabold">{moneyIq(s.sales)}</p>
-              </button>
-            ))}
-          </div>
+          <PhoneTable
+            columns={['#', 'البائع', 'المبلغ']}
+            rows={bySeller.map((s, i) => ({
+              key: s.name,
+              onClick: () => setSeller(s.name),
+              cells: [
+                { text: String(i + 1), num: true },
+                { text: s.name, sub: `${s.count} حركة` },
+                { text: moneyIq(s.sales), num: true },
+              ],
+            }))}
+          />
         ) : <Empty title="لا حركات حسب البائع" />
       )}
       {mode === 'cashiers' && (
         byCashier.length ? (
-          <div className="card p-4">
-            {byCashier.map((c, i) => (
-              <button key={c.name} type="button" className="rank-row stat-link" onClick={() => setCashier(c.name)}>
-                <Medal rank={i + 1} />
-                <div className="min-w-0 text-start">
-                  <p className="truncate font-extrabold">{c.name}</p>
-                  <p className="text-xs font-bold text-muted">{c.count} حركة</p>
-                </div>
-                <p className="num text-sm font-extrabold">{moneyIq(c.sales)}</p>
-              </button>
-            ))}
-          </div>
+          <PhoneTable
+            columns={['#', 'الكاشير', 'المبلغ']}
+            rows={byCashier.map((c, i) => ({
+              key: c.name,
+              onClick: () => setCashier(c.name),
+              cells: [
+                { text: String(i + 1), num: true },
+                { text: c.name, sub: `${c.count} حركة` },
+                { text: moneyIq(c.sales), num: true },
+              ],
+            }))}
+          />
         ) : <Empty title="لا حركات حسب الكاشير" />
       )}
 

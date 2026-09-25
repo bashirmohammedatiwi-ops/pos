@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { commissionCsv } from '../period';
-import { downloadText, moneyIq, weekRange } from '../api';
+import { moneyIq, weekRange } from '../api';
+import { ExportMenu } from '../ExportMenu';
 import { useManager, useWeekCompare } from '../store';
 import {
   Donut, Empty, ErrorBox, Legend, Medal, MetricStrip, PageHero, Podium, SearchField,
-  SectionCard, Skeleton, useToast, WeekCompare,
+  SectionCard, Skeleton, WeekCompare,
 } from '../ui';
 import { WeekStepper, WeekTimeline } from '../week';
 
@@ -13,11 +13,10 @@ type Sort = 'commission' | 'sales' | 'receipts';
 
 export function Commissions() {
   const {
-    weekStart, setWeek, weeks, dash, prevDash, paySellers, payPeriod, payKind, setPayKind,
+    weekStart, setWeek, weeks, dash, prevDash, paySellers, payKind, setPayKind,
     payTotals, err, loading, reload,
   } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
-  const toast = useToast();
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('commission');
   const [hideZero, setHideZero] = useState(true);
@@ -73,16 +72,7 @@ export function Commissions() {
             { label: 'متوسط', value: moneyIq(rows.length ? totalComm / rows.length : 0), tone: 'warn' },
           ]}
         />
-        <button
-          type="button"
-          className="pill pill-primary mt-4"
-          onClick={() => {
-            downloadText(`عمولات-${payPeriod.from}.csv`, commissionCsv(rows));
-            toast('تم تنزيل العمولات');
-          }}
-        >
-          تصدير CSV
-        </button>
+        <div className="mt-4"><ExportMenu title="تقرير العمولات" pay /></div>
       </PageHero>
 
       {compare.cur && compare.prev && (

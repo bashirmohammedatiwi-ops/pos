@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { downloadText, moneyIq, pieces, productCsv } from '../api';
+import { moneyIq, pieces } from '../api';
 import { peopleForProduct, rankProducts } from '../insights';
-import { LineSheet, MoveList, ReceiptList } from '../lines';
+import { LineSheet, MoveList, PhoneTable, ReceiptList } from '../lines';
+import { ExportMenu } from '../ExportMenu';
 import { useManager } from '../store';
 import {
-  Empty, ErrorBox, Medal, MetricStrip, PageHero, SearchField, SectionCard, Sheet, Skeleton, useToast,
+  Empty, ErrorBox, MetricStrip, PageHero, SearchField, SectionCard, Sheet, Skeleton,
 } from '../ui';
 import { PeriodBar } from '../week';
 import type { LineRow } from '../api';
@@ -18,7 +19,6 @@ export function Products() {
     weekStart, setWeek, dash, weeks, activityLines, period, periodKind, setPeriodKind,
     customFrom, customTo, setCustom, periodTotals, err, loading, reload,
   } = useManager();
-  const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
   useEffect(() => { setQ(params.get('q') ?? ''); }, [params]);
@@ -75,18 +75,7 @@ export function Products() {
             { label: 'مبيعاته', value: moneyIq(rows[0]?.sales ?? 0), tone: 'warn' },
           ]}
         />
-        <button
-          type="button"
-          className="pill mt-3"
-          onClick={() => {
-            downloadText(`منتجات-${period.from}.csv`, productCsv(rows.map(p => ({
-              name: p.name, quantity: p.qty, salesAmount: p.sales, commissionAmount: 0, count: p.count,
-            }))));
-            toast('تم تنزيل المنتجات');
-          }}
-        >
-          تصدير المنتجات
-        </button>
+        <div className="mt-3"><ExportMenu title="تقرير المنتجات" /></div>
       </PageHero>
       <section className="people-toolbar card">
         <SearchField value={q} onChange={setQ} placeholder="ابحث باسم المنتج" />
@@ -98,18 +87,20 @@ export function Products() {
       </section>
       {loading && !rows.length && <Skeleton />}
       <SectionCard kicker={period.label} title="ترتيب المنتجات">
-        {rows.map((p, i) => (
-          <button key={p.name} type="button" className="rank-row stat-link" onClick={() => { setOpen(p.name); setTab('sellers'); }}>
-            <Medal rank={i + 1} />
-            <div className="min-w-0 text-start">
-              <p className="truncate font-extrabold">{p.name}</p>
-              <p className="text-xs font-bold text-muted">{pieces(p.qty)} · {p.count} حركة</p>
-            </div>
-            <div className="text-end">
-              <p className="num text-sm font-extrabold">{moneyIq(p.sales)}</p>
-            </div>
-          </button>
-        ))}
+        {rows.length > 0 && (
+          <PhoneTable
+            columns={['#', 'المنتج', 'المبلغ']}
+            rows={rows.map((p, i) => ({
+              key: p.name,
+              onClick: () => { setOpen(p.name); setTab('sellers'); },
+              cells: [
+                { text: String(i + 1), num: true },
+                { text: p.name, sub: `${pieces(p.qty)} · ${p.count} حركة` },
+                { text: moneyIq(p.sales), num: true },
+              ],
+            }))}
+          />
+        )}
         {!loading && !rows.length && <Empty title="لا منتجات في هذه المدة" />}
       </SectionCard>
 

@@ -388,8 +388,7 @@ function buildManagerFromSellers(snapshots) {
         goals: p.goals,
         lines: p.lines
           .slice()
-          .sort((a, b) => String(b.occurredAt || b.OccurredAt || '').localeCompare(String(a.occurredAt || a.OccurredAt || '')))
-          .slice(0, 800),
+          .sort((a, b) => String(b.occurredAt || b.OccurredAt || '').localeCompare(String(a.occurredAt || a.OccurredAt || ''))),
         products: [...p.products.values()].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount).slice(0, 80),
         days: daysFromLines(p.lines),
       };
@@ -994,7 +993,7 @@ const server = http.createServer(async (req, res) => {
           malls,
           goals,
           products: products.slice(0, 40),
-          lines: presentLines(lines).slice(0, 800),
+          lines: presentLines(lines),
           days,
           ...(readCashierDays(pack) ? { cashierDays: readCashierDays(pack) } : {}),
           lastSyncAt: state.lastSyncAt,

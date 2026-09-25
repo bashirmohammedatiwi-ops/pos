@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  api, asLines, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, teamCsv,
+  api, asLines, goalLabel, goalTone, goalValue, moneyIq, pct,
   type LineRow, type SellerRow,
 } from '../api';
 import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProducts } from '../insights';
-import { LineSheet, MoveList, ReceiptList } from '../lines';
+import { LineSheet, MoveList, PhoneTable, ReceiptList } from '../lines';
+import { ExportMenu } from '../ExportMenu';
 import { useManager, useShopInsights } from '../store';
 import {
   Badge, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero,
-  Ring, SearchField, SectionCard, Sheet, Skeleton, StatGrid, Track, useToast,
+  Ring, SearchField, SectionCard, Sheet, Skeleton, StatGrid, Track,
 } from '../ui';
 import { avgTicket, todayKey } from '../api';
 import { PeriodBar } from '../week';
@@ -25,7 +26,6 @@ export function Team() {
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
-  const toast = useToast();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
   const [sort, setSort] = useState<Sort>('commission');
@@ -124,16 +124,7 @@ export function Team() {
           ]}
         />
         <div className="hero-actions mt-3">
-          <button
-            type="button"
-            className="pill"
-            onClick={() => {
-              downloadText(`بائعون-${period.from}.csv`, teamCsv(scopedSellers, salesTotal));
-              toast('تم تنزيل ملف البائعين');
-            }}
-          >
-            تصدير
-          </button>
+          <ExportMenu title="تقرير البائعين" />
           <Link to="/commissions" className="pill">العمولات</Link>
           <Link to="/goals" className="pill">الأهداف</Link>
         </div>
@@ -246,24 +237,36 @@ export function Team() {
             )}
             {tab === 'cashiers' && (
               detailCashiers.length
-                ? detailCashiers.map(c => (
-                  <div key={c.id} className="detail-cell">
-                    <p>{c.name}</p>
-                    <strong className="num">{moneyIq(c.sales)}</strong>
-                    <p className="mt-1 text-xs font-bold text-muted">{c.receipts} فاتورة</p>
-                  </div>
-                ))
+                ? (
+                  <PhoneTable
+                    columns={['الكاشير', 'الفواتير', 'المبلغ']}
+                    rows={detailCashiers.map(c => ({
+                      key: String(c.id),
+                      cells: [
+                        { text: c.name },
+                        { text: String(c.receipts), num: true },
+                        { text: moneyIq(c.sales), num: true },
+                      ],
+                    }))}
+                  />
+                )
                 : <p className="text-sm font-bold text-muted">لا يظهر كاشير على حركات هذا البائع</p>
             )}
             {tab === 'products' && (
               detailProducts.length
-                ? detailProducts.map(p => (
-                  <div key={p.name} className="detail-cell">
-                    <p>{p.name}</p>
-                    <strong className="num">{moneyIq(p.sales)}</strong>
-                    <p className="mt-1 text-xs font-bold text-muted">{p.count} حركة</p>
-                  </div>
-                ))
+                ? (
+                  <PhoneTable
+                    columns={['المنتج', 'الحركات', 'المبلغ']}
+                    rows={detailProducts.map(p => ({
+                      key: p.name,
+                      cells: [
+                        { text: p.name },
+                        { text: String(p.count), num: true },
+                        { text: moneyIq(p.sales), num: true },
+                      ],
+                    }))}
+                  />
+                )
                 : <p className="text-sm font-bold text-muted">لا منتجات</p>
             )}
             {tab === 'invoices' && (

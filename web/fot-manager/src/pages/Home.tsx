@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ago, avgTicket, deltaPct, downloadText, goalLabel, goalTone, greeting,
+  ago, avgTicket, deltaPct, goalLabel, goalTone, greeting,
   groupGoalsByRule, lastSyncMs, moneyIq, resolveWeekSales, shareText,
-  teamCsv, todayKey, weekRange, weekReport,
+  todayKey, weekRange, weekReport,
 } from '../api';
 import { buildAlerts, cashierShares, groupReceipts, prevDay, sellerShares } from '../insights';
+import { ExportMenu } from '../ExportMenu';
 import { useManager, useShopInsights } from '../store';
 import {
   AreaChart, CountMoney, Delta, ErrorBox, LeaderCard, LiveDot, LiveTicker,
@@ -121,16 +122,7 @@ export function Home() {
           </div>
           <div className="bento-hero-actions">
             <button type="button" className="pill pill-primary" onClick={() => void share()}>مشاركة</button>
-            <button
-              type="button"
-              className="pill"
-              onClick={() => {
-                downloadText(`فريق-${period.from}.csv`, teamCsv(scopedSellers, periodTotals.sales));
-                toast('تم تنزيل التقرير');
-              }}
-            >
-              تصدير
-            </button>
+            <ExportMenu title="تقرير المدير" />
           </div>
           <p className="bento-hero-foot">
             {weekRange(week.weekStart, week.weekEnd)}
