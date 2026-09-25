@@ -15,7 +15,7 @@ type Tab = 'sellers' | 'cashiers' | 'invoices';
 
 export function Products() {
   const {
-    weekStart, setWeek, dash, weeks, scopedLines, period, periodKind, setPeriodKind,
+    weekStart, setWeek, dash, weeks, activityLines, period, periodKind, setPeriodKind,
     customFrom, customTo, setCustom, periodTotals, err, loading, reload,
   } = useManager();
   const toast = useToast();
@@ -29,14 +29,22 @@ export function Products() {
 
   const total = periodTotals.sales;
   const rows = useMemo(() => {
-    const list = rankProducts(scopedLines).filter(p => !q.trim() || p.name.includes(q.trim()));
+    const fromLines = rankProducts(activityLines);
+    const fromDash = (dash?.products ?? []).map(p => ({
+      name: p.name,
+      sales: Number(p.salesAmount) || 0,
+      commission: Number(p.commissionAmount) || 0,
+      count: Number(p.count) || 0,
+      qty: Number(p.quantity) || 0,
+    }));
+    const list = (fromLines.length ? fromLines : fromDash).filter(p => !q.trim() || p.name.includes(q.trim()));
     return [...list].sort((a, b) => {
       if (sort === 'qty') return b.qty - a.qty;
       return b.sales - a.sales;
     });
-  }, [scopedLines, q, sort]);
+  }, [activityLines, dash?.products, q, sort]);
 
-  const detail = open ? peopleForProduct(scopedLines, open) : null;
+  const detail = open ? peopleForProduct(activityLines, open) : null;
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
 
@@ -57,12 +65,12 @@ export function Products() {
         kicker={`منتجات · ${period.label}`}
         title="ماذا يُباع"
         value={moneyIq(total)}
-        hint={`${rows.length} منتجاً · ${scopedLines.length} حركة`}
+        hint={`${rows.length} منتجاً · ${activityLines.length} حركة`}
       >
         <MetricStrip
           items={[
             { label: 'منتجات', value: String(rows.length), tone: 'goal' },
-            { label: 'حركات', value: String(scopedLines.length), tone: 'ok' },
+            { label: 'حركات', value: String(activityLines.length), tone: 'ok' },
             { label: 'أقوى', value: rows[0]?.name.slice(0, 12) ?? '—', tone: 'gold' },
             { label: 'مبيعاته', value: moneyIq(rows[0]?.sales ?? 0), tone: 'warn' },
           ]}

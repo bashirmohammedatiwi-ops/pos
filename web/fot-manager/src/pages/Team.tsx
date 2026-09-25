@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  api, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, teamCsv,
+  api, asLines, downloadText, goalLabel, goalTone, goalValue, moneyIq, pct, teamCsv,
   type LineRow, type SellerRow,
 } from '../api';
 import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProducts } from '../insights';
@@ -20,7 +20,7 @@ type Filter = 'all' | 'active' | 'goals' | 'due';
 
 export function Team() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedSellers, period, periodKind,
+    weekStart, setWeek, dash, prevDash, weeks, scopedLines, activityLines, scopedSellers, period, periodKind,
     setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
@@ -46,7 +46,7 @@ export function Team() {
     setExtraLines([]);
     try {
       const d = await api.seller(s.salesmanId, weekStart);
-      setExtraLines(d.lines);
+      setExtraLines(asLines(d.lines));
     } catch { /* local lines */ }
   }
 
@@ -80,8 +80,11 @@ export function Team() {
   const goalsCount = scopedSellers.filter(s => s.goalCount > 0).length;
   const dueCount = scopedSellers.filter(s => s.balanceDue > 0).length;
 
-  const detailLines = open ? mergeLines(linesForSeller(scopedLines, open.salesmanId), extraLines.filter(l => l.salesmanId === open.salesmanId && l.occurredAt.slice(0, 10) >= period.from && l.occurredAt.slice(0, 10) <= period.to)) : [];
-  const detailCashiers = open ? cashiersForSeller(scopedLines, open.salesmanId) : [];
+  const detailLines = open ? mergeLines(
+    linesForSeller(activityLines, open.salesmanId),
+    extraLines.filter(l => l.salesmanId === open.salesmanId && (!scopedLines.length || (l.occurredAt.slice(0, 10) >= period.from && l.occurredAt.slice(0, 10) <= period.to))),
+  ) : [];
+  const detailCashiers = open ? cashiersForSeller(activityLines, open.salesmanId) : [];
   const detailProducts = open ? rankProducts(detailLines) : [];
   const detailReceipts = open ? groupReceipts(detailLines) : [];
   const prevSeller = open ? prevDash?.sellers.find(s => s.salesmanId === open.salesmanId) : undefined;

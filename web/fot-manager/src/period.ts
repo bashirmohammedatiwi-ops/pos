@@ -117,7 +117,9 @@ export function resolveBounds(
 }
 
 export function filterLines(lines: LineRow[], from: string, to: string) {
-  return lines.filter(l => inRange(l.occurredAt, from, to));
+  const dated = lines.filter(l => dayKey(l.occurredAt) && inRange(l.occurredAt, from, to));
+  if (dated.length) return dated;
+  return lines.filter(l => !dayKey(l.occurredAt));
 }
 
 export function officialPeriod(days: DayRow[] | undefined, from: string, to: string) {

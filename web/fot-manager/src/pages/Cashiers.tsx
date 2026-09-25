@@ -18,7 +18,7 @@ type Tab = 'overview' | 'sellers' | 'products' | 'invoices';
 
 export function Cashiers() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedCashiers, period, periodKind,
+    weekStart, setWeek, dash, prevDash, weeks, activityLines, scopedCashiers, period, periodKind,
     setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
@@ -62,8 +62,8 @@ export function Cashiers() {
     });
   }, [scopedCashiers, q, sort]);
 
-  const detailLines = open ? linesForCashier(scopedLines, open.name) : [];
-  const detailSellers = open ? sellersThroughCashier(scopedLines, open.name) : [];
+  const detailLines = open ? linesForCashier(activityLines, open.name) : [];
+  const detailSellers = open ? sellersThroughCashier(activityLines, open.name) : [];
   const detailProducts = open ? rankProducts(detailLines) : [];
   const detailReceipts = open ? groupReceipts(detailLines) : [];
   const openToday = open ? todayCashiers.find(c => c.name === open.name) : undefined;

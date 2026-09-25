@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import {
   groupGoalsByRule, lastSyncMs, moneyIq, pct, resolveWeekSales, todayKey,
 } from '../api';
-import { buildAlerts, shopHealth } from '../insights';
+import { buildAlerts, groupReceipts, shopHealth } from '../insights';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
   Empty, ErrorBox, HealthMeter, LiveDot, Medal, RecentFeed, SectionHead, Skeleton,
@@ -85,7 +85,7 @@ export function Watch() {
       <HealthMeter score={health.score} label={health.label} tone={health.tone} />
       <WeekBar weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
 
-      <RecentFeed receipts={insights.receipts} limit={10} title="آخر الفواتير" />
+      <RecentFeed receipts={insights.receipts.length ? insights.receipts : groupReceipts(lines)} limit={10} title="آخر الفواتير" />
 
       {(todayCashiers.length > 0 || topTodaySellers.length > 0) && (
         <div className="dash-split">

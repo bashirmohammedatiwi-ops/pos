@@ -13,7 +13,7 @@ type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
 
 export function Moves() {
   const {
-    weekStart, setWeek, dash, weeks, scopedLines, scopedCashiers, period, periodKind,
+    weekStart, setWeek, dash, weeks, lines, scopedLines, activityLines, scopedCashiers, period, periodKind,
     setPeriodKind, customFrom, customTo, setCustom, periodTotals,
     err, loading, reload,
   } = useManager();
@@ -37,7 +37,7 @@ export function Moves() {
 
   const filtered = useMemo(() => {
     const needle = q.trim();
-    return scopedLines.filter(l => {
+    return activityLines.filter(l => {
       if (day && l.occurredAt.slice(0, 10) !== day) return false;
       if (seller && l.salesmanName !== seller) return false;
       if (cashier && lineCashier(l) !== cashier) return false;
@@ -47,16 +47,27 @@ export function Moves() {
         || lineCashier(l).includes(needle)
         || String(l.receiptNumber ?? '').includes(needle);
     });
-  }, [scopedLines, q, seller, cashier, day]);
+  }, [activityLines, q, seller, cashier, day]);
 
   const receipts = useMemo(() => groupReceipts(filtered), [filtered]);
-  const products = useMemo(() => rankProducts(filtered), [filtered]);
-  const sellerNames = useMemo(() => [...new Set(scopedLines.map(l => l.salesmanName).filter(Boolean))], [scopedLines]);
+  const products = useMemo(() => {
+    const ranked = rankProducts(filtered);
+    if (ranked.length || q.trim() || seller || cashier || day) return ranked;
+    return (dash?.products ?? []).map(p => ({
+      name: p.name,
+      sales: Number(p.salesAmount) || 0,
+      commission: Number(p.commissionAmount) || 0,
+      count: Number(p.count) || 0,
+      qty: Number(p.quantity) || 0,
+    }));
+  }, [filtered, dash?.products, q, seller, cashier, day]);
+  const widened = !scopedLines.length && lines.length > 0;
+  const sellerNames = useMemo(() => [...new Set(activityLines.map(l => l.salesmanName).filter(Boolean))], [activityLines]);
   const cashierNames = useMemo(() => {
-    const fromLines = scopedLines.map(l => lineCashier(l)).filter(Boolean);
+    const fromLines = activityLines.map(l => lineCashier(l)).filter(Boolean);
     const fromRows = scopedCashiers.map(c => c.name);
     return [...new Set([...fromRows, ...fromLines])];
-  }, [scopedLines, scopedCashiers]);
+  }, [activityLines, scopedCashiers]);
 
   const bySeller = useMemo(() => {
     const map = new Map<string, { name: string; sales: number; qty: number; count: number }>();
@@ -104,7 +115,7 @@ export function Moves() {
         kicker={day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}
         title="كل التفاصيل"
         value={moneyIq(totalSales || periodTotals.sales)}
-        hint={`${receipts.length} فاتورة · ${filtered.length} حركة`}
+        hint={`${receipts.length} فاتورة · ${filtered.length} حركة${widened ? ' · حركات الأسبوع' : ''}`}
       >
         <MetricStrip
           items={[
@@ -176,7 +187,8 @@ export function Moves() {
           ))}
         </div>
       )}
-      {loading && !scopedLines.length && <Skeleton />}
+      {widened && <p className="data-note">لا حركات بتاريخ هذه المدة، لذلك تُعرض فواتير الأسبوع.</p>}
+      {loading && !activityLines.length && <Skeleton />}
 
       {mode === 'invoices' && <ReceiptList groups={receipts} onOpen={setOpen} />}
       {mode === 'lines' && <MoveList lines={filtered} onOpen={setOpen} />}

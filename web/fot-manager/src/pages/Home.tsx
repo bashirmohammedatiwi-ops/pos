@@ -5,7 +5,7 @@ import {
   groupGoalsByRule, lastSyncMs, moneyIq, resolveWeekSales, shareText,
   teamCsv, todayKey, weekRange, weekReport,
 } from '../api';
-import { buildAlerts, cashierShares, prevDay, sellerShares } from '../insights';
+import { buildAlerts, cashierShares, groupReceipts, prevDay, sellerShares } from '../insights';
 import { useManager, useShopInsights } from '../store';
 import {
   AreaChart, CountMoney, Delta, ErrorBox, LeaderCard, LiveDot, LiveTicker,
@@ -17,7 +17,7 @@ export function Home() {
   const {
     weekStart, setWeek, dash, prevDash, weeks, scopedSellers, scopedCashiers, paySellers,
     period, periodKind, setPeriodKind, payPeriod, payTotals, customFrom, customTo, setCustom,
-    periodTotals, shareBase, linesTruncated, err, loading, cached, reload,
+    periodTotals, shareBase, lines, linesTruncated, err, loading, cached, reload,
   } = useManager();
   const insights = useShopInsights();
   const toast = useToast();
@@ -157,9 +157,9 @@ export function Home() {
           <NavHub />
         </div>
 
-        {insights.receipts.length > 0 && (
+        {(insights.receipts.length > 0 || lines.length > 0) && (
           <SectionCard kicker="مباشر" title="آخر الفواتير" to="/moves" linkLabel="كل الفواتير" className="bento-live">
-            <LiveTicker receipts={insights.receipts} limit={6} />
+            <LiveTicker receipts={insights.receipts.length ? insights.receipts : groupReceipts(lines)} limit={6} />
           </SectionCard>
         )}
 

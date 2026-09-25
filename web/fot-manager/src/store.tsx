@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, attachLiveGoals, deltaPct, liveGoals, setMe, todayKey, type CashierRow, type Dashboard, type LineRow, type SellerRow, type WeekSummary } from './api';
+import { api, asGoals, asLines, asProducts, attachLiveGoals, deltaPct, liveGoals, setMe, todayKey, type CashierRow, type Dashboard, type LineRow, type SellerRow, type WeekSummary } from './api';
 import { buildInsights, unifyCashiers } from './insights';
 import {
   applyPeriodCommission, enrichSellerCommissions, filterLines, mergeScopedCashiers, mergeScopedSellers,
@@ -21,14 +21,15 @@ const EMPTY_WEEK: WeekSummary = {
 };
 
 function normalizeDash(d: Dashboard): Dashboard {
-  const goals = liveGoals(d.goals ?? []);
+  const goals = liveGoals(asGoals(d.goals));
   return {
     ...d,
     goals,
     sellers: attachLiveGoals(Array.isArray(d.sellers) ? d.sellers : [], goals),
     cashiers: Array.isArray(d.cashiers) ? d.cashiers : [],
     malls: Array.isArray(d.malls) ? d.malls : [],
-    products: Array.isArray(d.products) ? d.products : [],
+    products: asProducts(d.products),
+    lines: asLines(d.lines),
     days: Array.isArray(d.days) ? d.days : [],
     cashierDays: Array.isArray(d.cashierDays) ? d.cashierDays : undefined,
     week: { ...EMPTY_WEEK, ...(d.week ?? {}) },
@@ -46,8 +47,9 @@ function coerceDashboard(raw: unknown): Dashboard | null {
       sellers: Array.isArray(d.sellers) ? d.sellers : [],
       cashiers: Array.isArray(d.cashiers) ? d.cashiers : [],
       malls: Array.isArray(d.malls) ? d.malls : [],
-      goals: Array.isArray(d.goals) ? d.goals : [],
-      products: Array.isArray(d.products) ? d.products : [],
+      goals: asGoals(d.goals),
+      products: asProducts(d.products),
+      lines: asLines(d.lines),
       days: Array.isArray(d.days) ? d.days : [],
       cashierDays: Array.isArray(d.cashierDays) ? d.cashierDays : undefined,
       lastSyncAt: d.lastSyncAt ?? null,
@@ -103,7 +105,7 @@ function sanitizeCache(raw: unknown): CacheBlob | null {
     dash,
     prevDash,
     weeks: Array.isArray(data.weeks) ? data.weeks : [],
-    lines: Array.isArray(data.lines) ? data.lines : [],
+    lines: asLines(data.lines),
     updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : null,
   };
 }
@@ -145,6 +147,7 @@ type Store = {
   weeks: WeekSummary[];
   lines: LineRow[];
   scopedLines: LineRow[];
+  activityLines: LineRow[];
   payLines: LineRow[];
   cashiers: CashierRow[];
   scopedSellers: SellerRow[];
@@ -204,10 +207,11 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
       const d = normalizeDash(rawDash);
       let nextLines: LineRow[] = [];
       try {
-        nextLines = (await api.lines(weekStart)).lines;
+        nextLines = asLines((await api.lines(weekStart)).lines);
       } catch {
         nextLines = [];
       }
+      if (!nextLines.length) nextLines = asLines(d.lines);
       const key = weekStart || w.find(x => x.isCurrent)?.weekStart.slice(0, 10);
       const idx = w.findIndex(x => x.weekStart.slice(0, 10) === key || x.weekStart === weekStart);
       const prevWeek = idx >= 0 ? w[idx + 1] : undefined;
@@ -257,6 +261,10 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
   );
 
   const scopedLines = useMemo(() => filterLines(lines, period.from, period.to), [lines, period]);
+  const activityLines = useMemo(
+    () => (scopedLines.length ? scopedLines : lines),
+    [scopedLines, lines],
+  );
   const payLines = useMemo(() => filterLines(lines, payPeriod.from, payPeriod.to), [lines, payPeriod]);
 
   const weekSales = dash?.week?.salesAmount || 0;
@@ -341,11 +349,11 @@ export function ManagerProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Store>(() => ({
     weekStart, setWeek, periodKind, setPeriodKind, payKind, setPayKind, customFrom, customTo, setCustom,
-    period, payPeriod, dash, prevDash, weeks, lines, scopedLines, payLines, cashiers, scopedSellers,
+    period, payPeriod, dash, prevDash, weeks, lines, scopedLines, activityLines, payLines, cashiers, scopedSellers,
     scopedCashiers, paySellers, periodTotals, payTotals, shareBase, linesTruncated, err, loading, updatedAt, cached, reload,
   }), [
     weekStart, setWeek, periodKind, setPeriodKind, payKind, setPayKind, customFrom, customTo, setCustom,
-    period, payPeriod, dash, prevDash, weeks, lines, scopedLines, payLines, cashiers, scopedSellers,
+    period, payPeriod, dash, prevDash, weeks, lines, scopedLines, activityLines, payLines, cashiers, scopedSellers,
     scopedCashiers, paySellers, periodTotals, payTotals, shareBase, linesTruncated, err, loading, updatedAt, cached, reload,
   ]);
 

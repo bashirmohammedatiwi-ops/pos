@@ -386,7 +386,10 @@ function buildManagerFromSellers(snapshots) {
           pieceCount: c.pieceCount,
         })),
         goals: p.goals,
-        lines: p.lines.slice(0, 800),
+        lines: p.lines
+          .slice()
+          .sort((a, b) => String(b.occurredAt || b.OccurredAt || '').localeCompare(String(a.occurredAt || a.OccurredAt || '')))
+          .slice(0, 800),
         products: [...p.products.values()].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount).slice(0, 80),
         days: daysFromLines(p.lines),
       };
@@ -451,7 +454,19 @@ function mergeManager(official, built) {
     if (!b) return p;
     const needSales = packSales(p) <= 0 && packSales(b) > 0;
     const needCash = packCashierCount(p) <= 0 && packCashierCount(b) > 0;
-    if (!needSales && !needCash) return p;
+    const oLines = listOf(p, 'lines', 'Lines');
+    const bLines = listOf(b, 'lines', 'Lines');
+    const oProducts = listOf(p, 'products', 'Products');
+    const bProducts = listOf(b, 'products', 'Products');
+    const oGoals = listOf(p, 'goals', 'Goals');
+    const bGoals = listOf(b, 'goals', 'Goals');
+    const lines = oLines.length ? oLines : bLines;
+    const products = oProducts.length ? oProducts : bProducts;
+    const goals = oGoals.length ? oGoals : bGoals;
+    const needLines = oLines.length === 0 && bLines.length > 0;
+    const needProducts = oProducts.length === 0 && bProducts.length > 0;
+    const needGoals = oGoals.length === 0 && bGoals.length > 0;
+    if (!needSales && !needCash && !needLines && !needProducts && !needGoals) return p;
     return {
       ...p,
       week: needSales ? (b.week || b.Week || p.week) : (p.week || p.Week),
@@ -462,8 +477,12 @@ function mergeManager(official, built) {
       Cashiers: needCash ? (b.cashiers || b.Cashiers || []) : (p.cashiers || p.Cashiers || []),
       malls: needCash ? (b.malls || b.Malls || []) : (p.malls || p.Malls || []),
       Malls: needCash ? (b.malls || b.Malls || []) : (p.malls || p.Malls || []),
-      lines: needCash || needSales ? (b.lines || b.Lines || p.lines) : (p.lines || p.Lines),
-      Lines: needCash || needSales ? (b.lines || b.Lines || p.lines) : (p.lines || p.Lines),
+      lines,
+      Lines: lines,
+      products,
+      Products: products,
+      goals,
+      Goals: goals,
       days: (p.days || p.Days || []).length ? (p.days || p.Days) : (b.days || b.Days || []),
       Days: (p.days || p.Days || []).length ? (p.days || p.Days) : (b.days || b.Days || []),
     };
@@ -473,14 +492,20 @@ function mergeManager(official, built) {
 }
 
 function ensureManagerSnapshot() {
-  if (hasRichManager(state.managerSnapshot)) return state.managerSnapshot;
-  const built = buildManagerFromSellers(state.snapshots);
-  if (built) {
-    state.managerSnapshot = hasManagerPacks(state.managerSnapshot)
-      ? mergeManager(state.managerSnapshot, built)
-      : built;
+  const source = state.detailSnapshots && Object.keys(state.detailSnapshots).length
+    ? state.detailSnapshots
+    : state.snapshots;
+  const built = buildManagerFromSellers(source);
+  const current = state.managerSnapshot;
+  if (hasManagerPacks(current) && built) {
+    state.managerSnapshot = mergeManager(current, built);
+    return state.managerSnapshot;
   }
-  return state.managerSnapshot;
+  if (!hasRichManager(current) && built) {
+    state.managerSnapshot = built;
+    return state.managerSnapshot;
+  }
+  return current;
 }
 
 function pickCashierName(...vals) {
@@ -554,12 +579,31 @@ function unifyCashiers(cashiers, malls, lines) {
   return [...map.values()].sort((a, b) => b.salesAmount - a.salesAmount || b.commissionAmount - a.commissionAmount);
 }
 
+function listOf(pack, camel, pascal) {
+  const rows = pack?.[camel] || pack?.[pascal];
+  return Array.isArray(rows) ? rows : [];
+}
+
 function presentLines(lines) {
-  return (lines || []).map((line) => ({
-    ...line,
-    cashierName: pickCashierName(line.cashierName ?? line.CashierName) || null,
-    mallName: String(line.mallName ?? line.MallName ?? '').trim() || null,
-  }));
+  return (lines || []).map((line, index) => {
+    const cashier = pickCashierName(line.cashierName ?? line.CashierName);
+    const mall = String(line.mallName ?? line.MallName ?? '').trim();
+    const receipt = line.receiptNumber ?? line.ReceiptNumber;
+    return {
+      id: Number(line.id ?? line.Id) || index + 1,
+      salesmanId: Number(line.salesmanId ?? line.SalesmanId) || 0,
+      salesmanName: String(line.salesmanName ?? line.SalesmanName ?? '').trim() || 'بائع',
+      productName: String(line.productName ?? line.ProductName ?? '').trim() || 'منتج',
+      groupName: line.groupName ?? line.GroupName ?? null,
+      quantity: n(line.quantity ?? line.Quantity),
+      salesAmount: n(line.salesAmount ?? line.SalesAmount),
+      commissionAmount: n(line.commissionAmount ?? line.CommissionAmount),
+      receiptNumber: receipt == null || receipt === '' ? null : Number(receipt) || receipt,
+      occurredAt: String(line.occurredAt || line.OccurredAt || ''),
+      cashierName: cashier || null,
+      mallName: mall || null,
+    };
+  });
 }
 
 function readCashierDays(pack) {
@@ -620,8 +664,8 @@ function presentPack(pack) {
     Sellers: pack.sellers || pack.Sellers || [],
     goals: pack.goals || pack.Goals || [],
     Goals: pack.goals || pack.Goals || [],
-    products: pack.products || pack.Products || [],
-    Products: pack.products || pack.Products || [],
+    products: presentProducts(pack.products || pack.Products || []),
+    Products: presentProducts(pack.products || pack.Products || []),
     days,
     Days: days,
     ...(cashierDays ? { cashierDays, CashierDays: cashierDays } : {}),
@@ -634,15 +678,33 @@ function managerPack(weekStart) {
   return presentPack(findPack(ensureManagerSnapshot(), weekStart));
 }
 
+function presentProducts(products) {
+  return (products || []).map((p) => ({
+    name: String(p.name ?? p.Name ?? '').trim() || 'منتج',
+    quantity: n(p.quantity ?? p.Quantity),
+    salesAmount: n(p.salesAmount ?? p.SalesAmount),
+    commissionAmount: n(p.commissionAmount ?? p.CommissionAmount),
+    count: n(p.count ?? p.Count),
+  })).filter((p) => p.salesAmount !== 0 || p.quantity !== 0 || p.count > 0);
+}
+
 function fixManagerGoals(list) {
   return (list || []).map((g) => {
     const sold = Number(g.sold ?? g.Sold ?? 0);
-    const target = Number(g.weeklyTarget ?? g.WeeklyTarget ?? 0);
-    const percent = target > 0 ? Math.round((sold / target) * 1000) / 10 : 0;
-    return { ...g, sold, weeklyTarget: target, percent, Percent: percent };
+    const weeklyTarget = Number(g.weeklyTarget ?? g.WeeklyTarget ?? 0);
+    const percent = weeklyTarget > 0 ? Math.round((sold / weeklyTarget) * 1000) / 10 : 0;
+    return {
+      ruleId: Number(g.ruleId ?? g.RuleId) || 0,
+      ruleName: String(g.ruleName ?? g.RuleName ?? '').trim(),
+      targetType: String(g.targetType ?? g.TargetType ?? ''),
+      salesmanId: Number(g.salesmanId ?? g.SalesmanId) || 0,
+      salesmanName: String(g.salesmanName ?? g.SalesmanName ?? '').trim(),
+      sold,
+      weeklyTarget,
+      percent,
+    };
   }).filter((g) => g.weeklyTarget > 0)
-    .sort((a, b) => String(a.salesmanName || a.SalesmanName || '').localeCompare(String(b.salesmanName || b.SalesmanName || ''), 'ar')
-      || a.percent - b.percent);
+    .sort((a, b) => a.salesmanName.localeCompare(b.salesmanName, 'ar') || a.percent - b.percent);
 }
 
 function applySync(payload) {
@@ -673,6 +735,7 @@ function applySync(payload) {
     snapshots,
     managers: state.managers || {},
     managerSnapshot: state.managerSnapshot || null,
+    detailSnapshots: state.detailSnapshots || {},
   };
 
   const managerRows = payload.managers || payload.Managers;
@@ -695,10 +758,11 @@ function applySync(payload) {
 
   const incomingManager = payload.managerSnapshot || payload.ManagerSnapshot;
   const fromSellers = buildManagerFromSellers(rawSnapshots);
+  next.detailSnapshots = rawSnapshots;
   if (hasManagerPacks(incomingManager) && fromSellers) {
     next.managerSnapshot = mergeManager(incomingManager, fromSellers);
   } else if (hasRichManager(incomingManager)) {
-    next.managerSnapshot = incomingManager;
+    next.managerSnapshot = mergeManager(incomingManager, fromSellers) || incomingManager;
   } else {
     next.managerSnapshot = fromSellers || incomingManager || next.managerSnapshot;
   }
@@ -882,6 +946,7 @@ const server = http.createServer(async (req, res) => {
           malls,
           goals,
           products: products.slice(0, 40),
+          lines: presentLines(lines).slice(0, 800),
           days,
           ...(readCashierDays(pack) ? { cashierDays: readCashierDays(pack) } : {}),
           lastSyncAt: state.lastSyncAt,

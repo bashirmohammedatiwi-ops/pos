@@ -138,6 +138,34 @@ export interface LineRow {
   receiptNumber?: number | null; occurredAt: string;
   cashierName?: string | null; mallName?: string | null;
 }
+
+export function asLines(raw: unknown): LineRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row, index) => {
+    if (!row || typeof row !== 'object') return [];
+    const line = row as Record<string, unknown>;
+    const pick = (a: string, b: string) => line[a] ?? line[b];
+    const product = String(pick('productName', 'ProductName') || '').trim();
+    const seller = String(pick('salesmanName', 'SalesmanName') || '').trim();
+    const id = Number(pick('id', 'Id')) || 0;
+    if (!product && !seller && !id) return [];
+    const receipt = pick('receiptNumber', 'ReceiptNumber');
+    return [{
+      id: id || index + 1,
+      salesmanId: Number(pick('salesmanId', 'SalesmanId')) || 0,
+      salesmanName: seller || 'بائع',
+      productName: product || 'منتج',
+      groupName: (pick('groupName', 'GroupName') as string | null) || null,
+      quantity: Number(pick('quantity', 'Quantity')) || 0,
+      salesAmount: Number(pick('salesAmount', 'SalesAmount')) || 0,
+      commissionAmount: Number(pick('commissionAmount', 'CommissionAmount')) || 0,
+      receiptNumber: receipt == null || receipt === '' ? null : Number(receipt) || null,
+      occurredAt: String(pick('occurredAt', 'OccurredAt') || ''),
+      cashierName: (pick('cashierName', 'CashierName') as string | null) || null,
+      mallName: (pick('mallName', 'MallName') as string | null) || null,
+    }];
+  });
+}
 export interface ProductRow {
   name: string; quantity: number; salesAmount: number; commissionAmount: number; count: number;
 }
@@ -149,6 +177,7 @@ export interface Dashboard {
   sellers: SellerRow[]; cashiers: CashierRow[]; malls: MallRow[];
   goals: GoalRow[]; products: ProductRow[]; days?: DayRow[]; lastSyncAt?: string | null;
   cashierDays?: CashierDayRow[];
+  lines?: LineRow[];
 }
 export interface SellerGoalGroup {
   salesmanId: number; salesmanName: string; goals: GoalRow[]; avg: number; hit: number;
@@ -276,6 +305,43 @@ export function goalLabel(percent: number) {
 export function goalValue(type: string, n: number) {
   return type === 'amount' ? moneyIq(n) : pieces(n);
 }
+export function asGoals(raw: unknown): GoalRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const g = row as Record<string, unknown>;
+    const weeklyTarget = Number(g.weeklyTarget ?? g.WeeklyTarget) || 0;
+    if (weeklyTarget <= 0) return [];
+    return [{
+      ruleId: Number(g.ruleId ?? g.RuleId) || 0,
+      ruleName: String(g.ruleName ?? g.RuleName ?? '').trim(),
+      targetType: String(g.targetType ?? g.TargetType ?? ''),
+      salesmanId: Number(g.salesmanId ?? g.SalesmanId) || 0,
+      salesmanName: String(g.salesmanName ?? g.SalesmanName ?? '').trim(),
+      sold: Number(g.sold ?? g.Sold) || 0,
+      weeklyTarget,
+      percent: Number(g.percent ?? g.Percent) || 0,
+    }];
+  });
+}
+
+export function asProducts(raw: unknown): ProductRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const p = row as Record<string, unknown>;
+    const name = String(p.name ?? p.Name ?? '').trim();
+    if (!name) return [];
+    return [{
+      name,
+      quantity: Number(p.quantity ?? p.Quantity) || 0,
+      salesAmount: Number(p.salesAmount ?? p.SalesAmount) || 0,
+      commissionAmount: Number(p.commissionAmount ?? p.CommissionAmount) || 0,
+      count: Number(p.count ?? p.Count) || 0,
+    }];
+  });
+}
+
 export function liveGoals(goals?: GoalRow[] | null) {
   return (goals ?? []).filter(g => Number(g.weeklyTarget) > 0);
 }
