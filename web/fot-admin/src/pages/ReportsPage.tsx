@@ -1,13 +1,14 @@
 import { useSearchParams } from 'react-router-dom';
-import { IconBanknote, IconChart, IconCoins, IconPackage, IconTarget } from '@/components/icons';
+import { IconBanknote, IconChart, IconCoins, IconPackage, IconReceipt, IconTarget } from '@/components/icons';
 import { CommissionReportApp } from '@/components/reports/CommissionReportApp';
 import { TargetReportApp } from '@/components/reports/TargetReportApp';
 import { WeeklySettlementApp } from '@/components/reports/WeeklySettlementApp';
 import { ProductInquiryApp } from '@/components/reports/ProductInquiryApp';
+import { SellerReceiptsApp } from '@/components/reports/SellerReceiptsApp';
 import { ReportAppWindow } from '@/components/reports/ReportAppWindow';
 import { SalesReportsPanel } from '@/components/reports/SalesReportsPanel';
 
-type ReportAppId = 'commissions' | 'targets' | 'settlement' | 'sales' | 'product-inquiry';
+type ReportAppId = 'commissions' | 'targets' | 'settlement' | 'sales' | 'product-inquiry' | 'seller-receipts';
 
 const APPS: Array<{
   id: ReportAppId;
@@ -51,6 +52,13 @@ const APPS: Array<{
     from: '#818cf8',
     to: '#4338ca',
   },
+  {
+    id: 'seller-receipts',
+    label: 'فواتير البائع',
+    hint: 'عدد فواتير بائع في مدة',
+    from: '#1a2236',
+    to: '#c9a227',
+  },
 ];
 
 function AppGlyph({ id }: { id: ReportAppId }) {
@@ -58,6 +66,7 @@ function AppGlyph({ id }: { id: ReportAppId }) {
   if (id === 'targets') return <IconTarget size={38} />;
   if (id === 'settlement') return <IconBanknote size={38} />;
   if (id === 'product-inquiry') return <IconPackage size={38} />;
+  if (id === 'seller-receipts') return <IconReceipt size={38} />;
   return <IconChart size={38} />;
 }
 
@@ -115,6 +124,7 @@ export function ReportsPage() {
       {app === 'targets' && <TargetReportApp onClose={closeApp} />}
       {app === 'settlement' && <WeeklySettlementApp onClose={closeApp} />}
       {app === 'product-inquiry' && <ProductInquiryApp onClose={closeApp} />}
+      {app === 'seller-receipts' && <SellerReceiptsApp onClose={closeApp} />}
       {app === 'sales' && (
         <ReportAppWindow
           title="تقرير المبيعات"
