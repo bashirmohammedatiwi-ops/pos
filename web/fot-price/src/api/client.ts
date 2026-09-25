@@ -38,12 +38,73 @@ function request<T>(path: string, timeoutMs = 2500): Promise<T> {
   });
 }
 
+type StoreProduct = {
+  id: number;
+  sku?: string | null;
+  barcode?: string | null;
+  name?: string | null;
+  quantity?: number;
+  listPrice?: number;
+  salePrice?: number;
+  offerPercent?: number;
+  offerName?: string | null;
+  revision?: number;
+  originalPrice?: number;
+  price?: number;
+  seq?: number;
+  changeVersion?: number;
+};
+
+function asProduct(raw: StoreProduct): ProductDto {
+  if (raw.originalPrice != null && raw.listPrice == null) return raw as ProductDto;
+  return {
+    id: raw.id,
+    seq: raw.seq || raw.id,
+    num: raw.sku ?? null,
+    name: raw.name ?? null,
+    barcode: raw.barcode ?? null,
+    originalPrice: Number(raw.listPrice ?? raw.salePrice ?? 0),
+    price: Number(raw.salePrice ?? raw.listPrice ?? 0),
+    stock: Number(raw.quantity ?? 0),
+    discountPercent: Number(raw.offerPercent ?? 0),
+    offerName: raw.offerName ?? null,
+    changeVersion: Number(raw.revision ?? raw.changeVersion ?? 0),
+  };
+}
+
+async function prefer<T>(primary: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
+  try {
+    return await primary();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status >= 500)) return fallback();
+    throw error;
+  }
+}
+
 export const api = {
   health: () => request<{ status?: string }>('/health', 800),
   productByBarcode: (code: string) =>
-    request<ProductDto>('/api/price-checker/product?code=' + encodeURIComponent(code), 1200),
-  catalogInfo: () => request<CatalogInfoDto>('/api/price-checker/catalog/info', 4000),
+    prefer(
+      () => request<StoreProduct>('/api/v1/catalog/lookup?code=' + encodeURIComponent(code), 1200).then(asProduct),
+      () => request<ProductDto>('/api/price-checker/product?code=' + encodeURIComponent(code), 1200),
+    ),
+  catalogInfo: () =>
+    prefer(
+      () => request<{ revision: number; productCount: number }>('/api/v1/catalog/version', 4000).then(v => ({
+        totalProducts: v.productCount,
+        maxSeq: v.revision,
+      })),
+      () => request<CatalogInfoDto>('/api/price-checker/catalog/info', 4000),
+    ),
   catalogSync: (sinceSeq: number) =>
-    request<ProductDto[]>('/api/price-checker/catalog/sync?sinceSeq=' + sinceSeq + '&pageSize=500', 20_000),
-  catalogIds: () => request<{ total: number; ids: number[] }>('/api/price-checker/catalog/ids', 20_000),
+    prefer(
+      () => request<{ items?: StoreProduct[] }>('/api/v1/catalog/changes?since=' + sinceSeq + '&limit=2000', 20_000)
+        .then(page => (page.items ?? []).map(asProduct)),
+      () => request<ProductDto[]>('/api/price-checker/catalog/sync?sinceSeq=' + sinceSeq + '&pageSize=500', 20_000),
+    ),
+  catalogIds: () =>
+    prefer(
+      () => request<{ total: number; ids: number[] }>('/api/v1/catalog/ids', 20_000),
+      () => request<{ total: number; ids: number[] }>('/api/price-checker/catalog/ids', 20_000),
+    ),
 };

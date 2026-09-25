@@ -1588,6 +1588,23 @@ public record StoreCatalogChangesDto(
     bool HasMore,
     int ProductCount);
 
+public record StoreOfferDto(
+    long Id,
+    string Name,
+    int Priority,
+    int ProductCount);
+
+public record StoreCategoryDto(
+    long Id,
+    string Name,
+    int ProductCount);
+
+public record StoreLookupRequest(IReadOnlyList<string>? Codes);
+
+public record StoreLookupResult(
+    IReadOnlyList<StoreProductDto> Found,
+    IReadOnlyList<string> Missing);
+
 public record TargetProgressDto(
     long RuleId, string RuleName, decimal CurrentQuantity,
     DateTime PeriodStart, DateTime PeriodEnd);

@@ -19,11 +19,13 @@ export async function syncCatalog(): Promise<{ added: number; lastSeq: number }>
   const info = await api.catalogInfo();
   let since = Number((await db.getMeta('last_change_ver')) ?? '0');
   let added = 0;
-  for (let i = 0; i < 80; i++) {
+  for (;;) {
     const batch = await api.catalogSync(since);
     if (batch.length === 0) break;
     await db.upsertProducts(batch);
-    since = Math.max(since, ...batch.map(p => p.changeVersion ?? p.seq));
+    const next = Math.max(since, ...batch.map(p => p.changeVersion ?? p.seq));
+    if (next <= since) break;
+    since = next;
     added += batch.length;
     await db.setMeta('last_change_ver', String(since));
     if (since >= info.maxSeq) break;

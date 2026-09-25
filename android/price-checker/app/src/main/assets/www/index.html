@@ -706,6 +706,27 @@
         openSet();
         return true;
       }
+      function toProduct(p) {
+        if (!p || (p.originalPrice != null && p.listPrice == null)) return p;
+        return {
+          id: p.id,
+          seq: p.seq || p.id,
+          num: p.sku || null,
+          name: p.name || null,
+          barcode: p.barcode || null,
+          originalPrice: Number(p.listPrice || p.salePrice || 0),
+          price: Number(p.salePrice || p.listPrice || 0),
+          stock: Number(p.quantity || 0),
+          discountPercent: Number(p.offerPercent || 0),
+          offerName: p.offerName || null,
+          changeVersion: Number(p.revision || p.changeVersion || 0)
+        };
+      }
+      function toInfo(v) {
+        if (!v) return v;
+        if (v.maxSeq != null) return v;
+        return { totalProducts: v.productCount || 0, maxSeq: v.revision || 0 };
+      }
       function lookup(code) {
         if (booting) return;
         code = String(code || '').replace(/^\s+|\s+$/g, '');
@@ -731,13 +752,17 @@
             if (!shown) { show('miss'); backIdle(); }
             return;
           }
-          xhr('/api/price-checker/product?code=' + encodeURIComponent(code), 2500, function (p) {
+          function showRemote(p) {
             online = true;
             setLed();
-            saveProducts([p]);
-            render(p);
-          }, function () {
-            if (!shown) { show('miss'); backIdle(); }
+            var mapped = toProduct(p);
+            saveProducts([mapped]);
+            render(mapped);
+          }
+          xhr('/api/v1/catalog/lookup?code=' + encodeURIComponent(code), 2500, showRemote, function () {
+            xhr('/api/price-checker/product?code=' + encodeURIComponent(code), 2500, showRemote, function () {
+              if (!shown) { show('miss'); backIdle(); }
+            });
           });
         });
       }
@@ -777,20 +802,32 @@
           if (cb) cb(false);
         });
       }
-      function syncMore(since, info) {
-        xhr('/api/price-checker/catalog/sync?sinceSeq=' + since + '&pageSize=500', 20000, function (batch) {
-          if (!batch || !batch.length) { syncing = false; return; }
-          saveProducts(batch);
-          var next = since;
-          for (var i = 0; i < batch.length; i++) {
-            var v = batch[i].changeVersion || batch[i].seq || 0;
+      function applyBatch(batch, since, info, nextSince) {
+        if (!batch || !batch.length) { syncing = false; return; }
+        var mapped = [];
+        for (var i = 0; i < batch.length; i++) mapped.push(toProduct(batch[i]));
+        saveProducts(mapped);
+        var next = nextSince || since;
+        if (!nextSince) {
+          for (var j = 0; j < mapped.length; j++) {
+            var v = mapped[j].changeVersion || mapped[j].seq || 0;
             if (v > next) next = v;
           }
-          if (next <= since) next = since + 1;
-          rememberVer(next);
-          if (info && next < info.maxSeq) syncMore(next, info);
-          else syncing = false;
-        }, function () { syncing = false; });
+        }
+        if (next <= since) next = since + 1;
+        rememberVer(next);
+        if (info && next < info.maxSeq) syncMore(next, info);
+        else syncing = false;
+      }
+      function syncMore(since, info) {
+        xhr('/api/v1/catalog/changes?since=' + since + '&limit=2000', 20000, function (page) {
+          var batch = page && page.items ? page.items : page;
+          applyBatch(batch, since, info, page && page.nextSince);
+        }, function () {
+          xhr('/api/price-checker/catalog/sync?sinceSeq=' + since + '&pageSize=500', 20000, function (batch) {
+            applyBatch(batch, since, info, 0);
+          }, function () { syncing = false; });
+        });
       }
       function syncAll(info) {
         if (!getBase() || syncing) return;
@@ -802,8 +839,10 @@
             syncMore(since, data);
           });
         }
-        if (info) go(info);
-        else xhr('/api/price-checker/catalog/info', 5000, go, function () { syncing = false; });
+        if (info) go(toInfo(info));
+        else xhr('/api/v1/catalog/version', 5000, function (v) { go(toInfo(v)); }, function () {
+          xhr('/api/price-checker/catalog/info', 5000, go, function () { syncing = false; });
+        });
       }
       function connectNow() {
         if (connecting) return;

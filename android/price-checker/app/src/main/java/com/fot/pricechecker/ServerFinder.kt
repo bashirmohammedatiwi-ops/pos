@@ -76,6 +76,8 @@ object ServerFinder {
         if (statusOf(ping) == 0) return false
         val info = httpGet(context, clean, "/api/price-checker/catalog/info", t)
         if (looksFot(info)) return true
+        val catalog = httpGet(context, clean, "/api/v1/catalog/version", t)
+        if (looksFot(catalog)) return true
         if (statusOf(info) == 0) return false
         return looksFot(httpGet(context, clean, "/health", t.coerceAtMost(1000)))
     }
