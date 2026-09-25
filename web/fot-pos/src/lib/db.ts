@@ -5,6 +5,14 @@ import type { AccountSummaryDto, ArticleGroupDto, ArticleGroupItemDto, PrintSett
 
 const DB_NAME = 'fot-pos';
 const DB_VERSION = 5;
+const seqAligned = new Set<string>();
+let numberChain: Promise<unknown> = Promise.resolve();
+
+function withNumberLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = numberChain.then(fn, fn);
+  numberChain = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 export type OutboxStatus = 'queued' | 'deferred';
 
@@ -277,12 +285,15 @@ const idb = {
     const key = `offline_receipt_seq_${year}_${code}`;
     const raw = await this.getMeta(key);
     let next = (raw ? Number(raw) : 0) + 1;
-    const parked = await this.pending();
-    for (const row of parked) {
-      const parsed = parseReceiptNumber(row.localNumber);
-      if (parsed && parsed.year === year && parsed.cashierCode === code && parsed.seq >= next) {
-        next = parsed.seq + 1;
+    if (!seqAligned.has(key)) {
+      const parked = await this.pending();
+      for (const row of parked) {
+        const parsed = parseReceiptNumber(row.localNumber);
+        if (parsed && parsed.year === year && parsed.cashierCode === code && parsed.seq >= next) {
+          next = parsed.seq + 1;
+        }
       }
+      seqAligned.add(key);
     }
     const jumpTo = Number((await this.getMeta(`receipt_seq_jump_${year}_${code}`)) ?? '0') || 0;
     const ownedThrough = Number((await this.getMeta(`receipt_owned_through_${year}_${code}`)) ?? '0') || 0;
@@ -480,8 +491,8 @@ export const db = {
     nativeStore()?.savePrintSettings(settings) ?? idb.savePrintSettings(settings),
   loadPrintSettings: async () =>
     ((await nativeStore()?.loadPrintSettings()) as PrintSettingsDto | null | undefined) ?? idb.loadPrintSettings(),
-  nextLocalNumber: (cashierCode?: number) =>
-    nativeStore()?.nextLocalNumber?.(cashierCode) ?? idb.nextLocalNumber(cashierCode),
+  nextLocalNumber: (cashierCode?: number) => withNumberLock(() =>
+    Promise.resolve(nativeStore()?.nextLocalNumber?.(cashierCode) ?? idb.nextLocalNumber(cashierCode))),
   seedReceiptSeq: (cashierCode: number, serverSeq: number) =>
     nativeStore()?.seedReceiptSeq?.(cashierCode, serverSeq) ?? idb.seedReceiptSeq(cashierCode, serverSeq),
   enqueue: (row: OutboxRow) => nativeOutbox()?.enqueue(row) ?? nativeStore()?.enqueue(row) ?? idb.enqueue(row),

@@ -80,6 +80,7 @@ function openCatalogStore(dbPath) {
   } catch (e) {
     console.error('[fot-store] pragma setup failed', e);
   }
+  const seqAligned = new Set();
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
@@ -337,14 +338,15 @@ function openCatalogStore(dbPath) {
       const key = `offline_receipt_seq_${year}_${code}`;
       const raw = this.getMeta(key);
       let next = (raw ? Number(raw) : 0) + 1;
-      const parked = db.prepare(
-        'SELECT local_number FROM pending_receipts WHERE synced = 0 AND local_number > 0',
-      ).all();
-      for (const row of parked) {
-        const parsed = parseReceiptNumber(row.local_number);
-        if (parsed && parsed.year === year && parsed.cashierCode === code && parsed.seq >= next) {
-          next = parsed.seq + 1;
-        }
+      if (!seqAligned.has(key)) {
+        const low = formatReceiptNumber(year, code, 1);
+        const high = formatReceiptNumber(year, code, 999999);
+        const row = db.prepare(
+          'SELECT MAX(local_number) AS n FROM pending_receipts WHERE synced = 0 AND local_number BETWEEN ? AND ?',
+        ).get(low, high);
+        const parsed = parseReceiptNumber(row?.n);
+        if (parsed && parsed.seq >= next) next = parsed.seq + 1;
+        seqAligned.add(key);
       }
       const jumpTo = Number(this.getMeta(`receipt_seq_jump_${year}_${code}`) ?? '0') || 0;
       const ownedThrough = Number(this.getMeta(`receipt_owned_through_${year}_${code}`) ?? '0') || 0;

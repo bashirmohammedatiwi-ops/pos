@@ -82,10 +82,15 @@ export async function ensureNumberBlock(cashierId: number, cashierCode: number) 
   await db.setMeta(`receipt_block_through_${year}_${reservedCode}`, String(reserved.throughSeq));
 }
 
+const priceRefreshAt = new Map<string, number>();
+const PRICE_REFRESH_MS = 3 * 60_000;
+
 export async function findProductSmart(code: string, online: boolean): Promise<ProductDto | null> {
   const local = await db.findProduct(code);
   if (local) {
-    if (online && !isServerUnreachable()) {
+    const seen = priceRefreshAt.get(code) ?? 0;
+    if (online && !isServerUnreachable() && Date.now() - seen > PRICE_REFRESH_MS) {
+      priceRefreshAt.set(code, Date.now());
       void api.productByBarcode(code).then(remote => {
         if (remote) void db.upsertProducts([withOfferSalePrice(remote)]);
       }).catch(() => { /* price refresh is background-only */ });
@@ -327,7 +332,15 @@ function outboxTime(row: OutboxRow) {
   return Number.isFinite(t) ? t : 0;
 }
 
+let flushChain: Promise<unknown> = Promise.resolve();
+
 export async function flushOutbox(): Promise<FlushOutboxResult> {
+  const run = flushChain.then(() => flushOutboxOnce(), () => flushOutboxOnce());
+  flushChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function flushOutboxOnce(): Promise<FlushOutboxResult> {
   const result: FlushOutboxResult = { uploaded: 0, failed: 0, dead: 0, stopped: false, renumbered: [] };
   if (isServerUnreachable()) return result;
   const rows = (await db.pending()).slice().sort((a, b) => outboxTime(a) - outboxTime(b) || (a.id ?? 0) - (b.id ?? 0));
