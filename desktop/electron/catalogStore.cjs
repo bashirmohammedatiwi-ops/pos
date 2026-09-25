@@ -39,12 +39,24 @@ function openEngine(file) {
   }
 }
 
+function barcodeCandidates(code) {
+  const trimmed = String(code || '').trim();
+  if (!trimmed) return [];
+  const list = [trimmed];
+  if (/^\d+$/.test(trimmed)) {
+    const stripped = trimmed.replace(/^0+/, '');
+    if (stripped && stripped !== trimmed) list.push(stripped);
+    if (trimmed.length < 13) list.push(trimmed.padStart(13, '0'));
+    if (trimmed.length < 12) list.push(trimmed.padStart(12, '0'));
+  }
+  return [...new Set(list)];
+}
+
 function createCatalogStore(userDataDir) {
   fs.mkdirSync(userDataDir, { recursive: true });
   const candidates = [
     path.join(userDataDir, 'catalog.db'),
     path.join(userDataDir, 'catalog-fallback.db'),
-    ':memory:',
   ];
   let lastError;
   for (const dbPath of candidates) {
@@ -213,12 +225,16 @@ function openCatalogStore(dbPath) {
         }
       });
       run(products);
+      try { db.exec('PRAGMA wal_checkpoint(PASSIVE);'); } catch { /* next open still reads the WAL */ }
     },
     findProduct(code) {
-      const trimmed = String(code || '').trim();
-      const byBarcode = findByBarcode.get(trimmed);
-      if (byBarcode) return rowToProduct(byBarcode);
-      return rowToProduct(findByNum.get(trimmed));
+      for (const candidate of barcodeCandidates(code)) {
+        const byBarcode = findByBarcode.get(candidate);
+        if (byBarcode) return rowToProduct(byBarcode);
+        const byNum = findByNum.get(candidate);
+        if (byNum) return rowToProduct(byNum);
+      }
+      return null;
     },
     searchProducts(term, limit = 24) {
       const q = `%${String(term || '').trim().toLowerCase()}%`;
@@ -321,7 +337,9 @@ function openCatalogStore(dbPath) {
       const key = `offline_receipt_seq_${year}_${code}`;
       const raw = this.getMeta(key);
       let next = (raw ? Number(raw) : 0) + 1;
-      const parked = db.prepare('SELECT local_number FROM pending_receipts WHERE synced = 0').all();
+      const parked = db.prepare(
+        'SELECT local_number FROM pending_receipts WHERE synced = 0 AND local_number > 0',
+      ).all();
       for (const row of parked) {
         const parsed = parseReceiptNumber(row.local_number);
         if (parsed && parsed.year === year && parsed.cashierCode === code && parsed.seq >= next) {

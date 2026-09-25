@@ -362,7 +362,7 @@ export const api = {
 
   catalogSync: (sinceSeq: number, hwId?: string) =>
     request<ProductDto[]>(
-      `/api/catalog/sync?sinceSeq=${sinceSeq}&pageSize=500${hwId ? `&hwId=${encodeURIComponent(hwId)}` : ''}`,
+      `/api/catalog/sync?sinceSeq=${sinceSeq}&pageSize=2000${hwId ? `&hwId=${encodeURIComponent(hwId)}` : ''}`,
       { timeoutMs: CATALOG_TIMEOUT_MS },
     ),
 

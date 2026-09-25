@@ -236,6 +236,7 @@ app.Use(async (ctx, next) =>
     var origin = ctx.Request.Headers.Origin.ToString();
     var path = ctx.Request.Path.Value ?? "";
     var priceOrHealth = path.StartsWith("/api/price-checker", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/v1/catalog", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/health", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/healthz", StringComparison.OrdinalIgnoreCase);
     if (priceOrHealth && (string.IsNullOrEmpty(origin) || origin == "null" || origin.StartsWith("file:", StringComparison.OrdinalIgnoreCase)))
@@ -323,6 +324,7 @@ app.MapAuthEndpoints();
 app.MapSellerAuthEndpoints();
 app.MapManagerAuthEndpoints();
 app.MapPriceCheckerEndpoints();
+app.MapStoreCatalogEndpoints();
 
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapCatalogEndpoints();

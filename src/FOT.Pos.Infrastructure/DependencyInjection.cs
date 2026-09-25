@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<EdariDataPullService>();
 
         services.AddScoped<ProductRepository>();
+        services.AddScoped<StoreCatalogRepository>();
         services.AddScoped<ArticleTreeRepository>();
         services.AddScoped<OfferRepository>();
         services.AddSingleton<ReceiptSchemaService>();

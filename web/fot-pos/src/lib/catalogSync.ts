@@ -132,20 +132,38 @@ export async function syncCatalog(): Promise<{ products: number; lastSeq: number
   const info = await api.catalogInfo();
   // last_change_ver tracks the server rowversion watermark (any article edit bumps it).
   // Fresh keys (new install or upgrade from the Seq-based watermark) start at 0 and re-pull once.
-  let since = Number((await db.getMeta('last_change_ver')) ?? '0');
-  let added = 0;
-  // hwId lets the server record this terminal's watermark for the admin monitor.
   const hwId = getHwId() || undefined;
-  for (let i = 0; i < 80; i++) {
-    const batch = await api.catalogSync(since, hwId);
-    if (batch.length === 0) break;
-    await db.upsertProducts(withOfferSalePrices(batch));
-    since = Math.max(since, ...batch.map(p => p.changeVersion ?? p.seq));
-    added += batch.length;
-    await db.setMeta('last_change_ver', String(since));
-    if (since >= info.maxSeq) break;
+  const pull = async () => {
+    let since = Number((await db.getMeta('last_change_ver')) ?? '0');
+    let added = 0;
+    // Keep pulling until the server watermark is reached. A fixed batch cap left
+    // terminals with a partial catalog, so a later offline restart missed most products.
+    for (;;) {
+      const batch = await api.catalogSync(since, hwId);
+      if (batch.length === 0) break;
+      await db.upsertProducts(withOfferSalePrices(batch));
+      const next = Math.max(since, ...batch.map(p => p.changeVersion ?? p.seq));
+      if (next <= since) break;
+      since = next;
+      added += batch.length;
+      await db.setMeta('last_change_ver', String(since));
+      if (since >= info.maxSeq) break;
+    }
+    return { added, since };
+  };
+
+  let { added, since } = await pull();
+  let removed = await reconcileCatalog(info.totalProducts);
+  let local = await db.productCount();
+  if (local < info.totalProducts && (await db.getMeta('last_change_ver')) === '0') {
+    const again = await pull();
+    added += again.added;
+    since = again.since;
+    removed += await reconcileCatalog(info.totalProducts);
+    local = await db.productCount();
   }
-  const removed = await reconcileCatalog(info.totalProducts);
+  await db.setMeta('catalog_complete', local >= info.totalProducts && info.totalProducts > 0 ? '1' : '0');
+  await db.setMeta('catalog_expected', String(info.totalProducts));
   return { products: added, lastSeq: since, removed };
 }
 
@@ -160,18 +178,22 @@ export async function reconcileCatalog(serverTotal?: number): Promise<number> {
   try {
     const expected = serverTotal ?? (await api.catalogInfo()).totalProducts;
     const local = await db.productCount();
-    if (local === expected) return 0;
+    if (local === expected) {
+      await db.setMeta('catalog_replay_pending', '0');
+      return 0;
+    }
 
     if (local < expected) {
-      // Behind, not stale: replay the delta from scratch instead of deleting anything. Throttled
-      // so a count that stays short for any other reason can't trigger a full re-pull every cycle.
-      const lastReplay = Number((await db.getMeta('catalog_replay_at')) ?? '0');
-      if (Date.now() - lastReplay > 10 * 60_000) {
-        await db.setMeta('catalog_replay_at', String(Date.now()));
+      // Behind, not stale: replay from scratch once, then let the current sync fill the gap.
+      // Repeating the reset every cycle would reload the whole catalog forever.
+      const pending = (await db.getMeta('catalog_replay_pending')) === '1';
+      if (!pending) {
+        await db.setMeta('catalog_replay_pending', '1');
         await db.setMeta('last_change_ver', '0');
       }
       return 0;
     }
+    await db.setMeta('catalog_replay_pending', '0');
 
     const { ids } = await api.catalogIds();
     if (!ids?.length) return 0;

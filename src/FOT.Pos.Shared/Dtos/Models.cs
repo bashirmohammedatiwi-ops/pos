@@ -1548,6 +1548,45 @@ public partial record CatalogInfoDto(int TotalProducts, long MaxSeq);
 /// <summary>Every product id a terminal may keep locally — the basis for pruning deleted ones.</summary>
 public record CatalogIdsDto(int Total, IReadOnlyList<long> Ids);
 
+/// <summary>
+/// Public store catalog. Prices match the cashier: list price, rounded sale price,
+/// and whether a control-panel offer is applied.
+/// </summary>
+public record StoreProductDto(
+    long Id,
+    string? Sku,
+    string? Barcode,
+    string Name,
+    decimal Quantity,
+    bool InStock,
+    decimal ListPrice,
+    decimal SalePrice,
+    bool OnOffer,
+    int OfferPercent,
+    int? ListedOfferPercent,
+    string? OfferName,
+    long Revision);
+
+public record StoreCatalogVersionDto(
+    long Revision,
+    int ProductCount,
+    string Currency,
+    DateTime PricedAt);
+
+public record StoreCatalogPageDto(
+    IReadOnlyList<StoreProductDto> Items,
+    int Page,
+    int PageSize,
+    int Total,
+    long Revision);
+
+public record StoreCatalogChangesDto(
+    IReadOnlyList<StoreProductDto> Items,
+    long Revision,
+    long NextSince,
+    bool HasMore,
+    int ProductCount);
+
 public record TargetProgressDto(
     long RuleId, string RuleName, decimal CurrentQuantity,
     DateTime PeriodStart, DateTime PeriodEnd);

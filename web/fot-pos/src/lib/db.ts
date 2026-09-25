@@ -439,17 +439,17 @@ export const db = {
   upsertProducts: (products: ProductDto[]) =>
     nativeCatalog()?.syncBatch(products) ?? nativeStore()?.upsertProducts(products) ?? idb.upsertProducts(products),
   findProduct: async (code: string) => {
-    const p =
-      ((await nativeCatalog()?.findBarcode(code)) as ProductDto | null | undefined) ??
-      ((await nativeStore()?.findProduct(code)) as ProductDto | null | undefined) ??
-      await idb.findProduct(code);
+    const native = nativeCatalog() ?? nativeStore();
+    const p = native
+      ? ((await (nativeCatalog()?.findBarcode(code) ?? nativeStore()?.findProduct(code))) as ProductDto | null | undefined) ?? null
+      : await idb.findProduct(code);
     return p ? withOfferSalePrice(p) : null;
   },
   searchProducts: async (term: string, limit?: number) =>
     withOfferSalePrices(
-      ((await nativeCatalog()?.search(term, limit)) as ProductDto[] | undefined) ??
-      ((await nativeStore()?.searchProducts(term, limit)) as ProductDto[] | undefined) ??
-      await idb.searchProducts(term, limit),
+      nativeCatalog() || nativeStore()
+        ? ((await (nativeCatalog()?.search(term, limit) ?? nativeStore()?.searchProducts(term, limit))) as ProductDto[] | undefined) ?? []
+        : await idb.searchProducts(term, limit),
     ),
   productCount: () => nativeCatalog()?.productCount() ?? nativeStore()?.productCount() ?? idb.productCount(),
   pruneProducts: async (liveIds: number[]) =>
@@ -520,13 +520,21 @@ export const db = {
     try { await idb.saveDiscountQrPeople(list); } catch { /* meta copy is enough to scan */ }
   },
   loadDiscountQrPeople: async () => {
+    const native = nativeStore();
+    if (native) {
+      try {
+        const mirrored = await native.getMeta('discount_qr_people');
+        if (mirrored) {
+          const parsed = JSON.parse(mirrored) as DiscountQrPerson[];
+          if (Array.isArray(parsed) && parsed.length) return parsed;
+        }
+      } catch { /* fall through to IndexedDB */ }
+    }
     try {
       const rows = await idb.loadDiscountQrPeople();
       if (rows.length) return rows;
     } catch { /* read the meta mirror */ }
-    const native = nativeStore();
-    const raw = (native ? await native.getMeta('discount_qr_people') : null)
-      ?? await idb.getMeta('discount_qr_people');
+    const raw = await idb.getMeta('discount_qr_people');
     if (!raw) return [];
     try {
       const parsed = JSON.parse(raw) as DiscountQrPerson[];
