@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type TouchEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { dayLabel, deltaPct, moneyIq, moneyK, todayKey, weekRange, type WeekSummary } from './api';
 import { Delta } from './ui';
@@ -165,10 +165,15 @@ export function WeekDayPills({
   today?: string;
   onSelect: (key: string) => void;
 }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current?.querySelector('.week-day-pill.on, .week-day-pill.today');
+    if (el instanceof HTMLElement) el.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [active, today, days]);
   if (!days.length) return null;
   const max = Math.max(...days.map(d => d.sales), 1);
   return (
-    <div className="week-day-pills">
+    <div className="week-day-pills" ref={scroller}>
       {days.map(d => {
         const h = Math.max(28, Math.round((d.sales / max) * 100));
         return (

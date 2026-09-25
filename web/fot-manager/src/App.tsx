@@ -72,6 +72,7 @@ function Shell() {
   const [askOut, setAskOut] = useState(false);
   const [profile, setProfile] = useState(false);
   const [finder, setFinder] = useState(false);
+  const [more, setMore] = useState(false);
   const [pull, setPull] = useState(0);
   const startY = useRef(0);
 
@@ -195,7 +196,7 @@ function Shell() {
                 <p className="text-[10px] font-extrabold tracking-[0.22em] text-goal">FOT MANAGER</p>
                 <p className="text-sm font-extrabold">{titles[loc.pathname] || me?.displayName || 'المدير'}</p>
                 {dash && (
-                  <p className="hidden text-[11px] font-bold text-muted sm:block">{period.label} · {moneyIq(periodTotals.sales)}</p>
+                  <p className="top-sub">{period.label} · {moneyIq(periodTotals.sales)}</p>
                 )}
               </div>
             </div>
@@ -212,7 +213,7 @@ function Shell() {
               <button type="button" disabled={loading} className={`icon-btn ${loading ? 'spin' : ''}`} aria-label="تحديث" onClick={() => void reload()}>
                 <IconRefresh />
               </button>
-              <button type="button" className="icon-btn" aria-label="خروج" onClick={() => setAskOut(true)}>
+              <button type="button" className="icon-btn top-logout" aria-label="خروج" onClick={() => setAskOut(true)}>
                 <IconOut />
               </button>
             </div>
@@ -239,8 +240,40 @@ function Shell() {
       </div>
 
       <nav className="dock">
-        <NavItems badges={badges} />
+        {links.slice(0, 3).map(l => (
+          <NavLink key={l.to} to={l.to} end={'end' in l ? l.end : false} className={({ isActive }) => isActive ? 'on' : ''}>
+            <span className="nav-ico">
+              <l.icon />
+              {!!badges[l.to] && <span className="nav-badge">{badges[l.to]}</span>}
+            </span>
+            {l.label}
+          </NavLink>
+        ))}
+        <button
+          type="button"
+          className={more || extra.some(l => l.to === loc.pathname) || loc.pathname === '/goals' || loc.pathname === '/commissions' ? 'on' : ''}
+          onClick={() => setMore(true)}
+        >
+          <span className="nav-ico more-dots" />
+          المزيد
+        </button>
       </nav>
+
+      <Sheet open={more} title="أقسام المدير" onClose={() => setMore(false)}>
+        <div className="phone-more">
+          {[...links.slice(3), ...extra].map(l => (
+            <button
+              key={l.to}
+              type="button"
+              className={loc.pathname === l.to ? 'on' : ''}
+              onClick={() => { setMore(false); nav(l.to); }}
+            >
+              <span className="nav-ico"><l.icon /></span>
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </Sheet>
 
       <Finder
         open={finder}

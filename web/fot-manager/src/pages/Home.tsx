@@ -8,8 +8,8 @@ import {
 import { buildAlerts, cashierShares, prevDay, sellerShares } from '../insights';
 import { useManager, useShopInsights } from '../store';
 import {
-  AreaChart, CountMoney, Delta, Donut, ErrorBox, LeaderCard, Legend, LiveDot, LiveTicker,
-  MetricStrip, NavHub, Podium, Ring, SectionCard, Skeleton, Track, useToast,
+  AreaChart, CountMoney, Delta, ErrorBox, LeaderCard, LiveDot, LiveTicker,
+  MetricStrip, NavHub, Ring, SectionCard, Skeleton, Track, useToast,
 } from '../ui';
 import { PeriodBar, WeekStepper } from '../week';
 
@@ -34,11 +34,6 @@ export function Home() {
     [paySellers],
   );
   const chartValues = useMemo(() => insights.days.map(d => d.sales), [insights.days]);
-  const donutSellers = useMemo(
-    () => sellers.filter(s => s.sales > 0).slice(0, 5).map(s => ({ label: s.name, value: s.sales })),
-    [sellers],
-  );
-
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading || !dash) return <Skeleton rows={6} />;
 
@@ -72,7 +67,7 @@ export function Home() {
   }
 
   return (
-    <div className="page-flow fade-up">
+    <div className="page-flow home-flow fade-up">
       <WeekStepper weeks={weeks} weekStart={weekStart} setWeek={setWeek} kicker="أسبوع العمل" />
 
       <PeriodBar
@@ -97,7 +92,7 @@ export function Home() {
       )}
 
       <div className="bento">
-        <section className="bento-hero card home-hero-v5">
+        <section className="bento-hero card home-hero-v5 surface-hero">
           <div className="bento-hero-top">
             <div>
               <p className="kicker">{greeting()} · {dash.manager.displayName}</p>
@@ -180,21 +175,7 @@ export function Home() {
         )}
 
         <SectionCard kicker={period.label} title="البائعون" to="/team" linkLabel="كل البائعين" className="bento-sellers">
-          {liveSellers.length > 2 && (
-            <Podium
-              items={liveSellers.slice(0, 3).map(s => {
-                const seller = scopedSellers.find(x => x.name === s.name);
-                return {
-                  id: s.id,
-                  name: s.name,
-                  value: moneyIq(s.sales),
-                  hint: seller && seller.commissionAmount > 0 ? `عمولة ${moneyIq(seller.commissionAmount)}` : undefined,
-                };
-              })}
-              onPick={item => nav(`/team?q=${encodeURIComponent(item.name)}`)}
-            />
-          )}
-          <div className="leader-list mt-3">
+          <div className="leader-list">
             {sellers.slice(0, 5).map((s, i) => {
               const seller = scopedSellers.find(x => x.name === s.name);
               const meta = seller && seller.commissionAmount > 0
@@ -274,14 +255,6 @@ export function Home() {
           )}
         </Link>
 
-        {donutSellers.length >= 2 && (
-          <SectionCard kicker="توزيع" title="أعلى البائعين" className="bento-donut">
-            <div className="donut-panel">
-              <Donut items={donutSellers} center={moneyIq(periodTotals.sales)} />
-              <Legend items={donutSellers.map(s => ({ label: s.label, value: moneyIq(s.value) }))} />
-            </div>
-          </SectionCard>
-        )}
       </div>
     </div>
   );

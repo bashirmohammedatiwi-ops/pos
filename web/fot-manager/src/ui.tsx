@@ -818,7 +818,7 @@ export function PageHero({
   children?: ReactNode;
 }) {
   return (
-    <section className="card page-hero">
+    <section className="card page-hero surface-hero">
       <div className="page-hero-top">
         <div>
           <p className="kicker">{kicker}</p>

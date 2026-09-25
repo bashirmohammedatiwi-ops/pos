@@ -73,8 +73,11 @@ export function Login() {
         </section>
 
         <div className="login-card">
-          <div className="login-card-mark"><BrandMark size={44} /></div>
-          <p className="text-center text-[11px] font-extrabold tracking-[0.28em] text-goal">FOT MANAGER</p>
+          <div className="login-crest">
+            <BrandMark size={48} />
+            <p>FOT MANAGER</p>
+          </div>
+          <p className="login-kicker">FOT MANAGER</p>
           <h1 className="display mt-2 text-center text-[28px] font-black leading-tight">
             {name ? `أهلاً ${name.split(' ')[0]}` : 'دخول المدير'}
           </h1>
@@ -100,7 +103,7 @@ export function Login() {
                 dir="ltr"
                 type={showPass ? 'text' : 'password'}
                 autoComplete="current-password"
-                className="field"
+                className="field login-pass"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
               />

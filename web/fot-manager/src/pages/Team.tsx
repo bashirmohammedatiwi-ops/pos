@@ -8,7 +8,7 @@ import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProdu
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
-  Badge, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero, Podium,
+  Badge, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero,
   Ring, SearchField, SectionCard, Sheet, Skeleton, StatGrid, Track, useToast,
 } from '../ui';
 import { avgTicket, todayKey } from '../api';
@@ -109,7 +109,6 @@ export function Team() {
       <PageHero
         kicker={`فريق المبيعات · ${period.label}`}
         title="البائعون"
-        value={moneyIq(salesTotal)}
         hint={`${rows.length} بائعاً · ${periodTotals.receipts} فاتورة`}
         stale={stale}
       >
@@ -136,21 +135,6 @@ export function Team() {
           <Link to="/goals" className="pill">الأهداف</Link>
         </div>
       </PageHero>
-
-      {rows.filter(s => s.salesAmount > 0).length > 0 && (
-        <Podium
-          items={rows.filter(s => s.salesAmount > 0).slice(0, 3).map(s => ({
-            id: String(s.salesmanId),
-            name: s.name,
-            value: moneyIq(s.commissionAmount),
-            hint: s.goalCount > 0 ? `تاركت ${Math.round(s.goalPercent)}%` : 'أعلى عمولة',
-          }))}
-          onPick={item => {
-            const hit = rows.find(s => s.name === item.name);
-            if (hit) void openSeller(hit);
-          }}
-        />
-      )}
 
       <section className="people-toolbar card">
         <SearchField value={q} onChange={setQ} placeholder="ابحث باسم البائع" />

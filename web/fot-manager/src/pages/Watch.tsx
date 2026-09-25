@@ -63,7 +63,7 @@ export function Watch() {
 
   return (
     <div className="page-flow fade-up">
-      <section className="card home-section">
+      <section className="card home-section surface-hero">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="kicker">متابعة مباشرة</p>

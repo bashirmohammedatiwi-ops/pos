@@ -51,7 +51,7 @@ export function Report() {
         setCustom={setCustom}
       />
 
-      <section className="card home-section">
+      <section className="card home-section surface-hero">
         <p className="kicker">تقرير المتابعة · {period.label}</p>
         <h1 className="display text-[28px] font-black">يومي · أسبوعي · دقيق</h1>
         <p className="mt-2 text-sm font-bold text-muted">أسبوع {weekRange(week.weekStart, week.weekEnd)}</p>
