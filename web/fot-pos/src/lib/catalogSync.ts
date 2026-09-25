@@ -92,12 +92,15 @@ export async function findProductSmart(code: string, online: boolean): Promise<P
     }
     return withOfferSalePrice(local);
   }
-  if (online && !isServerUnreachable()) {
-    void api.productByBarcode(code).then(remote => {
-      if (remote) void db.upsertProducts([withOfferSalePrice(remote)]);
-    }).catch(() => { /* next scan uses the copy once it lands */ });
+  if (!online || isServerUnreachable()) return null;
+  try {
+    const remote = await api.productByBarcode(code);
+    if (!remote) return null;
+    void db.upsertProducts([withOfferSalePrice(remote)]);
+    return withOfferSalePrice(remote);
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export async function findDiscountQr(code: string, online: boolean): Promise<DiscountQrPerson | null> {

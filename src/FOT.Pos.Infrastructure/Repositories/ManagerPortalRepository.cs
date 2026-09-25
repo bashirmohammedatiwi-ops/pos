@@ -55,7 +55,8 @@ public sealed class ManagerPortalRepository(
             goals,
             await ListLinesAsync(start, end, ct),
             await ListProductsAsync(start, end, ct),
-            await ListDaysAsync(start, end, ct));
+            await ListDaysAsync(start, end, ct),
+            await ListCashierDaysAsync(start, end, ct));
     }
 
     public async Task<ManagerHubSnapshotDto> BuildSnapshotAsync(int weekCount, CancellationToken ct)
@@ -88,13 +89,14 @@ public sealed class ManagerPortalRepository(
                     goals,
                     await Safe(() => ListLinesAsync(start, end, ct)),
                     await Safe(() => ListProductsAsync(start, end, ct)),
-                    await Safe(() => ListDaysAsync(start, end, ct))));
+                    await Safe(() => ListDaysAsync(start, end, ct)),
+                    await Safe(() => ListCashierDaysAsync(start, end, ct))));
             }
             catch
             {
                 var empty = new ManagerWeekSummaryDto(start, end, i == 0, 0, 0, 0, 0, 0, 0);
                 weeks.Add(empty);
-                packs.Add(new ManagerWeekPackDto(start, empty, [], [], [], [], [], [], []));
+                packs.Add(new ManagerWeekPackDto(start, empty, [], [], [], [], [], [], [], []));
             }
         }
 

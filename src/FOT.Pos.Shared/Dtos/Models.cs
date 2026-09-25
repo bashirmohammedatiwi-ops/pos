@@ -255,7 +255,8 @@ public record ManagerWeekPackDto(
     IReadOnlyList<ManagerGoalRowDto> Goals,
     IReadOnlyList<ManagerLineDto> Lines,
     IReadOnlyList<ManagerProductRowDto> Products,
-    IReadOnlyList<ManagerDayRowDto> Days);
+    IReadOnlyList<ManagerDayRowDto> Days,
+    IReadOnlyList<ManagerCashierDayDto>? CashierDays = null);
 
 public record ManagerHubSnapshotDto(
     IReadOnlyList<ManagerWeekSummaryDto> Weeks,

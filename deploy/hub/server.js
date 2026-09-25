@@ -564,10 +564,38 @@ function presentLines(lines) {
   });
 }
 
+function readCashierDays(pack) {
+  const rows = pack?.cashierDays || pack?.CashierDays;
+  return Array.isArray(rows) ? rows : null;
+}
+
+function cashiersFromDays(rows) {
+  const map = new Map();
+  for (const row of rows || []) {
+    const name = String(row.name ?? row.Name ?? '').trim();
+    if (!name) continue;
+    const id = Number(row.cashierId ?? row.CashierId) || 0;
+    const key = `${id}:${name.toLowerCase()}`;
+    const cur = map.get(key) || {
+      cashierId: id, name, salesAmount: 0, commissionAmount: 0, receiptCount: 0, pieceCount: 0,
+    };
+    cur.salesAmount += n(row.salesAmount ?? row.SalesAmount);
+    cur.receiptCount += n(row.receiptCount ?? row.ReceiptCount);
+    cur.pieceCount += n(row.pieceCount ?? row.PieceCount);
+    map.set(key, cur);
+  }
+  return [...map.values()]
+    .filter((c) => c.salesAmount !== 0 || c.receiptCount > 0)
+    .sort((a, b) => b.salesAmount - a.salesAmount || b.receiptCount - a.receiptCount);
+}
+
 function presentPack(pack) {
   if (!pack) return null;
   const lines = presentLines(pack.lines || pack.Lines || []);
-  const cashiers = unifyCashiers(pack.cashiers || pack.Cashiers, pack.malls || pack.Malls, lines);
+  const cashierDays = readCashierDays(pack);
+  const cashiers = cashierDays
+    ? cashiersFromDays(cashierDays)
+    : unifyCashiers(pack.cashiers || pack.Cashiers, pack.malls || pack.Malls, lines);
   const days = presentDays(pack, lines);
   const malls = cashiers.map((c) => ({
     sectionId: c.cashierId,
@@ -598,6 +626,7 @@ function presentPack(pack) {
     Products: pack.products || pack.Products || [],
     days,
     Days: days,
+    ...(cashierDays ? { cashierDays, CashierDays: cashierDays } : {}),
     week,
     Week: week,
   };
@@ -856,6 +885,7 @@ const server = http.createServer(async (req, res) => {
           goals,
           products: products.slice(0, 40),
           days,
+          ...(readCashierDays(pack) ? { cashierDays: readCashierDays(pack) } : {}),
           lastSyncAt: state.lastSyncAt,
         });
         return;
