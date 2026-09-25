@@ -97,9 +97,9 @@ export function IconComm() {
 }
 
 const STROKE: Record<string, string> = {
-  teal: '#0d9488', ok: '#15803d', goal: '#4338ca', warn: '#d97706', gold: '#0f766e',
+  teal: '#101628', ok: '#15803d', goal: '#c9a227', warn: '#b45309', gold: '#8a7340',
 };
-const DONUT = ['#0f766e', '#4338ca', '#14b8a6', '#7c3aed', '#0ea5e9', '#c9a227', '#94a3b8'];
+const DONUT = ['#101628', '#c9a227', '#8a7340', '#1a2236', '#d4a84a', '#5c4a28', '#aeb8c9'];
 
 export function BrandMark({ size = 40 }: { size?: number }) {
   return (
@@ -112,7 +112,7 @@ export function BrandMark({ size = 40 }: { size?: number }) {
       </defs>
       <rect width="64" height="64" rx="32" fill="url(#bm)" />
       <path d="M18 40 V24 l14-8 14 8 v16" fill="none" stroke="#ffffff" strokeWidth="3.2" />
-      <circle cx="32" cy="34" r="6" fill="#fbbf24" />
+      <circle cx="32" cy="34" r="6" fill="#e4c56a" />
     </svg>
   );
 }
@@ -205,15 +205,15 @@ export function Ring({
   const c = 2 * Math.PI * r;
   return (
     <svg className="ring" width={size} height={size} viewBox="0 0 80 80">
-      <circle cx="40" cy="40" r="34" fill="#f8fafc" />
-      <circle cx="40" cy="40" r={r} stroke="#e2e8f0" strokeWidth="8" fill="none" />
+      <circle cx="40" cy="40" r="34" fill="#f7f3ea" />
+      <circle cx="40" cy="40" r={r} stroke="#e6e0d4" strokeWidth="8" fill="none" />
       <circle
         cx="40" cy="40" r={r} fill="none" stroke={color}
         strokeWidth="8" strokeLinecap="round"
         strokeDasharray={`${(c * v) / 100} ${c}`}
         transform="rotate(-90 40 40)"
       />
-      <text x="40" y={label ? 38 : 45} textAnchor="middle" fontSize="15" fontWeight="800" fill="#0f172a">{Math.round(v)}%</text>
+      <text x="40" y={label ? 38 : 45} textAnchor="middle" fontSize="15" fontWeight="800" fill="#101628">{Math.round(v)}%</text>
       {label && <text x="40" y="52" textAnchor="middle" fontSize="8" fontWeight="700" fill="#64748b">{label}</text>}
     </svg>
   );
@@ -232,7 +232,7 @@ export function Donut({
   let offset = 0;
   return (
     <svg className="donut" width={size} height={size} viewBox="0 0 160 160">
-      <circle cx="80" cy="80" r={r} fill="none" stroke="#f1f5f9" strokeWidth="20" />
+      <circle cx="80" cy="80" r={r} fill="none" stroke="#efe8da" strokeWidth="20" />
       {total > 0 && items.map((item, i) => {
         const dash = (Math.max(0, item.value) / total) * c;
         const el = (
@@ -251,7 +251,7 @@ export function Donut({
       })}
       <circle cx="80" cy="80" r="38" fill="#ffffff" />
       {center && (
-        <text x="80" y="85" textAnchor="middle" fontSize="13" fontWeight="800" fill="#0f172a">{center}</text>
+        <text x="80" y="85" textAnchor="middle" fontSize="13" fontWeight="800" fill="#101628">{center}</text>
       )}
     </svg>
   );
@@ -318,17 +318,17 @@ export function AreaChart({ values, height = 128 }: { values: number[]; height?:
     <svg viewBox={`0 0 ${w} ${h}`} className="area-chart" preserveAspectRatio="none">
       <defs>
         <linearGradient id={`ag-${uid}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#4338ca" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="#0f766e" stopOpacity="0.02" />
+          <stop offset="0%" stopColor="#c9a227" stopOpacity="0.34" />
+          <stop offset="100%" stopColor="#c9a227" stopOpacity="0.02" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map(p => (
-        <line key={p} x1="0" x2={w} y1={10 + p * (h - 22)} y2={10 + p * (h - 22)} stroke="#e2e8f0" strokeDasharray="3 6" />
+        <line key={p} x1="0" x2={w} y1={10 + p * (h - 22)} y2={10 + p * (h - 22)} stroke="#e6e0d4" strokeDasharray="3 6" />
       ))}
       <polygon fill={`url(#ag-${uid})`} points={fill} />
-      <polyline fill="none" stroke="#4338ca" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={line} />
-      {peak && <circle cx={peak.x} cy={peak.y} r="4.5" fill="#0f766e" />}
-      {last && <circle cx={last.x} cy={last.y} r="5" fill="#4338ca" stroke="#ffffff" strokeWidth="2" />}
+      <polyline fill="none" stroke="#101628" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={line} />
+      {peak && <circle cx={peak.x} cy={peak.y} r="4.5" fill="#c9a227" />}
+      {last && <circle cx={last.x} cy={last.y} r="5" fill="#101628" stroke="#fbf7ee" strokeWidth="2" />}
     </svg>
   );
 }

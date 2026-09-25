@@ -6,14 +6,13 @@ import { Sheet, useToast } from './ui';
 
 export function ExportMenu({ title = 'تقرير المدير', pay = false }: { title?: string; pay?: boolean }) {
   const {
-    period, payPeriod, periodTotals, payTotals, scopedSellers, paySellers, scopedCashiers, activityLines, payLines, dash,
+    period, payPeriod, periodTotals, payTotals, scopedSellers, paySellers, scopedCashiers, dash,
   } = useManager();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const bounds = pay ? payPeriod : period;
   const totals = pay ? payTotals : periodTotals;
   const sellers = pay ? paySellers : scopedSellers;
-  const lines = pay ? payLines : activityLines;
 
   function report() {
     return buildPeriodReport({
@@ -22,8 +21,9 @@ export function ExportMenu({ title = 'تقرير المدير', pay = false }: {
       totals,
       sellers,
       cashiers: scopedCashiers,
-      lines,
       days: dash?.days,
+      goals: dash?.goals,
+      focus: pay ? 'commission' : 'sales',
     });
   }
 
@@ -60,12 +60,12 @@ export function ExportMenu({ title = 'تقرير المدير', pay = false }: {
           <button type="button" className="export-card" onClick={pdf}>
             <span className="kicker">PDF</span>
             <strong>ملف أنيق للطباعة</strong>
-            <span>احفظه كـ PDF من نافذة الطباعة. يشمل مبيعات المدة والبائعين والفواتير.</span>
+            <span>احفظه كـ PDF من نافذة الطباعة. خلاصة المدة: النتائج، الأيام، البائعون، والكاشير.</span>
           </button>
           <button type="button" className="export-card export-card-excel" onClick={excel}>
             <span className="kicker">Excel</span>
             <strong>جدول إكسل</strong>
-            <span>ملف يفتح في إكسل بنفس المدة: الأيام، العمولات، المنتجات، والفواتير.</span>
+            <span>ملف إكسل بنفس المدة: النتائج الرسمية، الحصص، والعمولات. بدون فواتير أو منتجات.</span>
           </button>
         </div>
       </Sheet>
