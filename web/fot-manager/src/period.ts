@@ -339,14 +339,19 @@ export function mergeScopedCashiers(
   dash: Dashboard | null | undefined,
 ): CashierRow[] {
   if (Array.isArray(dash?.cashierDays)) return cashiersForPeriod(dash.cashierDays, period.from, period.to);
-  if (period.kind === 'week' && roster.some(c => c.salesAmount > 0)) {
+  if (period.kind === 'week' && roster.some(c => c.salesAmount > 0 || c.receiptCount > 0)) {
     return roster.filter(c => c.salesAmount > 0 || c.receiptCount > 0);
   }
-  const fromLines = cashiersFromLines(periodLines, roster);
-  const lineSales = fromLines.reduce((s, c) => s + c.salesAmount, 0);
-  if (fromLines.length > 0 && lineSales > 0) return fromLines;
-  const prorated = proratePeople(roster, period, dash);
-  return prorated.length ? prorated : fromLines;
+  const grouped = cashiersFromLines(periodLines, []);
+  const official = period.kind === 'week'
+    ? { sales: Number(dash?.week?.salesAmount) || 0, receipts: Number(dash?.week?.receiptCount) || 0, pieces: Number(dash?.week?.pieceCount) || 0 }
+    : officialPeriod(dash?.days, period.from, period.to);
+  const raw = grouped.reduce((s, c) => s + c.salesAmount, 0);
+  if (!official || official.sales <= 0 || raw <= 0) return grouped;
+  const ratio = official.sales / raw;
+  return grouped
+    .map(c => ({ ...c, salesAmount: Math.round(c.salesAmount * ratio) }))
+    .filter(c => c.salesAmount > 0 || c.receiptCount > 0);
 }
 
 export function mergeScopedSellers(

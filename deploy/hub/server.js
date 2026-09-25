@@ -308,7 +308,7 @@ function buildManagerFromSellers(snapshots) {
         const commission = n(line.commissionAmount ?? line.CommissionAmount);
         const sales = n(line.salesAmount ?? line.SalesAmount);
         const name = line.productName || line.ProductName || 'منتج';
-        const cashier = pickCashierName(line.cashierName ?? line.CashierName, line.mallName ?? line.MallName);
+        const cashier = pickCashierName(line.cashierName ?? line.CashierName);
         bucket.lines.push({
           id: line.id ?? line.Id,
           salesmanId: sellerId,
@@ -534,13 +534,10 @@ function unifyCashiers(cashiers, malls, lines) {
   for (const c of cashiers || []) {
     add(c.cashierId ?? c.CashierId, c.name ?? c.Name, c.salesAmount ?? c.SalesAmount, c.commissionAmount ?? c.CommissionAmount, c.receiptCount ?? c.ReceiptCount, c.pieceCount ?? c.PieceCount);
   }
-  for (const m of malls || []) {
-    add(m.sectionId ?? m.SectionId, m.sectionName ?? m.SectionName, m.salesAmount ?? m.SalesAmount, m.commissionAmount ?? m.CommissionAmount, m.receiptCount ?? m.ReceiptCount, m.pieceCount ?? m.PieceCount);
-  }
   if (!map.size) {
     const agg = new Map();
     for (const line of lines || []) {
-      const name = pickCashierName(line.cashierName ?? line.CashierName, line.mallName ?? line.MallName);
+      const name = pickCashierName(line.cashierName ?? line.CashierName);
       if (!name) continue;
       const key = name.toLowerCase();
       const row = agg.get(key) || { name, sales: 0, comm: 0, receipts: new Set(), pieces: 0 };
@@ -558,10 +555,11 @@ function unifyCashiers(cashiers, malls, lines) {
 }
 
 function presentLines(lines) {
-  return (lines || []).map((line) => {
-    const cashier = pickCashierName(line.cashierName ?? line.CashierName, line.mallName ?? line.MallName);
-    return { ...line, cashierName: cashier || null, mallName: cashier || null };
-  });
+  return (lines || []).map((line) => ({
+    ...line,
+    cashierName: pickCashierName(line.cashierName ?? line.CashierName) || null,
+    mallName: String(line.mallName ?? line.MallName ?? '').trim() || null,
+  }));
 }
 
 function readCashierDays(pack) {

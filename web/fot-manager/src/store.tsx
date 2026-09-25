@@ -8,8 +8,8 @@ import {
 } from './period';
 import { useWeek } from './week';
 
-const CACHE_KEY = 'fot_manager_cache_v4';
-const LEGACY_CACHE_KEYS = ['fot_manager_cache', 'fot_manager_cache_v2'];
+const CACHE_KEY = 'fot_manager_cache_v5';
+const LEGACY_CACHE_KEYS = ['fot_manager_cache', 'fot_manager_cache_v2', 'fot_manager_cache_v4'];
 const PERIOD_KEY = 'fot_manager_period';
 const PAY_KEY = 'fot_manager_pay';
 const RANGE_KEY = 'fot_manager_range';
