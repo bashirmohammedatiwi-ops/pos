@@ -25,6 +25,6 @@ export function onInputClickVisualRight(e: MouseEvent<HTMLInputElement | HTMLTex
 
 export function focusInputVisualRight(el: HTMLInputElement | null | undefined) {
   if (!el) return;
-  el.focus();
+  el.focus({ preventScroll: true });
   requestAnimationFrame(() => placeCaretAtVisualRight(el));
 }

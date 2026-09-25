@@ -192,6 +192,36 @@ public sealed class ManagerPortalRepository(
             0, 0, 0, balances.GetValueOrDefault(r.SalesmanId))).ToList();
     }
 
+    public async Task<IReadOnlyList<ManagerCashierDayDto>> ListCashierDaysAsync(
+        DateTime start, DateTime end, CancellationToken ct)
+    {
+        var sql = $"""
+            SELECT
+                CAST(r.creation_date AS date) AS Day,
+                COALESCE(cash.id, 0) AS CashierId,
+                COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), N'كاشير') AS Name,
+                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                COUNT(*) AS ReceiptCount,
+                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+            FROM reciepts r
+            LEFT JOIN cashiers cash ON cash.id = r.cashier_id
+            LEFT JOIN (
+                SELECT reciept_id, SUM(quantity) AS qty
+                FROM reciept_items
+                GROUP BY reciept_id
+            ) p ON p.reciept_id = r.id
+            WHERE {ReceiptWhere}
+            GROUP BY CAST(r.creation_date AS date), cash.id, cash.account_name, cash.username
+            ORDER BY Day, SUM(r.total_amount) DESC
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return (await conn.QueryAsync<ManagerCashierDayDto>(new CommandDefinition(sql, new
+        {
+            start = start.Date,
+            end = end.Date
+        }, cancellationToken: ct))).ToList();
+    }
+
     private async Task<IReadOnlyList<ManagerCashierRowDto>> ListCashiersAsync(
         DateTime start, DateTime end, CancellationToken ct)
     {
@@ -305,7 +335,7 @@ public sealed class ManagerPortalRepository(
                 r.number AS ReceiptNumber,
                 r.creation_date AS OccurredAt,
                 COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), N'كاشير') AS CashierName,
-                COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'كاشير') AS MallName
+                NULLIF(LTRIM(RTRIM(sec.name)), N'') AS MallName
             FROM reciept_items ri
             INNER JOIN reciepts r ON r.id = ri.reciept_id
             LEFT JOIN salesmen sm ON sm.id = COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0)

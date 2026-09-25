@@ -118,6 +118,10 @@ export interface CashierRow {
   cashierId: number; name: string;
   salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number;
 }
+export interface CashierDayRow {
+  day: string; cashierId: number; name: string;
+  salesAmount: number; receiptCount: number; pieceCount: number;
+}
 export interface MallRow {
   sectionId: number; sectionName: string; branchName?: string | null;
   salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number;
@@ -144,6 +148,7 @@ export interface Dashboard {
   manager: ManagerMe; week: WeekSummary;
   sellers: SellerRow[]; cashiers: CashierRow[]; malls: MallRow[];
   goals: GoalRow[]; products: ProductRow[]; days?: DayRow[]; lastSyncAt?: string | null;
+  cashierDays?: CashierDayRow[];
 }
 export interface SellerGoalGroup {
   salesmanId: number; salesmanName: string; goals: GoalRow[]; avg: number; hit: number;

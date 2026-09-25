@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { formatIqd, formatNum } from '@/lib/money';
 import { lineCommissionAmount, lineTotal, type CartLine } from '@/lib/sale';
 
@@ -6,6 +6,42 @@ function discountPct(line: CartLine) {
   return line.originalPrice > line.price && line.originalPrice > 0
     ? Math.round((1 - line.price / line.originalPrice) * 100)
     : 0;
+}
+
+function CartColGroup({ showGroups, allowDelete }: { showGroups: boolean; allowDelete: boolean }) {
+  return (
+    <colgroup>
+      <col className="pos-col-idx" />
+      <col className="pos-col-code" />
+      <col className="pos-col-name" />
+      <col className="pos-col-seller" />
+      {showGroups && <col className="pos-col-group" />}
+      <col className="pos-col-price" />
+      <col className="pos-col-disc" />
+      <col className="pos-col-qty" />
+      <col className="pos-col-total" />
+      {allowDelete && <col className="pos-col-del" />}
+    </colgroup>
+  );
+}
+
+function CartHead({ showGroups, allowDelete }: { showGroups: boolean; allowDelete: boolean }) {
+  return (
+    <thead>
+      <tr>
+        <th className="pos-td-idx">#</th>
+        <th className="pos-td-code">الباركود</th>
+        <th className="pos-td-name">المنتج</th>
+        <th className="pos-td-seller">المندوب</th>
+        {showGroups && <th className="pos-td-group">مجموعة</th>}
+        <th className="pos-td-price">السعر</th>
+        <th className="pos-td-disc">خصم%</th>
+        <th className="pos-td-qty">الكمية</th>
+        <th className="pos-td-total">الإجمالي</th>
+        {allowDelete && <th className="pos-td-del" aria-label="حذف" />}
+      </tr>
+    </thead>
+  );
 }
 
 export function CartTable({
@@ -47,84 +83,102 @@ export function CartTable({
 }) {
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+  const seenQty = useRef(new Map<string, number>());
+  const followEnd = useRef(false);
   const pieces = cart.reduce((sum, line) => sum + line.quantity, 0);
   const amount = cart.reduce((sum, line) => sum + lineTotal(line), 0);
+  const lastKey = cart[cart.length - 1]?.key ?? null;
 
-  const pinAddedRow = (key: string, flash: boolean) => {
+  const syncHead = () => {
     const scroller = scrollerRef.current;
-    const row = rowRefs.current.get(key);
-    if (flash && row) {
-      row.classList.remove('is-flash');
-      void row.offsetWidth;
-      row.classList.add('is-flash');
-    }
-    if (!scroller) return;
-    scroller.scrollTop = scroller.scrollHeight;
+    const head = headRef.current;
+    if (!scroller || !head) return;
+    if (head.scrollLeft !== scroller.scrollLeft) head.scrollLeft = scroller.scrollLeft;
   };
 
-  const revealSelected = (key: string) => {
+  const showEnd = () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    // column-reverse: 0 is the last row. A later layout that clears scroll
+    // stays on that row instead of jumping back to the first one.
+    scroller.scrollTop = 0;
+    syncHead();
+  };
+
+  const showRow = (key: string) => {
     const scroller = scrollerRef.current;
     const row = rowRefs.current.get(key);
-    if (!scroller || !row) return;
-    const headerH = (scroller.querySelector('thead') as HTMLElement | null)?.getBoundingClientRect().height ?? 34;
-    const pad = 12;
+    if (!scroller || !row || key === lastKey) {
+      showEnd();
+      return;
+    }
     const box = scroller.getBoundingClientRect();
     const rowBox = row.getBoundingClientRect();
-    if (rowBox.bottom > box.bottom - pad) scroller.scrollTop += rowBox.bottom - (box.bottom - pad);
-    else if (rowBox.top < box.top + headerH + 4) scroller.scrollTop += rowBox.top - (box.top + headerH + 4);
+    if (rowBox.bottom > box.bottom - 4 || rowBox.top < box.top + 4) {
+      scroller.scrollTop += rowBox.top - (box.top + 8);
+    }
+    syncHead();
   };
 
-  useEffect(() => {
-    if (!flashKey) return;
-    let cancelled = false;
-    const run = () => { if (!cancelled) pinAddedRow(flashKey, true); };
-    run();
-    const frame = window.requestAnimationFrame(run);
-    const t1 = window.setTimeout(run, 40);
-    const t2 = window.setTimeout(run, 160);
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
+  useLayoutEffect(() => {
+    const row = flashKey ? rowRefs.current.get(flashKey) : null;
+    if (!row) return;
+    row.classList.remove('is-flash');
+    void row.offsetWidth;
+    row.classList.add('is-flash');
+  }, [flashKey, flashGen]);
+
+  useLayoutEffect(() => {
+    const prev = seenQty.current;
+    let reveal: string | null = prev.size === 0 ? lastKey : null;
+    for (const line of cart) {
+      const was = prev.get(line.key);
+      if (was == null || was !== line.quantity) reveal = line.key;
+    }
+    seenQty.current = new Map(cart.map(line => [line.key, line.quantity]));
+    if (!reveal) return;
+    if (reveal !== lastKey) {
+      showRow(reveal);
+      return;
+    }
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    followEnd.current = true;
+    const pin = () => {
+      if (!followEnd.current || scroller.scrollTop === 0) return;
+      scroller.scrollTop = 0;
     };
-  }, [cart, flashKey, flashGen]);
+    const release = () => { followEnd.current = false; };
+    pin();
+    scroller.addEventListener('scroll', pin);
+    scroller.addEventListener('wheel', release, { passive: true });
+    scroller.addEventListener('pointerdown', release);
+    return () => {
+      scroller.removeEventListener('scroll', pin);
+      scroller.removeEventListener('wheel', release);
+      scroller.removeEventListener('pointerdown', release);
+    };
+  }, [cart, lastKey]);
 
   useEffect(() => {
-    if (!selectedKey || selectedKey === flashKey) return;
-    revealSelected(selectedKey);
-  }, [flashKey, selectedKey]);
+    if (!selectedKey || selectedKey === lastKey) return;
+    followEnd.current = false;
+    showRow(selectedKey);
+  }, [selectedKey, lastKey]);
 
   return (
     <div className="pos-cart-sheet">
-      <div className="pos-cart-sheet-scroll" ref={scrollerRef}>
+      <div className="pos-cart-sheet-head" ref={headRef}>
         <table className="pos-cart-table pos-cart-excel">
-          <colgroup>
-            <col className="pos-col-idx" />
-            <col className="pos-col-code" />
-            <col className="pos-col-name" />
-            <col className="pos-col-seller" />
-            {showGroups && <col className="pos-col-group" />}
-            <col className="pos-col-price" />
-            <col className="pos-col-disc" />
-            <col className="pos-col-qty" />
-            <col className="pos-col-total" />
-            {allowDelete && <col className="pos-col-del" />}
-          </colgroup>
-          <thead>
-            <tr>
-              <th className="pos-td-idx">#</th>
-              <th className="pos-td-code">الباركود</th>
-              <th className="pos-td-name">المنتج</th>
-              <th className="pos-td-seller">المندوب</th>
-              {showGroups && <th className="pos-td-group">مجموعة</th>}
-              <th className="pos-td-price">السعر</th>
-              <th className="pos-td-disc">خصم%</th>
-              <th className="pos-td-qty">الكمية</th>
-              <th className="pos-td-total">الإجمالي</th>
-              {allowDelete && <th className="pos-td-del" aria-label="حذف" />}
-            </tr>
-          </thead>
+          <CartColGroup showGroups={showGroups} allowDelete={allowDelete} />
+          <CartHead showGroups={showGroups} allowDelete={allowDelete} />
+        </table>
+      </div>
+      <div className="pos-cart-sheet-scroll is-follow" ref={scrollerRef} onScroll={syncHead}>
+        <div className="pos-cart-sheet-spacer" aria-hidden />
+        <table className="pos-cart-table pos-cart-excel">
+          <CartColGroup showGroups={showGroups} allowDelete={allowDelete} />
           <tbody>
             {cart.map((line, index) => {
               const pct = discountPct(line);
@@ -239,7 +293,6 @@ export function CartTable({
             })}
           </tbody>
         </table>
-        <div className="pos-cart-sheet-end" aria-hidden />
       </div>
       <div className="pos-cart-excel-foot">
         <span>{formatNum(cart.length)} بند</span>

@@ -7,10 +7,40 @@ var shopPort = int.Parse(Get("--shop", "5000"));
 var auth = Get("--auth", "fot:e7Kq9mN2pL4xW8vR");
 var workers = int.Parse(Get("--workers", "8"));
 
-Console.WriteLine($"Connecting {workers} workers to {host}:{tunnelPort} -> shop 127.0.0.1:{shopPort}");
-Console.WriteLine("Leave this window open.");
+using var mutex = new Mutex(false, @"Local\FOT.Pos.ShopTunnel");
+try
+{
+    if (!mutex.WaitOne(0)) return;
+}
+catch (AbandonedMutexException)
+{
+    /* previous tunnel exited without releasing the lock */
+}
 
-var tasks = Enumerable.Range(0, workers).Select(i => RunWorker(i, host, tunnelPort, shopPort, auth)).ToArray();
+var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FOT.Pos", "logs");
+Directory.CreateDirectory(logDir);
+var logPath = Path.Combine(logDir, "shop-tunnel.log");
+void Log(string message)
+{
+    try
+    {
+        File.AppendAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}{Environment.NewLine}");
+    }
+    catch { /* logging must not stop the tunnel */ }
+}
+
+Log($"tunnel start {workers} workers {host}:{tunnelPort} -> 127.0.0.1:{shopPort}");
+
+var nextLogAt = 0L;
+void LogRetry(string message)
+{
+    var now = Environment.TickCount64;
+    if (now < nextLogAt) return;
+    nextLogAt = now + 60_000;
+    Log(message);
+}
+
+var tasks = Enumerable.Range(0, workers).Select(i => RunWorker(i, host, tunnelPort, shopPort, auth, LogRetry)).ToArray();
 await Task.WhenAll(tasks);
 return;
 
@@ -23,7 +53,7 @@ static string Get(string name, string fallback)
     return fallback;
 }
 
-static async Task RunWorker(int id, string host, int tunnelPort, int shopPort, string auth)
+static async Task RunWorker(int id, string host, int tunnelPort, int shopPort, string auth, Action<string> log)
 {
     var authBytes = Encoding.ASCII.GetBytes($"AUTH {auth}\n");
     var go = "GO\n"u8.ToArray();
@@ -49,8 +79,8 @@ static async Task RunWorker(int id, string host, int tunnelPort, int shopPort, s
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{id}] {ex.Message}");
-            await Task.Delay(3000);
+            if (id == 0) log($"tunnel retry: {ex.Message}");
+            await Task.Delay(8000);
         }
     }
 }

@@ -10,6 +10,7 @@ import type {
   CashReportDto,
   CashierPermissionsDto,
   AllocateReceiptNumberResponse,
+  ReserveReceiptNumbersResponse,
   CreateReceiptResponse,
   HoldReceiptDto,
   PosSessionDto,
@@ -321,6 +322,13 @@ export const api = {
       method: 'POST',
       timeoutMs: SALE_TIMEOUT_MS,
       body: JSON.stringify({ cashierId }),
+    }),
+
+  reserveReceiptNumbers: (body: { cashierId: number; count: number; hwId?: string; clientSeq: number }) =>
+    request<ReserveReceiptNumbersResponse>('/api/receipts/reserve-numbers', {
+      method: 'POST',
+      timeoutMs: 8_000,
+      body: JSON.stringify(body),
     }),
 
   heartbeat: async (

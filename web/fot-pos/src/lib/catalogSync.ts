@@ -6,6 +6,7 @@ import { withOfferSalePrice, withOfferSalePrices } from '@/lib/offerPrice';
 import { isServerUnreachable } from '@/lib/connectionGate';
 import { fixEdariName } from '@/lib/text';
 import { getHwId } from '@/lib/money';
+import { rememberSale } from '@/lib/saleMirror';
 import { seedDeferredHistory, withSoldAt, type ReceiptHistoryCarrier } from './receiptHistory';
 import { db, type OutboxRow, type OutboxStatus } from './db';
 
@@ -30,56 +31,87 @@ export async function rememberOfficialNumber(number: number) {
  * Official number before print: reserve from the shop when online, otherwise a local
  * sequence that the server will adopt (or reject if stale, then we reprint).
  */
+const NUMBER_BLOCK = 40;
+const NUMBER_REFILL_AT = 8;
+
+/** Sale click never waits on the server. The printed number comes from the local official sequence. */
 export async function takeReceiptNumber(opts: {
   cashierId: number;
   cashierCode: number;
-  online: boolean;
+  online?: boolean;
 }): Promise<number> {
-  if (opts.online && !isServerUnreachable()) {
-    try {
-      const reserved = await api.nextReceiptNumber(opts.cashierId);
-      if (reserved.number > 0) {
-        if (reserved.seq > 0) await db.seedReceiptSeq(opts.cashierCode || reserved.cashierCode, reserved.seq);
-        else await rememberOfficialNumber(reserved.number);
-        return reserved.number;
-      }
-    } catch {
-      /* shop unreachable — fall back to a local number */
+  void opts.cashierId;
+  void opts.online;
+  return db.nextLocalNumber(opts.cashierCode);
+}
+
+/**
+ * Tops up the reserved official-number block in the background.
+ * The cashier never calls this while saving a sale.
+ */
+export async function ensureNumberBlock(cashierId: number, cashierCode: number) {
+  if (cashierId <= 0 || isServerUnreachable()) return;
+  const year = new Date().getFullYear();
+  const code = cashierCode > 0 ? cashierCode : 9;
+  const throughKey = `receipt_block_through_${year}_${code}`;
+  const usedKey = `offline_receipt_seq_${year}_${code}`;
+  const through = Number((await db.getMeta(throughKey)) ?? '0') || 0;
+  const used = Number((await db.getMeta(usedKey)) ?? '0') || 0;
+  if (through - used >= NUMBER_REFILL_AT) return;
+  const reserved = await api.reserveReceiptNumbers({
+    cashierId,
+    count: NUMBER_BLOCK,
+    hwId: getHwId() || undefined,
+    clientSeq: used,
+  });
+  const reservedCode = reserved.cashierCode || code;
+  const jumpKey = `receipt_seq_jump_${year}_${reservedCode}`;
+  const ownedKey = `receipt_owned_through_${year}_${reservedCode}`;
+  const stillPrinting = through > 0 && used < through;
+  if (stillPrinting && reserved.fromSeq > through + 1) {
+    // Finish the numbers this terminal already owns, then skip the gap another terminal reserved.
+    await db.setMeta(ownedKey, String(through));
+    await db.setMeta(jumpKey, String(reserved.fromSeq));
+  } else {
+    await db.setMeta(ownedKey, '');
+    await db.setMeta(jumpKey, '');
+    if (!stillPrinting && reserved.fromSeq > used + 1) {
+      await db.seedReceiptSeq(reservedCode, reserved.fromSeq - 1);
     }
   }
-  return db.nextLocalNumber(opts.cashierCode);
+  await db.setMeta(`receipt_block_through_${year}_${reservedCode}`, String(reserved.throughSeq));
 }
 
 export async function findProductSmart(code: string, online: boolean): Promise<ProductDto | null> {
   const local = await db.findProduct(code);
-  if (online && !isServerUnreachable()) {
-    try {
-      const remote = await api.productByBarcode(code);
-      if (remote) {
-        const priced = withOfferSalePrice(remote);
-        void db.upsertProducts([priced]);
-        return priced;
-      }
-    } catch {
-      /* offline / timeout — use the local catalog */
+  if (local) {
+    if (online && !isServerUnreachable()) {
+      void api.productByBarcode(code).then(remote => {
+        if (remote) void db.upsertProducts([withOfferSalePrice(remote)]);
+      }).catch(() => { /* price refresh is background-only */ });
     }
+    return withOfferSalePrice(local);
   }
-  return local ? withOfferSalePrice(local) : null;
+  if (online && !isServerUnreachable()) {
+    void api.productByBarcode(code).then(remote => {
+      if (remote) void db.upsertProducts([withOfferSalePrice(remote)]);
+    }).catch(() => { /* next scan uses the copy once it lands */ });
+  }
+  return null;
 }
 
 export async function findDiscountQr(code: string, online: boolean): Promise<DiscountQrPerson | null> {
   const normalized = normalizeDiscountQrCode(code);
   if (!isDiscountQrCode(normalized)) return null;
-  const local = (await db.loadDiscountQrPeople()).find(p => p.code === normalized) ?? null;
+  const people = await db.loadDiscountQrPeople();
+  const local = people.find(p => normalizeDiscountQrCode(p.code) === normalized);
   if (local) return local;
   if (!online || isServerUnreachable()) return null;
   try {
     const remote = await api.lookupDiscountQr(normalized);
-    if (remote) {
-      const cached = await db.loadDiscountQrPeople();
-      await db.saveDiscountQrPeople([remote, ...cached.filter(p => p.id !== remote.id)]);
-    }
-    return remote;
+    const person: DiscountQrPerson = { id: remote.id, name: remote.name, code: remote.code || normalized };
+    await db.saveDiscountQrPeople([...people.filter(p => p.id !== person.id), person]);
+    return person;
   } catch {
     return null;
   }
@@ -87,12 +119,13 @@ export async function findDiscountQr(code: string, online: boolean): Promise<Dis
 
 export async function searchProductsSmart(q: string, online: boolean): Promise<ProductDto[]> {
   const local = withOfferSalePrices(await db.searchProducts(q));
-  if (local.length > 0 || !online || isServerUnreachable()) return local;
-  try {
-    return withOfferSalePrices(await api.searchProducts(q));
-  } catch {
-    return local;
+  if (online && !isServerUnreachable() && local.length === 0) {
+    void api.searchProducts(q).then(remote => {
+      const priced = withOfferSalePrices(remote);
+      if (priced.length) void db.upsertProducts(priced);
+    }).catch(() => { /* search stays on the local catalog */ });
   }
+  return local;
 }
 
 export async function syncCatalog(): Promise<{ products: number; lastSeq: number; removed: number }> {
@@ -231,6 +264,7 @@ export async function enqueueReceipt(
     lastError: null,
     status,
   });
+  await rememberSale(parked, localNumber);
   return localNumber;
 }
 
@@ -263,10 +297,15 @@ export async function transferDeferred(ids?: number[]): Promise<number> {
   return targets.length;
 }
 
+function outboxTime(row: OutboxRow) {
+  const t = Date.parse(row.createdAt);
+  return Number.isFinite(t) ? t : 0;
+}
+
 export async function flushOutbox(): Promise<FlushOutboxResult> {
   const result: FlushOutboxResult = { uploaded: 0, failed: 0, dead: 0, stopped: false, renumbered: [] };
   if (isServerUnreachable()) return result;
-  const rows = await db.pending();
+  const rows = (await db.pending()).slice().sort((a, b) => outboxTime(a) - outboxTime(b) || (a.id ?? 0) - (b.id ?? 0));
   for (const row of rows) {
     if (row.id == null) continue;
     // Deferred invoices wait for the explicit transfer button; dead ones wait for manual retry.
@@ -289,17 +328,17 @@ export async function flushOutbox(): Promise<FlushOutboxResult> {
       await db.removeOutbox(row.id);
       result.uploaded++;
     } catch (e) {
-      if (e instanceof ApiError && (e.status === 0 || e.status === 408)) {
-        result.stopped = true;
-        result.failed++;
-        break;
-      }
-      if (e instanceof ApiError && e.status === 401) {
+      if (e instanceof ApiError && (e.status === 0 || e.status === 408 || e.status === 401)) {
         result.stopped = true;
         result.failed++;
         break;
       }
       const message = e instanceof Error ? e.message : 'فشل الرفع';
+      // The original sale is still in this queue — retry the return next cycle, don't kill it.
+      if (message.includes('لم تُرفع بعد')) {
+        result.failed++;
+        continue;
+      }
       await db.markOutboxError(row.id, message, isPermanentReceiptError(e));
       if (isPermanentReceiptError(e) || (row.retryCount ?? 0) + 1 >= OUTBOX_MAX_RETRIES) result.dead++;
       else result.failed++;

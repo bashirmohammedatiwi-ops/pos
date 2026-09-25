@@ -8,27 +8,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $project = Join-Path $PSScriptRoot "..\tools\Fot.ShopTunnel\Fot.ShopTunnel.csproj"
-
-function Test-LocalPort([int]$Port) {
-    try {
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        $iar = $tcp.BeginConnect("127.0.0.1", $Port, $null, $null)
-        $ok = $iar.AsyncWaitHandle.WaitOne(2500, $false) -and $tcp.Connected
-        $tcp.Close()
-        return $ok
-    } catch {
-        return $false
-    }
+$out = Join-Path $env:ProgramData "FOT.Pos\tunnel"
+$exe = Join-Path $out "Fot.ShopTunnel.exe"
+if (-not (Test-Path $exe)) {
+    dotnet publish $project -c Release -o $out --nologo -v q
 }
-
-Write-Host "[1] Checking shop API on this PC..." -ForegroundColor Cyan
-if (-not (Test-LocalPort $ShopPort)) {
-    Write-Host "FOT POS Server is not running on port $ShopPort. Start it, then run this again." -ForegroundColor Red
-    exit 1
-}
-Write-Host "    Shop API is up at 127.0.0.1:$ShopPort" -ForegroundColor Green
-Write-Host "[2] Connecting shop to ${VpsHost}:$TunnelPort" -ForegroundColor Cyan
-Write-Host "    Leave this window open. Closing it brings back the shop-down error." -ForegroundColor DarkCyan
-
-dotnet run --project $project -c Release --no-launch-profile -- `
-    --host $VpsHost --tunnel $TunnelPort --shop $ShopPort --auth $Auth --workers 8
+$running = Get-CimInstance Win32_Process -Filter "Name='Fot.ShopTunnel.exe'" -ErrorAction SilentlyContinue
+if ($running) { exit 0 }
+Start-Process -FilePath $exe -WindowStyle Hidden -ArgumentList @(
+    "--host", $VpsHost, "--tunnel", "$TunnelPort", "--shop", "$ShopPort", "--auth", $Auth, "--workers", "8"
+)

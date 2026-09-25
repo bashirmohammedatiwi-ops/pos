@@ -4,7 +4,7 @@ import type { DiscountQrPerson } from '@fot/shared';
 import type { AccountSummaryDto, ArticleGroupDto, ArticleGroupItemDto, PrintSettingsDto, ProductDto, SalesmanDto } from '@/api/types';
 
 const DB_NAME = 'fot-pos';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export type OutboxStatus = 'queued' | 'deferred';
 
@@ -284,6 +284,9 @@ const idb = {
         next = parsed.seq + 1;
       }
     }
+    const jumpTo = Number((await this.getMeta(`receipt_seq_jump_${year}_${code}`)) ?? '0') || 0;
+    const ownedThrough = Number((await this.getMeta(`receipt_owned_through_${year}_${code}`)) ?? '0') || 0;
+    if (jumpTo > next && ownedThrough > 0 && next > ownedThrough) next = jumpTo;
     await this.setMeta(key, String(next));
     return formatReceiptNumber(year, code, next);
   },
@@ -507,6 +510,29 @@ export const db = {
     nativeStore()?.saveTodayReceipts?.(list) ?? idb.saveTodayReceipts(list),
   loadTodayReceipts: async () =>
     ((await nativeStore()?.loadTodayReceipts?.()) as unknown[] | undefined) ?? idb.loadTodayReceipts(),
-  saveDiscountQrPeople: (list: DiscountQrPerson[]) => idb.saveDiscountQrPeople(list),
-  loadDiscountQrPeople: () => idb.loadDiscountQrPeople(),
+  saveDiscountQrPeople: async (list: DiscountQrPerson[]) => {
+    const json = JSON.stringify(list);
+    const native = nativeStore();
+    if (native) {
+      try { await native.setMeta('discount_qr_people', json); } catch { /* sqlite mirror is optional */ }
+    }
+    try { await idb.setMeta('discount_qr_people', json); } catch { /* store may still be opening */ }
+    try { await idb.saveDiscountQrPeople(list); } catch { /* meta copy is enough to scan */ }
+  },
+  loadDiscountQrPeople: async () => {
+    try {
+      const rows = await idb.loadDiscountQrPeople();
+      if (rows.length) return rows;
+    } catch { /* read the meta mirror */ }
+    const native = nativeStore();
+    const raw = (native ? await native.getMeta('discount_qr_people') : null)
+      ?? await idb.getMeta('discount_qr_people');
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as DiscountQrPerson[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  },
 };

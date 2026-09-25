@@ -328,6 +328,9 @@ function openCatalogStore(dbPath) {
           next = parsed.seq + 1;
         }
       }
+      const jumpTo = Number(this.getMeta(`receipt_seq_jump_${year}_${code}`) ?? '0') || 0;
+      const ownedThrough = Number(this.getMeta(`receipt_owned_through_${year}_${code}`) ?? '0') || 0;
+      if (jumpTo > next && ownedThrough > 0 && next > ownedThrough) next = jumpTo;
       this.setMeta(key, String(next));
       return formatReceiptNumber(year, code, next);
     },

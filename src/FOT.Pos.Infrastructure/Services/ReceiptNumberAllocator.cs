@@ -1,5 +1,6 @@
 using Dapper;
 using FOT.Pos.Shared;
+using FOT.Pos.Shared.Dtos;
 using Microsoft.Data.SqlClient;
 
 namespace FOT.Pos.Infrastructure.Services;
@@ -60,6 +61,64 @@ public sealed class ReceiptNumberAllocator
         return ReceiptNumberFormatter.Compose(year, cashierCode, seq.Value);
     }
 
+    /// <summary>
+    /// Advances the cashier sequence by <paramref name="count"/> and records the range as owned
+    /// by <paramref name="hwId"/>. The terminal prints those numbers offline; adopt accepts them later.
+    /// </summary>
+    public async Task<ReserveReceiptNumbersResponse> ReserveBlockAsync(
+        System.Data.Common.DbConnection conn,
+        System.Data.Common.DbTransaction tx,
+        long cashierId,
+        int count,
+        string? hwId,
+        int clientSeq,
+        CancellationToken ct)
+    {
+        if (count < 1) count = 1;
+        if (count > 200) count = 200;
+
+        var year = DateTime.Now.Year;
+        var cashierCode = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT receipt_num FROM cashiers WITH (UPDLOCK, HOLDLOCK) WHERE id = @cashierId",
+            new { cashierId }, transaction: tx, cancellationToken: ct));
+        if (cashierCode <= 0)
+            throw new InvalidOperationException("رقم الكاشير غير مهيأ — راجع إعدادات الكاشير في الإدارة");
+
+        var lastSeq = await conn.ExecuteScalarAsync<int?>(new CommandDefinition("""
+            SELECT last_seq FROM receipt_number_sequences WITH (UPDLOCK, HOLDLOCK)
+            WHERE [year] = @year AND cashier_id = @cashierId
+            """, new { year, cashierId }, transaction: tx, cancellationToken: ct));
+
+        var floor = Math.Max(lastSeq ?? 0, Math.Max(0, clientSeq));
+        var fromSeq = floor + 1;
+        var throughSeq = floor + count;
+        if (throughSeq > ReceiptNumberFormatter.MaxSequence)
+            throw new InvalidOperationException("نفدت أرقام فواتير هذا الكاشير لهذه السنة");
+
+        if (lastSeq is null)
+        {
+            await conn.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO receipt_number_sequences ([year], cashier_id, last_seq)
+                VALUES (@year, @cashierId, @throughSeq)
+                """, new { year, cashierId, throughSeq }, transaction: tx, cancellationToken: ct));
+        }
+        else
+        {
+            await conn.ExecuteAsync(new CommandDefinition("""
+                UPDATE receipt_number_sequences
+                SET last_seq = @throughSeq
+                WHERE [year] = @year AND cashier_id = @cashierId
+                """, new { year, cashierId, throughSeq }, transaction: tx, cancellationToken: ct));
+        }
+
+        await conn.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO receipt_number_leases ([year], cashier_id, from_seq, to_seq, hw_id)
+            VALUES (@year, @cashierId, @fromSeq, @throughSeq, @hwId)
+            """, new { year, cashierId, fromSeq, throughSeq, hwId }, transaction: tx, cancellationToken: ct));
+
+        return new ReserveReceiptNumbersResponse(year, cashierCode, fromSeq, throughSeq);
+    }
+
     private static async Task<long> AllocateLegacyAsync(
         System.Data.Common.DbConnection conn,
         System.Data.Common.DbTransaction tx,
@@ -82,6 +141,7 @@ public sealed class ReceiptNumberAllocator
         System.Data.Common.DbTransaction tx,
         long cashierId,
         long? clientNumber,
+        string? hwId,
         CancellationToken ct)
     {
         if (clientNumber is not > 0) return null;
@@ -114,11 +174,29 @@ public sealed class ReceiptNumberAllocator
             WHERE [year] = @year AND cashier_id = @cashierId
             """, new { year, cashierId }, transaction: tx, cancellationToken: ct));
 
-        // A stale local counter (paper printed 172 after the server had already
-        // handed out 173–234) must not be adopted — that is how the printed copy
-        // and the control panel ended up with different numbers.
+        // Below the cursor: accept this terminal's reserved block, or a gap no lease owns.
+        // Another terminal's unused block must not be stolen. The cursor is never moved backward.
         if (lastSeq is int current && seq < current)
+        {
+            string? owner;
+            try
+            {
+                owner = await conn.ExecuteScalarAsync<string?>(new CommandDefinition("""
+                    SELECT TOP 1 hw_id FROM receipt_number_leases WITH (UPDLOCK, HOLDLOCK)
+                    WHERE [year] = @year AND cashier_id = @cashierId
+                      AND from_seq <= @seq AND to_seq >= @seq
+                    ORDER BY id DESC
+                    """, new { year, cashierId, seq }, transaction: tx, cancellationToken: ct));
+            }
+            catch (SqlException ex) when (ex.Number is 208)
+            {
+                return null;
+            }
+            if (owner is null) return clientNumber.Value;
+            if (!string.IsNullOrWhiteSpace(hwId) && string.Equals(owner, hwId, StringComparison.Ordinal))
+                return clientNumber.Value;
             return null;
+        }
 
         var updated = await conn.ExecuteAsync(new CommandDefinition("""
             UPDATE receipt_number_sequences WITH (UPDLOCK, HOLDLOCK)

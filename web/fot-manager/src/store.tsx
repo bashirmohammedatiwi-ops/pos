@@ -8,7 +8,7 @@ import {
 } from './period';
 import { useWeek } from './week';
 
-const CACHE_KEY = 'fot_manager_cache_v3';
+const CACHE_KEY = 'fot_manager_cache_v4';
 const LEGACY_CACHE_KEYS = ['fot_manager_cache', 'fot_manager_cache_v2'];
 const PERIOD_KEY = 'fot_manager_period';
 const PAY_KEY = 'fot_manager_pay';
@@ -30,6 +30,7 @@ function normalizeDash(d: Dashboard): Dashboard {
     malls: Array.isArray(d.malls) ? d.malls : [],
     products: Array.isArray(d.products) ? d.products : [],
     days: Array.isArray(d.days) ? d.days : [],
+    cashierDays: Array.isArray(d.cashierDays) ? d.cashierDays : undefined,
     week: { ...EMPTY_WEEK, ...(d.week ?? {}) },
   };
 }
@@ -48,6 +49,7 @@ function coerceDashboard(raw: unknown): Dashboard | null {
       goals: Array.isArray(d.goals) ? d.goals : [],
       products: Array.isArray(d.products) ? d.products : [],
       days: Array.isArray(d.days) ? d.days : [],
+      cashierDays: Array.isArray(d.cashierDays) ? d.cashierDays : undefined,
       lastSyncAt: d.lastSyncAt ?? null,
     });
   } catch {

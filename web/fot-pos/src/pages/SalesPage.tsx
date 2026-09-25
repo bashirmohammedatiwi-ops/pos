@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, api, isPermanentReceiptError } from '@/api/client';
+import { ApiError, api } from '@/api/client';
 import type {
   AccountSummaryDto,
   ArticleGroupDto,
@@ -20,10 +20,10 @@ import type { OutboxRow } from '@/lib/db';
 import {
   cacheReferenceData,
   enqueueReceipt,
+  ensureNumberBlock,
   findDiscountQr,
   findProductSmart,
   flushOutbox,
-  rememberOfficialNumber,
   takeReceiptNumber,
   type FlushOutboxResult,
   outboxStats,
@@ -89,8 +89,10 @@ import {
   sourceLinesToCart,
 } from '@/lib/invoiceReturn';
 import { collapseRepeatedScan, createScanEchoGuard } from '@/lib/scanGuard';
+import { decodeScannerText, isScannerCharacter, latinFromKey } from '@/lib/scannerKey';
 import { playErrorBeep } from '@/lib/sound';
 import { localDateTimeIso } from '@/lib/text';
+import { findLocalReturnSource } from '@/lib/saleMirror';
 import type { CashReportDto } from '@/api/types';
 
 type SortMode = 'seq' | 'name' | 'price';
@@ -408,6 +410,7 @@ export function SalesPage({
     setSyncing(true);
     try {
       const flushed = await flushOutbox();
+      await ensureNumberBlock(session.cashierId, session.cashierReceiptNum ?? 0);
       const catalog = await syncCatalog();
       await cacheReferenceData(true);
       await applyReferenceUi();
@@ -432,7 +435,7 @@ export function SalesPage({
       syncingRef.current = false;
       setSyncing(false);
     }
-  }, [online, applyReferenceUi, refreshLocal, showToast]);
+  }, [online, applyReferenceUi, refreshLocal, showToast, session.cashierId, session.cashierReceiptNum]);
 
   const scheduleFullSync = useMemo(() => createDebouncedSync(() => { void runSync(); }, 1500), [runSync]);
   usePosHub(canUseServer(online), scheduleFullSync, () => {
@@ -490,6 +493,7 @@ export function SalesPage({
           await refreshLocal();
           return;
         }
+        await ensureNumberBlock(session.cashierId, session.cashierReceiptNum ?? 0);
         const stats = await outboxStats();
         if (stats.queued > 0) {
           const flushed = await flushOutbox();
@@ -506,7 +510,7 @@ export function SalesPage({
     void tick();
     const t = window.setInterval(() => { void tick(); }, 10_000);
     return () => window.clearInterval(t);
-  }, [online, refreshLocal, showToast]);
+  }, [online, refreshLocal, showToast, session.cashierId, session.cashierReceiptNum]);
 
   const groupsStamp = groups.map(g => `${g.id}:${g.itemCount}`).join(',');
   useEffect(() => {
@@ -517,12 +521,6 @@ export function SalesPage({
     void (async () => {
       const local = await db.loadGroupItems(groupId);
       setGroupItems(withOfferSalePrices(local));
-      if (!canUseServer(online)) return;
-      try {
-        setGroupItems(withOfferSalePrices(await api.groupItems(groupId)));
-      } catch {
-        /* keep the local tiles */
-      }
     })();
   }, [groupId, groupsStamp, online]);
 
@@ -584,21 +582,10 @@ export function SalesPage({
   const applyTargets = session.applyTargets !== false;
   const attrFlags = { applyCommissions, applyTargets };
 
-  const applyPreviewToKey = useCallback((key: string, articleId: number, barcode: string | null, salesmanId: number, price: number) => {
-    if (!canUseServer(online) || salesmanId <= 0 || !applyCommissions) return;
-    void api.previewCommission({ articleId, barcode, salesmanId, quantity: 1, price }).then(preview => {
-      if (!preview.matched) return;
-      setCart(prev => prev.map(l => {
-        if (l.key !== key) return l;
-        const next = {
-          ...l,
-          commissionType: preview.commissionType ?? undefined,
-          commissionValue: preview.commissionValue,
-        };
-        return { ...next, commissionAmount: lineCommissionAmount(next) };
-      }));
-    });
-  }, [online, applyCommissions]);
+  const applyPreviewToKey = useCallback((_key: string, _articleId: number, _barcode: string | null, _salesmanId: number, _price: number) => {
+    // Commission is calculated on the server when the queued sale uploads.
+    // A live preview used to wait on the LAN and stall the scan when it dropped.
+  }, []);
 
   const pushLine = useCallback((p: ProductDto, qty: number, sid: number, sname: string, gkey: number, glabel: string, extras?: {
     price?: number;
@@ -753,8 +740,17 @@ export function SalesPage({
       showToast('لا صلاحية للمرتجع');
       return true;
     }
+    const local = await findLocalReturnSource(number);
+    if (local) {
+      if (!local.items.some(item => item.remainingQty > 0)) {
+        showToast('تم إرجاع هذه الفاتورة بالكامل');
+        return true;
+      }
+      applyReturnSource(local);
+      return true;
+    }
     if (!canUseServer(online)) {
-      showToast('البحث عن الفاتورة يحتاج اتصالاً بالخادم');
+      showToast('الفاتورة غير موجودة على هذا الجهاز');
       return true;
     }
     try {
@@ -783,23 +779,9 @@ export function SalesPage({
   }
 
   async function handleScan(code: string, qty: number) {
-    const normalized = collapseRepeatedScan(code);
+    const normalized = collapseRepeatedScan(decodeScannerText(code));
     if (!normalized) return;
     if (isEchoScan(normalized, qty)) return;
-    const askingInvoice = overlayRef.current === 'return-invoice'
-      || (px.invoiceBoundReturn && looksLikeReceiptNumber(normalized));
-    if (askingInvoice) {
-      const loaded = await loadReturnInvoice(normalized);
-      if (loaded) return;
-      if (overlayRef.current === 'return-invoice') {
-        showToast('الفاتورة غير موجودة');
-        return;
-      }
-    }
-    if (px.invoiceBoundReturn && !returnSource && overlayRef.current === 'return-invoice') {
-      showToast('أدخل رقم فاتورة البيع');
-      return;
-    }
     if (isDiscountQrCode(normalized)) {
       const person = await findDiscountQr(normalizeDiscountQrCode(normalized), canUseServer(online));
       if (!person) {
@@ -812,6 +794,20 @@ export function SalesPage({
       setScan('');
       setScanError(null);
       focusScan();
+      return;
+    }
+    const askingInvoice = overlayRef.current === 'return-invoice'
+      || (px.invoiceBoundReturn && looksLikeReceiptNumber(normalized));
+    if (askingInvoice) {
+      const loaded = await loadReturnInvoice(normalized);
+      if (loaded) return;
+      if (overlayRef.current === 'return-invoice') {
+        showToast('الفاتورة غير موجودة');
+        return;
+      }
+    }
+    if (px.invoiceBoundReturn && !returnSource && overlayRef.current === 'return-invoice') {
+      showToast('أدخل رقم فاتورة البيع');
       return;
     }
     const p = await findProductSmart(normalized, canUseServer(online));
@@ -1770,7 +1766,8 @@ export function SalesPage({
           paid,
           card,
           number: localNumber,
-          returnOfReceiptId: returnSource?.id,
+          returnOfReceiptId: returnSource && returnSource.id > 0 ? returnSource.id : undefined,
+          returnOfClientReceiptId: returnSource?.clientReceiptId ?? undefined,
           discountQr,
           soldAt: toLocalDateTime(),
         });
@@ -1798,6 +1795,10 @@ export function SalesPage({
         return;
       }
 
+      const localNumber = await takeReceiptNumber({
+        cashierId: session.cashierId,
+        cashierCode: session.cashierReceiptNum ?? 0,
+      });
       const payload = buildReceiptPayload({
         session,
         cart,
@@ -1809,109 +1810,42 @@ export function SalesPage({
         isHold: false,
         paid,
         card,
-        returnOfReceiptId: returnSource?.id,
+        number: localNumber,
+        returnOfReceiptId: returnSource && returnSource.id > 0 ? returnSource.id : undefined,
+        returnOfClientReceiptId: returnSource?.clientReceiptId ?? undefined,
         discountQr,
+        soldAt: toLocalDateTime(),
       });
-
-      if (!canUseServer(online)) {
-        const localNumber = await takeReceiptNumber({
-          cashierId: session.cashierId,
-          cashierCode: session.cashierReceiptNum ?? 0,
-          online: false,
-        });
-        await enqueueReceipt(
-          { ...payload, number: localNumber },
-          session.cashierReceiptNum ?? 0,
-          'queued',
-          localNumber,
-        );
-        const printed = buildPrint(localNumber, payload.payment);
-        const summary: TodayReceiptRow = {
-          id: -localNumber,
-          number: localNumber,
-          creationDate: new Date().toISOString(),
-          totalAmount: total,
-          payment: payload.payment,
-          cashBack: 0,
-          salesmanId,
-          salesmanName: salesmen.find(s => s.id === salesmanId)?.name ?? session.salesmanName,
-          itemCount: cart.length,
-          kind: saleKind,
-          local: true,
-        };
-        finishSale(
-          card ? 'دُفع بالماستر وحُفظت الفاتورة محلياً' : 'حُفظت الفاتورة محلياً',
-          `محلية #${localNumber} — ستُرفع عند الاتصال`,
-          total,
-        );
-        runSaleSideEffects(printed, summary, true);
-        return;
-      }
-
-      try {
-        const res = await api.createReceipt(payload);
-        await rememberOfficialNumber(res.number);
-        const printed = buildPrint(res.number, payload.payment);
-        const summary: TodayReceiptRow = {
-          id: res.receiptId,
-          number: res.number,
-          creationDate: new Date().toISOString(),
-          totalAmount: res.totalAmount,
-          payment: payload.payment,
-          cashBack: res.cashBack,
-          salesmanId,
-          salesmanName: salesmen.find(s => s.id === salesmanId)?.name ?? session.salesmanName,
-          itemCount: cart.length,
-          kind: saleKind,
-        };
-        const done = giftMode
-          ? 'تم حفظ الهدية'
-          : returnMode
-            ? 'تم حفظ المرتجع'
-            : creditMode
-              ? 'تم حفظ الفاتورة الآجلة'
-              : method === 'card'
-                ? 'تم الدفع بماستر كارد'
-                : 'تم حفظ الفاتورة';
-        const last = `${kindLabel(saleKind)} ${res.number} — ${formatIqd(res.totalAmount)}`;
-        finishSale(done, last, res.totalAmount);
-        runSaleSideEffects(printed, summary);
-        return;
-      } catch (e) {
-        // A card sale is already charged on the reader, so it is queued even when the server
-        // rejects it outright — losing it would take the customer's money with no invoice.
-        const canQueue = !isPermanentReceiptError(e) || Boolean(card);
-        if (!canQueue) throw e;
-        const localNumber = await takeReceiptNumber({
-          cashierId: session.cashierId,
-          cashierCode: session.cashierReceiptNum ?? 0,
-          online: canUseServer(online),
-        });
-        await enqueueReceipt(
-          { ...payload, number: localNumber },
-          session.cashierReceiptNum ?? 0,
-          'queued',
-          localNumber,
-        );
-        const printed = buildPrint(localNumber, payload.payment);
-        const summary: TodayReceiptRow = {
-          id: -localNumber,
-          number: localNumber,
-          creationDate: new Date().toISOString(),
-          totalAmount: total,
-          payment: payload.payment,
-          cashBack: 0,
-          salesmanId,
-          salesmanName: salesmen.find(s => s.id === salesmanId)?.name ?? session.salesmanName,
-          itemCount: cart.length,
-          kind: saleKind,
-          local: true,
-        };
-        finishSale(
-          card ? 'دُفع بالماستر وحُفظت الفاتورة محلياً' : 'حُفظت الفاتورة محلياً بعد تعذر الخادم',
-          `محلية #${localNumber} — ستُرفع عند الاتصال`,
-        );
-        runSaleSideEffects(printed, summary, true);
+      await enqueueReceipt(payload, session.cashierReceiptNum ?? 0, 'queued', localNumber);
+      const printed = buildPrint(localNumber, payload.payment);
+      const summary: TodayReceiptRow = {
+        id: -localNumber,
+        number: localNumber,
+        creationDate: payload.soldAt ?? new Date().toISOString(),
+        totalAmount: total,
+        payment: payload.payment,
+        cashBack: 0,
+        salesmanId,
+        salesmanName: salesmen.find(s => s.id === salesmanId)?.name ?? session.salesmanName,
+        itemCount: cart.length,
+        kind: saleKind,
+        local: true,
+      };
+      const done = giftMode
+        ? 'تم حفظ الهدية'
+        : returnMode
+          ? 'تم حفظ المرتجع'
+          : creditMode
+            ? 'تم حفظ الفاتورة الآجلة'
+            : method === 'card'
+              ? 'تم الدفع بماستر كارد'
+              : 'تم حفظ الفاتورة';
+      finishSale(done, `${kindLabel(saleKind)} ${localNumber} — ${formatIqd(total)}`, total);
+      runSaleSideEffects(printed, summary, true);
+      if (canUseServer(online)) {
+        void flushOutbox().then(flushed => {
+          if (flushed.renumbered.length > 0) void reprintOfficialRef.current(flushed);
+        }).catch(() => { /* the queue watchdog retries */ });
       }
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'فشل حفظ الفاتورة');
@@ -2224,16 +2158,32 @@ export function SalesPage({
                   onChange={e => {
                     setScanError(null);
                     const value = e.currentTarget?.value ?? e.target?.value ?? '';
+                    if (value === scanValueRef.current) return;
                     scanValueRef.current = value;
                     setScan(value);
                   }}
-                  onFocus={onInputFocusVisualRight}
-                  onClick={onInputClickVisualRight}
                   onKeyDown={e => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' || e.code === 'NumpadEnter') {
                       e.preventDefault();
                       void submitScan();
+                      return;
                     }
+                    if (e.key === 'Backspace') {
+                      e.preventDefault();
+                      const next = scanValueRef.current.slice(0, -1);
+                      scanValueRef.current = next;
+                      setScan(next);
+                      return;
+                    }
+                    if (!isScannerCharacter(e)) return;
+                    // Always append in key order. Inserting at the caret reverses the
+                    // code on an Arabic screen, so FOTDQ never arrives intact.
+                    e.preventDefault();
+                    const ch = latinFromKey(e);
+                    if (!ch) return;
+                    const next = scanValueRef.current + ch;
+                    scanValueRef.current = next;
+                    setScan(next);
                   }}
                   placeholder="امسح الباركود أو 5*الباركود"
                   className={`pos-field pos-scan w-full ${scanError ? 'is-miss' : ''}`}
@@ -2477,7 +2427,7 @@ export function SalesPage({
         <ConfirmDialog
           alert
           title="المادة غير موجودة"
-          message={`لا توجد مادة للباركود ${confirmAsk.code}`}
+          message={`لا توجد مادة للباركود \u2066${confirmAsk.code}\u2069`}
           confirmLabel="حسناً"
           onConfirm={() => { setConfirmAsk(null); focusScan(); }}
           onCancel={() => { setConfirmAsk(null); focusScan(); }}

@@ -91,7 +91,8 @@ public static class ManagerPortalEndpoints
                 pack.Week, pack.Sellers, pack.Cashiers, pack.Malls, pack.Goals,
                 pack.Products.Take(40).ToList(),
                 null,
-                pack.Days));
+                pack.Days,
+                await managers.ListCashierDaysAsync(pack.Week.WeekStart, pack.Week.WeekEnd, default)));
         });
 
         g.MapGet("/sellers", async (HttpContext http, ManagerPortalRepository managers, DateTime? weekStart) =>

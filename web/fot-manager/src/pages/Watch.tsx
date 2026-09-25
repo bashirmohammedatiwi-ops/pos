@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import {
   groupGoalsByRule, lastSyncMs, moneyIq, pct, resolveWeekSales, todayKey,
 } from '../api';
-import { buildAlerts, lineCashier, shopHealth } from '../insights';
+import { buildAlerts, shopHealth } from '../insights';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
   Empty, ErrorBox, HealthMeter, LiveDot, Medal, RecentFeed, SectionHead, Skeleton,
@@ -42,14 +42,11 @@ export function Watch() {
   const todaySales = todayLines.reduce((s, l) => s + l.salesAmount, 0);
   const todayReceipts = new Set(todayLines.map(l => l.receiptNumber ?? l.id)).size;
 
-  const todayCashiers = (() => {
-    const map = new Map<string, number>();
-    for (const l of todayLines) {
-      const name = lineCashier(l) || 'كاشير';
-      map.set(name, (map.get(name) ?? 0) + l.salesAmount);
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  })();
+  const todayCashiers = (dash?.cashierDays ?? [])
+    .filter(row => String(row.day || '').slice(0, 10) === today && (row.salesAmount !== 0 || row.receiptCount > 0))
+    .map(row => [row.name, row.salesAmount] as const)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
 
   const topTodaySellers = (() => {
     const map = new Map<string, number>();

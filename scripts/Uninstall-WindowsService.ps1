@@ -11,4 +11,5 @@ if (-not $svc) {
 Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
 sc.exe delete $ServiceName | Out-Null
 schtasks.exe /Delete /TN "FOTPOSServerBoot" /F | Out-Null
+Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "FOTPOSServerTray" -ErrorAction SilentlyContinue
 Write-Host "FOT POS Server service removed." -ForegroundColor Green

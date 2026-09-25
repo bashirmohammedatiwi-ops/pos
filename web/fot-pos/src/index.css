@@ -878,8 +878,9 @@ input, button, select { font-family: inherit; }
 .pos-cart-body {
   display: flex;
   min-height: 0;
-  flex: 1;
+  flex: 1 1 0;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .pos-cart-excel .pos-cart-name {
@@ -1287,21 +1288,49 @@ input, button, select { font-family: inherit; }
 .pos-cart-sheet {
   display: flex;
   min-height: 0;
-  flex: 1;
+  flex: 1 1 0;
   flex-direction: column;
   background: #f3f6f4;
 }
 
-.pos-cart-sheet-scroll {
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-  padding-bottom: 10px;
-  scroll-behavior: auto;
+.pos-cart-sheet-head {
+  flex: none;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  background: #1f6b4a;
+  scrollbar-width: none;
 }
 
-.pos-cart-sheet-end {
-  height: 8px;
+.pos-cart-sheet-head::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+
+.pos-cart-sheet-head::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.pos-cart-sheet-scroll {
+  min-height: 0;
+  height: 0;
+  flex: 1 1 0;
+  overflow-x: auto;
+  overflow-y: scroll;
+  padding-bottom: 8px;
+  scroll-behavior: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+}
+
+.pos-cart-sheet-scroll.is-follow {
+  display: flex;
+  flex-direction: column-reverse;
+  padding-bottom: 0;
+}
+
+.pos-cart-sheet-spacer {
+  flex: 1 0 auto;
+  min-height: 0;
 }
 
 .pos-cart-table {

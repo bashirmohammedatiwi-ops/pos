@@ -328,24 +328,77 @@ function showMainWindow() {
   createWindow();
 }
 
+let trayView = { ok: null, url: '' };
+let trayBalloonShown = false;
+
+function trayIcon(ok) {
+  const fromExe = nativeImage.createFromPath(process.execPath);
+  if (!fromExe.isEmpty()) return fromExe.resize({ width: 16, height: 16 });
+  const size = 16;
+  const buf = Buffer.alloc(size * size * 4);
+  const b = ok ? 0x5e : 0x0b;
+  const g = ok ? 0xc5 : 0x9e;
+  const r = ok ? 0x22 : 0xf5;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = x - 7.5;
+      const dy = y - 7.5;
+      if (dx * dx + dy * dy > 49) continue;
+      const i = (y * size + x) * 4;
+      buf[i] = b;
+      buf[i + 1] = g;
+      buf[i + 2] = r;
+      buf[i + 3] = 255;
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size });
+}
+
+function refreshTray(ok, url) {
+  if (!isServerEdition()) return;
+  if (!tray) createTray();
+  if (!tray) return;
+  const nextUrl = url || trayView.url || 'http://127.0.0.1:5000';
+  if (trayView.ok === Boolean(ok) && trayView.url === nextUrl) return;
+  trayView = { ok: Boolean(ok), url: nextUrl };
+  const status = trayView.ok ? 'الخادم يعمل في الخلفية' : 'الخادم لا يستجيب';
+  try {
+    tray.setImage(trayIcon(trayView.ok));
+    tray.setToolTip(`FOT POS — ${status}`);
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: status, enabled: false },
+      { label: nextUrl, enabled: false },
+      { type: 'separator' },
+      { label: 'فتح لوحة التحكم', click: () => showMainWindow() },
+      { label: 'إغلاق الأيقونة فقط (الخادم يبقى يعمل)', click: () => { quitting = true; app.quit(); } },
+    ]));
+  } catch (e) {
+    console.error('[fot-tray]', e);
+  }
+  if (trayView.ok && shouldStartHidden() && !trayBalloonShown) {
+    trayBalloonShown = true;
+    try {
+      tray.displayBalloon({
+        title: 'FOT POS',
+        content: 'الخادم يعمل في الخلفية. بقية الأجهزة تتصل به تلقائياً.',
+        iconType: 'info',
+      });
+    } catch {
+      /* balloons are optional */
+    }
+  }
+}
+
 function createTray() {
   if (!isServerEdition() || tray) return;
   try {
-    const icon = nativeImage.createFromPath(process.execPath);
-    tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }));
-    tray.setToolTip('FOT POS Server — يعمل في الخلفية');
-    const menu = Menu.buildFromTemplate([
-      { label: 'الخادم يعمل في الخلفية', enabled: false },
+    tray = new Tray(trayIcon(true));
+    tray.setToolTip('FOT POS — جارٍ تشغيل الخادم');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'جارٍ تشغيل الخادم', enabled: false },
       { label: 'فتح لوحة التحكم', click: () => showMainWindow() },
-      { label: 'إعادة تحميل الواجهة', click: () => {
-        const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-        if (win && canReloadWindow('tray-reload')) loadApp(win);
-        showMainWindow();
-      } },
-      { type: 'separator' },
       { label: 'إغلاق الأيقونة فقط (الخادم يبقى يعمل)', click: () => { quitting = true; app.quit(); } },
-    ]);
-    tray.setContextMenu(menu);
+    ]));
     tray.on('double-click', () => showMainWindow());
   } catch (e) {
     console.error('[fot-tray]', e);
@@ -729,8 +782,7 @@ ipcMain.handle('card:charge', async (_event, payload) => {
 function configureAutostart() {
   if (role === 'pos') return;
   try {
-    // The Windows service (FOTPOSServer) is the background server.
-    // Do not open the admin Electron app at login.
+    // Electron's own login item opens a window. The server uses --background instead.
     app.setLoginItemSettings({ openAtLogin: false });
   } catch (e) {
     console.error('[fot-autostart]', e);
@@ -746,6 +798,19 @@ function configureAutostart() {
     ];
     for (const [hive, name] of keys) {
       const child = spawn('reg', ['delete', hive, '/v', name, '/f'], {
+        windowsHide: true,
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+    }
+    if (!isServerEdition()) return;
+    const cmd = `"${process.execPath}" --background`;
+    for (const hive of [
+      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+      'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+    ]) {
+      const child = spawn('reg', ['add', hive, '/v', 'FOTPOSServerTray', '/t', 'REG_SZ', '/d', cmd, '/f'], {
         windowsHide: true,
         detached: true,
         stdio: 'ignore',
@@ -784,10 +849,13 @@ app.whenReady().then(async () => {
     if (isLoginLaunch()) await waitForDesktopSession();
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
     if (win && !win.__fotLoaded) loadApp(win);
-    void ensureApi({ isDev, startup: true, probeOnly: role === 'pos' });
+    const result = await ensureApi({ isDev, startup: true, probeOnly: role === 'pos' });
+    if (isServerEdition()) refreshTray(Boolean(result?.ok), result?.url);
   })();
   setInterval(() => {
-    void watchdogTick({ isDev });
+    void watchdogTick({ isDev }).then(tick => {
+      if (isServerEdition()) refreshTray(Boolean(tick?.ok), tick?.url);
+    });
   }, 12_000);
 
   const onSessionWake = reason => {

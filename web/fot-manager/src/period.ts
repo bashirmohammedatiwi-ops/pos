@@ -1,4 +1,4 @@
-import { avgTicket, dayKey, dayLabel, todayKey, type CashierRow, type Dashboard, type DayRow, type LineRow, type SellerRow } from './api';
+import { avgTicket, dayKey, dayLabel, todayKey, type CashierDayRow, type CashierRow, type Dashboard, type DayRow, type LineRow, type SellerRow } from './api';
 import { lineCashier } from './insights';
 
 export type PeriodKind = 'today' | 'yesterday' | 'wtd' | 'week' | 'custom';
@@ -306,12 +306,39 @@ function proratePeople<T extends { salesAmount: number; commissionAmount: number
     .filter(r => r.salesAmount > 0 || r.receiptCount > 0);
 }
 
+export function cashiersForPeriod(days: CashierDayRow[] | undefined, from: string, to: string): CashierRow[] {
+  const map = new Map<string, CashierRow>();
+  for (const row of days ?? []) {
+    const key = String(row.day || '').slice(0, 10);
+    if (!key || key < from || key > to) continue;
+    const name = (row.name || '').trim();
+    if (!name) continue;
+    const id = `${row.cashierId}:${name.toLowerCase()}`;
+    const cur = map.get(id) ?? {
+      cashierId: row.cashierId,
+      name,
+      salesAmount: 0,
+      commissionAmount: 0,
+      receiptCount: 0,
+      pieceCount: 0,
+    };
+    cur.salesAmount += Number(row.salesAmount) || 0;
+    cur.receiptCount += Number(row.receiptCount) || 0;
+    cur.pieceCount += Number(row.pieceCount) || 0;
+    map.set(id, cur);
+  }
+  return [...map.values()]
+    .filter(c => c.salesAmount !== 0 || c.receiptCount > 0)
+    .sort((a, b) => b.salesAmount - a.salesAmount || b.receiptCount - a.receiptCount);
+}
+
 export function mergeScopedCashiers(
   periodLines: LineRow[],
   roster: CashierRow[],
   period: PeriodBounds,
   dash: Dashboard | null | undefined,
 ): CashierRow[] {
+  if (Array.isArray(dash?.cashierDays)) return cashiersForPeriod(dash.cashierDays, period.from, period.to);
   if (period.kind === 'week' && roster.some(c => c.salesAmount > 0)) {
     return roster.filter(c => c.salesAmount > 0 || c.receiptCount > 0);
   }

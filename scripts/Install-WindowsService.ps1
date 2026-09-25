@@ -10,7 +10,9 @@
 
 param(
 
-    [switch]$Upgrade
+    [switch]$Upgrade,
+
+    [string]$InstallDir = ""
 
 )
 
@@ -20,7 +22,11 @@ $ServiceName = "FOTPOSServer"
 
 $DisplayName = "FOT POS Server"
 
-$InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $InstallDir) {
+
+    $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+}
 
 $ApiExe = Join-Path $InstallDir "Api\FOT.Pos.Api.exe"
 
@@ -72,11 +78,9 @@ if ($existing) {
 
 if (-not $existing) {
 
-    sc.exe create $ServiceName binPath= "`"$ApiExe`"" start= auto DisplayName= "$DisplayName" | Out-Null
+    New-Service -Name $ServiceName -BinaryPathName "`"$ApiExe`"" -DisplayName $DisplayName -StartupType Automatic | Out-Null
 
-    if ($LASTEXITCODE -ne 0) { throw "sc.exe create failed" }
-
-    sc.exe description $ServiceName "FOT POS API — SQL, Edari sync, LAN port 5000" | Out-Null
+    sc.exe description $ServiceName "FOT POS API - SQL, Edari sync, LAN port 5000" | Out-Null
 
     sc.exe failure $ServiceName reset= 86400 actions= restart/60000/restart/60000/restart/60000 | Out-Null
 
@@ -111,9 +115,43 @@ Ensure-FwProgram "FOT POS Server App" (Join-Path $InstallDir "FOT POS Server.exe
 
 
 
-Write-Host "Starting service..." -ForegroundColor Yellow
+$trayExe = Join-Path $InstallDir "FOT POS Server.exe"
 
-Start-Service $ServiceName -ErrorAction SilentlyContinue
+if (Test-Path $trayExe) {
+
+    $trayCmd = "`"$trayExe`" --background"
+
+    New-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "FOTPOSServerTray" -Value $trayCmd -PropertyType String -Force | Out-Null
+
+    Write-Host "Tray icon will start at sign-in (no window)." -ForegroundColor Green
+
+}
+
+
+
+$alreadyUp = $false
+
+try {
+
+    $health = Invoke-WebRequest -Uri "http://localhost:5000/health" -UseBasicParsing -TimeoutSec 3
+
+    $alreadyUp = $health.StatusCode -eq 200
+
+} catch { }
+
+
+
+if ($alreadyUp) {
+
+    Write-Host "API is already listening on port 5000. The service takes over at the next boot." -ForegroundColor DarkYellow
+
+} else {
+
+    Write-Host "Starting service..." -ForegroundColor Yellow
+
+    Start-Service $ServiceName -ErrorAction SilentlyContinue
+
+}
 
 Set-Service $ServiceName -StartupType Automatic
 sc.exe config $ServiceName start= auto | Out-Null

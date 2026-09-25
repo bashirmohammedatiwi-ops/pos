@@ -87,7 +87,7 @@ export function hourBand(iso: string): HourBand['key'] {
 }
 
 export function lineCashier(line: LineRow) {
-  return cashierLabel(line.cashierName) || cashierLabel(line.mallName);
+  return cashierLabel(line.cashierName);
 }
 
 export function officialDays(

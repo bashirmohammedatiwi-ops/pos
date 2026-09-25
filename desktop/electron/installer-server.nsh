@@ -8,6 +8,7 @@
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="FOT POS Server App" dir=in action=allow program="$INSTDIR\FOT POS Server.exe" enable=yes profile=any'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="FOT POS API Exe" dir=in action=allow program="$INSTDIR\Api\FOT.Pos.Api.exe" enable=yes profile=any'
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "FOTPOSServerAdmin"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "FOTPOSServerTray" '"$INSTDIR\FOT POS Server.exe" --background'
 !macroend
 
 !macro customUnInstall
@@ -16,4 +17,5 @@
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="FOT POS Server App"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="FOT POS API Exe"'
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "FOTPOSServerAdmin"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "FOTPOSServerTray"
 !macroend

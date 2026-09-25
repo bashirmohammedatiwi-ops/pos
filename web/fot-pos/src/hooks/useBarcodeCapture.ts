@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { latinFromKey } from '@/lib/scannerKey';
 
 /** USB scanner: rapid keystrokes outside inputs, same 80ms flush as WPF. */
 export function useBarcodeCapture(active: boolean, onScan: (code: string) => void) {
@@ -37,8 +38,10 @@ export function useBarcodeCapture(active: boolean, onScan: (code: string) => voi
         }
         return;
       }
-      if (e.key.length !== 1) return;
-      buffer += e.key;
+      const ch = latinFromKey(e);
+      if (!ch) return;
+      e.preventDefault();
+      buffer += ch;
       window.clearTimeout(timer);
       timer = window.setTimeout(flush, 80);
     };

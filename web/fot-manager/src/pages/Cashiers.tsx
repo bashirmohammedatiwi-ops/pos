@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  avgTicket, cashierCsv, dayKey, deltaPct, downloadText, lastSyncMs, moneyIq, pieces, todayKey,
+  avgTicket, cashierCsv, deltaPct, downloadText, lastSyncMs, moneyIq, pieces, todayKey,
   type CashierRow, type LineRow,
 } from '../api';
-import { groupReceipts, lineCashier, linesForCashier, rankProducts, sellersThroughCashier } from '../insights';
+import { groupReceipts, linesForCashier, rankProducts, sellersThroughCashier } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager, useShopInsights } from '../store';
 import {
@@ -18,7 +18,7 @@ type Tab = 'overview' | 'sellers' | 'products' | 'invoices';
 
 export function Cashiers() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, lines, scopedLines, scopedCashiers, period, periodKind,
+    weekStart, setWeek, dash, prevDash, weeks, scopedLines, scopedCashiers, period, periodKind,
     setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
@@ -47,18 +47,11 @@ export function Cashiers() {
   const todayKey_ = todayKey();
 
   const todayCashiers = useMemo(() => {
-    const map = new Map<string, { name: string; sales: number; receipts: Set<string | number> }>();
-    for (const l of lines.filter(x => dayKey(x.occurredAt) === todayKey_)) {
-      const name = lineCashier(l) || 'كاشير';
-      const row = map.get(name) ?? { name, sales: 0, receipts: new Set() };
-      row.sales += l.salesAmount;
-      row.receipts.add(l.receiptNumber ?? `x-${l.id}`);
-      map.set(name, row);
-    }
-    return [...map.values()]
-      .map(r => ({ name: r.name, sales: r.sales, receipts: r.receipts.size }))
+    return (dash?.cashierDays ?? [])
+      .filter(row => String(row.day || '').slice(0, 10) === todayKey_ && (row.salesAmount !== 0 || row.receiptCount > 0))
+      .map(row => ({ name: row.name, sales: row.salesAmount, receipts: row.receiptCount }))
       .sort((a, b) => b.sales - a.sales);
-  }, [lines, todayKey_]);
+  }, [dash?.cashierDays, todayKey_]);
   const todayMap = useMemo(() => new Map(todayCashiers.map(c => [c.name, c])), [todayCashiers]);
 
   const rows = useMemo(() => {

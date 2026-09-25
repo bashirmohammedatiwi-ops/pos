@@ -32,7 +32,7 @@ export {
   totalRoundingDiscount,
   totalRoundingStep,
 } from './rounding';
-export { DISCOUNT_QR_PREFIX, isDiscountQrCode, normalizeDiscountQrCode } from './discountQr';
+export { DISCOUNT_QR_PREFIX, decodeScannerText, isDiscountQrCode, normalizeDiscountQrCode } from './discountQr';
 export type { DiscountQrPerson } from './discountQr';
 export {
   PRICE_CHECKER_SETTINGS_QR,
@@ -93,6 +93,7 @@ export type {
   CashierPermissionsDto,
   CatalogInfoDto,
   AllocateReceiptNumberResponse,
+  ReserveReceiptNumbersResponse,
   CreateReceiptResponse,
   HoldReceiptDto,
   PosSessionDto,

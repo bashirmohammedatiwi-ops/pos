@@ -273,7 +273,10 @@ public sealed class ReceiptRepository(
 
         await schema.EnsureLoadedAsync(ct);
         if (req.Kind == 1)
+        {
+            req = await ResolveReturnSourceAsync(req, ct);
             await EnsureInvoiceReturnAllowedAsync(req, ct);
+        }
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
 
@@ -322,7 +325,7 @@ public sealed class ReceiptRepository(
             {
                 number = 0L;
             }
-            else if (await receiptNumbers.AdoptClientNumberAsync(conn, tx, req.CashierId, req.Number, ct) is { } adopted)
+            else if (await receiptNumbers.AdoptClientNumberAsync(conn, tx, req.CashierId, req.Number, req.HwId, ct) is { } adopted)
             {
                 number = adopted;
                 // Rare: the client number already exists anywhere in the shop.
@@ -422,6 +425,46 @@ public sealed class ReceiptRepository(
             await SafeRollbackAsync(tx);
             throw;
         }
+    }
+
+    /// <summary>Reserves a block of official numbers for one terminal. Never called on the sale click path.</summary>
+    public async Task<ReserveReceiptNumbersResponse> ReserveBlockAsync(ReserveReceiptNumbersRequest req, CancellationToken ct)
+    {
+        if (req.CashierId <= 0)
+            throw new InvalidOperationException("الكاشير غير محدد");
+
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            var reserved = await receiptNumbers.ReserveBlockAsync(
+                conn, tx, req.CashierId, req.Count, req.HwId, req.ClientSeq, ct);
+            await tx.CommitAsync(ct);
+            return reserved;
+        }
+        catch
+        {
+            await SafeRollbackAsync(tx);
+            throw;
+        }
+    }
+
+    private async Task<CreateReceiptRequest> ResolveReturnSourceAsync(CreateReceiptRequest req, CancellationToken ct)
+    {
+        if (req.ReturnOfReceiptId is > 0 || req.ReturnOfClientReceiptId is not Guid clientId)
+            return req;
+
+        await schema.EnsureLoadedAsync(ct);
+        if (!schema.ClientReceiptId) 
+            throw new InvalidOperationException("فاتورة البيع الأصلية لم تُرفع بعد");
+
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var id = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(
+            "SELECT id FROM reciepts WHERE client_receipt_id = @clientId",
+            new { clientId }, cancellationToken: ct));
+        if (id is not > 0)
+            throw new InvalidOperationException("فاتورة البيع الأصلية لم تُرفع بعد");
+        return req with { ReturnOfReceiptId = id };
     }
 
     private async Task<long> ResolveDefaultMasterAccountAsync(CreateReceiptRequest req, CancellationToken ct)

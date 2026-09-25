@@ -32,6 +32,18 @@ public static class ReceiptEndpoints
             }
         }).Produces<AllocateReceiptNumberResponse>(200).Produces(400);
 
+        api.MapPost("/receipts/reserve-numbers", async (ReceiptRepository repo, ReserveReceiptNumbersRequest req) =>
+        {
+            try
+            {
+                return Results.Ok(await repo.ReserveBlockAsync(req, default));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        }).Produces<ReserveReceiptNumbersResponse>(200).Produces(400);
+
         api.MapGet("/receipts/by-number/{number:long}", async (ReceiptRepository repo, long number) =>
         {
             var items = await repo.GetReturnSourcesByNumberAsync(number, default);

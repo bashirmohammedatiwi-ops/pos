@@ -1,5 +1,6 @@
 import type { DiscountQrPerson } from '@fot/shared';
 import type { CardPaymentDto, PosSessionDto, ReceiptReturnSourceDto, SaleKind } from '@/api/types';
+import { getHwId } from '@/lib/money';
 
 export type CartGroupState = {
   key: number;
@@ -147,6 +148,7 @@ export function buildReceiptPayload(opts: {
   /** Locally allocated receipt number — the server adopts it so the printed copy matches. */
   number?: number;
   returnOfReceiptId?: number;
+  returnOfClientReceiptId?: string;
   discountQr?: DiscountQrPerson | null;
   salesmanName?: string;
   /** Shop-local create time — used by manual transfer so posting keeps the sale clock. */
@@ -167,9 +169,11 @@ export function buildReceiptPayload(opts: {
     accountId,
     masterAccount: opts.masterAccount || opts.session.activeMasterAccount,
     clientReceiptId: crypto.randomUUID(),
+    hwId: getHwId() || undefined,
     card: opts.card,
     number: opts.number,
-    returnOfReceiptId: opts.returnOfReceiptId,
+    returnOfReceiptId: opts.returnOfReceiptId && opts.returnOfReceiptId > 0 ? opts.returnOfReceiptId : undefined,
+    returnOfClientReceiptId: opts.returnOfClientReceiptId,
     discountQrPersonId: opts.discountQr?.id,
     discountQrPersonCode: opts.discountQr?.code,
     discountQrPersonName: opts.discountQr?.name,

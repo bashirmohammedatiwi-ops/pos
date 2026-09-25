@@ -98,7 +98,16 @@ public record ManagerDashboardDto(
     IReadOnlyList<ManagerGoalRowDto> Goals,
     IReadOnlyList<ManagerProductRowDto> Products,
     DateTime? LastSyncAt = null,
-    IReadOnlyList<ManagerDayRowDto>? Days = null);
+    IReadOnlyList<ManagerDayRowDto>? Days = null,
+    IReadOnlyList<ManagerCashierDayDto>? CashierDays = null);
+
+public record ManagerCashierDayDto(
+    DateTime Day,
+    long CashierId,
+    string Name,
+    decimal SalesAmount,
+    int ReceiptCount,
+    decimal PieceCount);
 public record ManagerSellerDetailDto(
     ManagerSellerRowDto Seller,
     IReadOnlyList<ManagerGoalRowDto> Goals,
@@ -788,7 +797,9 @@ public record CreateReceiptRequest(
     string? DiscountQrPersonCode = null,
     string? DiscountQrPersonName = null,
     DateTime? SoldAt = null,
-    ReceiptEditHistoryDto? EditHistory = null);
+    ReceiptEditHistoryDto? EditHistory = null,
+    string? HwId = null,
+    Guid? ReturnOfClientReceiptId = null);
 
 public partial record DiscountQrPersonDto(
     long Id,
@@ -863,6 +874,11 @@ public record AllocateReceiptNumberRequest(long CashierId);
 
 /// <summary>Official receipt number reserved from the shop sequence before print/upload.</summary>
 public record AllocateReceiptNumberResponse(long Number, int Year, int CashierCode, int Seq);
+
+/// <summary>Reserves a block of official sequences for one terminal. Sales consume them locally.</summary>
+public record ReserveReceiptNumbersRequest(long CashierId, int Count = 40, string? HwId = null, int ClientSeq = 0);
+
+public record ReserveReceiptNumbersResponse(int Year, int CashierCode, int FromSeq, int ThroughSeq);
 
 public record CashierLoginRequest(string? Username, string Password, string? HwId = null);
 public record CashierRefreshRequest(string Token);

@@ -136,6 +136,13 @@ export type AllocateReceiptNumberResponse = {
   seq: number;
 };
 
+export type ReserveReceiptNumbersResponse = {
+  year: number;
+  cashierCode: number;
+  fromSeq: number;
+  throughSeq: number;
+};
+
 export type ReceiptSummaryDto = {
   id: number;
   number: number;
@@ -242,6 +249,8 @@ export type ReceiptReturnSourceDto = {
   salesmanName?: string | null;
   items: ReceiptReturnLineDto[];
   printedNumber?: number | null;
+  /** Set for a sale that exists only on this terminal until upload. */
+  clientReceiptId?: string | null;
 };
 
 export type ReceiptReturnMatchesDto = {
