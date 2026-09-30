@@ -354,15 +354,15 @@ public sealed class SellerPortalRepository(
             FROM ext_weekly_settlements s
             WHERE s.salesman_id = @salesmanId
               AND s.delivered = 1
-              AND s.delivered_at >= @start
-              AND s.delivered_at < DATEADD(day, 1, CAST(@end AS DATE))
+              AND s.week_start = @start
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var args = new { salesmanId, start = start.Date, end = end.Date };
         var row = await conn.QueryFirstOrDefaultAsync<(decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, int MallCount)>(
             new CommandDefinition(sql, args, cancellationToken: ct));
-        var received = await conn.ExecuteScalarAsync<decimal>(
-            new CommandDefinition(receivedSql, args, cancellationToken: ct));
+        var received = isCurrent
+            ? 0
+            : await conn.ExecuteScalarAsync<decimal>(new CommandDefinition(receivedSql, args, cancellationToken: ct));
         // Seller web must never receive sales totals — only commission and activity.
         return new SellerWeekSummaryDto(start, end, isCurrent, 0, row.CommissionAmount, row.ReceiptCount, row.MallCount, received);
     }

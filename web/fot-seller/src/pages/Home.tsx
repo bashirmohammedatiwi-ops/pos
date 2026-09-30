@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { commissionCsv, deltaPct, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, receivedOf, shareText, shownWeekAmount, shownWeekLabel, weekRange, weekReport } from '../api';
+import { commissionCsv, deltaPct, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, shareText, shownWeekAmount, shownWeekLabel, weekRange, weekReport } from '../api';
 import type { CommissionLine } from '../api';
 import { buildInsights, fillWeekDays, prevDay, weekPace } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
@@ -47,8 +47,7 @@ export function Home() {
   if (loading || !dash) return <Skeleton rows={7} />;
 
   const commission = dash.week.commissionAmount;
-  const received = receivedOf(dash.week);
-  const weekFigure = received > 0 ? received : commission;
+  const weekFigure = shownWeekAmount(dash.week);
   const weekLabel = shownWeekLabel(dash.week);
   const dayRow = weekDays.find(d => d.key === focusDay);
   const yest = prevDay(weekDays, focusDay);

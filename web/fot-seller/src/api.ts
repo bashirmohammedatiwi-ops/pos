@@ -181,12 +181,15 @@ export function receivedOf(week?: { receivedAmount?: number } | null) {
 }
 
 export function shownWeekAmount(week?: WeekSummary | null) {
+  const earned = Math.round(Number(week?.commissionAmount) || 0);
+  if (!week || week.isCurrent) return earned;
   const received = receivedOf(week);
-  return received > 0 ? received : Math.round(Number(week?.commissionAmount) || 0);
+  return received > 0 ? received : earned;
 }
 
 export function shownWeekLabel(week?: WeekSummary | null) {
-  return receivedOf(week) > 0 ? 'المبلغ المستلم' : 'عمولة الأسبوع';
+  if (!week || week.isCurrent || receivedOf(week) <= 0) return 'عمولة الأسبوع';
+  return 'المبلغ المستلم';
 }
 
 export function pct(n: number) {
