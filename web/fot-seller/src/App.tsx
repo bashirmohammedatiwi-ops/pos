@@ -1,6 +1,6 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import { ago, getSeller, getToken, moneyIq, refreshSession, setSeller, setToken, weekRange } from './api';
+import { ago, getSeller, getToken, moneyIq, refreshSession, setSeller, setToken, shownWeekAmount, shownWeekLabel, weekRange } from './api';
 import { SellerProvider, useSeller } from './store';
 import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
 import { Goals } from './pages/Goals';
@@ -171,8 +171,8 @@ function Shell() {
           </div>
           {dash && (
             <div className="card seller-mini">
-              <p className="kicker">عمولة الأسبوع</p>
-              <p className="num mt-1 text-xl font-extrabold text-gold">{moneyIq(dash.week.commissionAmount)}</p>
+              <p className="kicker">{shownWeekLabel(dash.week)}</p>
+              <p className="num mt-1 text-xl font-extrabold text-gold">{moneyIq(shownWeekAmount(dash.week))}</p>
               <p className="mt-1 text-sm font-extrabold text-muted">{dash.week.receiptCount} فاتورة</p>
               <p className="mt-1 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
             </div>
@@ -245,8 +245,8 @@ function Shell() {
           {dash && (
             <div className="grid grid-cols-2 gap-2.5">
               <div className="card p-3.5">
-                <p className="text-[11px] font-extrabold text-gold">عمولة {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
-                <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.week.commissionAmount)}</p>
+                <p className="text-[11px] font-extrabold text-gold">{shownWeekLabel(dash.week)} {weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
+                <p className="num mt-1 text-lg font-extrabold">{moneyIq(shownWeekAmount(dash.week))}</p>
               </div>
               <div className="card p-3.5">
                 <p className="text-[11px] font-extrabold text-gold">الفواتير</p>

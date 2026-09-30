@@ -28,7 +28,8 @@ public partial record SellerCommissionProductDto(
     long GroupId, string GroupName, string CommissionType, decimal CommissionValue);
 public record SellerWeekSummaryDto(
     DateTime WeekStart, DateTime WeekEnd, bool IsCurrent,
-    decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, int MallCount);
+    decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, int MallCount,
+    decimal ReceivedAmount = 0);
 public record SellerDashboardDto(
     SellerMeDto Seller,
     SellerWeekSummaryDto Week,

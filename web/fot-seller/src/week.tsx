@@ -1,6 +1,6 @@
 import { useCallback, useRef, type TouchEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, moneyIq, type WeekSummary } from './api';
+import { dayLabel, moneyIq, shownWeekAmount, type WeekSummary } from './api';
 
 const WEEK_KEY = 'fot_seller_week';
 
@@ -62,7 +62,7 @@ export function WeekBar({
             <button key={wk} type="button" onClick={() => setWeek(w.isCurrent ? undefined : wk)} className={`week-chip ${active ? 'on' : ''}`}>
               <div className="text-[13px] font-extrabold">{w.isCurrent ? 'هذا الأسبوع' : dayLabel(w.weekStart)}</div>
               <div className="num mt-1 text-[11px] opacity-70">
-                {w.commissionAmount > 0 ? moneyIq(w.commissionAmount) : '—'}
+                {shownWeekAmount(w) > 0 ? moneyIq(shownWeekAmount(w)) : '—'}
               </div>
             </button>
           );

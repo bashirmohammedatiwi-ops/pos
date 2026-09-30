@@ -349,11 +349,22 @@ public sealed class SellerPortalRepository(
               AND COALESCE(r.creation_date, c.calculated_at) >= @start
               AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
             """;
+        const string receivedSql = """
+            SELECT COALESCE(SUM(s.amount), 0)
+            FROM ext_weekly_settlements s
+            WHERE s.salesman_id = @salesmanId
+              AND s.delivered = 1
+              AND s.delivered_at >= @start
+              AND s.delivered_at < DATEADD(day, 1, CAST(@end AS DATE))
+            """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var args = new { salesmanId, start = start.Date, end = end.Date };
         var row = await conn.QueryFirstOrDefaultAsync<(decimal SalesAmount, decimal CommissionAmount, int ReceiptCount, int MallCount)>(
-            new CommandDefinition(sql, new { salesmanId, start = start.Date, end = end.Date }, cancellationToken: ct));
+            new CommandDefinition(sql, args, cancellationToken: ct));
+        var received = await conn.ExecuteScalarAsync<decimal>(
+            new CommandDefinition(receivedSql, args, cancellationToken: ct));
         // Seller web must never receive sales totals — only commission and activity.
-        return new SellerWeekSummaryDto(start, end, isCurrent, 0, row.CommissionAmount, row.ReceiptCount, row.MallCount);
+        return new SellerWeekSummaryDto(start, end, isCurrent, 0, row.CommissionAmount, row.ReceiptCount, row.MallCount, received);
     }
 
     private async Task<decimal> BalanceDueAsync(long salesmanId, CancellationToken ct)

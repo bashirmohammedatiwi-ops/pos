@@ -104,6 +104,7 @@ export interface SellerMe { id: number; name: string; mustChangePin: boolean }
 export interface WeekSummary {
   weekStart: string; weekEnd: string; isCurrent: boolean;
   salesAmount: number; commissionAmount: number; receiptCount: number; mallCount: number;
+  receivedAmount?: number;
 }
 export interface MallRow {
   sectionId: number; sectionName: string; branchName?: string | null;
@@ -173,6 +174,19 @@ export function money(n: number) {
 
 export function moneyIq(n: number) {
   return `${money(n)} د.ع`;
+}
+
+export function receivedOf(week?: { receivedAmount?: number } | null) {
+  return Math.round(Number(week?.receivedAmount) || 0);
+}
+
+export function shownWeekAmount(week?: WeekSummary | null) {
+  const received = receivedOf(week);
+  return received > 0 ? received : Math.round(Number(week?.commissionAmount) || 0);
+}
+
+export function shownWeekLabel(week?: WeekSummary | null) {
+  return receivedOf(week) > 0 ? 'المبلغ المستلم' : 'عمولة الأسبوع';
 }
 
 export function pct(n: number) {
@@ -324,7 +338,7 @@ export function weekReport(dash: Dashboard, extra?: string[]) {
   const hit = dash.goals.filter(g => g.percent >= 100).length;
   return [
     `${dash.seller.name} — أسبوع ${weekRange(dash.week.weekStart, dash.week.weekEnd)}`,
-    `العمولة: ${moneyIq(dash.week.commissionAmount)}`,
+    `${shownWeekLabel(dash.week)}: ${moneyIq(shownWeekAmount(dash.week))}`,
     dash.balanceDue > 0 ? `المستحق: ${moneyIq(dash.balanceDue)}` : '',
     dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
     ...(extra ?? []),

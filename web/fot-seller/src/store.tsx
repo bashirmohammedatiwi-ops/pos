@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  api, deltaPct, liveGoals, setSeller,
+  api, deltaPct, liveGoals, setSeller, shownWeekAmount,
   type CommissionLine, type Dashboard, type WeekSummary,
 } from './api';
 import { scrubSellerPayload } from './privacy';
@@ -108,7 +108,7 @@ export function useWeekCompare(weeks: WeekSummary[], weekStart?: string) {
     return {
       cur,
       prev,
-      commDelta: prev ? deltaPct(cur.commissionAmount, prev.commissionAmount) : 0,
+      commDelta: prev ? deltaPct(shownWeekAmount(cur), shownWeekAmount(prev)) : 0,
     };
   }, [weeks, weekStart]);
 }

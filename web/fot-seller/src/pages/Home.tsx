@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { commissionCsv, deltaPct, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, shareText, weekRange, weekReport } from '../api';
+import { commissionCsv, deltaPct, downloadText, goalValue, greeting, goalLabel, goalTone, moneyIq, pieces, receivedOf, shareText, shownWeekAmount, shownWeekLabel, weekRange, weekReport } from '../api';
 import type { CommissionLine } from '../api';
 import { buildInsights, fillWeekDays, prevDay, weekPace } from '../insights';
 import { CommissionList, CommissionSheet } from '../lines';
@@ -18,10 +18,10 @@ export function Home() {
   const [open, setOpen] = useState<CommissionLine | null>(null);
   const [period, setPeriod] = useState<'day' | 'week'>('week');
   const [day, setDay] = useState<string>();
-  const spark = useMemo(() => [...weeks].reverse().map(w => w.commissionAmount), [weeks]);
+  const spark = useMemo(() => [...weeks].reverse().map(w => shownWeekAmount(w)), [weeks]);
   const totals = useMemo(() => ({
-    comm: weeks.reduce((s, w) => s + w.commissionAmount, 0),
-    best: weeks.reduce((a, b) => a.commissionAmount >= b.commissionAmount ? a : b, weeks[0]),
+    comm: weeks.reduce((s, w) => s + shownWeekAmount(w), 0),
+    best: weeks.reduce((a, b) => shownWeekAmount(a) >= shownWeekAmount(b) ? a : b, weeks[0]),
   }), [weeks]);
   const weekInsights = useMemo(() => buildInsights(lines), [lines]);
   const today = useMemo(() => {
@@ -47,11 +47,14 @@ export function Home() {
   if (loading || !dash) return <Skeleton rows={7} />;
 
   const commission = dash.week.commissionAmount;
+  const received = receivedOf(dash.week);
+  const weekFigure = received > 0 ? received : commission;
+  const weekLabel = shownWeekLabel(dash.week);
   const dayRow = weekDays.find(d => d.key === focusDay);
   const yest = prevDay(weekDays, focusDay);
   const dayComm = dayRow?.commission ?? 0;
   const showingDay = period === 'day';
-  const heroComm = showingDay ? dayComm : commission;
+  const heroComm = showingDay ? dayComm : weekFigure;
   const hit = dash.goals.filter(g => g.percent >= 100).length;
   const goalAvg = dash.goals.length ? dash.goals.reduce((s, g) => s + g.percent, 0) / dash.goals.length : 0;
   const focus = [...dash.goals].sort((a, b) => a.percent - b.percent)[0];
@@ -105,7 +108,7 @@ export function Home() {
           <button type="button" className={showingDay ? 'on' : ''} onClick={() => setPeriod('day')}>اليوم</button>
         </div>
         <Link to="/products" className="hero-comm stat-link">
-          <p className="text-sm font-extrabold text-gold">{showingDay ? `عمولة ${dayRow?.label || 'اليوم'}` : 'عمولة الأسبوع'}</p>
+          <p className="text-sm font-extrabold text-gold">{showingDay ? `عمولة ${dayRow?.label || 'اليوم'}` : weekLabel}</p>
           <div className="hero-num"><CountMoney value={heroComm} /></div>
           <div className="mt-3">
             {showingDay
@@ -159,8 +162,8 @@ export function Home() {
           <p className="mt-1 text-xs font-extrabold text-muted">{dayRow?.count || 0} حركة · {dayRow?.qty ? Math.round(dayRow.qty) : 0} قطعة</p>
         </button>
         <button type="button" className={`period-card ${showingDay ? '' : 'on'}`} onClick={() => { setPeriod('week'); setDay(undefined); }}>
-          <p className="kicker">إحصاء الأسبوع</p>
-          <p className="num mt-1 text-[22px] font-black text-gold">{moneyIq(commission)}</p>
+          <p className="kicker">{weekLabel}</p>
+          <p className="num mt-1 text-[22px] font-black text-gold">{moneyIq(weekFigure)}</p>
           <p className="mt-1 text-xs font-extrabold text-muted">{weekInsights.invoiceCount} فاتورة · {weekInsights.itemCount} حركة</p>
         </button>
       </div>
@@ -325,7 +328,7 @@ export function Home() {
             </div>
             <div>
               <p className="text-[11px] font-bold text-muted">أقوى أسبوع</p>
-              <p className="num font-extrabold">{totals.best ? moneyIq(totals.best.commissionAmount) : '—'}</p>
+              <p className="num font-extrabold">{totals.best ? moneyIq(shownWeekAmount(totals.best)) : '—'}</p>
             </div>
           </div>
         </section>
