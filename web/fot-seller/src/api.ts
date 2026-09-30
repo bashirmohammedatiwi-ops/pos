@@ -192,6 +192,10 @@ export function shownWeekLabel(week?: WeekSummary | null) {
   return 'المبلغ المستلم';
 }
 
+export function weekIsPaid(week?: WeekSummary | null) {
+  return !!week && !week.isCurrent && receivedOf(week) > 0;
+}
+
 export function pct(n: number) {
   const v = Number(n) || 0;
   return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10}%`;
@@ -342,7 +346,7 @@ export function weekReport(dash: Dashboard, extra?: string[]) {
   return [
     `${dash.seller.name} — أسبوع ${weekRange(dash.week.weekStart, dash.week.weekEnd)}`,
     `${shownWeekLabel(dash.week)}: ${moneyIq(shownWeekAmount(dash.week))}`,
-    dash.balanceDue > 0 ? `المستحق: ${moneyIq(dash.balanceDue)}` : '',
+    dash.balanceDue > 0 ? `لم يُصرف بعد: ${moneyIq(dash.balanceDue)}` : 'لا مبلغ بانتظار الصرف',
     dash.goals.length ? `الأهداف: ${hit} من ${dash.goals.length} تحقق` : 'لا أهداف مربوطة',
     ...(extra ?? []),
   ].filter(Boolean).join('\n');

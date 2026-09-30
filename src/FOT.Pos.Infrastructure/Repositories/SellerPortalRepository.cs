@@ -97,7 +97,7 @@ public sealed class SellerPortalRepository(
         var me = await GetMeAsync(salesmanId, ct)
             ?? throw new InvalidOperationException("البائع غير موجود");
         var (start, end) = await ResolveWeekAsync(weekStart, ct);
-        var week = await SummarizeWeekAsync(salesmanId, start, end, IsCurrent(start, ct), ct);
+        var week = await SummarizeWeekAsync(salesmanId, start, end, await IsCurrentAsync(start, ct), ct);
         var malls = await ListMallsAsync(salesmanId, start, end, ct);
         var goals = await ListGoalsAsync(salesmanId, start, end, ct);
         var balance = await BalanceDueAsync(salesmanId, ct);
@@ -369,20 +369,38 @@ public sealed class SellerPortalRepository(
 
     private async Task<decimal> BalanceDueAsync(long salesmanId, CancellationToken ct)
     {
-        const string sql = """
-            SELECT COALESCE(p.opening_balance, 0) + COALESCE((
-                SELECT SUM(c.commission_amount) FROM ext_commission_calculations c WHERE c.salesman_id = @salesmanId
-            ), 0) - COALESCE(p.paid_out_total, 0)
-            FROM (SELECT @salesmanId AS salesman_id) x
-            LEFT JOIN ext_salesman_commission_profiles p ON p.salesman_id = x.salesman_id
-            """;
+        var period = await periodSettings.GetAsync(ct);
+        var (currentStart, _) = BusinessPeriodHelper.GetCurrentWeek(period.WeekStartDay, period.WeekLengthDays);
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<decimal>(new CommandDefinition(sql, new { salesmanId }, cancellationToken: ct));
+        var delivered = await conn.QueryAsync<DateTime>(new CommandDefinition("""
+            SELECT week_start
+            FROM ext_weekly_settlements
+            WHERE salesman_id = @salesmanId AND delivered = 1
+            """, new { salesmanId }, cancellationToken: ct));
+        var paidWeeks = delivered.Select(d => d.Date).ToHashSet();
+        var days = await conn.QueryAsync<(DateTime Day, decimal Amount)>(new CommandDefinition("""
+            SELECT CAST(COALESCE(r.creation_date, c.calculated_at) AS date) AS Day,
+                   COALESCE(SUM(c.commission_amount), 0) AS Amount
+            FROM ext_commission_calculations c
+            LEFT JOIN reciepts r ON r.id = c.receipt_id
+            WHERE c.salesman_id = @salesmanId
+            GROUP BY CAST(COALESCE(r.creation_date, c.calculated_at) AS date)
+            """, new { salesmanId }, cancellationToken: ct));
+
+        decimal unpaid = 0;
+        foreach (var row in days)
+        {
+            var (start, _) = BusinessPeriodHelper.GetWeekBounds(row.Day, period.WeekStartDay, period.WeekLengthDays);
+            if (start.Date != currentStart.Date && paidWeeks.Contains(start.Date)) continue;
+            unpaid += row.Amount;
+        }
+        return unpaid < 0 ? 0 : unpaid;
     }
 
-    private bool IsCurrent(DateTime start, CancellationToken _)
+    private async Task<bool> IsCurrentAsync(DateTime start, CancellationToken ct)
     {
-        var (cur, _) = BusinessPeriodHelper.GetCurrentWeek();
+        var period = await periodSettings.GetAsync(ct);
+        var (cur, _) = BusinessPeriodHelper.GetCurrentWeek(period.WeekStartDay, period.WeekLengthDays);
         return start.Date == cur.Date;
     }
 

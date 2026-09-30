@@ -253,7 +253,7 @@ function Shell() {
                 <p className="num mt-1 text-lg font-extrabold">{dash.week.receiptCount}</p>
               </div>
               <div className="card p-3.5 col-span-2">
-                <p className="text-[11px] font-extrabold text-gold">المستحق</p>
+                <p className="text-[11px] font-extrabold text-gold">لم يُصرف بعد</p>
                 <p className="num mt-1 text-lg font-extrabold">{moneyIq(dash.balanceDue)}</p>
               </div>
             </div>
