@@ -69,6 +69,34 @@ public static class EdariStringHelper
 
     public static bool IsReadableName(string? text) => IsReadable(text);
 
+    /// <summary>
+    /// Labels we invent when Edari's Arabic channel is down: a bare account/branch number,
+    /// or "حساب 181" / "فرع Edari 12". These must never replace a name already on file.
+    /// </summary>
+    public static bool IsPlaceholderName(string? text)
+    {
+        if (!IsReadable(text)) return true;
+        var t = text!.Trim();
+        if (Regex.IsMatch(t, @"^\d+$")) return true;
+        if (t.StartsWith("فرع Edari", StringComparison.Ordinal)) return true;
+        if (t.StartsWith("حساب ", StringComparison.Ordinal)) return true;
+        if (Regex.IsMatch(t, @"^صندوق\s+\d+$")) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Keep the stored label when the incoming one is a number/placeholder, or when a
+    /// real Arabic name would be replaced by a non-Arabic fallback from a cold Edari start.
+    /// </summary>
+    public static bool ShouldKeepStoredName(string? stored, string? incoming)
+    {
+        if (string.IsNullOrWhiteSpace(stored)) return false;
+        if (string.IsNullOrWhiteSpace(incoming)) return true;
+        if (IsPlaceholderName(incoming) && !IsPlaceholderName(stored)) return true;
+        if (HasArabic(stored) && !HasArabic(incoming)) return true;
+        return false;
+    }
+
     private static bool IsReadable(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return false;

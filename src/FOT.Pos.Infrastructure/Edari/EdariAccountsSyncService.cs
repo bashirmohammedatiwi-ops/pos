@@ -80,6 +80,14 @@ public sealed class EdariAccountsSyncService(
         }
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var existingNames = await LoadExistingNamesAsync(conn, payload.Select(p => p.EdariSeq).ToList(), ct);
+        foreach (var row in payload)
+        {
+            if (existingNames.TryGetValue(row.EdariSeq, out var stored)
+                && EdariStringHelper.ShouldKeepStoredName(stored, row.AccountName))
+                row.AccountName = stored;
+        }
+
         var before = await conn.ExecuteScalarAsync<int>(
             new CommandDefinition("SELECT COUNT(*) FROM ext_edari_accounts", cancellationToken: ct));
 
@@ -161,6 +169,23 @@ public sealed class EdariAccountsSyncService(
         return map;
     }
 
+    private static async Task<Dictionary<long, string?>> LoadExistingNamesAsync(
+        System.Data.Common.DbConnection conn, IReadOnlyList<long> seqs, CancellationToken ct)
+    {
+        var map = new Dictionary<long, string?>();
+        foreach (var chunk in seqs.Chunk(400))
+        {
+            var rows = await conn.QueryAsync<(long Seq, string? Name)>(new CommandDefinition("""
+                SELECT edari_seq AS Seq, account_name AS Name
+                FROM ext_edari_accounts
+                WHERE edari_seq IN @seqs
+                """, new { seqs = chunk }, cancellationToken: ct));
+            foreach (var row in rows)
+                map[row.Seq] = row.Name;
+        }
+        return map;
+    }
+
     private static string? ResolveName(
         long seq,
         string? edariRaw,
@@ -180,7 +205,7 @@ public sealed class EdariAccountsSyncService(
     {
         public long EdariSeq { get; init; }
         public string? AccountNum { get; init; }
-        public string? AccountName { get; init; }
+        public string? AccountName { get; set; }
         public string? GroupNum { get; init; }
         public string? GroupName { get; init; }
         public bool IsCashBox { get; init; }

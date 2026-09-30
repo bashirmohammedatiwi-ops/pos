@@ -2356,6 +2356,20 @@ input, button, select { font-family: inherit; }
   width: min(1500px, 96vw);
 }
 
+/* The live cart scroll area is height:0 and grows inside the sale panel.
+   The deferred editor is a dialog, so that rule collapsed every line. */
+.pos-deferred-lines {
+  flex: none;
+  max-height: 58vh;
+  min-height: 140px;
+}
+.pos-deferred-lines .pos-cart-sheet-scroll {
+  height: auto;
+  max-height: 58vh;
+  min-height: 140px;
+  flex: 1 1 auto;
+}
+
 .pos-toast {
   pointer-events: none;
   position: fixed;

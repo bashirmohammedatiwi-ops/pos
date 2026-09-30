@@ -62,7 +62,18 @@ public sealed class EdariDataPullService(
             pull.ArticlesDeleted);
     }
 
-    public async Task<EdariDataPullResult> PullAsync(bool includeCatalog, CancellationToken ct)
+    public Task<EdariDataPullResult> PullAsync(bool includeCatalog, CancellationToken ct) =>
+        PullAsync(includeCatalog, includeArticles: true, stampFullPull: true, ct);
+
+    /// <summary>
+    /// Sections, cash boxes and salesmen only. Skips the full material scan so a machine
+    /// that just booted can show real names without waiting on every product.
+    /// </summary>
+    public Task<EdariDataPullResult> PullNamesAsync(CancellationToken ct) =>
+        PullAsync(includeCatalog: false, includeArticles: false, stampFullPull: false, ct);
+
+    private async Task<EdariDataPullResult> PullAsync(
+        bool includeCatalog, bool includeArticles, bool stampFullPull, CancellationToken ct)
     {
         if (!await gate.WaitAsync(TimeSpan.FromMinutes(3), ct))
         {
@@ -73,7 +84,7 @@ public sealed class EdariDataPullService(
 
         try
         {
-            return await PullCoreAsync(includeCatalog, ct);
+            return await PullCoreAsync(includeCatalog, includeArticles, stampFullPull, ct);
         }
         finally
         {
@@ -81,7 +92,8 @@ public sealed class EdariDataPullService(
         }
     }
 
-    private async Task<EdariDataPullResult> PullCoreAsync(bool includeCatalog, CancellationToken ct)
+    private async Task<EdariDataPullResult> PullCoreAsync(
+        bool includeCatalog, bool includeArticles, bool stampFullPull, CancellationToken ct)
     {
         var opts = await settings.GetEffectiveAsync(ct);
         if (!opts.Enabled)
@@ -115,29 +127,43 @@ public sealed class EdariDataPullService(
         // Chart of accounts: cash boxes added in Edari must be linkable to a section right away.
         var accounts = await SyncAccountsSafeAsync(ct);
         var salesmen = await salesmenSync.SyncAsync(ct);
-        var articles = await articlesSync.SyncAsync(ct);
+        var articles = includeArticles
+            ? await articlesSync.SyncAsync(ct)
+            : new EdariArticlesSyncResult(true, "", 0, 0, 0, DateTime.UtcNow);
 
         var catalogImported = 0;
-        if (includeCatalog && opts.CatalogSyncEnabled)
+        if (includeArticles && includeCatalog && opts.CatalogSyncEnabled)
             catalogImported = await catalogSync.ImportOffersAsync(ct);
 
-        await settingsRepo.UpdateLastDataPullAsync(ct);
+        if (stampFullPull)
+            await settingsRepo.UpdateLastDataPullAsync(ct);
+        else
+            await settingsRepo.TouchHeartbeatAsync(ct);
 
-        var stats = await nexus.GetDashboardStatsAsync(ct);
-        var msg = BuildMessage(salesmen, articles, branches, accounts, catalogImported, stats);
-        var ok = salesmen.Success && articles.Success && branches.Success;
-        await syncRepo.LogOperationAsync("data_pull", ok ? "success" : "failed", msg, ct);
+        var stats = includeArticles
+            ? await nexus.GetDashboardStatsAsync(ct)
+            : new EdariDashboardStatsDto(0, 0, salesmen.Total, branches.BranchCount);
+        var msg = includeArticles
+            ? BuildMessage(salesmen, articles, branches, accounts, catalogImported, stats)
+            : BuildNamesMessage(branches, accounts, salesmen);
+        var ok = branches.Success && accounts.Success && (!includeArticles || (salesmen.Success && articles.Success));
+        var namesChanged = branches.SectionsCreated + accounts.Added + accounts.Removed > 0;
+        if (includeArticles || !ok || namesChanged)
+            await syncRepo.LogOperationAsync(includeArticles ? "data_pull" : "names_pull", ok ? "success" : "failed", msg, ct);
 
         if (ok)
         {
-            try
+            if (stampFullPull)
             {
-                var fp = await nexus.GetCatalogFingerprintAsync(ct);
-                await settingsRepo.SaveFingerprintAsync(fp.Token, ct);
-            }
-            catch
-            {
-                await settingsRepo.TouchHeartbeatAsync(ct);
+                try
+                {
+                    var fp = await nexus.GetCatalogFingerprintAsync(ct);
+                    await settingsRepo.SaveFingerprintAsync(fp.Token, ct);
+                }
+                catch
+                {
+                    await settingsRepo.TouchHeartbeatAsync(ct);
+                }
             }
 
             var dataChanged = articles.Added + articles.Updated + articles.Deleted + salesmen.Added + salesmen.Updated
@@ -166,7 +192,7 @@ public sealed class EdariDataPullService(
                 }
             }
 
-            await notifier.NotifyEdariAsync(msg, dataChanged, ct);
+            await notifier.NotifyEdariAsync(msg, includeArticles && dataChanged, ct);
         }
 
         return new EdariDataPullResult(
@@ -201,6 +227,23 @@ public sealed class EdariDataPullService(
         {
             return new EdariAccountsSyncResult(false, ex.Message, 0, 0, 0, 0, DateTime.UtcNow);
         }
+    }
+
+    private static string BuildNamesMessage(
+        EdariBranchesSyncResult branches,
+        EdariAccountsSyncResult accounts,
+        EdariSalesmenSyncResult salesmen)
+    {
+        var parts = new List<string> { "تم تحديث الأقسام والصناديق" };
+        if (branches.BranchCount > 0)
+            parts.Add($"{branches.BranchCount} قسم");
+        if (branches.SectionsCreated > 0)
+            parts.Add($"{branches.SectionsCreated} قسم جديد");
+        if (accounts.Success && accounts.CashBoxes > 0)
+            parts.Add($"{accounts.CashBoxes} صندوق");
+        if (salesmen.Success && salesmen.Total > 0)
+            parts.Add($"{salesmen.Total} بائع");
+        return string.Join(" · ", parts);
     }
 
     private static string BuildMessage(

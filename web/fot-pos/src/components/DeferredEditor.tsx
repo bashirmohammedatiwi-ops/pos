@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { totalRoundingDiscount } from '@fot/shared';
+import { decodeScannerText, totalRoundingDiscount } from '@fot/shared';
 import { capUserDiscount } from '@/lib/sale';
 import { db } from '@/lib/db';
 import { findProductSmart, searchProductsSmart } from '@/lib/catalogSync';
@@ -233,7 +233,7 @@ export function DeferredEditor({
   }
 
   async function addByInput() {
-    const term = search.trim();
+    const term = decodeScannerText(search).trim();
     if (!term) return;
     setAddBusy(true);
     try {
@@ -348,7 +348,7 @@ export function DeferredEditor({
         </div>
 
         {/* بنود الفاتورة */}
-        <div className="pos-cart-sheet max-h-[58vh] overflow-hidden rounded-xl border border-slate-200">
+        <div className="pos-cart-sheet pos-deferred-lines overflow-hidden rounded-xl border border-slate-200">
           <div className="pos-cart-sheet-scroll">
           <table className="pos-cart-table pos-cart-excel">
             <thead>
@@ -378,7 +378,7 @@ export function DeferredEditor({
                       <span className="pos-cart-barcode num" dir="ltr">{item.barcode || product?.barcode || product?.num || '—'}</span>
                     </td>
                     <td className="pos-td-name">
-                      <span className="pos-cart-name">{product?.name || item.barcode || `#${item.articleId}`}</span>
+                      <span className="pos-cart-name">{product?.name || item.name || item.barcode || `#${item.articleId}`}</span>
                     </td>
                     <td className="pos-td-price">
                       {px.allowPriceChange ? (

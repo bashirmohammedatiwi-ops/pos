@@ -44,12 +44,23 @@ public sealed class EdariBranchesSyncService(
         }
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var storedNames = (await conn.QueryAsync<(long Seq, string? Name)>(new CommandDefinition("""
+            SELECT edari_branch_id AS Seq, name AS Name
+            FROM sections
+            WHERE edari_branch_id IS NOT NULL
+            """, cancellationToken: ct)))
+            .GroupBy(r => r.Seq)
+            .ToDictionary(g => g.Key, g => g.First().Name);
+
         var edariUpserts = 0;
         var sectionsCreated = 0;
 
         foreach (var branch in branches)
         {
             var name = branch.SyncName;
+            if (storedNames.TryGetValue(branch.Seq, out var stored)
+                && EdariStringHelper.ShouldKeepStoredName(stored, name))
+                name = stored!;
             var edariId = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(
                 "SELECT id FROM edari_branches WHERE erp_seq = @seq",
                 new { seq = branch.Seq }, cancellationToken: ct));

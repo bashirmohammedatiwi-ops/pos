@@ -29,6 +29,19 @@ function foldLatin1(raw: string): string {
   return out;
 }
 
+/**
+ * Windows Arabic layout emits lam-alef as two characters (لأ لإ لآ لا).
+ * The sale field already keeps the physical Latin letter, and the hamza
+ * half still lands in the box: GT-212 is read as GأTإ-212.
+ */
+function dropLamAlefTails(value: string): string {
+  return value
+    .replace(/[Gg]أ/g, 'G')
+    .replace(/[Tt]إ/g, 'T')
+    .replace(/[Bb]آ/g, 'B')
+    .replace(/[Bb]ا/g, m => (m[0] === 'B' ? 'B' : 'b'));
+}
+
 /** Scanner text typed through an Arabic keyboard, back to the Latin barcode. */
 export function decodeScannerText(raw: string): string {
   const prepared = replaceToken(
@@ -36,9 +49,10 @@ export function decodeScannerText(raw: string): string {
     'لا',
     'b',
   );
+  const tails = dropLamAlefTails(prepared);
   let out = '';
-  for (const ch of prepared) out += AR_LAYOUT[ch] ?? ch;
-  return out;
+  for (const ch of tails) out += AR_LAYOUT[ch] ?? ch;
+  return dropLamAlefTails(out);
 }
 
 export function normalizeDiscountQrCode(raw: string): string {

@@ -112,6 +112,10 @@ export function invalidateEdariStatusData() {
     'edari-unsynced',
     'edari-dead-letters',
     'salesmen',
+    'sections-summary',
+    'sections',
+    'pos-cashboxes',
+    'cashbox-accounts-edari',
     'dashboard-stats',
   ]);
 }

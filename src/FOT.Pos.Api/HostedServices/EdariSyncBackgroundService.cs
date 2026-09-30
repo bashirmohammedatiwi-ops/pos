@@ -12,9 +12,28 @@ public sealed class EdariSyncBackgroundService(
     EdariSyncGate gate,
     ILogger<EdariSyncBackgroundService> logger) : BackgroundService
 {
+    private readonly DateTime _startedUtc = DateTime.UtcNow;
+    private DateTime _lastNamesUtc = DateTime.MinValue;
+    private DateTime _lastArticlesUtc = DateTime.MinValue;
+
+    private static readonly TimeSpan BootNamesDelay = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan NamesInterval = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan ArticleBootDelay = TimeSpan.FromMinutes(8);
+    private static readonly TimeSpan ArticleMinInterval = TimeSpan.FromMinutes(10);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Edari live-link sync started");
+        try
+        {
+            // Let SQL Server and the control panel answer first. A full Edari scan during
+            // Windows startup is what made the server feel frozen.
+            await Task.Delay(BootNamesDelay, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
 
         var lastDetect = DateTime.MinValue;
         var lastReceiptSync = DateTime.MinValue;
@@ -95,6 +114,30 @@ public sealed class EdariSyncBackgroundService(
 
         var live = await settingsRepo.GetLiveLinkAsync(ct);
         var nexus = scope.ServiceProvider.GetRequiredService<EdariNexusClient>();
+        var pull = scope.ServiceProvider.GetRequiredService<EdariDataPullService>();
+        var uptime = DateTime.UtcNow - _startedUtc;
+
+        if (_lastArticlesUtc == DateTime.MinValue && live.LastDataPullAt is not null)
+            _lastArticlesUtc = ToUtc(live.LastDataPullAt.Value);
+
+        // Names (sections, cash boxes, salesmen) stay on their own short timer so they
+        // don't wait behind a full product scan, and so a cold Arabic channel can't
+        // be the only moment we rewrite labels.
+        if (DateTime.UtcNow - _lastNamesUtc >= NamesInterval)
+        {
+            var names = await pull.PullNamesAsync(ct);
+            _lastNamesUtc = DateTime.UtcNow;
+            if (names.Ok)
+                logger.LogInformation("Edari names pull: {Message}", names.Message);
+            else
+                logger.LogWarning("Edari names pull failed: {Message}", names.Message);
+        }
+
+        // The catalog fingerprint sums the whole material file. Skip it until the
+        // machine has finished starting, then don't rescan products more than once
+        // every 10 minutes even when stock totals moved.
+        if (uptime < ArticleBootDelay)
+            return (lastReceiptSync, interval);
 
         EdariCatalogFingerprint? fp = null;
         try
@@ -110,34 +153,38 @@ public sealed class EdariSyncBackgroundService(
 
         var fingerprintChanged = !string.Equals(fp.Token, live.Fingerprint, StringComparison.Ordinal);
         var neverPulled = live.LastDataPullAt is null;
-        var pullEvery = TimeSpan.FromSeconds(opts.EffectiveDataPullIntervalSeconds);
-        var safetyDue = live.LastDataPullAt is null
-            || DateTime.UtcNow - ToUtc(live.LastDataPullAt.Value) >= pullEvery;
-
-        if (fingerprintChanged || neverPulled || safetyDue)
+        var sinceArticles = _lastArticlesUtc == DateTime.MinValue
+            ? TimeSpan.MaxValue
+            : DateTime.UtcNow - _lastArticlesUtc;
+        var throttleOpen = sinceArticles >= ArticleMinInterval;
+        // A quiet rescan, not a boot rescan: only after the process has been up a while
+        // and the last full pull is actually stale.
+        var periodic = uptime >= TimeSpan.FromMinutes(20) && sinceArticles >= TimeSpan.FromMinutes(30);
+        if (!throttleOpen && !neverPulled)
+            return (lastReceiptSync, interval);
+        if (!neverPulled && !fingerprintChanged && !periodic)
         {
-            if (fingerprintChanged)
-                await settingsRepo.MarkChangeDetectedAsync(ct);
-
-            var includeCatalog = opts.CatalogSyncEnabled && (fingerprintChanged || await ShouldRunCatalogSyncAsync(settingsRepo, ct));
-            var pull = scope.ServiceProvider.GetRequiredService<EdariDataPullService>();
-            var pullResult = await pull.PullAsync(includeCatalog, ct);
-            if (pullResult.Ok)
-            {
-                if (fingerprintChanged || pullResult.ArticlesAdded + pullResult.ArticlesUpdated + pullResult.ArticlesDeleted > 0)
-                    logger.LogInformation("Edari live pull: {Message}", pullResult.Message);
-            }
-            else
-                logger.LogWarning("Edari live pull failed: {Message}", pullResult.Message);
-
-            if (pullResult.Ok)
-                lastReceiptSync = await SyncReceiptsIfDueAsync(scopeFactory, lastReceiptSync, interval, force: true, ct);
-
+            if (fileHit)
+                logger.LogDebug("Edari folder activity with unchanged fingerprint");
             return (lastReceiptSync, interval);
         }
 
-        if (fileHit)
-            logger.LogDebug("Edari folder activity with unchanged fingerprint");
+        if (fingerprintChanged)
+            await settingsRepo.MarkChangeDetectedAsync(ct);
+
+        var includeCatalog = opts.CatalogSyncEnabled && (fingerprintChanged || await ShouldRunCatalogSyncAsync(settingsRepo, ct));
+        var pullResult = await pull.PullAsync(includeCatalog, ct);
+        _lastArticlesUtc = DateTime.UtcNow;
+        if (pullResult.Ok)
+        {
+            if (fingerprintChanged || pullResult.ArticlesAdded + pullResult.ArticlesUpdated + pullResult.ArticlesDeleted > 0)
+                logger.LogInformation("Edari live pull: {Message}", pullResult.Message);
+        }
+        else
+            logger.LogWarning("Edari live pull failed: {Message}", pullResult.Message);
+
+        if (pullResult.Ok)
+            lastReceiptSync = await SyncReceiptsIfDueAsync(scopeFactory, lastReceiptSync, interval, force: true, ct);
 
         return (lastReceiptSync, interval);
     }

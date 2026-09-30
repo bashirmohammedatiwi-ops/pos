@@ -1860,7 +1860,7 @@ export function SalesPage({
   cardRetryRef.current = () => { void checkout('card'); };
 
   async function lookupPrice() {
-    const { code } = parseScan(priceScan);
+    const { code } = parseScan(decodeScannerText(priceScan));
     if (!code) return;
     const p = await findProductSmart(code, canUseServer(online));
     setPriceHit(p);
@@ -2158,9 +2158,10 @@ export function SalesPage({
                   onChange={e => {
                     setScanError(null);
                     const value = e.currentTarget?.value ?? e.target?.value ?? '';
-                    if (value === scanValueRef.current) return;
-                    scanValueRef.current = value;
-                    setScan(value);
+                    const cleaned = decodeScannerText(value);
+                    if (cleaned === scanValueRef.current) return;
+                    scanValueRef.current = cleaned;
+                    setScan(cleaned);
                   }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.code === 'NumpadEnter') {

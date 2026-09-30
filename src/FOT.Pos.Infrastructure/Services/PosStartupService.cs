@@ -1,6 +1,5 @@
 using Dapper;
 using FOT.Pos.Infrastructure.Data;
-using FOT.Pos.Infrastructure.Edari;
 using FOT.Pos.Infrastructure.Repositories;
 using Microsoft.Extensions.Logging;
 
@@ -13,8 +12,6 @@ public sealed class PosStartupService(
     SchemaMigrationRunner migrations,
     ISqlConnectionFactory db,
     SalePostProcessor commissions,
-    EdariSettingsService edariSettings,
-    EdariSalesmenSyncService salesmenSync,
     ILogger<PosStartupService> logger)
 {
     private const int CommissionBackfillDays = 14;
@@ -26,7 +23,9 @@ public sealed class PosStartupService(
         if (applied > 0)
             SalesmanQueries.ResetSchemaCache();
 
-        await RepairEdariSalesmenAsync(ct);
+        // Salesmen repair talks to Edari. Doing it here blocks the API from listening
+        // while NexusDB is still starting with Windows, so the control panel sits and waits.
+        // The background sync repairs the registry once Edari answers.
 
         var repaired = await RepairReceiptFlagsAsync(ct);
         if (repaired > 0)
@@ -34,41 +33,6 @@ public sealed class PosStartupService(
 
         if (applied > 0 || repaired > 0)
             await BackfillCommissionsAsync(ct);
-    }
-
-    private async Task RepairEdariSalesmenAsync(CancellationToken ct)
-    {
-        await using var conn = await db.CreateOpenConnectionAsync(ct);
-        SalesmanQueries.ResetSchemaCache();
-
-        if (await SalesmanQueries.HasEdariRegistryAsync(conn, ct)
-            && !await SalesmanQueries.IsEdariRegistryValidAsync(conn, ct))
-        {
-            var purged = await conn.ExecuteAsync(new CommandDefinition(
-                "DELETE FROM ext_edari_salesmen", cancellationToken: ct));
-            logger.LogWarning(
-                "Purged invalid Edari salesman registry ({Count} row(s) — likely old File11n accounts)",
-                purged);
-            SalesmanQueries.ResetSchemaCache();
-        }
-
-        var registryValid = await SalesmanQueries.IsEdariRegistryValidAsync(conn, ct);
-        if (registryValid)
-            return;
-
-        var opts = await edariSettings.GetEffectiveAsync(ct);
-        if (!opts.Enabled)
-            return;
-
-        if (!EdariConnectionFactory.DataFolderExists(opts))
-            return;
-
-        logger.LogInformation("Edari salesman registry missing or invalid — running automatic Edari sync");
-        var result = await salesmenSync.SyncAsync(ct);
-        if (result.Success)
-            logger.LogInformation("Startup Edari salesmen sync: {Message}", result.Message);
-        else
-            logger.LogWarning("Startup Edari salesmen sync failed: {Message}", result.Message);
     }
 
     private async Task<int> RepairReceiptFlagsAsync(CancellationToken ct)
