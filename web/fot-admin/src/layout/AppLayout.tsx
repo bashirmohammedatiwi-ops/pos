@@ -16,6 +16,7 @@ import { useNavBadges } from '@/hooks/useNavBadges';
 import { useAuth } from '@/auth/AuthContext';
 import { useToast } from '@/components/Toast';
 import { usePushPosUpdates } from '@/hooks/usePushPosUpdates';
+import { resetTransientUiState } from '@/lib/uiReset';
 
 export function AppLayout() {
   const { pathname } = useLocation();
@@ -40,6 +41,8 @@ export function AppLayout() {
 
   useEffect(() => {
     setMobileOpen(false);
+    setCmdOpen(false);
+    resetTransientUiState();
   }, [pathname]);
 
   function toggleNav() {

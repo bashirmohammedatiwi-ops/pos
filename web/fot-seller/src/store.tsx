@@ -46,7 +46,15 @@ const Ctx = createContext<Store | null>(null);
 
 export function SellerProvider({ children }: { children: ReactNode }) {
   const { weekStart, setWeek } = useWeek();
-  const seed = useMemo(() => readCache(), []);
+  const seed = useMemo(() => {
+    const cached = readCache();
+    if (!cached?.dash) return cached;
+    const cachedWeek = cached.weekStart?.slice(0, 10);
+    const asked = weekStart?.slice(0, 10);
+    if (asked && cachedWeek && asked !== cachedWeek) return null;
+    if (!asked && cached.dash.week && !cached.dash.week.isCurrent) return null;
+    return cached;
+  }, [weekStart]);
   const [dash, setDash] = useState<Dashboard | null>(seed?.dash ?? null);
   const [weeks, setWeeks] = useState<WeekSummary[]>(seed?.weeks ?? []);
   const [lines, setLines] = useState<CommissionLine[]>(seed?.lines ?? []);

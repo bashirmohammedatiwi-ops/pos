@@ -80,7 +80,7 @@ export const PAGE_META: Record<
   '/': { title: 'لوحة التحكم', subtitle: 'مبيعات اليوم · المتابعة · الفريق والنظام', iconKey: 'dashboard' },
   '/products': { title: 'المنتجات', subtitle: 'الكتالوج · العروض · المخزون', iconKey: 'products' },
   '/barcode-labels': { title: 'طباعة الباركود', subtitle: 'مسح المادة · صف بثلاثة أعمدة · طباعة بالعدد', iconKey: 'barcode' },
-  '/offers': { title: 'العروض', subtitle: 'القائمة · التفعيل · الأشجار والمنتجات', iconKey: 'offers' },
+  '/offers': { title: 'العروض', subtitle: 'إدارة الخصومات والمجموعات ورفعها لنقاط البيع', iconKey: 'offers' },
   '/groups': { title: 'مجموعات الأزرار', subtitle: 'إنشاء المجاميع وإضافة المنتجات لنافذة نقطة البيع', iconKey: 'groups' },
   '/accounts': { title: 'حسابات آجلة', subtitle: 'حسابات Edari الظاهرة في بيع الآجل', iconKey: 'accounts' },
   '/receipts': { title: 'استعراض الإيصالات', subtitle: 'فلاتر · جدول · ملخص · تفاصيل الأصناف', iconKey: 'receipts' },

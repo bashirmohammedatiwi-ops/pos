@@ -32,6 +32,7 @@ const {
   wipeCacheDirs,
   clearChromiumCaches,
 } = require('./sessionRecovery.cjs');
+const { speakSalesmanName: ttsSpeak, stopSpeaking: ttsStop, configureTts, warmupTts } = require('./speakName.cjs');
 
 app.commandLine.appendSwitch(
   'disable-features',
@@ -617,6 +618,9 @@ ipcMain.handle('print:html', async (_event, html, copies = 1, deviceName, option
   return printHtml(html, copies, named, options);
 });
 
+ipcMain.handle('tts:speak', (_event, name) => ttsSpeak(name));
+ipcMain.handle('tts:stop', () => ttsStop());
+
 function safeIpc(channel, fn) {
   ipcMain.handle(channel, async (_event, ...args) => {
     try {
@@ -826,6 +830,7 @@ app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   configure(userData);
   configureCrashLog(userData);
+  if (role === 'pos') warmupTts(userData);
   const dirty = wasDirtyShutdown(userData);
   markRunning(userData);
   if (dirty) {

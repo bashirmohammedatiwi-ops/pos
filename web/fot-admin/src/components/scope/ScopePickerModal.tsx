@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useScrollLock } from '@/hooks/useScrollLock';
 import { api, formatNum } from '@/api/client';
 import type { TreeNodeDto } from '@/api/types';
 import { fixEdariName } from '@/lib/text';
@@ -101,13 +102,7 @@ export function ScopePickerModal({
 
   const stagedCount = addTrees.size + addProducts.size + removeTrees.size + removeRows.size + excludeSeqs.size;
 
-  // قفل تمرير الصفحة خلف النافذة + إغلاق قائمة الكلك-يمين عند أي تفاعل
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  useScrollLock(open);
 
   useEffect(() => {
     if (!open) {

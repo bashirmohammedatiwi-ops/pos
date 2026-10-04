@@ -80,6 +80,7 @@ export function CommandPalette({
       { key: 'w-target-report', iconKey: 'targets', label: 'تقرير الأهداف', group: 'عمل اليوم', path: '/reports?app=targets' },
       { key: 'w-product-inquiry', iconKey: 'products', label: 'استعلام مادة', group: 'عمل اليوم', path: '/reports?app=product-inquiry' },
       { key: 'w-seller-receipts', iconKey: 'receipts', label: 'فواتير البائع', group: 'عمل اليوم', path: '/reports?app=seller-receipts' },
+      { key: 'w-cashier-voids', iconKey: 'activity', label: 'حذف وإلغاء الكاشير', group: 'عمل اليوم', path: '/reports?app=cashier-voids' },
       { key: 'w-offer', iconKey: 'offers', label: 'إنشاء عرض', group: 'عمل اليوم', path: '/offers?new=1' },
       { key: 'w-comm', iconKey: 'commissions', label: 'مجاميع العمولة', group: 'عمل اليوم', path: '/commissions' },
       { key: 'w-salesmen', iconKey: 'salesmen', label: 'تقارير البائعين', group: 'عمل اليوم', path: '/salesmen?tab=reports' },

@@ -150,6 +150,9 @@ try {
     npm run build:pos
     if ($LASTEXITCODE -ne 0) { throw "Cashier UI build failed" }
 
+    & (Join-Path $root "scripts\ensure-piper-tts.ps1")
+    if ($LASTEXITCODE -ne 0) { throw "Piper TTS download failed" }
+
     npm run dist:cashier
     if ($LASTEXITCODE -ne 0) { throw "Cashier installer build failed" }
 
@@ -162,7 +165,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Server installer build failed" }
 
     foreach ($sub in @("cashier", "admin", "server")) {
-        $dir = Join-Path $desktopDir "dist-out73\$sub"
+        $dir = Join-Path $desktopDir "dist-out82\$sub"
         if (Test-Path $dir) {
             Get-ChildItem $dir -Filter "FOT-POS-*-Setup.exe" | Copy-Item -Destination $installerOut -Force
         }

@@ -1,5 +1,6 @@
 import type { CartGroupState } from '@/lib/sale';
 import { formatNum } from '@/lib/money';
+import { speakSalesmanName } from '@/lib/speakName';
 
 export type CartGroupStats = { count: number; total: number };
 
@@ -53,6 +54,7 @@ export function CartGroupBar({
                 onClick={e => {
                   e.stopPropagation();
                   onSelect(g.key);
+                  if (g.salesmanName) speakSalesmanName(g.salesmanName);
                   onPickSalesman(g.key);
                 }}
                 className={`pos-cart-group-seller ${g.salesmanName ? 'has-seller' : 'needs-seller'}`}

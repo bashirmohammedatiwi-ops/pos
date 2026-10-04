@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatNum } from '@/api/client';
 import { copyText } from '@/lib/clipboard';
@@ -57,8 +57,11 @@ function ProductEditModal({
   const [dirty, setDirty] = useState(false);
   useUnsavedWarning(dirty);
 
+  const productId = product?.id;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   useEffect(() => {
-    if (!product) return;
+    if (!product || dirtyRef.current) return;
     setName(product.name ?? '');
     setBarcode(product.barcode ?? '');
     setOriginalPrice(String(product.originalPrice ?? 0));
@@ -67,7 +70,7 @@ function ProductEditModal({
     setStoredDiscount(String(product.storedDiscountPercent ?? 0));
     setError('');
     setDirty(false);
-  }, [product]);
+  }, [productId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: () =>

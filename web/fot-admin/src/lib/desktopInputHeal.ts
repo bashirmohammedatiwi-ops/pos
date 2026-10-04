@@ -1,5 +1,7 @@
 /** Electron on Windows can drop keyboard/caret focus after hide, sleep, or lock. */
 
+import { resetTransientUiState } from '@/lib/uiReset';
+
 function isEditable(el: EventTarget | null): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
@@ -26,6 +28,9 @@ export function installDesktopInputHeal() {
   const onPointer = (event: PointerEvent) => {
     const field = fieldFrom(event.target);
     if (!field) return;
+    if (document.body.style.userSelect === 'none' || document.body.style.cursor === 'col-resize') {
+      resetTransientUiState();
+    }
     window.requestAnimationFrame(() => {
       if (document.activeElement !== field) restore(field);
     });

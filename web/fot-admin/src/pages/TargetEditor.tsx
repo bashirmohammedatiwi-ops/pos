@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatNum } from '@/api/client';
 import type {
   TargetRuleDto,
@@ -79,27 +79,44 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
   const [dirty, setDirty] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(!!autoOpenPicker);
   const [excludedSeqs, setExcludedSeqs] = useState<Set<number>>(new Set());
+  const hydratedFor = useRef<number | null | undefined>(undefined);
+  const dirtyRef = useRef(false);
+  const draftRef = useRef({
+    name: '',
+    trees: [] as TargetTreeLinkDto[],
+    assignments: [] as TargetSalesmanAssignmentDto[],
+    targetType: 'quantity' as 'quantity' | 'amount',
+    excludedSeqs: new Set<number>(),
+    editRule: null as TargetRuleDto | null,
+  });
+  draftRef.current = { name, trees, assignments, targetType, excludedSeqs, editRule };
   useUnsavedWarning(dirty);
 
-  // حمّل القاعدة عند جهوزها (مرة واحدة لكل معرّف)
+  function applyServerRule(rule: TargetRuleDto, salesmanList: { id: number; name: string }[]) {
+    hydratedFor.current = rule.id;
+    setLoadedFor(rule.id);
+    setEditRule(rule);
+    setName(rule.name);
+    setTrees(rule.trees ?? []);
+    setTargetType(rule.targetType === 'amount' ? 'amount' : 'quantity');
+    setAssignments(assignmentsForIds((rule.assignments ?? []).map(a => a.salesmanId), salesmanList, rule.assignments));
+    setExcludedSeqs(new Set(rule.excludedArticleIds ?? []));
+    setErr('');
+    dirtyRef.current = false;
+    setDirty(false);
+    qc.setQueryData(['target-rule', rule.id], rule);
+  }
+
+  // حمّل القاعدة مرة واحدة لكل معرّف، ولا تمسح تعديلات المستخدم إذا تحدّث الاستعلام.
   useEffect(() => {
     if (ruleId == null) {
-      if (loadedFor !== null) { setLoadedFor(null); }
+      hydratedFor.current = null;
+      if (loadedFor !== null) setLoadedFor(null);
       return;
     }
-    if (ruleQ.data && loadedFor !== ruleId) {
-      setLoadedFor(ruleId);
-      const rule = ruleQ.data;
-      setEditRule(rule);
-      setName(rule.name);
-      setTrees(rule.trees ?? []);
-      setTargetType(rule.targetType === 'amount' ? 'amount' : 'quantity');
-      setAssignments(assignmentsForIds((rule.assignments ?? []).map(a => a.salesmanId), salesmen, rule.assignments));
-      setExcludedSeqs(new Set(rule.excludedArticleIds ?? []));
-      setErr('');
-      setDirty(false);
-    }
-  }, [ruleId, ruleQ.data, loadedFor, salesmen]);
+    if (!ruleQ.data || dirtyRef.current || hydratedFor.current === ruleId) return;
+    applyServerRule(ruleQ.data, salesmen);
+  }, [ruleId, ruleQ.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (trees.length === 0) return;
@@ -118,6 +135,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
 
   function mark(next: () => void) {
     next();
+    dirtyRef.current = true;
     setDirty(true);
   }
 
@@ -145,46 +163,72 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
     );
   }
 
-  async function persistTarget() {
-    if (!name.trim() || trees.length === 0) {
+  async function persistTarget(snapshot?: {
+    name?: string;
+    trees?: TargetTreeLinkDto[];
+    assignments?: TargetSalesmanAssignmentDto[];
+    targetType?: 'quantity' | 'amount';
+    excludedSeqs?: Set<number>;
+  }) {
+    const draft = { ...draftRef.current, ...snapshot };
+    if (!draft.name.trim() || draft.trees.length === 0) {
       setErr('أدخل اسماً ونطاقاً واحداً على الأقل');
       return;
     }
     setErr('');
-    save.mutate(trees);
+    draftRef.current = {
+      ...draftRef.current,
+      name: draft.name,
+      trees: draft.trees,
+      assignments: draft.assignments,
+      targetType: draft.targetType,
+      excludedSeqs: draft.excludedSeqs,
+    };
+    await save.mutateAsync({
+      name: draft.name.trim(),
+      targetType: draft.targetType,
+      trees: draft.trees,
+      assignments: draft.assignments.filter(a => a.salesmanId > 0),
+      excludedArticleIds: [...draft.excludedSeqs],
+      existingId: draft.editRule?.id ?? null,
+    });
   }
 
   const save = useMutation({
-    mutationFn: async (nextTrees: TargetTreeLinkDto[]) => {
-      const payload = {
-        name: name.trim(),
-        targetType,
-        trees: nextTrees,
-        assignments: assignments.filter(a => a.salesmanId > 0),
-        excludedArticleIds: [...excludedSeqs],
-      };
-      if (editRule) {
-        await api.updateTargetRule(editRule.id, payload);
-        return editRule.id;
+    mutationFn: async (payload: {
+      name: string;
+      targetType: 'quantity' | 'amount';
+      trees: TargetTreeLinkDto[];
+      assignments: TargetSalesmanAssignmentDto[];
+      excludedArticleIds: number[];
+      existingId: number | null;
+    }) => {
+      if (payload.existingId) {
+        await api.updateTargetRule(payload.existingId, payload);
+        return payload.existingId;
       }
       const created = await api.createTargetRule(payload);
       return created.id;
     },
     onSuccess: async id => {
-      qc.invalidateQueries({ queryKey: ['target-rules'] });
-      qc.invalidateQueries({ queryKey: ['target-breakdown'] });
-      qc.invalidateQueries({ queryKey: ['target-progress'] });
       notifyOpenerRefresh();
-      setDirty(false);
-      toast.success(editRule ? 'تم تحديث الهدف' : 'تم إنشاء الهدف');
+      const wasNew = draftRef.current.editRule == null;
       try {
         const rule = await api.targetRule(id);
-        setEditRule(rule);
-        setName(rule.name);
-        setTrees(rule.trees ?? []);
-        setAssignments(assignmentsForIds((rule.assignments ?? []).map(a => a.salesmanId), salesmen, rule.assignments));
-        setExcludedSeqs(new Set(rule.excludedArticleIds ?? []));
-      } catch { /* القائمة محدّثة */ }
+        applyServerRule(rule, salesmen);
+        qc.setQueryData<TargetRuleDto[]>(['target-rules'], prev => {
+          const list = prev ?? [];
+          const idx = list.findIndex(r => r.id === rule.id);
+          if (idx < 0) return [rule, ...list];
+          const next = list.slice();
+          next[idx] = rule;
+          return next;
+        });
+      } catch { /* القائمة تُحدَّث بالأسفل */ }
+      await qc.invalidateQueries({ queryKey: ['target-rules'] });
+      await qc.invalidateQueries({ queryKey: ['target-breakdown'] });
+      await qc.invalidateQueries({ queryKey: ['target-progress'] });
+      toast.success(wasNew ? 'تم إنشاء الهدف' : 'تم تحديث الهدف');
     },
     onError: e => setErr(e instanceof Error ? e.message : 'فشل الحفظ'),
   });
@@ -249,30 +293,21 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
   );
 
   async function commitTargetPicker(ops: ScopePickerOps) {
-    mark(() => {
-      if (ops.excludeProductSeqs.length) {
-        setExcludedSeqs(prev => {
-          const next = new Set(prev);
-          for (const seq of ops.excludeProductSeqs) next.add(seq);
-          return next;
-        });
-      }
-      setTrees(prev => {
-        const removed = new Set(ops.removeTreeSeqs);
-        const next2 = prev.filter(t => !removed.has(t.treeSeq));
-        for (const t of ops.addTrees) {
-          if (!next2.some(x => x.treeSeq === t.seq)) next2.push({ treeSeq: t.seq, treeName: t.name });
-        }
-        for (const p of ops.addProducts) {
-          if (!next2.some(x => x.treeSeq === p.seq)) next2.push({ treeSeq: p.seq, treeName: p.name });
-        }
-        return next2;
-      });
-    });
-    if (editRule) {
-      for (const seq of ops.excludeProductSeqs)
-        await api.setTargetArticleExcluded(editRule.id, seq, true);
+    const removed = new Set(ops.removeTreeSeqs);
+    const nextTrees = draftRef.current.trees.filter(t => !removed.has(t.treeSeq));
+    for (const t of ops.addTrees) {
+      if (!nextTrees.some(x => x.treeSeq === t.seq)) nextTrees.push({ treeSeq: t.seq, treeName: t.name });
     }
+    for (const p of ops.addProducts) {
+      if (!nextTrees.some(x => x.treeSeq === p.seq)) nextTrees.push({ treeSeq: p.seq, treeName: p.name });
+    }
+    const nextExcluded = new Set(draftRef.current.excludedSeqs);
+    for (const seq of ops.excludeProductSeqs) nextExcluded.add(seq);
+    setTrees(nextTrees);
+    setExcludedSeqs(nextExcluded);
+    dirtyRef.current = true;
+    setDirty(true);
+    await persistTarget({ trees: nextTrees, excludedSeqs: nextExcluded });
   }
 
   const assignedCount = assignments.filter(a => a.dailyTarget || a.weeklyTarget || a.monthlyTarget).length;
@@ -320,7 +355,7 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
           <Btn size="sm" onClick={() => setPickerOpen(true)}>
             إضافة أصناف
           </Btn>
-          <Btn size="sm" onClick={() => void persistTarget()} disabled={save.isPending || !name.trim() || trees.length === 0}>
+          <Btn size="sm" onClick={() => void persistTarget()} disabled={save.isPending || !draftRef.current.name.trim() || trees.length === 0}>
             {save.isPending ? 'جاري الحفظ…' : 'حفظ'}
           </Btn>
         </>

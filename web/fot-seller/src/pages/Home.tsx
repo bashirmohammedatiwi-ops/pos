@@ -28,8 +28,11 @@ export function Home() {
   const weekFigure = shownWeekAmount(dash.week);
   const weekLabel = shownWeekLabel(dash.week);
   const hit = dash.goals.filter(g => g.percent >= 100).length;
+  const openGoals = dash.goals.filter(g => g.percent < 100);
+  const doneGoals = dash.goals.filter(g => g.percent >= 100);
+  const homeGoals = openGoals.length ? openGoals : doneGoals;
   const goalAvg = dash.goals.length ? dash.goals.reduce((s, g) => s + g.percent, 0) / dash.goals.length : 0;
-  const focus = [...dash.goals].sort((a, b) => a.percent - b.percent)[0];
+  const focus = openGoals[0];
 
   return (
     <div className="fade-up space-y-4">
@@ -77,7 +80,7 @@ export function Home() {
               <Ring value={goalAvg} size={96} tone="goal" label="متوسط" />
             </div>
             <div>
-              {dash.goals.slice(0, 3).map(g => (
+              {homeGoals.map(g => (
                 <Link key={g.ruleId} to="/goals" className="board-row stat-link">
                   <Ring value={g.percent} size={46} tone={goalTone(g.percent)} />
                   <div className="min-w-0">
@@ -90,8 +93,14 @@ export function Home() {
                   <span className="text-xs font-extrabold text-muted">{goalLabel(g.percent)}</span>
                 </Link>
               ))}
-              {focus && focus.percent < 100 && (
+              {openGoals.length > 0 && doneGoals.length > 0 && (
+                <p className="mt-2 text-xs font-bold text-muted">تحقق هذا الأسبوع: {doneGoals.length}</p>
+              )}
+              {focus && (
                 <p className="mt-2 text-xs font-bold text-muted">الأقرب للإكمال: {focus.ruleName}</p>
+              )}
+              {!openGoals.length && doneGoals.length > 0 && (
+                <p className="mt-2 text-xs font-bold text-ok">أتممت أهداف هذا الأسبوع. تبدأ من جديد مع الأسبوع القادم.</p>
               )}
             </div>
           </div>

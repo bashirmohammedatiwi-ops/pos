@@ -72,15 +72,25 @@ export function SettingsPage() {
   const cashBoxQ = useQuery({ queryKey: ['cashbox-settings'], queryFn: api.cashBoxSettings });
   const periodQ = useQuery({ queryKey: ['business-period'], queryFn: api.businessPeriodSettings });
 
+  const skipPrintHydrate = useRef(false);
+  const skipCashHydrate = useRef(false);
+  const skipPeriodHydrate = useRef(false);
+  const formRef = useRef(form);
+  const cashRef = useRef(cashBoxForm);
+  const periodRef = useRef(periodForm);
+  formRef.current = form;
+  cashRef.current = cashBoxForm;
+  periodRef.current = periodForm;
+
   useEffect(() => {
-    if (q.data) {
-      setForm(toForm(q.data));
-      setLogoUrl(q.data.logoUrl ?? null);
-    }
+    if (!q.data || skipPrintHydrate.current) return;
+    setForm(toForm(q.data));
+    setLogoUrl(q.data.logoUrl ?? null);
   }, [q.data]);
 
   useEffect(() => {
-    if (cashBoxQ.data) {
+    if (!cashBoxQ.data || skipCashHydrate.current) return;
+    {
       const d = cashBoxQ.data;
       setCashBoxForm({
         qiMasterAccount: d.qiMasterAccount ?? null,
@@ -102,16 +112,15 @@ export function SettingsPage() {
   }, [cashBoxQ.data]);
 
   useEffect(() => {
-    if (periodQ.data) {
-      setPeriodForm({
-        weekStartDay: periodQ.data.weekStartDay,
-        weekLengthDays: periodQ.data.weekLengthDays,
-      });
-    }
+    if (!periodQ.data || skipPeriodHydrate.current) return;
+    setPeriodForm({
+      weekStartDay: periodQ.data.weekStartDay,
+      weekLengthDays: periodQ.data.weekLengthDays,
+    });
   }, [periodQ.data]);
 
   const save = useMutation({
-    mutationFn: () => api.savePrintSettings(form!),
+    mutationFn: () => api.savePrintSettings(formRef.current!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['print-settings'] });
       toast.success('تم حفظ إعدادات الطباعة');
@@ -142,7 +151,7 @@ export function SettingsPage() {
   });
 
   const saveCashBoxes = useMutation({
-    mutationFn: () => api.saveCashBoxSettings(cashBoxForm!),
+    mutationFn: () => api.saveCashBoxSettings(cashRef.current!),
     onSuccess: (data: PosCashBoxSettingsDto) => {
       qc.invalidateQueries({ queryKey: ['cashbox-settings'] });
       setCashBoxLabels({
@@ -159,7 +168,7 @@ export function SettingsPage() {
   });
 
   const savePeriod = useMutation({
-    mutationFn: () => api.saveBusinessPeriodSettings(periodForm!),
+    mutationFn: () => api.saveBusinessPeriodSettings(periodRef.current!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-period'] });
       toast.success('تم حفظ فترة العمل');
@@ -183,6 +192,9 @@ export function SettingsPage() {
       || periodQ.data.weekLengthDays !== periodForm.weekLengthDays)
   );
   const dirty = printDirty || cashDirty || periodDirty;
+  skipPrintHydrate.current = printDirty || save.isPending;
+  skipCashHydrate.current = cashDirty || saveCashBoxes.isPending;
+  skipPeriodHydrate.current = periodDirty || savePeriod.isPending;
   useUnsavedWarning(dirty);
   useSaveShortcut(() => {
     if (printDirty) save.mutate();

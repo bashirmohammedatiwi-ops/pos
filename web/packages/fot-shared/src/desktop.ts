@@ -110,6 +110,9 @@ export type FotDesktopBridge = {
     payment?: Record<string, unknown> | null;
     cancelledByDevice?: boolean;
   }>;
+  /** Offline Piper TTS — cashier only; speaks Arabic name without Windows voices. */
+  speakSalesmanName?: (name: string) => Promise<{ ok: boolean; reason?: string }>;
+  stopSpeaking?: () => Promise<{ ok: boolean }>;
   store?: DesktopStoreApi;
   catalog?: DesktopCatalogApi;
   outbox?: DesktopOutboxApi;

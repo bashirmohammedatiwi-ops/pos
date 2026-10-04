@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { IconX } from '@/components/icons';
+import { useScrollLock } from '@/hooks/useScrollLock';
 
 /** نافذة تطبيق تقرير فوق الشبكة — إطار واضح، إغلاق بـ Escape. */
 export function ReportAppWindow({
@@ -19,6 +20,8 @@ export function ReportAppWindow({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useScrollLock(true);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -31,7 +34,13 @@ export function ReportAppWindow({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-stretch justify-center bg-slate-900/45 p-2 backdrop-blur-[2px] sm:p-4" dir="rtl">
+    <div
+      className="fixed inset-0 z-[55] flex items-stretch justify-center bg-slate-900/45 p-2 backdrop-blur-[2px] sm:p-4"
+      dir="rtl"
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="flex min-h-0 w-full max-w-[1400px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] ring-1 ring-slate-900/10">
         <header
           className="flex shrink-0 flex-wrap items-center gap-3 px-4 py-3 text-white"

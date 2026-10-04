@@ -492,6 +492,44 @@ export interface CashierActivityDto {
   message?: string;
 }
 
+export interface CashierVoidLineDto {
+  name?: string | null;
+  barcode?: string | null;
+  quantity: number;
+  amount: number;
+}
+
+export interface CashierVoidSummaryDto {
+  cashierId: number;
+  cashierName: string;
+  deletedLines: number;
+  cancelledInvoices: number;
+  deletedAmount: number;
+  cancelledAmount: number;
+}
+
+export interface CashierVoidReportDto {
+  cashiers: CashierVoidSummaryDto[];
+  deletedLines: number;
+  cancelledInvoices: number;
+  deletedAmount: number;
+  cancelledAmount: number;
+}
+
+export interface CashierVoidEventDto {
+  id: number;
+  kind: string;
+  productName?: string | null;
+  barcode?: string | null;
+  quantity: number;
+  amount: number;
+  lineCount: number;
+  receiptNum?: string | null;
+  source?: string | null;
+  createdAt: string;
+  lines: CashierVoidLineDto[];
+}
+
 export interface SalesmanDto {
   id: number;
   name: string;

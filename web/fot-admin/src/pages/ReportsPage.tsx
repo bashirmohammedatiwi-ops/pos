@@ -1,14 +1,15 @@
 import { useSearchParams } from 'react-router-dom';
-import { IconBanknote, IconChart, IconCoins, IconPackage, IconReceipt, IconTarget } from '@/components/icons';
+import { IconActivity, IconBanknote, IconChart, IconCoins, IconPackage, IconReceipt, IconTarget } from '@/components/icons';
 import { CommissionReportApp } from '@/components/reports/CommissionReportApp';
 import { TargetReportApp } from '@/components/reports/TargetReportApp';
 import { WeeklySettlementApp } from '@/components/reports/WeeklySettlementApp';
 import { ProductInquiryApp } from '@/components/reports/ProductInquiryApp';
 import { SellerReceiptsApp } from '@/components/reports/SellerReceiptsApp';
+import { CashierVoidsApp } from '@/components/reports/CashierVoidsApp';
 import { ReportAppWindow } from '@/components/reports/ReportAppWindow';
 import { SalesReportsPanel } from '@/components/reports/SalesReportsPanel';
 
-type ReportAppId = 'commissions' | 'targets' | 'settlement' | 'sales' | 'product-inquiry' | 'seller-receipts';
+type ReportAppId = 'commissions' | 'targets' | 'settlement' | 'sales' | 'product-inquiry' | 'seller-receipts' | 'cashier-voids';
 
 const APPS: Array<{
   id: ReportAppId;
@@ -59,6 +60,13 @@ const APPS: Array<{
     from: '#1a2236',
     to: '#c9a227',
   },
+  {
+    id: 'cashier-voids',
+    label: 'حذف وإلغاء',
+    hint: 'بنود محذوفة وفواتير ملغاة',
+    from: '#fb7185',
+    to: '#9f1239',
+  },
 ];
 
 function AppGlyph({ id }: { id: ReportAppId }) {
@@ -67,6 +75,7 @@ function AppGlyph({ id }: { id: ReportAppId }) {
   if (id === 'settlement') return <IconBanknote size={38} />;
   if (id === 'product-inquiry') return <IconPackage size={38} />;
   if (id === 'seller-receipts') return <IconReceipt size={38} />;
+  if (id === 'cashier-voids') return <IconActivity size={38} />;
   return <IconChart size={38} />;
 }
 
@@ -125,6 +134,7 @@ export function ReportsPage() {
       {app === 'settlement' && <WeeklySettlementApp onClose={closeApp} />}
       {app === 'product-inquiry' && <ProductInquiryApp onClose={closeApp} />}
       {app === 'seller-receipts' && <SellerReceiptsApp onClose={closeApp} />}
+      {app === 'cashier-voids' && <CashierVoidsApp onClose={closeApp} />}
       {app === 'sales' && (
         <ReportAppWindow
           title="تقرير المبيعات"

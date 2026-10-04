@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useScrollLock } from '@/hooks/useScrollLock';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -32,10 +33,10 @@ export function FullScreenEditor({
   /** عرض أوسع للمحتوى (للمحررات ذات العمودين). */
   wide?: boolean;
 }) {
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       const target = e.target as HTMLElement | null;
@@ -43,10 +44,7 @@ export function FullScreenEditor({
       onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open) return null;

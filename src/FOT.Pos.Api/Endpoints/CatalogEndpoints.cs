@@ -175,6 +175,18 @@ public static class CatalogEndpoints
                 ? Results.Ok(await cashiers.GetPermissionsForCashierAsync(cashierId, default))
                 : Results.Unauthorized());
 
+        api.MapPost("/pos/voids", async (HttpContext http, CashierVoidRepository repo, RecordCashierVoidRequest req) =>
+        {
+            var cashierId = CashierContext.Id(http) ?? CashierHttp.Id(http);
+            if (cashierId is not long cashier)
+                return Results.Unauthorized();
+            var kind = (req.Kind ?? "").Trim().ToLowerInvariant();
+            if (kind is not ("line" or "invoice"))
+                return Results.BadRequest(new { message = "نوع العملية غير معروف" });
+            await repo.RecordAsync(cashier, req with { Kind = kind }, default);
+            return Results.NoContent();
+        });
+
         // Live cashboxes for the logged-in cashier's section — without this, adding a second
         // cashbox to a section never reaches an already-open POS session (it was frozen at
         // login), so the cashbox picker kept showing the single-box static view forever.

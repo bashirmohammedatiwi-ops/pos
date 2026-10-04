@@ -12,6 +12,7 @@ public sealed class PosStartupService(
     SchemaMigrationRunner migrations,
     ISqlConnectionFactory db,
     SalePostProcessor commissions,
+    OfferRepository offers,
     ILogger<PosStartupService> logger)
 {
     private const int CommissionBackfillDays = 14;
@@ -26,6 +27,10 @@ public sealed class PosStartupService(
         // Salesmen repair talks to Edari. Doing it here blocks the API from listening
         // while NexusDB is still starting with Windows, so the control panel sits and waits.
         // The background sync repairs the registry once Edari answers.
+
+        var expired = await offers.ExpireElapsedAsync(ct);
+        if (expired > 0)
+            logger.LogInformation("Stopped {Count} offer(s) whose end date has passed", expired);
 
         var repaired = await RepairReceiptFlagsAsync(ct);
         if (repaired > 0)

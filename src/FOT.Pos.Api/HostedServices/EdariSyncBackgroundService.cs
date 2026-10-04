@@ -37,6 +37,7 @@ public sealed class EdariSyncBackgroundService(
 
         var lastDetect = DateTime.MinValue;
         var lastReceiptSync = DateTime.MinValue;
+        var lastOfferExpire = DateOnly.MinValue;
         var lastDetectSeconds = -1;
         var receiptInterval = TimeSpan.FromSeconds(120);
 
@@ -44,6 +45,18 @@ public sealed class EdariSyncBackgroundService(
         {
             try
             {
+                var today = DateOnly.FromDateTime(DateTime.Today);
+                if (lastOfferExpire != today)
+                {
+                    using var expireScope = scopeFactory.CreateScope();
+                    var expired = await expireScope.ServiceProvider
+                        .GetRequiredService<OfferRepository>()
+                        .ExpireElapsedAsync(stoppingToken);
+                    lastOfferExpire = today;
+                    if (expired > 0)
+                        logger.LogInformation("Stopped {Count} offer(s) whose end date has passed", expired);
+                }
+
                 // detect interval is configurable from ext_edari_settings — re-read when it changes
                 if (lastDetectSeconds != EdariSyncGate.DetectSeconds)
                 {

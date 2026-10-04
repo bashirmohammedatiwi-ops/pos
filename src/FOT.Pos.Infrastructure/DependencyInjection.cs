@@ -75,6 +75,7 @@ public static class DependencyInjection
         services.AddScoped<CreditAccountRepository>();
         services.AddScoped<CashBoxAccountRepository>();
         services.AddScoped<PosLogRepository>();
+        services.AddScoped<CashierVoidRepository>();
         services.AddScoped<EdariSectionPushService>();
         services.AddScoped<ClientErrorRepository>();
         services.AddScoped<CatalogVersionRepository>();

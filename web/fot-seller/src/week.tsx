@@ -4,10 +4,22 @@ import { dayLabel, moneyIq, shownWeekAmount, type WeekSummary } from './api';
 
 const WEEK_KEY = 'fot_seller_week';
 
+/** أسبوع محفوظ من زيارة سابقة لم يعد هو الأسبوع الحالي. */
+function staleStoredWeek(iso?: string | null) {
+  if (!iso) return false;
+  const start = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return true;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return start.getTime() + 7 * 86_400_000 <= today.getTime();
+}
+
 export function useWeek() {
   const [params, setParams] = useSearchParams();
   const fromUrl = params.get('week');
-  const weekStart = fromUrl || sessionStorage.getItem(WEEK_KEY) || undefined;
+  const stored = sessionStorage.getItem(WEEK_KEY);
+  if (stored && staleStoredWeek(stored)) sessionStorage.removeItem(WEEK_KEY);
+  const weekStart = fromUrl || (stored && !staleStoredWeek(stored) ? stored : undefined);
   const setWeek = useCallback((w?: string) => {
     const next = new URLSearchParams(params);
     if (w) {

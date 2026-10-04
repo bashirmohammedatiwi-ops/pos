@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
 const ROWS = [
   ['Ctrl + K', 'بحث في النظام (صفحات، منتجات، فواتير، عروض)'],
@@ -10,6 +11,19 @@ const ROWS = [
 
 export function ShortcutsHelp() {
   const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    function reset() {
+      setOpen(false);
+    }
+    window.addEventListener('fot-admin-reset-overlays', reset);
+    return () => window.removeEventListener('fot-admin-reset-overlays', reset);
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

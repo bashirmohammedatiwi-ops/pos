@@ -444,7 +444,9 @@ public partial record ReceiptSummaryDto(
 
     public decimal GrossAmount => TotalAmount + OffersDiscount + UserDiscount + ItemsDiscount;
     public decimal NetAmount => TotalAmount;
-    public string DisplayNumber => Number > 0 ? Number.ToString() : "—";
+    public string DisplayNumber => PrintedNumber is > 0
+        ? PrintedNumber.Value.ToString()
+        : Number > 0 ? Number.ToString() : "—";
     public string KindLabel => Kind switch { 1 => "مرتجع", 2 => "هدية", _ => "مبيعات" };
     public string SyncLabel => Synced ? (EdrNum?.ToString() ?? "نعم") : "—";
     public bool PaidByCard => CardAmount.HasValue;
@@ -500,6 +502,51 @@ public record CashierActivityDto(
     long? ReceiptId,
     string? ReceiptNum,
     string? Message);
+
+public record CashierVoidLineDto(
+    string? Name,
+    string? Barcode,
+    decimal Quantity,
+    decimal Amount);
+
+public record RecordCashierVoidRequest(
+    string Kind,
+    string? ProductName,
+    string? Barcode,
+    decimal Quantity,
+    decimal Amount,
+    int LineCount,
+    string? ReceiptNum,
+    string? Source,
+    IReadOnlyList<CashierVoidLineDto>? Lines);
+
+public record CashierVoidSummaryDto(
+    long CashierId,
+    string CashierName,
+    int DeletedLines,
+    int CancelledInvoices,
+    decimal DeletedAmount,
+    decimal CancelledAmount);
+
+public record CashierVoidReportDto(
+    IReadOnlyList<CashierVoidSummaryDto> Cashiers,
+    int DeletedLines,
+    int CancelledInvoices,
+    decimal DeletedAmount,
+    decimal CancelledAmount);
+
+public record CashierVoidEventDto(
+    long Id,
+    string Kind,
+    string? ProductName,
+    string? Barcode,
+    decimal Quantity,
+    decimal Amount,
+    int LineCount,
+    string? ReceiptNum,
+    string? Source,
+    DateTime CreatedAt,
+    IReadOnlyList<CashierVoidLineDto> Lines);
 
 public record SectionTerminalGroupDto(
     long SectionId,

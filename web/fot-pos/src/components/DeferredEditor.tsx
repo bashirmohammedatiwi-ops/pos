@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SalesmanPicker } from '@/components/SalesmanPicker';
 import { playErrorBeep } from '@/lib/sound';
 import type { ReceiptEditHistory } from '@/lib/receiptHistory';
+import { recordCashierVoid } from '@/lib/cashierVoid';
 
 type EditorItem = {
   articleId: number;
@@ -206,6 +207,22 @@ export function DeferredEditor({
   }
 
   function confirmRemoveItem(idx: number) {
+    const item = items[idx];
+    if (item) {
+      const name = products.get(item.articleId)?.name || item.name || item.barcode || 'البند';
+      const amount = Math.max(0, item.quantity * item.price - (item.discount || 0));
+      recordCashierVoid({
+        kind: 'line',
+        productName: name,
+        barcode: item.barcode,
+        quantity: item.quantity,
+        amount,
+        lineCount: 1,
+        receiptNum: String(localNumber),
+        source: 'deferred',
+        lines: [{ name, barcode: item.barcode, quantity: item.quantity, amount }],
+      });
+    }
     setItems(prev => prev.filter((_, i) => i !== idx));
     setLineAsk(null);
   }

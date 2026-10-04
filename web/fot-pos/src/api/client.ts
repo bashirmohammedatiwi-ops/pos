@@ -259,6 +259,23 @@ export const api = {
   /** Live permissions for the logged-in cashier — applies admin edits without re-login. */
   myPermissions: () => request<CashierPermissionsDto | null>('/api/pos/my-permissions'),
 
+  recordVoid: (body: {
+    kind: 'line' | 'invoice';
+    productName?: string | null;
+    barcode?: string | null;
+    quantity?: number;
+    amount?: number;
+    lineCount?: number;
+    receiptNum?: string | null;
+    source?: string | null;
+    lines?: Array<{ name?: string | null; barcode?: string | null; quantity: number; amount: number }>;
+  }) => request<void>('/api/pos/voids', {
+    method: 'POST',
+    timeoutMs: 4_000,
+    retries: 0,
+    body: JSON.stringify(body),
+  }),
+
   /** Live cashboxes for the logged-in cashier's section — applies admin edits without re-login. */
   myCashBoxes: () => request<SectionCashBoxDto[]>('/api/pos/my-cashboxes'),
 

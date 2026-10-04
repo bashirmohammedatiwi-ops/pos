@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api, formatCurrency, formatDate, formatNum } from '@/api/client';
@@ -101,8 +101,13 @@ export function EdariPage() {
     onError: e => toast.error(e instanceof Error ? e.message : 'فشل'),
   });
 
+  const formRef = useRef(form);
+  const skipHydrate = useRef(false);
+  formRef.current = form;
+
   useEffect(() => {
-    if (settingsQ.data) {
+    if (!settingsQ.data || skipHydrate.current) return;
+    {
       setYears(settingsQ.data.availableYears ?? []);
       setForm({
         dataRoot: settingsQ.data.dataRoot,
@@ -123,7 +128,7 @@ export function EdariPage() {
   }, [settingsQ.data]);
 
   const save = useMutation({
-    mutationFn: () => api.saveEdariSettings(form!),
+    mutationFn: () => api.saveEdariSettings(formRef.current!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['edari-settings'] });
       qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -294,8 +299,9 @@ export function EdariPage() {
         dataPullIntervalSeconds: settings.dataPullIntervalSeconds || 240,
       })
   );
+  skipHydrate.current = dirty || save.isPending;
   useUnsavedWarning(dirty);
-  useSaveShortcut(() => { if (dirty && form) save.mutate(); }, dirty);
+  useSaveShortcut(() => { if (dirty && formRef.current) save.mutate(); }, dirty);
 
   if (settingsQ.isLoading || !form) return <Loading />;
 

@@ -267,16 +267,22 @@ export function DataGrid<T>({
       const delta = rtl ? startX - e.clientX : e.clientX - startX;
       setWidths(w => ({ ...w, [key]: Math.max(60, Math.min(560, startW + delta)) }));
     }
-    function onUp() {
+    function endResize() {
+      if (!resizing.current) return;
       resizing.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     }
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('mouseup', endResize);
+    window.addEventListener('blur', endResize);
+    document.addEventListener('visibilitychange', endResize);
     return () => {
       window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('mouseup', endResize);
+      window.removeEventListener('blur', endResize);
+      document.removeEventListener('visibilitychange', endResize);
+      endResize();
     };
   }, []);
 

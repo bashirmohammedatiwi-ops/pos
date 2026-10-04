@@ -3,7 +3,7 @@
   "productName": "FOT POS Cashier",
   "copyright": "Copyright © Future of Technology",
   "directories": {
-    "output": "dist-out73/cashier"
+    "output": "dist-out82/cashier"
   },
   "files": [
     "electron/**/*",
@@ -17,6 +17,11 @@
     {
       "from": "../web/fot-pos/dist",
       "to": "fot-pos"
+    },
+    {
+      "from": "tts",
+      "to": "tts",
+      "filter": ["**/*"]
     }
   ],
   "win": {

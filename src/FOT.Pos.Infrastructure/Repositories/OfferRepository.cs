@@ -21,6 +21,7 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
                WHERE od.discount > 0
                  AND NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N'') IS NOT NULL) AS DiscountedItems
             """;
+        await ExpireElapsedAsync(ct);
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var row = await conn.QuerySingleAsync<OfferStatsRow>(
             new CommandDefinition(sql, cancellationToken: ct));
@@ -34,8 +35,50 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         public int DiscountedItems { get; set; }
     }
 
+    /// <summary>
+    /// An offer whose end date has passed is stopped. The end day itself still counts;
+    /// the following day turns <c>enabled</c> off so the list and the cashier agree.
+    /// </summary>
+    public async Task<int> ExpireElapsedAsync(CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var ids = (await conn.QueryAsync<long>(new CommandDefinition("""
+            UPDATE o
+            SET enabled = 0
+            OUTPUT INSERTED.id
+            FROM offers o
+            WHERE o.enabled = 1
+              AND EXISTS (
+                  SELECT 1 FROM offer_details d
+                  WHERE d.offer_id = o.id
+                    AND COALESCE(d.Unlimited, 0) = 0
+                    AND d.to_date IS NOT NULL
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM offer_details d
+                  WHERE d.offer_id = o.id
+                    AND (
+                        COALESCE(d.Unlimited, 0) = 1
+                        OR d.to_date IS NULL
+                        OR CAST(d.to_date AS date) >= CAST(GETDATE() AS date)
+                    )
+              )
+            """, cancellationToken: ct))).ToList();
+        if (ids.Count == 0) return 0;
+
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE a SET a.ext_discount_percent = a.ext_discount_percent
+            FROM dbo.articles a
+            WHERE a.Seq IN (
+                SELECT od.item_id FROM dbo.offer_details od
+                WHERE od.offer_id IN @ids AND od.item_id IS NOT NULL)
+            """, new { ids }, cancellationToken: ct));
+        return ids.Count;
+    }
+
     public async Task<PagedResult<OfferDto>> ListAsync(int page, int pageSize, CancellationToken ct)
     {
+        await ExpireElapsedAsync(ct);
         const string sql = """
             SELECT o.id AS Id, o.name AS Name, o.priority AS Priority, o.enabled AS Enabled, o.type AS Type,
                    (SELECT COUNT(*) FROM offer_details od

@@ -89,6 +89,12 @@ contextBridge.exposeInMainWorld('fotDesktop', {
     ipcRenderer.on('api:base-changed', handler);
     return () => ipcRenderer.removeListener('api:base-changed', handler);
   },
+  ...(resolvePreloadRole() === 'pos'
+    ? {
+        speakSalesmanName: name => ipcRenderer.invoke('tts:speak', name),
+        stopSpeaking: () => ipcRenderer.invoke('tts:stop'),
+      }
+    : {}),
   store,
   catalog,
   outbox,

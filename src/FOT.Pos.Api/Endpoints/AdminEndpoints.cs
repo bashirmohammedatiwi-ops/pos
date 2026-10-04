@@ -488,6 +488,10 @@ public static class AdminEndpoints
             await repo.ArticleMovementAsync(from ?? DateTime.Today, to ?? DateTime.Today, search, default));
         api.MapGet("/reports/cash", async (ReportRepository repo, DateTime? from, DateTime? to) =>
             await repo.CashReportAsync(from ?? DateTime.Today, to ?? DateTime.Today, default));
+        api.MapGet("/reports/cashier-voids", async (CashierVoidRepository repo, DateTime? from, DateTime? to) =>
+            await repo.SummaryAsync(from ?? DateTime.Today, to ?? DateTime.Today, default));
+        api.MapGet("/reports/cashier-voids/{cashierId:long}", async (CashierVoidRepository repo, long cashierId, DateTime? from, DateTime? to) =>
+            await repo.DetailAsync(cashierId, from ?? DateTime.Today, to ?? DateTime.Today, default));
         api.MapGet("/reports/weekly-settlement", async (WeeklySettlementRepository repo, DateTime? weekStart) =>
             await repo.GetReportAsync(weekStart, default));
         api.MapPost("/reports/product-inquiry", async (ProductInquiryRepository repo, ProductInquiryRequest req) =>

@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { formatNum } from '@/api/client';
 import { IconAlert, IconCheckCircle, IconChevronDown, IconInfo, IconX } from '@/components/icons';
+import { useScrollLock } from '@/hooks/useScrollLock';
 
 export function Panel({
   title,
@@ -247,13 +248,13 @@ export function Modal({
     }
   }
 
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) {
       closingRef.current = false;
       return;
     }
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       const target = e.target as HTMLElement | null;
@@ -262,10 +263,7 @@ export function Modal({
       requestClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
   if (!open) return null;

@@ -439,6 +439,7 @@ function GroupEditorModal({
   const [name, setName] = useState('');
   const [color, setColor] = useState(GROUP_COLORS[0]!);
 
+  const groupId = group?.id ?? 0;
   useEffect(() => {
     if (!open) return;
     if (mode === 'edit' && group) {
@@ -448,7 +449,7 @@ function GroupEditorModal({
     }
     setName('');
     setColor(GROUP_COLORS[0]!);
-  }, [group, mode, open]);
+  }, [open, mode, groupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: async () => {

@@ -5,13 +5,8 @@ import { api, formatNum } from '@/api/client';
 import type { OfferDto } from '@/api/types';
 import { useToast } from '@/components/Toast';
 import { Btn, Checkbox, Input, Loading, Modal, Switch } from '@/components/ui';
-import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
-import {
-  ClassicListShell,
-  ClassicSummaryFooter,
-  FilterField,
-} from '@/components/classic/ClassicListLayout';
-import { EmptyWorkspace, FilterChip, StatusChip } from '@/components/workspace';
+import { OffersListPanel } from '@/components/offers/OffersListPanel';
+import { matchesTypeFilter, type OfferTypeFilter } from '@/components/offers/offerVisuals';
 import type { ScopeStandaloneItem, ScopeTreeCard } from '@/components/scope/TreeScopeEditor';
 import {
   emptyOfferScopeOps,
@@ -27,6 +22,7 @@ import {
 } from '@/components/offers/OfferPricedGroupEditor';
 import { OFFER_TYPE, offerTypeLabel } from '@/lib/offers';
 import { IconPercent, IconShield, IconTag } from '@/components/icons';
+import { useScrollLock } from '@/hooks/useScrollLock';
 
 const OFFERS_UI_KEY = 'fot_offers_ui_v3';
 
@@ -37,12 +33,19 @@ export function OffersPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'off'>(() =>
     (sessionStorage.getItem(`${OFFERS_UI_KEY}:status`) as 'all' | 'active' | 'off') || 'all');
+  const [typeFilter, setTypeFilter] = useState<OfferTypeFilter>(() =>
+    (sessionStorage.getItem(`${OFFERS_UI_KEY}:type`) as OfferTypeFilter) || 'all');
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [seedDiscount, setSeedDiscount] = useState<string | null>(null);
 
   useEffect(() => {
     sessionStorage.setItem(`${OFFERS_UI_KEY}:status`, statusFilter);
   }, [statusFilter]);
+
+  useEffect(() => {
+    sessionStorage.setItem(`${OFFERS_UI_KEY}:type`, typeFilter);
+  }, [typeFilter]);
 
   useEffect(() => {
     const stored = sessionStorage.getItem('fot_admin_offer');
@@ -69,14 +72,18 @@ export function OffersPage() {
     if (!items.some(o => o.id === editingId)) setEditingId(null);
   }, [editingId, items, offersQ.isLoading, offersQ.data]);
 
+  useEffect(() => {
+    if (editingId != null && offersQ.isError) setEditingId(null);
+  }, [editingId, offersQ.isError]);
+
   const offers = useMemo(() => {
     const s = search.trim();
     return items
       .filter(o => (statusFilter === 'all' ? true : statusFilter === 'active' ? o.enabled : !o.enabled))
+      .filter(o => matchesTypeFilter(o, typeFilter))
       .filter(o => !s || o.name.includes(s) || String(o.id).includes(s));
-  }, [items, search, statusFilter]);
+  }, [items, search, statusFilter, typeFilter]);
 
-  const activeCount = items.filter(o => o.enabled).length;
   const editing = items.find(o => o.id === editingId) ?? null;
 
   async function invalidateOffers() {
@@ -95,156 +102,39 @@ export function OffersPage() {
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر التبديل'),
   });
 
-  const columns: GridColumn<OfferDto>[] = useMemo(
-    () => [
-      {
-        key: 'name',
-        header: 'العرض',
-        width: 260,
-        render: o => <span className="font-semibold text-header">{o.name}</span>,
-      },
-      {
-        key: 'type',
-        header: 'النوع',
-        width: 140,
-        render: o => offerTypeLabel(o.type),
-      },
-      {
-        key: 'activeProductCount',
-        header: 'الأصناف',
-        width: 110,
-        align: 'center',
-        mono: true,
-        sortValue: o => o.activeProductCount,
-        render: o => formatNum(o.activeProductCount),
-      },
-      {
-        key: 'priority',
-        header: 'الأولوية',
-        width: 100,
-        align: 'center',
-        mono: true,
-        sortValue: o => o.priority,
-        render: o => formatNum(o.priority),
-      },
-      {
-        key: 'enabled',
-        header: 'الحالة',
-        width: 110,
-        align: 'center',
-        render: o => <StatusChip active={o.enabled} />,
-      },
-      {
-        key: 'actions',
-        header: 'إجراءات',
-        width: 180,
-        align: 'center',
-        sortable: false,
-        exportable: false,
-        render: o => (
-          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-            <button
-              type="button"
-              className="text-[12px] font-semibold text-brand-600 hover:underline"
-              onClick={e => {
-                e.stopPropagation();
-                setEditingId(o.id);
-              }}
-            >
-              تعديل
-            </button>
-            <button
-              type="button"
-              className={`text-[12px] font-semibold hover:underline ${o.enabled ? 'text-red-500' : 'text-emerald-600'}`}
-              onClick={e => {
-                e.stopPropagation();
-                toggle.mutate(o);
-              }}
-            >
-              {o.enabled ? 'إيقاف' : 'تفعيل'}
-            </button>
-          </div>
-        ),
-      },
-    ],
-    [toggle],
-  );
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ClassicListShell
-        filters={
-          <FilterField label="بحث">
-            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="اسم العرض…" />
-          </FilterField>
-        }
-        header={{
-          title: 'العروض',
-          hint: 'قائمة العروض — انقر «تعديل» لإدارة الأصناف',
-          actions: (
-            <>
-              <FilterChip compact active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>الكل</FilterChip>
-              <FilterChip compact active={statusFilter === 'active'} onClick={() => setStatusFilter('active')}>نشطة</FilterChip>
-              <FilterChip compact active={statusFilter === 'off'} onClick={() => setStatusFilter('off')}>متوقفة</FilterChip>
-              <Btn size="sm" onClick={() => setCreating(true)}>+ عرض جديد</Btn>
-            </>
-          ),
-        }}
-        onRefresh={() => offersQ.refetch()}
-        refreshing={offersQ.isFetching}
-        footer={
-          <ClassicSummaryFooter
-            total={offersQ.data?.total ?? items.length}
-            totalLabel="عروض"
-            items={[
-              { label: 'نشطة', value: formatNum(activeCount), accent: true },
-              { label: 'متوقفة', value: formatNum(items.length - activeCount) },
-              { label: 'معروض', value: formatNum(offers.length) },
-            ]}
-          />
-        }
-      >
-        {offersQ.isLoading && <Loading />}
-        {offersQ.isError && (
-          <div className="p-2 text-center text-[11px] text-red-800">
-            تعذّر تحميل العروض
-            <Btn className="mr-2" size="sm" variant="secondary" onClick={() => offersQ.refetch()}>إعادة</Btn>
-          </div>
-        )}
-        {!offersQ.isLoading && items.length === 0 && (
-          <EmptyWorkspace
-            title="لا عروض بعد"
-            hint="أنشئ عرضاً ثم أضف الأشجار أو المنتجات من صفحة التعديل."
-            action={<Btn onClick={() => setCreating(true)}>+ عرض جديد</Btn>}
-          />
-        )}
-        {items.length > 0 && (
-          <DataGrid
-            embedded
-            fillHeight
-            columns={columns}
-            rows={offers}
-            getRowId={o => o.id}
-            exportName="العروض"
-            counterLabel="عرض"
-            emptyText="لا نتائج لهذا الفلتر"
-            onRowDoubleClick={o => setEditingId(o.id)}
-            onEnter={o => setEditingId(o.id)}
-          />
-        )}
-      </ClassicListShell>
+      <OffersListPanel
+        items={items}
+        offers={offers}
+        search={search}
+        setSearch={setSearch}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        typeFilter={typeFilter}
+        setTypeFilter={setTypeFilter}
+        loading={offersQ.isLoading}
+        fetching={offersQ.isFetching}
+        error={offersQ.isError}
+        onRefresh={() => void offersQ.refetch()}
+        onCreate={() => setCreating(true)}
+        onEdit={id => { setSeedDiscount(null); setEditingId(id); }}
+        onToggle={o => toggle.mutate(o)}
+        toggling={toggle.isPending}
+      />
 
       <NewOfferModal
         open={creating}
         onClose={() => setCreating(false)}
-        onCreated={id => {
+        onCreated={(id, discount) => {
+          setSeedDiscount(discount ?? null);
           setCreating(false);
           setEditingId(id);
           void invalidateOffers();
         }}
       />
 
-      {editingId != null && !editing && (
+      {editingId != null && !editing && offersQ.isLoading && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-100">
           <Loading />
         </div>
@@ -254,7 +144,8 @@ export function OffersPage() {
           key={editing.id}
           offer={editing}
           open
-          onClose={() => setEditingId(null)}
+          initialDiscount={seedDiscount}
+          onClose={() => { setEditingId(null); setSeedDiscount(null); }}
           onChanged={invalidateOffers}
         />
       )}
@@ -269,7 +160,7 @@ function NewOfferModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: (id: number) => void;
+  onCreated: (id: number, discount?: string) => void;
 }) {
   const toast = useToast();
   const [name, setName] = useState('');
@@ -292,7 +183,7 @@ function NewOfferModal({
     }),
     onSuccess: r => {
       toast.success('أُنشئ العرض — أضف الأشجار والمنتجات');
-      onCreated(r.id);
+      onCreated(r.id, type === OFFER_TYPE.percent ? discount : undefined);
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الإنشاء'),
   });
@@ -374,11 +265,13 @@ export function OfferEditorModal({
   open,
   onClose,
   onChanged,
+  initialDiscount = null,
 }: {
   offer: { id: number; name: string; priority: number; type: number; enabled: boolean };
   open: boolean;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  initialDiscount?: string | null;
   autoOpenPicker?: boolean;
 }) {
   const qc = useQueryClient();
@@ -417,20 +310,29 @@ export function OfferEditorModal({
     dateTo: string;
   } | null>(null);
 
+  const hydratedOffer = useRef<number | null>(null);
   useEffect(() => {
-    if (!open || !detailsQ.data) return;
+    if (!open) {
+      hydratedOffer.current = null;
+      return;
+    }
+    if (!detailsQ.data || hydratedOffer.current === offer.id) return;
+    hydratedOffer.current = offer.id;
     const scope = detailsQ.data;
-    const dateMode = scope.unlimited !== false ? 'unlimited' : 'range';
-    const dateFrom = scope.fromDate ? scope.fromDate.slice(0, 10) : '';
-    const dateTo = scope.toDate ? scope.toDate.slice(0, 10) : '';
-    const discount = scope.defaultDiscount != null ? String(scope.defaultDiscount) : '10';
+    const nextDateMode = scope.unlimited !== false ? 'unlimited' : 'range';
+    const nextDateFrom = scope.fromDate ? scope.fromDate.slice(0, 10) : '';
+    const nextDateTo = scope.toDate ? scope.toDate.slice(0, 10) : '';
+    const emptyOffer = (scope.trees?.length ?? 0) + (scope.standalone?.length ?? 0) === 0;
+    const discount = emptyOffer && initialDiscount
+      ? initialDiscount
+      : (scope.defaultDiscount != null ? String(scope.defaultDiscount) : '10');
     setName(offer.name);
     setPriority(String(offer.priority));
     setEnabled(offer.enabled);
     setAddDiscount(discount);
-    setDateMode(dateMode);
-    setDateFrom(dateFrom);
-    setDateTo(dateTo);
+    setDateMode(nextDateMode);
+    setDateFrom(nextDateFrom);
+    setDateTo(nextDateTo);
     setScopeOps(emptyOfferScopeOps());
     setPricedOps(emptyPricedGroupOps());
     baseline.current = {
@@ -438,11 +340,11 @@ export function OfferEditorModal({
       priority: String(offer.priority),
       enabled: offer.enabled,
       addDiscount: discount,
-      dateMode,
-      dateFrom,
-      dateTo,
+      dateMode: nextDateMode,
+      dateFrom: nextDateFrom,
+      dateTo: nextDateTo,
     };
-  }, [open, offer.id, offer.name, offer.priority, offer.enabled, detailsQ.data]);
+  }, [open, offer.id, detailsQ.data, initialDiscount, offer.name, offer.priority, offer.enabled]);
 
   const [dateMode, setDateMode] = useState<'unlimited' | 'range'>('unlimited');
   const [dateFrom, setDateFrom] = useState('');
@@ -580,9 +482,11 @@ export function OfferEditorModal({
         await api.setOfferArticleExcluded(offer.id, seq, excluded);
       }
 
+      const headerDiscountChanged = baseline.current != null && addDiscount !== baseline.current.addDiscount;
       const remainingTrees = trees.filter(t => !ops.removeTreeSeqs.includes(t.treeSeq));
       for (const t of remainingTrees) {
-        const disc = ops.treeDiscounts.find(x => x.treeSeq === t.treeSeq)?.discount ?? t.discount ?? applyDiscount;
+        const explicit = ops.treeDiscounts.find(x => x.treeSeq === t.treeSeq)?.discount;
+        const disc = explicit ?? (headerDiscountChanged ? applyDiscount : (t.discount ?? applyDiscount));
         await api.updateOfferTreeDiscount(offer.id, t.treeSeq, {
           discountPercent: disc,
           ...dates,
@@ -600,7 +504,8 @@ export function OfferEditorModal({
         if (ops.removeRowIds.includes(item.id)) continue;
         const raw = scope?.standalone.find(d => d.id === item.id);
         await api.updateOfferDetail(item.id, {
-          discount: raw?.discount ?? applyDiscount,
+          discount: headerDiscountChanged ? applyDiscount : (raw?.discount ?? applyDiscount),
+          discountType: headerDiscountChanged ? 0 : raw?.discountType,
           ...dates,
         });
       }
@@ -623,10 +528,10 @@ export function OfferEditorModal({
     setPricedOps(ops);
   }, []);
 
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       const target = e.target as HTMLElement | null;
@@ -634,10 +539,7 @@ export function OfferEditorModal({
       tryClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [open, hasUnsaved]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
@@ -710,7 +612,7 @@ export function OfferEditorModal({
           )}
           {!isPricedGroup && (
             <label className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-600">
-              خصم الإضافة %
+              نسبة الخصم %
               <Input type="number" min={0} max={100} value={addDiscount} onChange={e => setAddDiscount(e.target.value)} className="w-14 text-center font-bold" />
             </label>
           )}

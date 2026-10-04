@@ -11,6 +11,8 @@ import type {
   CreateArticleGroupRequest,
   UpdateArticleGroupRequest,
   CashierActivityDto,
+  CashierVoidEventDto,
+  CashierVoidReportDto,
   CashierDetailDto,
   CashierDto,
   CreateCashierRequest,
@@ -402,6 +404,10 @@ export const api = {
   movement: (from: string, to: string, search?: string) =>
     request<MovementRowDto[]>(`/api/reports/movement${qs({ from, to, search })}`),
   cashReport: (from: string, to: string) => request<CashReportDto>(`/api/reports/cash${qs({ from, to })}`),
+  cashierVoids: (from: string, to: string) =>
+    request<CashierVoidReportDto>(`/api/reports/cashier-voids${qs({ from, to })}`),
+  cashierVoidDetail: (cashierId: number, from: string, to: string) =>
+    request<CashierVoidEventDto[]>(`/api/reports/cashier-voids/${cashierId}${qs({ from, to })}`),
 
   // Staff
   salesmen: (includeAll = false) =>
@@ -751,6 +757,7 @@ export function monthStartIso() {
 
 export function receiptDisplayNumber(r: ReceiptSummary) {
   if (r.displayNumber) return r.displayNumber;
+  if (r.printedNumber != null && r.printedNumber > 0) return String(r.printedNumber);
   return r.number > 0 ? String(r.number) : '—';
 }
 

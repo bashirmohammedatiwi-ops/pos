@@ -40,15 +40,29 @@ public sealed class ReceiptRepository(
         DateTime? from, DateTime? to, bool? holdOnly, CancellationToken ct)
     {
         await schema.EnsureLoadedAsync(ct);
+        pageSize = Math.Clamp(pageSize, 1, 10_000);
+        page = Math.Max(1, page);
         var where = holdOnly == true ? "WHERE r.is_pending = 1" : "WHERE r.is_pending = 0";
         var p = new DynamicParameters();
+        var skipDateWindow = false;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var printedSearch = schema.PrintedNumber
-                ? " OR CAST(r.printed_number AS NVARCHAR(20)) LIKE @s"
-                : "";
-            where += $" AND (CAST(r.number AS NVARCHAR(20)) LIKE @s OR sm.name LIKE @s OR CAST(r.edr_num AS NVARCHAR(20)) LIKE @s OR c.username LIKE @s{printedSearch})";
-            p.Add("s", $"%{search.Trim()}%");
+            var trimmed = search.Trim().TrimStart('#').Trim();
+            if (long.TryParse(trimmed, out var num) && num > 0)
+            {
+                var printedExact = schema.PrintedNumber ? " OR r.printed_number = @num" : "";
+                where += $" AND (r.number = @num OR r.edr_num = @num{printedExact})";
+                p.Add("num", num);
+                skipDateWindow = true;
+            }
+            else
+            {
+                var printedSearch = schema.PrintedNumber
+                    ? " OR CAST(r.printed_number AS NVARCHAR(20)) LIKE @s"
+                    : "";
+                where += $" AND (CAST(r.number AS NVARCHAR(20)) LIKE @s OR sm.name LIKE @s OR CAST(r.edr_num AS NVARCHAR(20)) LIKE @s OR c.username LIKE @s{printedSearch})";
+                p.Add("s", $"%{trimmed}%");
+            }
         }
         if (sectionId.HasValue) { where += " AND sec.id = @sectionId"; p.Add("sectionId", sectionId); }
         if (posId.HasValue) { where += " AND r.point_of_sale_id = @posId"; p.Add("posId", posId); }
@@ -56,8 +70,8 @@ public sealed class ReceiptRepository(
         if (kind.HasValue) { where += " AND r.kind = @kind"; p.Add("kind", kind); }
         if (syncedOnly == true) where += " AND r.synced = 1";
         if (unsyncedOnly == true) where += " AND r.synced = 0";
-        if (from.HasValue) { where += " AND r.creation_date >= @from"; p.Add("from", from.Value); }
-        if (to.HasValue) { where += " AND r.creation_date < @toPlus"; p.Add("toPlus", to.Value.Date.AddDays(1)); }
+        if (!skipDateWindow && from.HasValue) { where += " AND r.creation_date >= @from"; p.Add("from", from.Value); }
+        if (!skipDateWindow && to.HasValue) { where += " AND r.creation_date < @toPlus"; p.Add("toPlus", to.Value.Date.AddDays(1)); }
 
         p.Add("offset", (page - 1) * pageSize);
         p.Add("pageSize", pageSize);
@@ -822,7 +836,7 @@ public sealed class ReceiptRepository(
             r.CardAcquirer, r.CardAccNo, r.CardRrn, r.CardTerminalId, r.CardAuthCode,
             r.CardTransTime, r.CardType, r.CardRefNo,
             r.MasterAccount, r.CashBoxNum, r.CashBoxName, r.SalesmanCount,
-            r.DiscountQrPersonId, r.DiscountQrPersonName, r.WasEdited)).ToList();
+            r.DiscountQrPersonId, r.DiscountQrPersonName, r.WasEdited, r.PrintedNumber)).ToList();
 
     private sealed class HoldRow
     {
@@ -892,6 +906,7 @@ public sealed class ReceiptRepository(
         public long? DiscountQrPersonId { get; set; }
         public string? DiscountQrPersonName { get; set; }
         public bool WasEdited { get; set; }
+        public long? PrintedNumber { get; set; }
     }
 
     private static readonly JsonSerializerOptions EditJson = new()

@@ -41,6 +41,14 @@ desktop/dist/
 desktop/dist-build/
 desktop/dist-out/
 desktop/dist-out73/
+desktop/dist-out82/
+desktop/tts/*.exe
+desktop/tts/*.dll
+desktop/tts/*.onnx
+desktop/tts/*.ort
+desktop/tts/*.json
+desktop/tts/*.wav
+desktop/tts/espeak-ng-data/
 desktop/release/
 desktop/out/
 

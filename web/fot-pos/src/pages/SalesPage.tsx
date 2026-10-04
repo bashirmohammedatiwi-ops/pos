@@ -77,6 +77,7 @@ import {
   type InvoiceSlot,
 } from '@/lib/sale';
 import { applyDeferredEdit, settleEditedReceipt, toLocalDateTime } from '@/lib/receiptHistory';
+import { recordCashierVoid } from '@/lib/cashierVoid';
 import type { ReceiptSummaryDto } from '@/api/types';
 import { NumPad } from '@/components/NumPad';
 import { PosTile } from '@/components/PosTile';
@@ -91,6 +92,7 @@ import {
 import { collapseRepeatedScan, createScanEchoGuard } from '@/lib/scanGuard';
 import { decodeScannerText, isScannerCharacter, latinFromKey } from '@/lib/scannerKey';
 import { playErrorBeep } from '@/lib/sound';
+import { speakSalesmanName } from '@/lib/speakName';
 import { localDateTimeIso } from '@/lib/text';
 import { findLocalReturnSource } from '@/lib/saleMirror';
 import type { CashReportDto } from '@/api/types';
@@ -896,6 +898,20 @@ export function SalesPage({
   }
 
   function confirmRemoveLine(key: string) {
+    const line = cart.find(l => l.key === key);
+    if (line) {
+      const amount = Math.max(0, lineTotal(line));
+      recordCashierVoid({
+        kind: 'line',
+        productName: line.name,
+        barcode: line.barcode,
+        quantity: line.quantity,
+        amount,
+        lineCount: 1,
+        source: 'cart',
+        lines: [{ name: line.name, barcode: line.barcode, quantity: line.quantity, amount }],
+      });
+    }
     setCart(prev => prev.filter(l => l.key !== key));
     setConfirmAsk(null);
     focusScan();
@@ -1427,6 +1443,24 @@ export function SalesPage({
 
   async function handleDeleteDeferred(row: OutboxRow) {
     if (row.id == null) return;
+    const payload = row.payload as EditorPayload;
+    const lines = (payload.items ?? []).map(item => {
+      const amount = Math.max(0, item.quantity * item.price - (item.discount || 0));
+      return {
+        name: item.name || item.barcode || 'بند',
+        barcode: item.barcode,
+        quantity: item.quantity,
+        amount,
+      };
+    });
+    recordCashierVoid({
+      kind: 'invoice',
+      amount: lines.reduce((sum, item) => sum + item.amount, 0),
+      lineCount: lines.length,
+      receiptNum: String(row.localNumber),
+      source: 'deferred',
+      lines,
+    });
     await removeLocalReceipt(row.id);
     // Keep the today-mirror consistent — the deleted invoice must not reappear there.
     try {
@@ -1974,7 +2008,10 @@ export function SalesPage({
             <span>البائع</span>
             <button
               type="button"
-              onClick={() => setOverlay('salesman')}
+              onClick={() => {
+                if (invoiceSalesmanName) speakSalesmanName(invoiceSalesmanName);
+                setOverlay('salesman');
+              }}
               className={`pos-cart-group-seller w-full ${invoiceSalesmanName ? 'has-seller' : 'needs-seller'}`}
               title="بائع الفاتورة كاملة"
             >
@@ -2420,7 +2457,23 @@ export function SalesPage({
           message="هل تريد إلغاء الفاتورة الحالية؟ سيتم حذف كل البنود والخصم."
           confirmLabel="إلغاء الفاتورة"
           danger
-          onConfirm={() => { setConfirmAsk(null); resetCurrentSale(); }}
+          onConfirm={() => {
+            const lines = cart.map(l => {
+              const amount = Math.max(0, lineTotal(l));
+              return { name: l.name, barcode: l.barcode, quantity: l.quantity, amount };
+            });
+            if (lines.length > 0) {
+              recordCashierVoid({
+                kind: 'invoice',
+                amount: Math.max(0, lines.reduce((sum, l) => sum + l.amount, 0) - userDiscount),
+                lineCount: lines.length,
+                source: 'cart',
+                lines,
+              });
+            }
+            setConfirmAsk(null);
+            resetCurrentSale();
+          }}
           onCancel={() => { setConfirmAsk(null); focusScan(); }}
         />
       )}

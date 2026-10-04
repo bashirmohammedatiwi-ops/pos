@@ -40,8 +40,8 @@ const baseColumns: GridColumn<ReceiptSummary>[] = [
     pinned: 'start',
     mono: true,
     render: r => (
-      <span className="inline-flex items-center gap-1">
-        <span className="font-bold text-header">{receiptDisplayNumber(r)}</span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-[14px] font-extrabold tabular-nums text-header">{receiptDisplayNumber(r)}</span>
         {r.wasEdited && (
           <span className="rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-800">معدّلة</span>
         )}
