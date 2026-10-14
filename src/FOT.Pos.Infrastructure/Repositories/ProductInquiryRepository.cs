@@ -14,9 +14,13 @@ public sealed class ProductInquiryRepository(
     public const int MaxProducts = 3000;
     public const int MaxReceipts = 400;
     public const int MaxCommissionLines = 800;
+    public const int MaxReceiptsExport = 25_000;
+    public const int MaxCommissionLinesExport = 25_000;
 
     public async Task<ProductInquiryDto> QueryAsync(ProductInquiryRequest req, CancellationToken ct)
     {
+        var maxReceipts = req.FullDetails ? MaxReceiptsExport : MaxReceipts;
+        var maxCommissionLines = req.FullDetails ? MaxCommissionLinesExport : MaxCommissionLines;
         var from = (req.From ?? DateTime.Today.AddDays(-7)).Date;
         var to = (req.To ?? DateTime.Today).Date;
         if (to < from) to = from;
@@ -35,13 +39,11 @@ public sealed class ProductInquiryRepository(
         await ArticleMatch.FillIdTableAsync(conn, "#inq_seqs", seqs, ct);
         try
         {
-            var matchIds = (await conn.QueryAsync<long>(new CommandDefinition("""
-                SELECT a.id FROM articles a INNER JOIN #inq_seqs s ON s.id = a.Seq
-                UNION
-                SELECT a.Seq FROM articles a INNER JOIN #inq_seqs s ON s.id = a.Seq
-                WHERE NOT EXISTS (SELECT 1 FROM articles b WHERE b.id = a.Seq)
-                """, cancellationToken: ct))).ToHashSet();
+            var matchIds = await ArticleMatch.ExpandReceiptMatchIdsAsync(conn, seqs, ct);
             await ArticleMatch.FillIdTableAsync(conn, "#inq_ids", matchIds, ct);
+            var articleKeys = new HashSet<long>(seqs);
+            articleKeys.UnionWith(matchIds);
+            await ArticleMatch.FillIdTableAsync(conn, "#inq_article_keys", articleKeys, ct);
             try
             {
                 var p = new DynamicParameters();
@@ -55,19 +57,19 @@ public sealed class ProductInquiryRepository(
                 var productCommissions = await QueryProductCommissionsAsync(conn, p, ct);
                 var salesmanSales = await QuerySalesmanSalesAsync(conn, p, ct);
                 var salesmanCommissions = await QuerySalesmanCommissionsAsync(conn, p, ct);
-                var receiptSales = await QueryReceiptSalesAsync(conn, p, ct);
+                var receiptSales = await QueryReceiptSalesAsync(conn, p, maxReceipts, ct);
                 var receiptCommissions = await QueryReceiptCommissionsAsync(conn, p, ct);
-                var commissionLines = await QueryCommissionLinesAsync(conn, p, ct);
+                var commissionLines = await QueryCommissionLinesAsync(conn, p, maxCommissionLines, ct);
 
                 var products = MergeProducts(productSales, productCommissions);
                 var salesmen = MergeSalesmen(salesmanSales, salesmanCommissions);
-                var receiptsTruncated = receiptSales.Count > MaxReceipts;
+                var receiptsTruncated = receiptSales.Count > maxReceipts;
                 var receiptRows = MergeReceipts(
-                    receiptsTruncated ? receiptSales.Take(MaxReceipts).ToList() : receiptSales,
+                    receiptsTruncated ? receiptSales.Take(maxReceipts).ToList() : receiptSales,
                     receiptCommissions);
-                var commissionsTruncated = commissionLines.Count > MaxCommissionLines;
+                var commissionsTruncated = commissionLines.Count > maxCommissionLines;
                 var commissions = (commissionsTruncated
-                    ? commissionLines.Take(MaxCommissionLines)
+                    ? commissionLines.Take(maxCommissionLines)
                     : commissionLines)
                     .Select(c => new ProductInquiryCommissionRowDto(
                         c.Id, c.ReceiptId, c.ReceiptNumber, c.SaleDate, c.ArticleSeq, c.ProductName,
@@ -88,6 +90,7 @@ public sealed class ProductInquiryRepository(
             }
             finally
             {
+                await ArticleMatch.DropTableAsync(conn, "#inq_article_keys", ct);
                 await ArticleMatch.DropTableAsync(conn, "#inq_ids", ct);
             }
         }
@@ -188,14 +191,15 @@ public sealed class ProductInquiryRepository(
     {
         var row = await conn.QueryFirstOrDefaultAsync<SalesSummaryRow>(Cmd("""
             SELECT
-                CAST(COALESCE(SUM(ri.quantity), 0) AS DECIMAL(18,6)) AS Quantity,
-                CAST(COALESCE(SUM(ri.quantity * ri.price), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END), 0) AS DECIMAL(18,6)) AS Quantity,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END), 0) AS DECIMAL(18,2)) AS SalesAmount,
                 COUNT(DISTINCT r.id) AS ReceiptCount
             FROM reciepts r
             INNER JOIN reciept_items ri ON ri.reciept_id = r.id
             INNER JOIN #inq_ids x ON x.id = ri.article_id
             WHERE r.creation_date >= @from AND r.creation_date < @toExclusive
               AND (r.is_pending = 0 OR r.is_pending IS NULL)
+              AND COALESCE(r.kind, 0) IN (0, 1)
               AND (@salesmanId IS NULL OR COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) = @salesmanId)
             """, p, ct));
         return row ?? new SalesSummaryRow();
@@ -209,7 +213,7 @@ public sealed class ProductInquiryRepository(
                 CAST(COALESCE(SUM(c.commission_amount), 0) AS DECIMAL(18,2)) AS CommissionAmount,
                 COUNT(*) AS LineCount
             FROM ext_commission_calculations c
-            INNER JOIN #inq_seqs s ON s.id = c.article_id
+            INNER JOIN #inq_article_keys k ON k.id = c.article_id
             LEFT JOIN reciepts r ON r.id = c.receipt_id
             WHERE COALESCE(r.creation_date, c.calculated_at) >= @from
               AND COALESCE(r.creation_date, c.calculated_at) < @toExclusive
@@ -223,10 +227,14 @@ public sealed class ProductInquiryRepository(
         (await conn.QueryAsync<ProductSaleRow>(Cmd("""
             SELECT
                 COALESCE(a.Seq, ri.article_id) AS ArticleSeq,
-                LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))) AS ProductName,
-                COALESCE(LTRIM(RTRIM(a.Barcode)), LTRIM(RTRIM(ri.barcode))) AS Barcode,
-                CAST(SUM(ri.quantity) AS DECIMAL(18,6)) AS Quantity,
-                CAST(SUM(ri.quantity * ri.price) AS DECIMAL(18,2)) AS SalesAmount,
+                MAX(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1)))) AS ProductName,
+                COALESCE(
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Barcode))), N'')),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), ri.barcode))), N'')),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Num))), N''))
+                ) AS Barcode,
+                CAST(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END) AS DECIMAL(18,6)) AS Quantity,
+                CAST(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END) AS DECIMAL(18,2)) AS SalesAmount,
                 COUNT(DISTINCT r.id) AS ReceiptCount
             FROM reciepts r
             INNER JOIN reciept_items ri ON ri.reciept_id = r.id
@@ -234,28 +242,35 @@ public sealed class ProductInquiryRepository(
             LEFT JOIN articles a ON a.id = ri.article_id
             WHERE r.creation_date >= @from AND r.creation_date < @toExclusive
               AND (r.is_pending = 0 OR r.is_pending IS NULL)
+              AND COALESCE(r.kind, 0) IN (0, 1)
               AND (@salesmanId IS NULL OR COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) = @salesmanId)
-            GROUP BY COALESCE(a.Seq, ri.article_id), a.Name1, a.Barcode, ri.barcode
+            GROUP BY COALESCE(a.Seq, ri.article_id)
             """, p, ct))).ToList();
 
     private static async Task<List<ProductCommissionRow>> QueryProductCommissionsAsync(
         IDbConnection conn, DynamicParameters p, CancellationToken ct) =>
         (await conn.QueryAsync<ProductCommissionRow>(Cmd("""
             SELECT
-                c.article_id AS ArticleSeq,
+                COALESCE(NULLIF(a.Seq, 0), NULLIF(a2.Seq, 0), c.article_id) AS ArticleSeq,
                 COALESCE(
-                    LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))),
-                    LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1)))) AS ProductName,
+                    MAX(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1)))),
+                    MAX(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1))))) AS ProductName,
+                COALESCE(
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Barcode))), N'')),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a2.Barcode))), N'')),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Num))), N'')),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a2.Num))), N''))
+                ) AS Barcode,
                 CAST(SUM(c.commission_amount) AS DECIMAL(18,2)) AS CommissionAmount
             FROM ext_commission_calculations c
-            INNER JOIN #inq_seqs s ON s.id = c.article_id
+            INNER JOIN #inq_article_keys k ON k.id = c.article_id
             LEFT JOIN reciepts r ON r.id = c.receipt_id
             LEFT JOIN articles a ON a.Seq = c.article_id
             LEFT JOIN articles a2 ON a2.id = c.article_id
             WHERE COALESCE(r.creation_date, c.calculated_at) >= @from
               AND COALESCE(r.creation_date, c.calculated_at) < @toExclusive
               AND (@salesmanId IS NULL OR c.salesman_id = @salesmanId)
-            GROUP BY c.article_id, a.Name1, a2.Name1
+            GROUP BY COALESCE(NULLIF(a.Seq, 0), NULLIF(a2.Seq, 0), c.article_id)
             """, p, ct))).ToList();
 
     private static async Task<List<SalesmanSaleRow>> QuerySalesmanSalesAsync(
@@ -264,8 +279,8 @@ public sealed class ProductInquiryRepository(
             SELECT
                 COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) AS SalesmanId,
                 COALESCE(NULLIF(LTRIM(RTRIM(ri.salesman_name)), ''), s.name, N'بدون بائع') AS SalesmanName,
-                CAST(SUM(ri.quantity) AS DECIMAL(18,6)) AS Quantity,
-                CAST(SUM(ri.quantity * ri.price) AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END) AS DECIMAL(18,6)) AS Quantity,
+                CAST(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END) AS DECIMAL(18,2)) AS SalesAmount,
                 COUNT(DISTINCT r.id) AS ReceiptCount
             FROM reciepts r
             INNER JOIN reciept_items ri ON ri.reciept_id = r.id
@@ -273,6 +288,7 @@ public sealed class ProductInquiryRepository(
             LEFT JOIN salesmen s ON s.id = COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0)
             WHERE r.creation_date >= @from AND r.creation_date < @toExclusive
               AND (r.is_pending = 0 OR r.is_pending IS NULL)
+              AND COALESCE(r.kind, 0) IN (0, 1)
               AND (@salesmanId IS NULL OR COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) = @salesmanId)
             GROUP BY COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0),
                      COALESCE(NULLIF(LTRIM(RTRIM(ri.salesman_name)), ''), s.name, N'بدون بائع')
@@ -286,7 +302,7 @@ public sealed class ProductInquiryRepository(
                 COALESCE(s.name, N'بدون بائع') AS SalesmanName,
                 CAST(SUM(c.commission_amount) AS DECIMAL(18,2)) AS CommissionAmount
             FROM ext_commission_calculations c
-            INNER JOIN #inq_seqs seq ON seq.id = c.article_id
+            INNER JOIN #inq_article_keys k ON k.id = c.article_id
             LEFT JOIN reciepts r ON r.id = c.receipt_id
             LEFT JOIN salesmen s ON s.id = c.salesman_id
             WHERE COALESCE(r.creation_date, c.calculated_at) >= @from
@@ -296,25 +312,28 @@ public sealed class ProductInquiryRepository(
             """, p, ct))).ToList();
 
     private static async Task<List<ReceiptSaleRow>> QueryReceiptSalesAsync(
-        IDbConnection conn, DynamicParameters p, CancellationToken ct) =>
+        IDbConnection conn, DynamicParameters p, int maxReceipts, CancellationToken ct) =>
         (await conn.QueryAsync<ReceiptSaleRow>(Cmd($"""
-            SELECT TOP ({MaxReceipts + 1})
+            SELECT TOP ({maxReceipts + 1})
                 r.id AS ReceiptId,
                 r.number AS ReceiptNumber,
                 r.creation_date AS SaleDate,
-                COALESCE(NULLIF(r.salesman, 0), 0) AS SalesmanId,
-                COALESCE(s.name, N'بدون بائع') AS SalesmanName,
-                CAST(SUM(ri.quantity) AS DECIMAL(18,6)) AS Quantity,
-                CAST(SUM(ri.quantity * ri.price) AS DECIMAL(18,2)) AS SalesAmount,
+                COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) AS SalesmanId,
+                COALESCE(NULLIF(LTRIM(RTRIM(ri.salesman_name)), ''), s.name, N'بدون بائع') AS SalesmanName,
+                CAST(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END) AS DECIMAL(18,6)) AS Quantity,
+                CAST(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END) AS DECIMAL(18,2)) AS SalesAmount,
                 COUNT(*) AS LineCount
             FROM reciepts r
             INNER JOIN reciept_items ri ON ri.reciept_id = r.id
             INNER JOIN #inq_ids x ON x.id = ri.article_id
-            LEFT JOIN salesmen s ON s.id = COALESCE(NULLIF(r.salesman, 0), 0)
+            LEFT JOIN salesmen s ON s.id = COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0)
             WHERE r.creation_date >= @from AND r.creation_date < @toExclusive
               AND (r.is_pending = 0 OR r.is_pending IS NULL)
+              AND COALESCE(r.kind, 0) IN (0, 1)
               AND (@salesmanId IS NULL OR COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) = @salesmanId)
-            GROUP BY r.id, r.number, r.creation_date, r.salesman, s.name
+            GROUP BY r.id, r.number, r.creation_date,
+                     COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0),
+                     COALESCE(NULLIF(LTRIM(RTRIM(ri.salesman_name)), ''), s.name, N'بدون بائع')
             ORDER BY r.creation_date DESC, r.id DESC
             """, p, ct))).ToList();
 
@@ -323,25 +342,26 @@ public sealed class ProductInquiryRepository(
         (await conn.QueryAsync<ReceiptCommissionRow>(Cmd("""
             SELECT
                 c.receipt_id AS ReceiptId,
+                c.salesman_id AS SalesmanId,
                 CAST(SUM(c.commission_amount) AS DECIMAL(18,2)) AS CommissionAmount
             FROM ext_commission_calculations c
-            INNER JOIN #inq_seqs seq ON seq.id = c.article_id
+            INNER JOIN #inq_article_keys k ON k.id = c.article_id
             LEFT JOIN reciepts r ON r.id = c.receipt_id
             WHERE COALESCE(r.creation_date, c.calculated_at) >= @from
               AND COALESCE(r.creation_date, c.calculated_at) < @toExclusive
               AND (@salesmanId IS NULL OR c.salesman_id = @salesmanId)
-            GROUP BY c.receipt_id
+            GROUP BY c.receipt_id, c.salesman_id
             """, p, ct))).ToList();
 
     private static async Task<List<CommissionLineRow>> QueryCommissionLinesAsync(
-        IDbConnection conn, DynamicParameters p, CancellationToken ct) =>
+        IDbConnection conn, DynamicParameters p, int maxCommissionLines, CancellationToken ct) =>
         (await conn.QueryAsync<CommissionLineRow>(Cmd($"""
-            SELECT TOP ({MaxCommissionLines + 1})
+            SELECT TOP ({maxCommissionLines + 1})
                 c.id AS Id,
                 c.receipt_id AS ReceiptId,
                 r.number AS ReceiptNumber,
                 COALESCE(r.creation_date, c.calculated_at) AS SaleDate,
-                c.article_id AS ArticleSeq,
+                COALESCE(NULLIF(a.Seq, 0), NULLIF(a2.Seq, 0), c.article_id) AS ArticleSeq,
                 COALESCE(
                     LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))),
                     LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a2.Name1)))) AS ProductName,
@@ -355,7 +375,7 @@ public sealed class ProductInquiryRepository(
                 c.commission_group_id AS CommissionGroupId,
                 c.commission_group_name AS CommissionGroupName
             FROM ext_commission_calculations c
-            INNER JOIN #inq_seqs seq ON seq.id = c.article_id
+            INNER JOIN #inq_article_keys k ON k.id = c.article_id
             LEFT JOIN reciepts r ON r.id = c.receipt_id
             LEFT JOIN articles a ON a.Seq = c.article_id
             LEFT JOIN articles a2 ON a2.id = c.article_id
@@ -379,12 +399,13 @@ public sealed class ProductInquiryRepository(
         {
             if (map.TryGetValue(c.ArticleSeq, out var row))
             {
-                map[c.ArticleSeq] = row with { CommissionAmount = c.CommissionAmount };
+                var barcode = string.IsNullOrWhiteSpace(row.Barcode) ? c.Barcode : row.Barcode;
+                map[c.ArticleSeq] = row with { CommissionAmount = c.CommissionAmount, Barcode = barcode };
             }
             else
             {
                 map[c.ArticleSeq] = new ProductInquiryProductRowDto(
-                    c.ArticleSeq, c.ProductName, null, 0, 0, c.CommissionAmount, 0);
+                    c.ArticleSeq, c.ProductName, c.Barcode, 0, 0, c.CommissionAmount, 0);
             }
         }
         return map.Values
@@ -423,11 +444,14 @@ public sealed class ProductInquiryRepository(
     private static IReadOnlyList<ProductInquiryReceiptRowDto> MergeReceipts(
         List<ReceiptSaleRow> sales, List<ReceiptCommissionRow> commissions)
     {
-        var commissionByReceipt = commissions.ToDictionary(c => c.ReceiptId, c => c.CommissionAmount);
-        var rows = sales.Select(s => new ProductInquiryReceiptRowDto(
+        var commissionByReceipt = commissions.ToDictionary(
+            c => (c.ReceiptId, c.SalesmanId),
+            c => c.CommissionAmount);
+        return sales.Select(s => new ProductInquiryReceiptRowDto(
             s.ReceiptId, s.ReceiptNumber, s.SaleDate, s.SalesmanId, s.SalesmanName,
-            s.Quantity, s.SalesAmount, commissionByReceipt.GetValueOrDefault(s.ReceiptId), s.LineCount)).ToList();
-        return rows;
+            s.Quantity, s.SalesAmount,
+            commissionByReceipt.GetValueOrDefault((s.ReceiptId, s.SalesmanId)),
+            s.LineCount)).ToList();
     }
 
     private sealed class SalesSummaryRow
@@ -457,6 +481,7 @@ public sealed class ProductInquiryRepository(
     {
         public long ArticleSeq { get; set; }
         public string? ProductName { get; set; }
+        public string? Barcode { get; set; }
         public decimal CommissionAmount { get; set; }
     }
 
@@ -491,6 +516,7 @@ public sealed class ProductInquiryRepository(
     private sealed class ReceiptCommissionRow
     {
         public long ReceiptId { get; set; }
+        public long SalesmanId { get; set; }
         public decimal CommissionAmount { get; set; }
     }
 

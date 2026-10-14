@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api } from '@/api/client';
+import { api, formatNum } from '@/api/client';
 import type { TreeNodeDto } from '@/api/types';
 import { fixEdariName } from '@/lib/text';
-import { Alert, Btn, Input, Loading, Modal } from '@/components/ui';
+import { Alert, Badge, Btn, EmptyState, Input, Modal, Skeleton } from '@/components/ui';
+import { IconChevronLeft, IconFolder, IconFolderClosed, IconPackage, IconSearch, IconX } from '@/components/icons';
 
 interface TreePickerProps {
   open: boolean;
@@ -30,8 +31,8 @@ export function TreePickerDialog({ open, onClose, onSelect, folderOnly = true }:
   const [debounced, setDebounced] = useState('');
   const [path, setPath] = useState<{ seq: number; name: string }[]>([]);
   const [error, setError] = useState('');
-  const [preview, setPreview] = useState<{ name: string; count: number | null } | null>(null);
-  const [selecting, setSelecting] = useState(false);
+  const [preview, setPreview] = useState<{ seq: number; name: string; count: number | null } | null>(null);
+  const [selecting, setSelecting] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -42,6 +43,12 @@ export function TreePickerDialog({ open, onClose, onSelect, folderOnly = true }:
     setError('');
     setPreview(null);
   }, [open]);
+
+  // بحث تلقائي بعد التوقف عن الكتابة
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(search.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [search]);
 
   const edariQ = useQuery({
     queryKey: ['edari-tree', parent, debounced],
@@ -76,6 +83,17 @@ export function TreePickerDialog({ open, onClose, onSelect, folderOnly = true }:
     setSearch('');
     setDebounced('');
     setPreview(null);
+    setError('');
+  }
+
+  function goTo(depth: number) {
+    // depth = -1 → الجذر
+    const next = depth < 0 ? [] : path.slice(0, depth + 1);
+    setPath(next);
+    setParent(next.length ? next[next.length - 1].seq : undefined);
+    setSearch('');
+    setDebounced('');
+    setPreview(null);
   }
 
   function goUp() {
@@ -83,10 +101,7 @@ export function TreePickerDialog({ open, onClose, onSelect, folderOnly = true }:
       setParent(undefined);
       return;
     }
-    const next = path.slice(0, -1);
-    setPath(next);
-    setParent(next.length ? next[next.length - 1].seq : undefined);
-    setPreview(null);
+    goTo(path.length - 2);
   }
 
   async function loadPreview(node: TreeNodeDto) {
@@ -94,23 +109,24 @@ export function TreePickerDialog({ open, onClose, onSelect, folderOnly = true }:
       setPreview(null);
       return;
     }
-    setPreview({ name: nodeLabel(node), count: null });
+    if (preview?.seq === node.seq && preview.count != null) return;
+    setPreview({ seq: node.seq, name: nodeLabel(node), count: null });
     try {
       const countFn = usingEdari ? api.edariTreeProductCount : api.treeProductCount;
       const { count } = await countFn(node.seq);
-      setPreview({ name: nodeLabel(node), count });
+      setPreview(p => (p?.seq === node.seq ? { ...p, count } : p));
     } catch {
-      setPreview({ name: node.name ?? `#${node.seq}`, count: null });
+      setPreview(p => (p?.seq === node.seq ? { ...p, count: null } : p));
     }
   }
 
   async function selectNode(node: TreeNodeDto) {
     if (folderOnly && !isFolderNode(node)) {
-      setError('اختر مجلداً (📁) وليس صنفاً مفرداً');
+      setError('اختر مجلداً وليس صنفاً مفرداً');
       return;
     }
     setError('');
-    setSelecting(true);
+    setSelecting(node.seq);
     try {
       const countFn = usingEdari ? api.edariTreeProductCount : api.treeProductCount;
       const { count } = await countFn(node.seq);
@@ -119,117 +135,172 @@ export function TreePickerDialog({ open, onClose, onSelect, folderOnly = true }:
     } catch (e) {
       setError(e instanceof Error ? e.message : 'فشل اختيار الشجرة');
     } finally {
-      setSelecting(false);
+      setSelecting(null);
     }
   }
 
   return (
-    <Modal open={open} title="اختيار شجرة من Edari" onClose={onClose} wide>
-      <div className="space-y-4">
-        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-          <strong>كيف تختار؟</strong> تصفّح المجلدات بالنقر المزدوج أو «فتح»، ثم اضغط «اختيار هذا المجلد» لتطبيق
-          الخصم على جميع الأصناف تحته.
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              usingEdari ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-900'
-            }`}
-          >
-            {sourceLabel}
-          </span>
-          {!loading && (
-            <span className="text-xs text-muted">{nodes.length} عنصر في هذا المستوى</span>
-          )}
-        </div>
-
+    <Modal
+      open={open}
+      title="اختيار شجرة من Edari"
+      subtitle="افتح المجلدات بالنقر المزدوج أو «فتح»، ثم «اختيار» لتطبيق الخصم على كل الأصناف تحته."
+      icon={<IconFolder size={18} />}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <div className="min-w-0 text-[12px] text-slate-600">
+            {preview ? (
+              <span className="flex items-center gap-1.5">
+                <IconFolderClosed size={13} className="text-amber-500" />
+                <span className="max-w-[260px] truncate font-semibold text-header">{preview.name}</span>
+                {preview.count === null ? (
+                  <span className="text-slate-400">— جاري حساب الأصناف…</span>
+                ) : (
+                  <span className="font-semibold text-emerald-700 num">— {formatNum(preview.count)} صنف نهائي</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-slate-400">مرّر المؤشر على مجلد لمعرفة عدد أصنافه</span>
+            )}
+          </div>
+          <Btn variant="secondary" onClick={onClose}>إغلاق</Btn>
+        </>
+      }
+    >
+      <div className="space-y-3">
         {(error || connectionError) && <Alert>{error || connectionError}</Alert>}
 
-        <div className="flex gap-2">
-          <Input
-            placeholder="بحث بالاسم أو الرقم أو الباركود…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && setDebounced(search.trim())}
-          />
-          <Btn onClick={() => setDebounced(search.trim())}>بحث</Btn>
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-slate-400">
+              <IconSearch size={15} />
+            </span>
+            <Input
+              autoFocus
+              placeholder="بحث بالاسم أو الرقم أو الباركود…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') setDebounced(search.trim());
+                if (e.key === 'Escape') {
+                  // Esc الأول يمسح البحث، والثاني (حقل فارغ) يغلق النافذة — Modal يتجاهل Esc القادم من الحقول
+                  e.preventDefault();
+                  if (search) setSearch('');
+                  else onClose();
+                }
+              }}
+              className="ps-9 pe-8"
+            />
+            {search && (
+              <button
+                type="button"
+                aria-label="مسح البحث"
+                className="absolute inset-y-0 end-2 flex items-center text-slate-400 hover:text-slate-700"
+                onClick={() => setSearch('')}
+              >
+                <IconX size={13} />
+              </button>
+            )}
+          </div>
           <Btn variant="secondary" onClick={goUp} disabled={!parent && path.length === 0}>
             ↑ رجوع
           </Btn>
         </div>
 
-        <p className="text-xs text-muted">
-          {path.length === 0 ? 'الجذر /' : `الجذر / ${path.map(p => p.name).join(' / ')}`}
-        </p>
+        {/* مسار التصفح — كل جزء قابل للنقر */}
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[12px]">
+          <Badge tone={usingEdari ? 'info' : 'warn'}>{sourceLabel}</Badge>
+          <button
+            type="button"
+            className={`rounded px-1.5 py-0.5 ${path.length ? 'text-brand-700 hover:bg-white' : 'font-bold text-header'}`}
+            onClick={() => goTo(-1)}
+          >
+            الجذر
+          </button>
+          {path.map((p, i) => (
+            <span key={p.seq} className="flex items-center gap-1">
+              <IconChevronLeft size={12} className="text-slate-300" />
+              <button
+                type="button"
+                className={`max-w-[180px] truncate rounded px-1.5 py-0.5 ${
+                  i === path.length - 1 ? 'font-bold text-header' : 'text-brand-700 hover:bg-white'
+                }`}
+                onClick={() => goTo(i)}
+              >
+                {p.name}
+              </button>
+            </span>
+          ))}
+          {!loading && <span className="ms-auto text-[11px] text-slate-500 num">{formatNum(nodes.length)} عنصر</span>}
+        </div>
 
-        {loading && (
-          <div className="space-y-2">
-            <Loading />
-            <p className="text-center text-xs text-muted">جاري تحميل الشجرة…</p>
-          </div>
-        )}
-
-        {!loading && (
-          <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-xl border border-border">
-            {nodes.map(n => {
+        <ul className="max-h-[60vh] min-h-[240px] divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
+          {loading ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <li key={i} className="flex items-center gap-2.5 px-3 py-2">
+                <Skeleton className="h-6 w-6 rounded-md" />
+                <Skeleton className="h-3 flex-1" />
+              </li>
+            ))
+          ) : nodes.length === 0 ? (
+            <li>
+              <EmptyState
+                compact
+                icon={<IconFolder size={18} />}
+                title={debounced ? 'لا نتائج مطابقة' : 'لا عناصر في هذا المستوى'}
+                description={edariQ.isError ? 'لا توجد بيانات — تحقق من اتصال Edari في صفحة الإداري.' : undefined}
+              />
+            </li>
+          ) : (
+            nodes.map(n => {
               const folder = isFolderNode(n);
+              const active = preview?.seq === n.seq;
               return (
                 <li
                   key={n.seq}
-                  className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50"
+                  className={`flex items-center justify-between gap-2 px-3 py-1.5 transition ${active ? 'bg-brand-50/50' : 'hover:bg-slate-50'}`}
                   onMouseEnter={() => folder && loadPreview(n)}
                 >
                   <button
                     type="button"
-                    className="flex flex-1 items-center gap-2 text-right text-sm"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 text-right"
                     onDoubleClick={() => (folder ? enterFolder(n) : selectNode(n))}
                     onClick={() => folder && loadPreview(n)}
                   >
-                    <span className="text-lg">{folder ? '📁' : '📦'}</span>
-                    <span>
-                      <span className="font-medium">{nodeLabel(n)}</span>
-                      {n.num && <span className="mr-2 text-xs text-muted">{n.num}</span>}
-                      <span className="mr-2 block text-[10px] text-muted">
-                        {folder ? 'مجلد' : 'صنف'} · Seq {n.seq}
+                    <span
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
+                        folder ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {folder ? <IconFolderClosed size={14} /> : <IconPackage size={13} />}
+                    </span>
+                    <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                      <span className="truncate text-[13px] font-semibold text-header" title={nodeLabel(n)}>{nodeLabel(n)}</span>
+                      <span className="shrink-0 text-[11px] text-slate-400">
+                        {folder ? 'مجلد' : 'صنف'}
+                        {n.num && <span className="font-mono"> · {n.num}</span>}
+                        <span className="num"> · Seq {n.seq}</span>
                       </span>
                     </span>
                   </button>
                   <div className="flex shrink-0 gap-1">
                     {folder && (
-                      <Btn size="sm" variant="secondary" onClick={() => enterFolder(n)}>
+                      <Btn size="xs" variant="ghost" onClick={() => enterFolder(n)}>
                         فتح
                       </Btn>
                     )}
                     {(folder || !folderOnly) && (
-                      <Btn size="sm" disabled={selecting} onClick={() => selectNode(n)}>
+                      <Btn size="xs" loading={selecting === n.seq} disabled={selecting != null} onClick={() => selectNode(n)}>
                         {folder ? 'اختيار المجلد' : 'اختيار'}
                       </Btn>
                     )}
                   </div>
                 </li>
               );
-            })}
-            {nodes.length === 0 && (
-              <li className="px-4 py-10 text-center text-sm text-muted">
-                {edariQ.isError
-                  ? 'لا توجد بيانات — تحقق من اتصال Edari في صفحة الإداري'
-                  : 'لا عناصر في هذا المستوى'}
-              </li>
-            )}
-          </ul>
-        )}
-
-        {preview && (
-          <div className="rounded-xl border border-border bg-slate-50 px-4 py-3 text-sm">
-            <strong>{preview.name}</strong>
-            {preview.count === null ? (
-              <span className="mr-2 text-muted"> — جاري حساب الأصناف…</span>
-            ) : (
-              <span className="mr-2 text-emerald-700"> — {preview.count.toLocaleString('ar-IQ')} صنف نهائي</span>
-            )}
-          </div>
-        )}
+            })
+          )}
+        </ul>
       </div>
     </Modal>
   );

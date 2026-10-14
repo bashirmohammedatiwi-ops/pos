@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api } from '@/api/client';
+import { api, formatNum } from '@/api/client';
 import type { TargetTreeLinkDto, TreeNodeDto } from '@/api/types';
-import { Alert, Btn, Input, Loading, Modal } from '@/components/ui';
+import { Alert, Badge, Btn, EmptyState, Input, Modal, Skeleton } from '@/components/ui';
+import { IconCheck, IconChevronLeft, IconFolder, IconFolderClosed, IconPackage, IconPlus, IconSearch, IconX } from '@/components/icons';
 
 interface Props {
   open: boolean;
@@ -22,7 +23,6 @@ export function TreeMultiPickerDialog({ open, onClose, selected, onChange }: Pro
   const [path, setPath] = useState<{ seq: number; name: string }[]>([]);
   const [localSelected, setLocalSelected] = useState<TargetTreeLinkDto[]>([]);
   const [preview, setPreview] = useState<{ seq: number; name: string; count: number | null } | null>(null);
-  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -74,19 +74,26 @@ export function TreeMultiPickerDialog({ open, onClose, selected, onChange }: Pro
     setPreview(null);
   }
 
+  function goTo(depth: number) {
+    const next = depth < 0 ? [] : path.slice(0, depth + 1);
+    setPath(next);
+    setParent(next.length ? next[next.length - 1].seq : undefined);
+    setSearch('');
+    setDebounced('');
+    setPreview(null);
+  }
+
   function goUp() {
     if (path.length === 0) {
       setParent(undefined);
       return;
     }
-    const next = path.slice(0, -1);
-    setPath(next);
-    setParent(next.length ? next[next.length - 1].seq : undefined);
-    setPreview(null);
+    goTo(path.length - 2);
   }
 
   async function previewNode(node: TreeNodeDto) {
     if (!isFolderNode(node)) return;
+    if (preview?.seq === node.seq && preview.count != null) return;
     setPreview({ seq: node.seq, name: node.name ?? `#${node.seq}`, count: null });
     try {
       const { count } = await api.edariTreeProductCount(node.seq);
@@ -96,17 +103,11 @@ export function TreeMultiPickerDialog({ open, onClose, selected, onChange }: Pro
     }
   }
 
-  async function addTree(node: TreeNodeDto) {
+  function addTree(node: TreeNodeDto) {
     if (!isFolderNode(node)) return;
     const seq = node.seq;
     const name = node.name ?? `#${seq}`;
-    if (localSelected.some(t => t.treeSeq === seq)) return;
-    setAdding(true);
-    try {
-      setLocalSelected(prev => [...prev, { treeSeq: seq, treeName: name }]);
-    } finally {
-      setAdding(false);
-    }
+    setLocalSelected(prev => (prev.some(t => t.treeSeq === seq) ? prev : [...prev, { treeSeq: seq, treeName: name }]));
   }
 
   function removeTree(seq: number) {
@@ -118,100 +119,171 @@ export function TreeMultiPickerDialog({ open, onClose, selected, onChange }: Pro
     onClose();
   }
 
+  const changed =
+    localSelected.length !== selected.length || localSelected.some(t => !selected.some(s => s.treeSeq === t.treeSeq));
+
   return (
-    <Modal open={open} title="اختيار شجرات Edari" onClose={onClose} wide>
-      <div className="space-y-4">
+    <Modal
+      open={open}
+      title="اختيار شجرات Edari"
+      subtitle="افتح المجلدات للتنقل، ثم «إضافة» لكل شجرة تريدها. يمكنك اختيار أكثر من شجرة."
+      icon={<IconFolder size={18} />}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <span className="text-[12px] text-slate-500">
+            {preview ? (
+              <>
+                «<span className="font-semibold text-header">{preview.name}</span>»:{' '}
+                {preview.count === null ? 'جاري العد…' : <span className="font-semibold text-emerald-700 num">{formatNum(preview.count)} صنف</span>}
+              </>
+            ) : (
+              <span className="num">{formatNum(localSelected.length)} شجرة مختارة</span>
+            )}
+          </span>
+          <div className="flex gap-2">
+            <Btn variant="secondary" onClick={onClose}>إلغاء</Btn>
+            <Btn icon={<IconCheck size={14} />} onClick={save} disabled={localSelected.length === 0 && !changed}>
+              تأكيد ({formatNum(localSelected.length)} شجرة)
+            </Btn>
+          </div>
+        </>
+      }
+    >
+      <div className="space-y-3">
         {connectionError && <Alert>{connectionError}</Alert>}
 
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-muted">
-          <span className="font-medium text-slate-700">{sourceLabel}</span>
-          <span>·</span>
-          <button type="button" className="text-brand-600 hover:underline" onClick={goUp}>
+        {/* الشجرات المختارة */}
+        <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-2.5">
+          <p className="mb-1.5 text-[11.5px] font-bold text-slate-500">المختارة</p>
+          {localSelected.length === 0 ? (
+            <p className="text-[12px] text-slate-400">لم تُختر أي شجرة بعد.</p>
+          ) : (
+            <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+              {localSelected.map(t => (
+                <span
+                  key={t.treeSeq}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full bg-white py-0.5 pe-1 ps-2.5 text-[12px] font-medium text-brand-800 ring-1 ring-brand-200"
+                >
+                  <span className="truncate">{t.treeName ?? `#${t.treeSeq}`}</span>
+                  <button
+                    type="button"
+                    className="rounded-full p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    onClick={() => removeTree(t.treeSeq)}
+                    aria-label={`إزالة ${t.treeName ?? ''}`}
+                  >
+                    <IconX size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="relative">
+          <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-slate-400">
+            <IconSearch size={15} />
+          </span>
+          <Input
+            autoFocus
+            placeholder="بحث في الشجرة…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') {
+                // Esc الأول يمسح البحث، والثاني (حقل فارغ) يغلق النافذة — Modal يتجاهل Esc القادم من الحقول
+                e.preventDefault();
+                if (search) setSearch('');
+                else onClose();
+              }
+            }}
+            className="ps-9"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[12px]">
+          <Badge tone={usingEdari ? 'info' : 'warn'}>{sourceLabel}</Badge>
+          <button
+            type="button"
+            className="rounded px-1.5 py-0.5 text-brand-700 hover:bg-white disabled:text-slate-400"
+            onClick={goUp}
+            disabled={!path.length}
+          >
             ↑ رجوع
           </button>
-          {path.map(p => (
-            <span key={p.seq} className="text-slate-500">
-              / {p.name}
+          <button
+            type="button"
+            className={`rounded px-1.5 py-0.5 ${path.length ? 'text-brand-700 hover:bg-white' : 'font-bold text-header'}`}
+            onClick={() => goTo(-1)}
+          >
+            الجذر
+          </button>
+          {path.map((p, i) => (
+            <span key={p.seq} className="flex items-center gap-1">
+              <IconChevronLeft size={12} className="text-slate-300" />
+              <button
+                type="button"
+                className={`max-w-[160px] truncate rounded px-1.5 py-0.5 ${
+                  i === path.length - 1 ? 'font-bold text-header' : 'text-brand-700 hover:bg-white'
+                }`}
+                onClick={() => goTo(i)}
+              >
+                {p.name}
+              </button>
             </span>
           ))}
         </div>
 
-        <Input
-          placeholder="بحث في الشجرة..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-
-        {localSelected.length > 0 && (
-          <div className="flex flex-wrap gap-2 rounded-xl border border-brand-200 bg-brand-50/50 p-3">
-            {localSelected.map(t => (
-              <span
-                key={t.treeSeq}
-                className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-sm shadow-sm ring-1 ring-brand-200"
-              >
-                {t.treeName ?? `#${t.treeSeq}`}
-                <button
-                  type="button"
-                  className="text-red-500 hover:text-red-700"
-                  onClick={() => removeTree(t.treeSeq)}
-                  aria-label="إزالة"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="max-h-64 overflow-y-auto rounded-xl border border-border">
-          {loading && <Loading />}
-          {!loading && nodes.length === 0 && (
-            <p className="p-4 text-center text-sm text-muted">لا توجد عناصر</p>
-          )}
-          {nodes.map(node => {
-            const folder = isFolderNode(node);
-            const picked = localSelected.some(t => t.treeSeq === node.seq);
-            return (
-              <div
-                key={node.seq}
-                className={`flex items-center justify-between gap-2 border-b border-border px-4 py-2.5 last:border-0 ${
-                  folder ? 'hover:bg-slate-50' : 'opacity-50'
-                }`}
-              >
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 text-right text-sm"
-                  onClick={() => (folder ? enterFolder(node) : undefined)}
+        <div className="max-h-[52vh] min-h-[220px] overflow-y-auto rounded-xl border border-slate-200">
+          {loading ? (
+            <div className="space-y-2 p-3">
+              {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+            </div>
+          ) : nodes.length === 0 ? (
+            <EmptyState compact icon={<IconFolder size={18} />} title={debounced ? 'لا نتائج مطابقة' : 'لا توجد عناصر'} />
+          ) : (
+            nodes.map(node => {
+              const folder = isFolderNode(node);
+              const picked = localSelected.some(t => t.treeSeq === node.seq);
+              return (
+                <div
+                  key={node.seq}
+                  className={`flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-1.5 last:border-0 ${
+                    folder ? (picked ? 'bg-brand-50/50' : 'hover:bg-slate-50') : 'opacity-50'
+                  }`}
                   onMouseEnter={() => folder && previewNode(node)}
                 >
-                  <span>{folder ? '📁' : '📦'}</span>
-                  <span className="truncate font-medium">{node.name ?? `#${node.seq}`}</span>
-                  {picked && <span className="text-xs text-brand-600">✓ مضافة</span>}
-                </button>
-                {folder && (
-                  <Btn size="sm" variant="secondary" disabled={picked || adding} onClick={() => addTree(node)}>
-                    {picked ? 'مضافة' : '+ إضافة'}
-                  </Btn>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {preview && (
-          <p className="text-xs text-muted">
-            معاينة «{preview.name}»:{' '}
-            {preview.count === null ? 'جاري العد...' : `${preview.count.toLocaleString('en-US')} صنف`}
-          </p>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <Btn variant="secondary" onClick={onClose}>
-            إلغاء
-          </Btn>
-          <Btn onClick={save} disabled={localSelected.length === 0}>
-            تأكيد ({localSelected.length} شجرة)
-          </Btn>
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 text-right"
+                    onClick={() => (folder ? enterFolder(node) : undefined)}
+                    title={folder ? 'فتح المجلد' : undefined}
+                  >
+                    <span
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
+                        folder ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {folder ? <IconFolderClosed size={14} /> : <IconPackage size={13} />}
+                    </span>
+                    <span className="truncate text-[13px] font-medium text-header" title={node.name ?? undefined}>{node.name ?? `#${node.seq}`}</span>
+                    <span className="shrink-0 text-[11px] text-slate-400 num">#{node.seq}</span>
+                    {picked && <Badge tone="brand">مضافة</Badge>}
+                  </button>
+                  {folder && (
+                    picked ? (
+                      <Btn size="xs" variant="ghost" onClick={() => removeTree(node.seq)}>إزالة</Btn>
+                    ) : (
+                      <Btn size="xs" variant="outline" icon={<IconPlus size={12} />} onClick={() => addTree(node)}>
+                        إضافة
+                      </Btn>
+                    )
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </Modal>

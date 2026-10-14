@@ -18,7 +18,7 @@ public sealed class EdariSyncBackgroundService(
 
     private static readonly TimeSpan BootNamesDelay = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan NamesInterval = TimeSpan.FromSeconds(45);
-    private static readonly TimeSpan ArticleBootDelay = TimeSpan.FromMinutes(8);
+    private static readonly TimeSpan ArticleBootDelay = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ArticleMinInterval = TimeSpan.FromMinutes(10);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -169,10 +169,12 @@ public sealed class EdariSyncBackgroundService(
         var sinceArticles = _lastArticlesUtc == DateTime.MinValue
             ? TimeSpan.MaxValue
             : DateTime.UtcNow - _lastArticlesUtc;
-        var throttleOpen = sinceArticles >= ArticleMinInterval;
-        // A quiet rescan, not a boot rescan: only after the process has been up a while
-        // and the last full pull is actually stale.
-        var periodic = uptime >= TimeSpan.FromMinutes(20) && sinceArticles >= TimeSpan.FromMinutes(30);
+        // «جلب البيانات كل N دقيقة» من إعدادات الأداري هو الإيقاع الفعلي:
+        // تغيّر في البصمة يُجلب بعد دقيقة على الأقل من آخر جلب، وبلا تغيّر يُعاد الجلب كل فترة محددة.
+        var pullEvery = TimeSpan.FromSeconds(opts.EffectiveDataPullIntervalSeconds);
+        var minGap = pullEvery < ArticleMinInterval ? TimeSpan.FromSeconds(60) : ArticleMinInterval;
+        var throttleOpen = sinceArticles >= minGap;
+        var periodic = sinceArticles >= pullEvery;
         if (!throttleOpen && !neverPulled)
             return (lastReceiptSync, interval);
         if (!neverPulled && !fingerprintChanged && !periodic)
@@ -185,7 +187,7 @@ public sealed class EdariSyncBackgroundService(
         if (fingerprintChanged)
             await settingsRepo.MarkChangeDetectedAsync(ct);
 
-        var includeCatalog = opts.CatalogSyncEnabled && (fingerprintChanged || await ShouldRunCatalogSyncAsync(settingsRepo, ct));
+        var includeCatalog = opts.CatalogSyncEnabled && (fingerprintChanged || await ShouldRunCatalogSyncAsync(settingsRepo, pullEvery, ct));
         var pullResult = await pull.PullAsync(includeCatalog, ct);
         _lastArticlesUtc = DateTime.UtcNow;
         if (pullResult.Ok)
@@ -246,12 +248,12 @@ public sealed class EdariSyncBackgroundService(
         return DateTime.Now;
     }
 
-    private static async Task<bool> ShouldRunCatalogSyncAsync(EdariSettingsRepository repo, CancellationToken ct)
+    private static async Task<bool> ShouldRunCatalogSyncAsync(EdariSettingsRepository repo, TimeSpan every, CancellationToken ct)
     {
         var dto = await repo.GetDtoAsync(ct);
         if (!dto.CatalogSyncEnabled) return false;
         if (dto.LastCatalogSyncAt is null) return true;
-        return DateTime.UtcNow - dto.LastCatalogSyncAt.Value > TimeSpan.FromMinutes(30);
+        return DateTime.UtcNow - ToUtc(dto.LastCatalogSyncAt.Value) >= every;
     }
 
     private static DateTime ToUtc(DateTime value) =>

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { UserDto } from '@/api/types';
-import { api, getToken, setToken } from '@/api/client';
+import { api, getToken, keepSessionFresh, setToken } from '@/api/client';
 import { warmupAfterLogin } from '@/lib/queryClient';
 import { getApiBase, persistApiBase } from '@/lib/apiBase';
 import { normalizeUser } from '@/lib/text';
@@ -38,6 +38,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setTokenState(null);
   }, []);
+
+  // تجديد الجلسة قبل انتهائها: عند الفتح، كل 30 دقيقة، وعند العودة للنافذة
+  const signedIn = Boolean(token);
+  useEffect(() => {
+    if (!signedIn) return;
+    const tick = () => {
+      void keepSessionFresh().then(() => {
+        const next = getToken();
+        if (next) setTokenState(prev => (prev === next ? prev : next));
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, 30 * 60_000);
+    window.addEventListener('focus', tick);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', tick);
+    };
+  }, [signedIn]);
 
   const value = useMemo<AuthState>(
     () => ({

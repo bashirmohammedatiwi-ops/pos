@@ -23,7 +23,9 @@ internal static class ProductSql
           FROM dbo.offer_details od
           INNER JOIN dbo.offers o ON od.offer_id = o.id
           LEFT JOIN dbo.articles a ON a.Seq = od.item_id
-          WHERE o.enabled = 1 AND COALESCE(od.excluded, 0) = 0
+          WHERE o.enabled = 1 AND COALESCE(o.type, 0) <> 1
+            AND od.detail_role = 0
+            AND COALESCE(od.excluded, 0) = 0
             AND (od.discount > 0 OR od.discount_type = 2) AND (
             od.Unlimited = 1 OR (od.from_date IS NULL AND od.to_date IS NULL)
             OR (od.from_date IS NULL AND od.to_date IS NOT NULL AND CAST(GETDATE() AS date) <= od.to_date)

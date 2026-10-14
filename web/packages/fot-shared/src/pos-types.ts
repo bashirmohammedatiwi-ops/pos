@@ -50,6 +50,8 @@ export type CashierPermissionsDto = {
   allowCreditReceipt: boolean;
   allowSalesReturn: boolean;
   allowGiftReceipt?: boolean;
+  /** Gift mode after unlimited-discount QR scan; gift items added by barcode only. */
+  giftViaDiscountQr?: boolean;
   allowSearchArticles: boolean;
   allowPriceChange: boolean;
   allowEditReceipt?: boolean;
@@ -61,6 +63,8 @@ export type CashierPermissionsDto = {
   hideSalesmanGroups?: boolean;
   /** Returns only by invoice number / receipt barcode, using original price and seller. */
   invoiceBoundReturn?: boolean;
+  /** When false, salesman name is hidden on printed receipts for this cashier. */
+  printSalesmanOnReceipt?: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   numberOfHoldReceipts: number;

@@ -24,10 +24,10 @@ export function ListPageShell({
   className?: string;
 }) {
   return (
-    <div className={`list-page-shell flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white ${className ?? ''}`.trim()}>
+    <div className={`list-page-shell card flex min-h-0 flex-1 flex-col overflow-hidden ${className ?? ''}`.trim()}>
       {banner}
       {filter && (
-        <div className="shrink-0 border-b border-slate-200 bg-white px-2 py-1.5">
+        <div className="shrink-0 border-b border-slate-200 bg-white px-2.5 py-2">
           {filter}
         </div>
       )}
@@ -54,7 +54,7 @@ export function CompactStatsBar({
     default: 'text-slate-800',
   };
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2.5 py-1 text-[10.5px]">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-1.5 text-[11.5px]">
       {items.map((item, i) => (
         <span key={item.label} className="inline-flex items-center gap-1.5 whitespace-nowrap">
           {i > 0 && <span className="text-slate-300 select-none">·</span>}
@@ -68,7 +68,7 @@ export function CompactStatsBar({
 
 /** حقول مضغوطة لشريط الفلاتر */
 export const COMPACT_CTRL =
-  'rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none transition hover:border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15';
+  'h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] text-slate-800 outline-none transition hover:border-slate-300 focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/15';
 
 /** شريط فلاتر علوي مضغوط — بحث + شرائح + حقول + أزرار في صف أو صفين */
 export function FilterStrip({ children, className }: { children: ReactNode; className?: string }) {
@@ -113,7 +113,7 @@ export function DashCard({
   compact?: boolean;
 }) {
   return (
-    <section className={`overflow-hidden border border-border bg-white ${compact ? 'rounded-lg' : 'rounded-lg'}`}>
+    <section className="card overflow-hidden">
       <div
         className={`flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white ${
           compact ? 'px-2 py-1.5' : 'px-4 py-3'
@@ -136,7 +136,7 @@ export function MetricBar({
   items: { label: string; value: string | number; tone?: 'default' | 'brand' | 'ok' | 'warn'; hint?: string; icon?: ReactNode }[];
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-white">
+    <div className="card overflow-hidden">
       <div className="grid sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item, i) => {
           const tones: Record<string, string> = {
@@ -193,7 +193,7 @@ export function SegmentedTabs<T extends string | number>({
           type="button"
           onClick={() => onChange(item.id)}
           className={`relative font-semibold ${
-            compact ? 'rounded-md px-2.5 py-1 text-[10.5px]' : 'rounded-xl px-4 py-1.5 text-[13px]'
+            compact ? 'rounded-md px-2.5 py-1 text-[11.5px]' : 'rounded-md px-3.5 py-1.5 text-[13px]'
           } ${
             value === item.id
               ? 'bg-white text-header shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80'
@@ -231,7 +231,7 @@ export function SplitWorkspace({ rail, children, compact, fill }: { rail: ReactN
 
 export function RailCard({ title, actions, children, compact, icon }: { title: string; actions?: ReactNode; children: ReactNode; compact?: boolean; icon?: ReactNode }) {
   return (
-    <aside className={`flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-white ${compact ? 'lg:max-h-[calc(100vh-300px)]' : 'lg:max-h-[calc(100vh-220px)]'}`}>
+    <aside className={`card flex min-h-0 flex-col overflow-hidden ${compact ? 'lg:max-h-[calc(100vh-300px)]' : 'lg:max-h-[calc(100vh-220px)]'}`}>
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2.5">
         <h3 className="flex min-w-0 items-center gap-2 text-[13px] font-bold text-header">
           {icon && <span className="icon-tile h-6 w-6 bg-brand-50 text-brand-600">{icon}</span>}
@@ -319,7 +319,7 @@ export function WorkspacePanel({
   icon?: ReactNode;
 }) {
   return (
-    <section className={`flex h-full min-h-[calc(100vh-260px)] flex-col overflow-hidden rounded-lg border border-border bg-white ${className ?? ''}`}>
+    <section className={`card flex h-full min-h-[calc(100vh-260px)] flex-col overflow-hidden ${className ?? ''}`}>
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
           {icon && <span className="icon-tile h-8 w-8 bg-brand-50 text-brand-600">{icon}</span>}
@@ -364,7 +364,7 @@ export function EditorChrome({
   icon?: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-white">
+    <section className="card overflow-hidden">
       {(title || actions) && (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -394,8 +394,8 @@ export function EmptyWorkspace({
   icon?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[420px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 py-12 text-center">
-      <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+    <div className="flex min-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/70 px-8 py-12 text-center">
+      <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
         {icon ?? (
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
@@ -422,7 +422,7 @@ export function UnsavedBar({
   disabled?: boolean;
 }) {
   return (
-    <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-lg bg-header px-4 py-2.5 text-white shadow-pop">
+    <div className="sticky bottom-3 z-20 flex animate-slide-up items-center justify-between gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-pop">
       <span className="flex items-center gap-2 text-[13px]">
         <span className="h-2 w-2 rounded-full bg-amber-400" />
         {text}
@@ -437,7 +437,7 @@ export function UnsavedBar({
 export function StatusChip({ active, onLabel = 'نشط', offLabel = 'متوقف' }: { active: boolean; onLabel?: string; offLabel?: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold ring-1 ${
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
         active ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/70' : 'bg-slate-100 text-slate-500 ring-slate-200/70'
       }`}
     >
@@ -454,19 +454,19 @@ export function SoftChip({ children, tone = 'slate' }: { children: ReactNode; to
     ok: 'bg-emerald-50 text-emerald-800 ring-emerald-100',
     warn: 'bg-amber-50 text-amber-800 ring-amber-100',
   };
-  return <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${styles[tone]}`}>{children}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${styles[tone]}`}>{children}</span>;
 }
 
 export function InfoNote({ children, strip }: { children: ReactNode; strip?: boolean }) {
   if (strip) {
     return (
-      <div className="border-b border-brand-100/80 bg-brand-50/50 px-2 py-1 text-[10.5px] leading-5 text-brand-950">
+      <div className="border-b border-brand-100/80 bg-brand-50/50 px-3 py-1.5 text-[11.5px] leading-5 text-brand-950">
         {children}
       </div>
     );
   }
   return (
-    <div className="flex items-start gap-2.5 rounded-md border border-brand-100 bg-brand-50 px-3.5 py-2.5 text-[13px] leading-6 text-brand-950">
+    <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/70 px-3.5 py-2.5 text-[13px] leading-6 text-brand-950">
       <span className="mt-0.5 shrink-0 text-brand-500">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10" />
@@ -490,7 +490,7 @@ export function SettingsDrawer({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="shrink-0 rounded-lg border border-border bg-white">
+    <div className="card shrink-0">
       <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
         <div className="min-w-0 flex-1 text-[13px] text-slate-700">{summary}</div>
         <Btn size="sm" variant="secondary" onClick={() => setOpen(o => !o)}>
@@ -521,7 +521,7 @@ export function FormSection({
 }) {
   return (
     <section
-      className={`border border-border bg-white rounded-lg ${grow ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : ''}`}
+      className={`card ${grow ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : ''}`}
     >
       <header
         className={`flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 bg-white ${
@@ -531,7 +531,7 @@ export function FormSection({
         <div className="flex min-w-0 items-start gap-2">
           {step != null && (
             <span
-              className={`mt-0.5 flex shrink-0 items-center justify-center rounded-md bg-slate-800 font-bold text-white ${
+              className={`mt-0.5 flex shrink-0 items-center justify-center rounded-full bg-brand-600 font-bold text-white ${
                 compact ? 'h-5 w-5 text-[10px]' : 'h-7 w-7 text-[12px]'
               }`}
             >
@@ -566,7 +566,7 @@ export function EntityCard({
   actions?: ReactNode;
 }) {
   return (
-    <article className="flex flex-col rounded-lg border border-border bg-white p-4">
+    <article className="card flex flex-col p-4 transition hover:shadow-[var(--shadow-lift)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {eyebrow && <div className="mb-1 text-[11px] font-semibold text-slate-400">{eyebrow}</div>}
@@ -626,7 +626,7 @@ export function ListToolbar({
           ? 'flex flex-wrap items-center justify-between gap-1.5'
           : nested
             ? 'flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3'
-            : 'flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-white p-3.5'
+            : 'card flex flex-wrap items-end justify-between gap-3 p-3.5'
       }
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -641,7 +641,7 @@ export function ListToolbar({
                 onChange={e => onSearch(e.target.value)}
                 onKeyDown={searchOnKeyDown}
                 placeholder={searchPlaceholder ?? searchLabel}
-                className={strip ? 'py-1 pe-2 ps-7 text-[11px]' : 'py-1.5 pe-3 ps-8'}
+                className={strip ? '!h-8 pe-2 ps-7 text-[12px]' : 'pe-3 ps-8'}
               />
             </div>
           ) : (
@@ -703,8 +703,8 @@ export function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md font-semibold ring-1 ${
-        compact ? 'px-2 py-0.5 text-[10.5px]' : 'px-3 py-1 text-[12px]'
+      className={`rounded-full font-semibold ring-1 transition ${
+        compact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-[12px]'
       } ${
         active
           ? activeTones[tone ?? 'default']

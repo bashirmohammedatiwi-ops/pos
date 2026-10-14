@@ -296,7 +296,20 @@ public partial record OfferDto(
     bool Enabled,
     int Type,
     int DetailCount,
-    int ActiveProductCount);
+    int ActiveProductCount,
+    long? FolderId = null,
+    string? FolderName = null,
+    bool Unlimited = true,
+    DateTime? FromDate = null,
+    DateTime? ToDate = null);
+
+public partial record OfferFolderDto(long Id, string Name, int SortOrder, int OfferCount);
+
+public record CreateOfferFolderRequest(string Name);
+
+public record RenameOfferFolderRequest(string Name);
+
+public record MoveOfferToFolderRequest(long? FolderId);
 
 /// <summary>Counts only — for dashboard badges without loading offers.</summary>
 public record OfferStatsDto(int Total, int Enabled, int Disabled, int DiscountedItems);
@@ -725,7 +738,30 @@ public record UpdateTerminalRequest(
 /// <summary>
 /// Offer header type: 0 = uniform %, 1 = required+discounted bundle, 2 = per-product sale price or %.
 /// </summary>
-public record CreateOfferRequest(string Name, int Priority, int Type, bool Enabled);
+public record CreateOfferRequest(string Name, int Priority, int Type, bool Enabled, long? FolderId = null);
+
+/// <summary>Conditional bundle offer for POS — discount applies only when required items are in the cart.</summary>
+public record PosBundleOfferLineDto(long ItemSeq, decimal Discount, int DiscountType, int DetailRole);
+
+public record PosBundleOfferDto(
+    long Id,
+    string Name,
+    int Priority,
+    IReadOnlyList<long> RequiredItemSeqs,
+    IReadOnlyList<PosBundleOfferLineDto> Discounted,
+    OfferBundleConditionsDto? Conditions = null);
+
+/// <summary>
+/// شروط تفعيل العرض المشروط. MatchMode: 0 كل المواد · 1 عدد منها (MinCount).
+/// CountBasis: 0 مواد مختلفة · 1 عدد قطع (تكرار نفس المادة مسموح).
+/// </summary>
+public record OfferBundleConditionsDto(
+    int MatchMode = 0,
+    int MinCount = 0,
+    int CountBasis = 0,
+    decimal MinQtyEach = 1,
+    decimal MinRequiredAmount = 0,
+    decimal RequiredDiscount = 0);
 
 /// <summary>One offer a product belongs to — used by admin product→offer search.</summary>
 public record ProductOfferMembershipDto(
@@ -953,7 +989,9 @@ public partial record CashierPermissionsDto(
     bool AllowGiftReceipt, bool AllowPriceChange, bool AllowSearchArticles, bool AllowEditReceipt,
     decimal ItemDiscountLimit, decimal UserDiscountLimit, int NumberOfHoldReceipts,
     bool ManualTransfer = false, bool AllowProductDiscount = false,
-    bool HideSalesmanGroups = false, bool InvoiceBoundReturn = false);
+    bool HideSalesmanGroups = false, bool InvoiceBoundReturn = false,
+    bool PrintSalesmanOnReceipt = true,
+    bool GiftViaDiscountQr = false);
 
 public record UpdateProductRequest(string? Name, string? Barcode, decimal? OriginalPrice, decimal? FinalPrice, decimal? Stock, int? DiscountPercent = null);
 public record DiscountPercentRequest(int Percent);
@@ -1001,11 +1039,127 @@ public record UpdatePermissionsRequest(
     bool AllowGiftReceipt, bool AllowPriceChange, bool AllowSearchArticles, bool AllowEditReceipt,
     decimal ItemDiscountLimit, decimal UserDiscountLimit, int NumberOfHoldReceipts,
     bool ManualTransfer = false, bool AllowProductDiscount = false,
-    bool HideSalesmanGroups = false, bool InvoiceBoundReturn = false);
+    bool HideSalesmanGroups = false, bool InvoiceBoundReturn = false,
+    bool PrintSalesmanOnReceipt = true,
+    bool GiftViaDiscountQr = false);
 
 public partial record DailySalesRowDto(DateTime Date, decimal Total, int ReceiptCount);
 public partial record SalesmanSalesRowDto(long SalesmanId, string? Name, decimal Total, int Count, int LineCount = 0);
-public partial record MovementRowDto(long ArticleId, string? Name, string? Barcode, decimal SoldQty, decimal SoldAmount);
+public partial record MovementRowDto(long ArticleId, string? Name, string? Barcode, decimal SoldQty, decimal SoldAmount, decimal ReturnedQty = 0, decimal GiftQty = 0, int ReceiptCount = 0);
+
+public sealed class HeatCellDto
+{
+    public int Weekday { get; set; }
+    public int Hour { get; set; }
+    public decimal Total { get; set; }
+    public int Count { get; set; }
+}
+
+public sealed record HeatmapReportDto(DateTime? PosStartDate, IReadOnlyList<HeatCellDto> Cells);
+
+public sealed class CashierPerformanceRowDto
+{
+    public long CashierId { get; set; }
+    public string? Name { get; set; }
+    public string? SectionName { get; set; }
+    public decimal NetSales { get; set; }
+    public int ReceiptCount { get; set; }
+    public decimal ReturnsTotal { get; set; }
+    public int ReturnsCount { get; set; }
+    public int GiftCount { get; set; }
+    public decimal ManualDiscount { get; set; }
+    public decimal CardTotal { get; set; }
+    public int DaysWorked { get; set; }
+    public DateTime? FirstAt { get; set; }
+    public DateTime? LastAt { get; set; }
+}
+
+public sealed class ReorderRowDto
+{
+    public long ArticleId { get; set; }
+    public string? Name { get; set; }
+    public string? Barcode { get; set; }
+    public decimal Stock { get; set; }
+    public decimal Price { get; set; }
+    public decimal SoldQty { get; set; }
+    public decimal DailyRate { get; set; }
+    public decimal CoverDays { get; set; }
+    public DateTime? LastSaleDate { get; set; }
+}
+
+public sealed record ReorderReportDto(int EffectiveDays, int CoverDays, int OutOfStock, int UnderWeek, int Total, IReadOnlyList<ReorderRowDto> Rows);
+
+public sealed class SlowMoverRowDto
+{
+    public long ArticleId { get; set; }
+    public string? Name { get; set; }
+    public string? Barcode { get; set; }
+    public decimal Stock { get; set; }
+    public decimal Price { get; set; }
+    public decimal StockValue { get; set; }
+    public DateTime? LastSaleDate { get; set; }
+    public decimal TotalSoldQty { get; set; }
+}
+
+public sealed record SlowMoverReportDto(
+    DateTime Since,
+    DateTime? PosStartDate,
+    int TotalCount,
+    decimal TotalValue,
+    int NeverSoldCount,
+    IReadOnlyList<SlowMoverRowDto> Rows);
+
+public partial record OfferSalesClosureDto(
+    long Id,
+    long OfferId,
+    string OfferName,
+    DateTime PeriodFrom,
+    DateTime PeriodTo,
+    DateTime ClosedAt,
+    decimal TotalAmount = 0,
+    decimal TotalQuantity = 0);
+
+public partial record OfferSalesProductRowDto(
+    long ArticleSeq,
+    string? Barcode,
+    string? Name,
+    decimal Quantity,
+    decimal Amount,
+    decimal ListAmount,
+    decimal DiscountAmount,
+    decimal SharePercent);
+
+public partial record OfferSalesDailyRowDto(
+    DateTime Date,
+    decimal Quantity,
+    decimal Amount,
+    int ReceiptCount);
+
+public partial record OfferSalesUnsoldRowDto(string? Barcode, string? Name);
+
+public record OfferSalesReportDto(
+    long OfferId,
+    string OfferName,
+    int OfferType,
+    decimal DiscountPercent,
+    DateTime PeriodFrom,
+    DateTime PeriodTo,
+    int PeriodDays,
+    string? StoreLabel,
+    int ScopeProductCount,
+    int SoldProductCount,
+    int UnsoldProductCount,
+    int ReceiptCount,
+    decimal TotalQuantity,
+    decimal TotalAmount,
+    decimal TotalListAmount,
+    decimal TotalDiscountAmount,
+    decimal AverageDailyAmount,
+    decimal AverageTicketAmount,
+    DateTime GeneratedAt,
+    IReadOnlyList<OfferSalesDailyRowDto> Daily,
+    IReadOnlyList<OfferSalesProductRowDto> Products,
+    IReadOnlyList<OfferSalesUnsoldRowDto> UnsoldSamples);
 public record EdariSyncStatusDto(
     int UnsyncedCount, int SyncedCount, int FailedCount, string Message,
     bool? ConnectionOk = null, string? DatabaseAlias = null, string? DataRoot = null,
@@ -1184,7 +1338,36 @@ public record AccountSummaryDto(long Id, string? Num, string? Name, decimal Bala
 public record PosCreditAccountDto(
     long EdariSeq, string? Num, string? Name, decimal Balance, bool EnabledForPos, int SortOrder);
 public record SavePosCreditAccountsRequest(IReadOnlyList<long> EdariSeqs);
-public record CashReportDto(decimal TotalSales, int ReceiptCount, decimal TotalPayment, decimal TotalCashBack, decimal AverageTicket);
+public record CashReportDto(decimal TotalSales, int ReceiptCount, decimal TotalPayment, decimal TotalCashBack, decimal AverageTicket, decimal ReturnsTotal = 0, int ReturnsCount = 0);
+
+/// <summary>مبيعات ساعة واحدة (0-23).</summary>
+public sealed class HourBucketDto
+{
+    public int Hour { get; set; }
+    public decimal Total { get; set; }
+    public int Count { get; set; }
+}
+
+/// <summary>مجموع مسمّى (قسم/نقطة بيع/كاشير).</summary>
+public sealed class NamedTotalDto
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Sub { get; set; }
+    public decimal Total { get; set; }
+    public int Count { get; set; }
+}
+
+/// <summary>تفصيل يوم للوحة الرئيسية.</summary>
+public record DayBreakdownDto(
+    DateTime Date,
+    IReadOnlyList<HourBucketDto> Hourly,
+    IReadOnlyList<HourBucketDto> PrevHourly,
+    IReadOnlyList<NamedTotalDto> BySection,
+    IReadOnlyList<NamedTotalDto> ByPos,
+    IReadOnlyList<NamedTotalDto> ByCashier,
+    decimal CardTotal,
+    int CardCount);
 
 public partial record PrintSettingsDto(
     long Id,
@@ -1737,7 +1920,8 @@ public record ProductInquiryRequest(
     IReadOnlyList<long>? ArticleSeqs = null,
     IReadOnlyList<long>? TreeSeqs = null,
     long? CommissionGroupId = null,
-    long? SalesmanId = null);
+    long? SalesmanId = null,
+    bool FullDetails = false);
 
 public record ProductInquiryScopeDto(
     string Kind,

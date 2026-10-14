@@ -10,7 +10,8 @@ import type {
   CommissionReceiptReportRow,
 } from '@/api/types';
 import { useToast } from '@/components/Toast';
-import { Btn, Field, Input, Loading } from '@/components/ui';
+import { Alert, Badge, Btn, Field, Input, Loading } from '@/components/ui';
+import { IconRefresh, IconSearch } from '@/components/icons';
 import { CompactStatsBar } from '@/components/workspace';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 
@@ -32,20 +33,20 @@ export function CommissionHealthBanner({
   const missing = health.missingCalculations;
   if (missing <= 0) {
     return (
-      <p className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-[13px] font-semibold text-emerald-800">
-        ✓ كل الأسطر المؤهلة محسوبة في هذه الفترة ({formatNum(health.calculatedLines)} سطراً)
-      </p>
+      <Alert type="success">
+        كل الأسطر المؤهلة محسوبة في هذه الفترة (<span className="num">{formatNum(health.calculatedLines)}</span> سطراً).
+      </Alert>
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3">
-      <p className="flex-1 text-[13px] font-semibold text-amber-900">
-        {formatNum(missing)} سطراً مؤهلاً بلا حساب — {formatNum(health.linesWithoutSalesman)} منها بلا مندوب
-      </p>
-      <Btn size="sm" onClick={onRecalc} disabled={recalcPending}>
-        {recalcPending ? 'جاري…' : 'إعادة حساب الفترة'}
-      </Btn>
-    </div>
+    <Alert type="warning" title={`${formatNum(missing)} سطراً مؤهلاً بلا حساب`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>{formatNum(health.linesWithoutSalesman)} منها بلا بائع على الفاتورة.</span>
+        <Btn size="sm" icon={<IconRefresh size={14} />} onClick={onRecalc} loading={recalcPending}>
+          إعادة حساب الفترة
+        </Btn>
+      </div>
+    </Alert>
   );
 }
 
@@ -53,8 +54,8 @@ const STATUS_AR: Record<string, string> = {
   ok: 'محسوب',
   pending: 'مطابق لم يُحفظ',
   'no-match': 'لا مطابقة',
-  'no-salesman': 'لا مندوب',
-  'salesman-mismatch': 'المندوب لا يطابق',
+  'no-salesman': 'بلا بائع',
+  'salesman-mismatch': 'البائع لا يطابق',
   zero: 'ناتج صفر',
   skip: 'مستبعد',
 };
@@ -123,39 +124,59 @@ export function CommissionPipelinePanel({
 
       {healthQ.isLoading && <Loading />}
 
+      {healthQ.isError && (
+        <Alert title="تعذر تحميل حالة العمولات">
+          <Btn size="xs" variant="secondary" className="mt-1" onClick={() => healthQ.refetch()}>إعادة المحاولة</Btn>
+        </Alert>
+      )}
+
       {!!health?.hints.length && (
         <div className="space-y-2">
           {health.hints.map(h => (
-            <p key={h} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700">{h}</p>
+            <Alert key={h} type="info">{h}</Alert>
           ))}
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-3">
+      <form
+        className="card flex flex-wrap items-end gap-2 p-3"
+        onSubmit={e => {
+          e.preventDefault();
+          const id = Number(receiptId);
+          if (id && !diagnose.isPending) diagnose.mutate(id);
+        }}
+      >
         <Field label="تشخيص فاتورة (رقم داخلي)">
           <Input
             value={receiptId}
-            onChange={e => setReceiptId(e.target.value)}
+            onChange={e => setReceiptId(e.target.value.replace(/[^\d]/g, ''))}
             placeholder="مثال: 12045"
-            className="w-40"
+            inputMode="numeric"
+            className="num w-40"
           />
         </Field>
         <Btn
-          size="sm"
+          type="submit"
           variant="secondary"
-          disabled={!Number(receiptId) || diagnose.isPending}
-          onClick={() => diagnose.mutate(Number(receiptId))}
+          icon={<IconSearch size={14} />}
+          disabled={!Number(receiptId)}
+          loading={diagnose.isPending}
         >
-          {diagnose.isPending ? 'جاري…' : 'افحص الفاتورة'}
+          افحص الفاتورة
         </Btn>
-        <Btn size="sm" onClick={onRecalc} disabled={recalcPending}>
-          {recalcPending ? 'جاري إعادة حساب الفترة…' : 'إعادة حساب كل فواتير الفترة'}
+        <div className="flex-1" />
+        <Btn icon={<IconRefresh size={14} />} onClick={onRecalc} loading={recalcPending}>
+          إعادة حساب كل فواتير الفترة
         </Btn>
-      </div>
+      </form>
 
       {/* فواتير بعمولة — التشخيص يُفتح توسيعاً داخل الصف */}
       <DataGrid
-        columns={receiptsColumns(from, to)}
+        columns={receiptsColumns(id => {
+          const next = expandedReceipt === id ? null : id;
+          setExpandedReceipt(next);
+          if (next != null && diagnose.data?.receiptId !== next) diagnose.mutate(next);
+        }, expandedReceipt)}
         rows={receiptsQ.data ?? []}
         getRowId={r => r.receiptId}
         loading={receiptsQ.isLoading}
@@ -228,7 +249,7 @@ function DiagnoseExpansion({
       <div className="flex flex-wrap items-center gap-2">
         {diag && (
           <span className="text-[12px] text-slate-600">
-            {diag.saleDate ? formatDate(diag.saleDate) : '—'} · مندوب الفاتورة {diag.receiptSalesmanId || 'غير محدد'} · {formatNum(diag.calculatedCount)}/{formatNum(diag.itemCount)} محسوب
+            {diag.saleDate ? formatDate(diag.saleDate) : '—'} · بائع الفاتورة {diag.receiptSalesmanId || 'غير محدد'} · {formatNum(diag.calculatedCount)}/{formatNum(diag.itemCount)} محسوب
           </span>
         )}
         <div className="flex-1" />
@@ -254,12 +275,16 @@ function DiagnoseExpansion({
 
 /* ── الأعمدة ── */
 
-function receiptsColumns(from: string, to: string): GridColumn<CommissionReceiptReportRow>[] {
+function receiptsColumns(
+  onDiagnose: (receiptId: number) => void,
+  expandedId: number | null,
+): GridColumn<CommissionReceiptReportRow>[] {
   return [
     {
       key: 'receiptId',
       header: 'الفاتورة',
       width: 120,
+      exportValue: r => `#${r.receiptNumber ?? r.receiptId}`,
       render: r => (
         <Link to={`/receipts?highlight=${r.receiptId}`} className="font-semibold text-brand-700 hover:underline">
           #{r.receiptNumber ?? r.receiptId}
@@ -278,17 +303,17 @@ function receiptsColumns(from: string, to: string): GridColumn<CommissionReceipt
       sortable: false,
       exportable: false,
       render: r => (
-        <button
-          type="button"
-          className="text-[12px] font-semibold text-brand-700 hover:underline"
+        <Btn
+          size="xs"
+          variant={expandedId === r.receiptId ? 'soft' : 'ghost'}
           onClick={e => {
             e.stopPropagation();
-            window.dispatchEvent(new CustomEvent('fot-diagnose', { detail: r.receiptId }));
+            onDiagnose(r.receiptId);
           }}
-          title={`اضغط السهم لتوسيع التشخيص (${from} → ${to})`}
+          title="عرض تشخيص أسطر الفاتورة داخل الجدول"
         >
-          تشخيص
-        </button>
+          {expandedId === r.receiptId ? 'إخفاء' : 'تشخيص'}
+        </Btn>
       ),
     },
   ];
@@ -297,19 +322,18 @@ function receiptsColumns(from: string, to: string): GridColumn<CommissionReceipt
 function diagLinesColumns(): GridColumn<CommissionLineDiagnoseDto>[] {
   return [
     { key: 'productName', header: 'المنتج', width: 220, render: l => <span className="block max-w-[220px] truncate font-semibold text-header">{l.productName ?? `#${l.articleId}`}</span> },
-    { key: 'salesmanId', header: 'مندوب', width: 80, align: 'center', mono: true, render: l => l.salesmanId || '—' },
+    { key: 'salesmanId', header: 'البائع', width: 80, align: 'center', mono: true, exportValue: l => l.salesmanId || '—', render: l => l.salesmanId || '—' },
     { key: 'quantity', header: 'كمية', width: 80, mono: true, footer: 'sum' },
     {
       key: 'status',
       header: 'الحالة',
       width: 130,
       align: 'center',
+      exportValue: l => STATUS_AR[l.status] ?? l.status,
       render: l => (
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-          l.status === 'ok' ? 'bg-emerald-100 text-emerald-800' : l.status === 'pending' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
-        }`}>
+        <Badge tone={l.status === 'ok' ? 'ok' : l.status === 'pending' ? 'info' : l.status === 'skip' ? 'default' : 'warn'}>
           {STATUS_AR[l.status] ?? l.status}
-        </span>
+        </Badge>
       ),
     },
     { key: 'commissionAmount', header: 'عمولة', width: 120, mono: true, footer: 'sum', render: l => (l.commissionAmount != null ? formatCurrency(l.commissionAmount) : '—') },
@@ -323,6 +347,7 @@ function gapsColumns(): GridColumn<CommissionGapRow>[] {
       key: 'receiptId',
       header: 'الفاتورة',
       width: 110,
+      exportValue: g => `#${g.receiptNumber ?? g.receiptId}`,
       render: g => (
         <Link to={`/receipts?highlight=${g.receiptId}`} className="font-semibold text-brand-700 hover:underline">
           #{g.receiptNumber ?? g.receiptId}
@@ -330,7 +355,7 @@ function gapsColumns(): GridColumn<CommissionGapRow>[] {
       ),
     },
     { key: 'productName', header: 'المنتج', width: 220, render: g => <span className="block max-w-[220px] truncate">{g.productName ?? `#${g.articleId}`}</span> },
-    { key: 'salesmanName', header: 'المندوب', width: 140, render: g => g.salesmanName ?? (g.salesmanId ? `#${g.salesmanId}` : '—') },
+    { key: 'salesmanName', header: 'البائع', width: 140, render: g => g.salesmanName ?? (g.salesmanId ? `#${g.salesmanId}` : '—') },
     { key: 'reason', header: 'السبب', width: 320, render: g => <span className="text-[12px] text-slate-600">{g.reason}</span> },
   ];
 }

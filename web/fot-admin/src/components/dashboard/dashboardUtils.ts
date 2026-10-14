@@ -87,6 +87,39 @@ export function weekProgress(from: string, to: string, today: string) {
   return { elapsed, total, pct: Math.round((elapsed / total) * 100) };
 }
 
+/** نفس المدة لكن قبل شهر (يُقصّ لآخر يوم في الشهر عند الحاجة). */
+export function shiftMonthIso(iso: string, months: number) {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const target = new Date(y, m - 1 + months, 1);
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d, last));
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * توقع نهاية اليوم: ما تحقق اليوم مقسوماً على نسبة ما كان أمس قد حققه حتى نفس الساعة.
+ * يرجع null قبل أن يتراكم ما يكفي (أقل من 10% من يوم أمس) لأن التوقع يكون مضللاً.
+ */
+export function forecastDay(todaySoFar: number, yesterdayToNow: number, yesterdayTotal: number) {
+  if (yesterdayTotal <= 0 || yesterdayToNow <= 0) return null;
+  const share = yesterdayToNow / yesterdayTotal;
+  if (share < 0.1) return null;
+  if (share >= 1) return todaySoFar;
+  return Math.round(todaySoFar / share);
+}
+
+/** توقع نهاية فترة (أسبوع/شهر) بالمعدل اليومي لما مضى. */
+export function forecastPeriod(totalSoFar: number, elapsedDays: number, totalDays: number) {
+  if (elapsedDays <= 0 || totalSoFar <= 0) return null;
+  if (elapsedDays >= totalDays) return totalSoFar;
+  return Math.round((totalSoFar / elapsedDays) * totalDays);
+}
+
+export function pctChange(a: number, b: number) {
+  if (!b) return null;
+  return ((a - b) / b) * 100;
+}
+
 export function bestDay(days: { date: string; total: number }[]) {
   if (!days.length) return null;
   return days.reduce((best, d) => (d.total > best.total ? d : best), days[0]);

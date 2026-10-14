@@ -16,7 +16,59 @@ public static class AuthEndpoints
         {
             var user = await auth.ValidateAsync(req.Username, req.Password, default);
             if (user is null) return Results.Unauthorized();
-            return Results.Ok(new LoginResponse(JwtTokenIssuer.Issue(config, user.Id, user.Username, user.DisplayName, user.Role), user));
+            return Results.Ok(new LoginResponse(JwtTokenIssuer.Issue(config, user.Id, user.Username, user.DisplayName, user.Role, AdminTokenType.Admin), user));
+        }).AllowAnonymous().Produces<LoginResponse>(200).Produces(401);
+
+        // تجديد جلسة لوحة التحكم: رمز موقَّع (حتى لو انتهى منذ أقل من 14 يوماً) لمستخدم ما زال فعّالاً
+        // يُستبدل برمز جديد — لا يُطلب تسجيل الدخول كل 24 ساعة على جهاز يُستخدم يومياً.
+        app.MapPost("/auth/refresh", async (CashierRefreshRequest req, AuthRepository auth, IConfiguration config) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Token)) return Results.Unauthorized();
+            var key = config["Jwt:Key"];
+            if (string.IsNullOrWhiteSpace(key)) return Results.Unauthorized();
+            try
+            {
+                var principal = new JwtSecurityTokenHandler().ValidateToken(req.Token, new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = false,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = config["Jwt:Issuer"],
+                    ValidAudience = config["Jwt:Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+                    ClockSkew = TimeSpan.FromMinutes(15),
+                    RoleClaimType = ClaimTypes.Role,
+                    NameClaimType = ClaimTypes.Name,
+                }, out var validated);
+
+                if (validated is JwtSecurityToken jwt && jwt.ValidTo < DateTime.UtcNow.AddDays(-14))
+                    return Results.Unauthorized();
+
+                // رموز لوحة التحكم فقط — رمز بوابة المدراء/البائعين (معرّفات من جداول أخرى) لا يُحوَّل لجلسة إدارة
+                if (principal.FindFirstValue(AdminTokenType.Claim) != AdminTokenType.Admin)
+                    return Results.Unauthorized();
+                var role = principal.FindFirstValue(ClaimTypes.Role) ?? principal.FindFirstValue("role");
+                if (string.IsNullOrWhiteSpace(role) || string.Equals(role, "cashier", StringComparison.OrdinalIgnoreCase))
+                    return Results.Unauthorized();
+
+                var idRaw = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? principal.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                    ?? principal.FindFirstValue("sub")
+                    ?? principal.FindFirstValue("nameid");
+                if (!long.TryParse(idRaw, out var userId) || userId <= 0) return Results.Unauthorized();
+
+                var user = await auth.GetActiveAsync(userId, default);
+                // الدور تغيّر منذ إصدار الرمز (مثلاً سُحبت صلاحية الإدارة) → دخول جديد
+                if (user is null || !string.Equals(user.Role, role, StringComparison.OrdinalIgnoreCase))
+                    return Results.Unauthorized();
+
+                return Results.Ok(new LoginResponse(JwtTokenIssuer.Issue(config, user.Id, user.Username, user.DisplayName, user.Role, AdminTokenType.Admin), user));
+            }
+            catch
+            {
+                return Results.Unauthorized();
+            }
         }).AllowAnonymous().Produces<LoginResponse>(200).Produces(401);
 
         app.MapPost("/auth/cashier-login", async (

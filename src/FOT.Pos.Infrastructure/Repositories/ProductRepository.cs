@@ -28,6 +28,7 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
         {
             "offer" or "discount" => " AND ao.item_id IS NOT NULL",
             "zero" => " AND COALESCE(a.CurTot1,0) <= 0",
+            "negative" => " AND COALESCE(a.CurTot1,0) < 0",
             _ => ""
         };
         var countNeedsOffer = kind is "offer" or "discount";

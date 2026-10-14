@@ -12,6 +12,7 @@ export type ResolvedCashierPermissions = {
   allowCreditReceipt: boolean;
   allowSalesReturn: boolean;
   allowGiftReceipt: boolean;
+  giftViaDiscountQr: boolean;
   allowSearchArticles: boolean;
   allowPriceChange: boolean;
   allowEditReceipt: boolean;
@@ -20,6 +21,7 @@ export type ResolvedCashierPermissions = {
   /** One salesman for the whole invoice instead of a salesman per cart group. */
   hideSalesmanGroups: boolean;
   invoiceBoundReturn: boolean;
+  printSalesmanOnReceipt: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   maxHoldReceipts: number;
@@ -41,6 +43,7 @@ export function resolveCashierPermissions(
     allowCreditReceipt: perms?.allowCreditReceipt ?? false,
     allowSalesReturn: perms?.allowSalesReturn ?? true,
     allowGiftReceipt: perms?.allowGiftReceipt ?? true,
+    giftViaDiscountQr: perms?.giftViaDiscountQr ?? false,
     allowSearchArticles: perms?.allowSearchArticles ?? true,
     allowPriceChange: perms?.allowPriceChange ?? false,
     allowEditReceipt: perms?.allowEditReceipt ?? false,
@@ -48,6 +51,7 @@ export function resolveCashierPermissions(
     allowProductDiscount: perms?.allowProductDiscount ?? false,
     hideSalesmanGroups: perms?.hideSalesmanGroups ?? false,
     invoiceBoundReturn: perms?.invoiceBoundReturn ?? false,
+    printSalesmanOnReceipt: perms?.printSalesmanOnReceipt ?? true,
     itemDiscountLimit: perms?.itemDiscountLimit ?? 0,
     userDiscountLimit: perms?.userDiscountLimit ?? 0,
     maxHoldReceipts: maxHold,

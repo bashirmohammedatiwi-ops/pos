@@ -25,7 +25,7 @@ export function useBarcodeCapture(active: boolean, onScan: (code: string) => voi
       const tag = el?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
-      if (e.key.startsWith('F') && e.key.length <= 3) return;
+      if (/^F\d{1,2}$/.test(e.key)) return;
 
       const now = Date.now();
       if (now - last > 140) buffer = '';

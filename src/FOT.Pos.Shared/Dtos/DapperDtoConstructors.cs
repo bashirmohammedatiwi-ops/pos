@@ -6,7 +6,12 @@ namespace FOT.Pos.Shared.Dtos;
 /// </summary>
 public partial record OfferDto
 {
-    public OfferDto() : this(0, "", 0, false, 0, 0, 0) { }
+    public OfferDto() : this(0, "", 0, false, 0, 0, 0, null, null, true, null, null) { }
+}
+
+public partial record OfferFolderDto
+{
+    public OfferFolderDto() : this(0, "", 0, 0) { }
 }
 
 public partial record ReceiptItemDto
@@ -53,7 +58,7 @@ public partial record SalesmanSalesRowDto
 
 public partial record MovementRowDto
 {
-    public MovementRowDto() : this(0, null, null, 0, 0) { }
+    public MovementRowDto() : this(0, null, null, 0, 0, 0, 0, 0) { }
 }
 
 public partial record EdariSyncLogDto
@@ -272,4 +277,24 @@ public partial record ManagerProductRowDto
 public partial record ManagerDayRowDto
 {
     public ManagerDayRowDto() : this(default, 0, 0, 0) { }
+}
+
+public partial record OfferSalesClosureDto
+{
+    public OfferSalesClosureDto() : this(0, 0, "", default, default, default, 0, 0) { }
+}
+
+public partial record OfferSalesProductRowDto
+{
+    public OfferSalesProductRowDto() : this(0, null, null, 0, 0, 0, 0, 0) { }
+}
+
+public partial record OfferSalesDailyRowDto
+{
+    public OfferSalesDailyRowDto() : this(default, 0, 0, 0) { }
+}
+
+public partial record OfferSalesUnsoldRowDto
+{
+    public OfferSalesUnsoldRowDto() : this(null, null) { }
 }

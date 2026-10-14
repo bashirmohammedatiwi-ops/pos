@@ -117,6 +117,21 @@ const idb = {
     releaseDb(conn);
   },
 
+  async saveBundleOffers(rules: unknown[]) {
+    await this.setMeta('bundle_offers', JSON.stringify(rules ?? []));
+  },
+
+  async loadBundleOffers<T>(): Promise<T[]> {
+    const raw = await this.getMeta('bundle_offers');
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as T[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  },
+
   async upsertProducts(products: ProductDto[]) {
     const conn = await openDb();
     const tx = conn.transaction('products', 'readwrite');
@@ -530,6 +545,8 @@ export const db = {
     try { await idb.setMeta('discount_qr_people', json); } catch { /* store may still be opening */ }
     try { await idb.saveDiscountQrPeople(list); } catch { /* meta copy is enough to scan */ }
   },
+  saveBundleOffers: (rules: unknown[]) => idb.saveBundleOffers(rules),
+  loadBundleOffers: <T>() => idb.loadBundleOffers<T>(),
   loadDiscountQrPeople: async () => {
     const native = nativeStore();
     if (native) {

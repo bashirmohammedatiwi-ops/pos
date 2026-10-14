@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   api,
@@ -9,22 +9,36 @@ import {
   todayIso,
 } from '@/api/client';
 import type { SalesmanCommissionSummaryDto, SalesmanSalesRowDto } from '@/api/types';
-import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
+import { DataGrid, useClientSort, type GridColumn } from '@/components/grid/DataGrid';
 import { fixEdariName } from '@/lib/text';
 import { DatePresets } from '@/components/DatePresets';
-import { useClientSort } from '@/components/grid/DataGrid';
+import { Badge, Btn, Input, Select } from '@/components/ui';
+import { IconSearch, IconX } from '@/components/icons';
 import {
-  Alert,
-  Btn,
-  Field,
-  Input,
-  Loading,
-  Panel,
-  Select,
-} from '@/components/ui';
-import { DashCard, FilterChip, SegmentedTabs } from '@/components/workspace';
+  FilterActions,
+  FilterBar,
+  FilterLabel,
+  SegmentedFilter,
+  SummaryStrip,
+  WorkspaceCard,
+} from '@/components/listWorkspace';
+import type { ReportExcelSheet } from '@/lib/reportExcel';
 import { downloadCsv } from '@/utils/exportCsv';
-import { printHtmlDoc } from '@/lib/print';
+import {
+  ChartBlock,
+  ChartToggle,
+  ExcelBtn,
+  HBarChart,
+  Money,
+  PrintBtn,
+  ReportBanner,
+  ReportError,
+  ReportNote,
+  ReportSplit,
+  deltaText,
+  pctDelta,
+  useChartDock,
+} from '@/components/reports/ReportKit';
 
 const REPORT_KEY = 'fot_salesmen_reports_sub';
 
@@ -36,13 +50,6 @@ function loadSubTab(): ReportTab {
     if (n >= 0 && n <= 3) return n as ReportTab;
   } catch { /* ignore */ }
   return 0;
-}
-
-function vsPrev(now: number, prev: number) {
-  if (!prev && !now) return 'كما الفترة السابقة';
-  if (!prev) return 'بداية الفترة';
-  const pct = ((now - prev) / prev) * 100;
-  return `${pct > 0 ? '+' : ''}${pct.toFixed(0)}% مقابل السابقة`;
 }
 
 function prevRange(from: string, to: string) {
@@ -62,27 +69,19 @@ function MiniBar({ value, max, tone = 'brand' }: { value: number; max: number; t
   const w = max > 0 ? Math.max(4, Math.round((value / max) * 100)) : 0;
   const color = tone === 'ok' ? 'bg-emerald-500' : tone === 'amber' ? 'bg-amber-500' : 'bg-brand-600';
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-      <div className={`h-full rounded-full ${color}`} style={{ width: `${w}%` }} />
+    <div className="h-1.5 w-full overflow-hidden rounded bg-slate-100">
+      <div className={`h-full rounded ${color}`} style={{ width: `${w}%` }} />
     </div>
   );
 }
 
-function KpiGrid({ items }: { items: { label: string; value: string; hint?: string; tone?: 'brand' | 'ok' | 'warn' }[] }) {
+/** قيمة + شريط صغير في سطر واحد (لا يضاعف ارتفاع الصف). */
+function BarValue({ value, max, tone, children }: { value: number; max: number; tone?: 'brand' | 'ok' | 'amber'; children: ReactNode }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-      {items.map(item => (
-        <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
-          <p className="text-[11px] font-medium text-slate-500">{item.label}</p>
-          <p className={`mt-1 text-[18px] font-bold tabular-nums ${
-            item.tone === 'brand' ? 'text-brand-700' : item.tone === 'ok' ? 'text-emerald-700' : item.tone === 'warn' ? 'text-amber-700' : 'text-header'
-          }`}>
-            {item.value}
-          </p>
-          {item.hint && <p className="mt-0.5 text-[10px] text-slate-400">{item.hint}</p>}
-        </div>
-      ))}
-    </div>
+    <span className="flex items-center gap-2">
+      <span className="hidden w-16 shrink-0 md:block"><MiniBar value={value} max={max} tone={tone} /></span>
+      <span className="ms-auto font-bold">{children}</span>
+    </span>
   );
 }
 
@@ -94,15 +93,24 @@ type TargetAgg = {
   rulesTotal: number;
 };
 
+/** صف «نظرة عامة»: مبيعات + عمولات + أهداف لكل بائع في جدول واحد. */
+type OverviewRow = {
+  salesmanId: number;
+  name: string;
+  sales: number;
+  receipts: number;
+  commission: number;
+  paid: number;
+  due: number;
+  targetPct: number | null;
+};
+
 /* أعمدة تقارير البائعين — DataGrid موحد */
-function salesReportColumns(max: number, from: string, to: string): GridColumn<SalesmanSalesRowDto>[] {
+function salesReportColumns(max: number, from: string, to: string, onFilter: (id: number) => void): GridColumn<SalesmanSalesRowDto>[] {
   return [
-    { key: 'name', header: 'المندوب', width: 180, render: s => <span className="font-semibold text-header">{fixEdariName(s.name) || `#${s.salesmanId}`}</span> },
+    { key: 'name', header: 'البائع', width: 200, exportValue: s => fixEdariName(s.name) || `#${s.salesmanId}`, render: s => <span className="font-semibold text-header">{fixEdariName(s.name) || `#${s.salesmanId}`}</span> },
     { key: 'total', header: 'المبلغ', width: 220, mono: true, footer: 'sum', render: s => (
-      <div>
-        <MiniBar value={s.total} max={max} />
-        <span className="mt-1 block font-bold">{formatCurrency(s.total)}</span>
-      </div>
+      <BarValue value={s.total} max={max}>{formatCurrency(s.total)}</BarValue>
     ) },
     { key: 'count', header: 'الفواتير', width: 100, mono: true, footer: 'sum' },
     { key: 'lineCount', header: 'الأصناف', width: 100, mono: true, footer: 'sum', render: s => formatNum(s.lineCount ?? 0) },
@@ -114,41 +122,35 @@ function salesReportColumns(max: number, from: string, to: string): GridColumn<S
       sortable: false,
       exportable: false,
       render: s => (
-        <div className="flex justify-center gap-2">
-          <Link to={`/receipts?search=${encodeURIComponent(s.name ?? '')}&from=${from}&to=${to}`} className="text-[12px] text-brand-600 hover:underline">فواتير</Link>
-          <button type="button" className="text-[12px] text-brand-600 hover:underline" onClick={() => onFilterSalesmanIdChangeRef(s.salesmanId)}>تصفية</button>
+        <div className="flex justify-center gap-3">
+          <Link to={`/receipts?search=${encodeURIComponent(s.name ?? '')}&from=${from}&to=${to}`} className="text-[12px] font-semibold text-brand-700 hover:underline">الفواتير</Link>
+          <button type="button" className="text-[12px] font-semibold text-brand-700 hover:underline" onClick={() => onFilter(s.salesmanId)}>تصفية</button>
         </div>
       ),
     },
   ];
 }
 
-// مرجع لمعالج التصفية — يُضبط داخل المكوّن (الأعمدة معرفة على مستوى الملف)
-let onFilterSalesmanIdChangeRef: (id: number) => void = () => {};
-
 function commReportColumns(max: number): GridColumn<SalesmanCommissionSummaryDto>[] {
   return [
-    { key: 'salesmanName', header: 'المندوب', width: 180, render: s => <span className="font-semibold text-header">{fixEdariName(s.salesmanName) || `#${s.salesmanId}`}</span> },
+    { key: 'salesmanName', header: 'البائع', width: 200, exportValue: s => fixEdariName(s.salesmanName) || `#${s.salesmanId}`, render: s => <span className="font-semibold text-header">{fixEdariName(s.salesmanName) || `#${s.salesmanId}`}</span> },
     { key: 'totalCommission', header: 'عمولة الفترة', width: 230, mono: true, footer: 'sum', render: s => (
-      <div>
-        <MiniBar value={s.totalCommission} max={max} tone={s.balanceDue > 0 ? 'amber' : 'ok'} />
-        <span className="mt-1 block font-bold">{formatCurrency(s.totalCommission)}</span>
-      </div>
+      <BarValue value={s.totalCommission} max={max} tone={s.balanceDue > 0 ? 'amber' : 'ok'}>{formatCurrency(s.totalCommission)}</BarValue>
     ) },
-    { key: 'paidOutTotal', header: 'مصروف', width: 120, mono: true, footer: 'sum', render: s => formatCurrency(s.paidOutTotal) },
+    { key: 'paidOutTotal', header: 'مصروف', width: 130, mono: true, footer: 'sum', render: s => formatCurrency(s.paidOutTotal) },
     { key: 'balanceDue', header: 'مستحق', width: 130, mono: true, footer: 'sum', render: s => <span className={s.balanceDue > 0 ? 'font-bold text-amber-700' : ''}>{formatCurrency(s.balanceDue)}</span> },
     {
       key: 'actions',
       header: 'إجراءات',
-      width: 140,
+      width: 160,
       align: 'center',
       sortable: false,
       exportable: false,
       render: s => (
-        <div className="flex justify-center gap-2">
-          <Link to="/reports" className="text-[12px] text-brand-600 hover:underline">تفاصيل</Link>
+        <div className="flex justify-center gap-3">
+          <Link to="/reports?app=commissions" className="text-[12px] font-semibold text-brand-700 hover:underline">تقرير العمولات</Link>
           {s.balanceDue > 0 && (
-            <Link to="/reports" className="text-[12px] text-brand-600 hover:underline">صرف</Link>
+            <Link to="/reports?app=settlement" className="text-[12px] font-semibold text-brand-700 hover:underline">تسليم</Link>
           )}
         </div>
       ),
@@ -157,24 +159,19 @@ function commReportColumns(max: number): GridColumn<SalesmanCommissionSummaryDto
 }
 
 const targetsReportColumns: GridColumn<TargetAgg>[] = [
-  { key: 'name', header: 'المندوب', width: 180, render: t => <span className="font-semibold text-header">{t.name}</span> },
+  { key: 'name', header: 'البائع', width: 200, render: t => <span className="font-semibold text-header">{t.name}</span> },
   {
     key: 'avgPercent',
     header: 'متوسط الإنجاز',
     width: 230,
     mono: true,
     render: t => (
-      <div className="flex items-center gap-2">
-        <div className="min-w-[100px] flex-1">
-          <MiniBar value={t.avgPercent} max={100} tone={t.avgPercent < 70 ? 'amber' : 'ok'} />
-        </div>
-        <span className={`text-[12px] font-bold ${t.avgPercent < 70 ? 'text-amber-700' : 'text-emerald-700'}`}>
-          {formatNum(t.avgPercent, 0)}%
-        </span>
-      </div>
+      <BarValue value={t.avgPercent} max={100} tone={t.avgPercent < 70 ? 'amber' : 'ok'}>
+        <span className={t.avgPercent < 70 ? 'text-amber-700' : 'text-emerald-700'}>{formatNum(t.avgPercent, 0)}%</span>
+      </BarValue>
     ),
   },
-  { key: 'rulesHit', header: 'أهداف محققة', width: 130, align: 'center', render: t => `${formatNum(t.rulesHit)} / ${formatNum(t.rulesTotal)}` },
+  { key: 'rulesHit', header: 'أهداف محققة', width: 130, align: 'center', exportValue: t => `${formatNum(t.rulesHit)} / ${formatNum(t.rulesTotal)}`, render: t => `${formatNum(t.rulesHit)} / ${formatNum(t.rulesTotal)}` },
   {
     key: 'actions',
     header: 'إجراءات',
@@ -182,9 +179,44 @@ const targetsReportColumns: GridColumn<TargetAgg>[] = [
     align: 'center',
     sortable: false,
     exportable: false,
-    render: () => <Link to="/targets" className="text-[12px] text-brand-600 hover:underline">الأهداف</Link>,
+    render: () => <Link to="/targets" className="text-[12px] font-semibold text-brand-700 hover:underline">الأهداف</Link>,
   },
 ];
+
+function overviewColumns(maxSales: number, onFilter: (id: number) => void): GridColumn<OverviewRow>[] {
+  return [
+    { key: 'name', header: 'البائع', width: 200, render: r => <span className="font-semibold text-header">{r.name}</span> },
+    { key: 'sales', header: 'المبيعات', width: 210, mono: true, footer: 'sum', render: r => <BarValue value={r.sales} max={maxSales}>{formatCurrency(r.sales)}</BarValue> },
+    { key: 'receipts', header: 'الفواتير', width: 90, mono: true, footer: 'sum' },
+    { key: 'commission', header: 'العمولة', width: 130, mono: true, footer: 'sum', render: r => <span className="font-semibold text-brand-800">{formatCurrency(r.commission)}</span> },
+    { key: 'paid', header: 'مصروف', width: 120, mono: true, footer: 'sum', render: r => formatCurrency(r.paid) },
+    { key: 'due', header: 'مستحق', width: 120, mono: true, footer: 'sum', render: r => <span className={r.due > 0 ? 'font-bold text-amber-700' : 'text-slate-500'}>{formatCurrency(r.due)}</span> },
+    {
+      key: 'targetPct',
+      header: 'إنجاز الأهداف',
+      width: 120,
+      mono: true,
+      sortValue: r => r.targetPct ?? -1,
+      exportValue: r => (r.targetPct == null ? '—' : Number(r.targetPct.toFixed(0))),
+      render: r => r.targetPct == null
+        ? <span className="text-slate-300">—</span>
+        : <span className={`font-bold ${r.targetPct < 70 ? 'text-amber-700' : 'text-emerald-700'}`}>{formatNum(r.targetPct, 0)}%</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      width: 70,
+      align: 'center',
+      sortable: false,
+      exportable: false,
+      render: r => (
+        <button type="button" className="text-[12px] font-semibold text-brand-700 hover:underline" onClick={() => onFilter(r.salesmanId)}>تصفية</button>
+      ),
+    },
+  ];
+}
+
+const TITLES = ['نظرة عامة — البائعون', 'مبيعات البائعين', 'عمولات البائعين', 'أهداف البائعين'];
 
 export function SalesmenReportsPanel({
   from,
@@ -203,9 +235,12 @@ export function SalesmenReportsPanel({
 }) {
   const [subTab, setSubTab] = useState<ReportTab>(loadSubTab);
   const [search, setSearch] = useState('');
+  const dock = useChartDock();
 
   useEffect(() => {
-    sessionStorage.setItem(REPORT_KEY, String(subTab));
+    try {
+      sessionStorage.setItem(REPORT_KEY, String(subTab));
+    } catch { /* ignore */ }
   }, [subTab]);
 
   const prev = useMemo(() => prevRange(from, to), [from, to]);
@@ -263,30 +298,34 @@ export function SalesmenReportsPanel({
   }), []);
   const commSort = useClientSort(comm, commAccessors, 'earned', 'desc');
 
+  // متوسط فعلي لنسب الإنجاز (مجموع ÷ عدد) لكل بائع
   const targetAgg = useMemo(() => {
-    const map = new Map<number, TargetAgg>();
+    const map = new Map<number, TargetAgg & { sum: number; n: number }>();
     for (const b of targetsQ.data ?? []) {
       for (const m of b.salesmen) {
-        const ex = map.get(m.salesmanId);
         const pct = m.dailyPercent;
         const hit = m.dailyTarget > 0 && pct >= 100 ? 1 : 0;
         const hasTarget = m.dailyTarget > 0 ? 1 : 0;
-        if (ex) {
-          ex.rulesTotal += hasTarget;
-          ex.rulesHit += hit;
-          ex.avgPercent = (ex.avgPercent + pct) / 2;
-        } else {
-          map.set(m.salesmanId, {
-            salesmanId: m.salesmanId,
-            name: fixEdariName(m.salesmanName) || `#${m.salesmanId}`,
-            avgPercent: pct,
-            rulesHit: hit,
-            rulesTotal: hasTarget,
-          });
-        }
+        const ex = map.get(m.salesmanId) ?? {
+          salesmanId: m.salesmanId,
+          name: fixEdariName(m.salesmanName) || `#${m.salesmanId}`,
+          avgPercent: 0,
+          rulesHit: 0,
+          rulesTotal: 0,
+          sum: 0,
+          n: 0,
+        };
+        ex.rulesTotal += hasTarget;
+        ex.rulesHit += hit;
+        ex.sum += pct;
+        ex.n += 1;
+        ex.avgPercent = ex.sum / ex.n;
+        map.set(m.salesmanId, ex);
       }
     }
-    return [...map.values()].sort((a, b) => a.avgPercent - b.avgPercent);
+    return [...map.values()]
+      .map(({ sum: _s, n: _n, ...rest }) => rest)
+      .sort((a, b) => a.avgPercent - b.avgPercent);
   }, [targetsQ.data]);
 
   const q = search.trim().toLowerCase();
@@ -315,13 +354,45 @@ export function SalesmenReportsPanel({
     return list.filter(s => s.name.toLowerCase().includes(q) || String(s.salesmanId).includes(q));
   }, [targetAgg, filterSalesmanId, q]);
 
+  // نظرة عامة: صف واحد لكل بائع يجمع المبيعات والعمولات والأهداف
+  const overviewRows = useMemo(() => {
+    const map = new Map<number, OverviewRow>();
+    const row = (id: number, name: string) => {
+      let r = map.get(id);
+      if (!r) {
+        r = { salesmanId: id, name, sales: 0, receipts: 0, commission: 0, paid: 0, due: 0, targetPct: null };
+        map.set(id, r);
+      }
+      return r;
+    };
+    for (const s of sales) {
+      const r = row(s.salesmanId, fixEdariName(s.name) || s.name || `#${s.salesmanId}`);
+      r.sales += s.total;
+      r.receipts += s.count;
+    }
+    for (const c of comm) {
+      const r = row(c.salesmanId, fixEdariName(c.salesmanName) || c.salesmanName || `#${c.salesmanId}`);
+      r.commission += c.totalCommission;
+      r.paid += c.paidOutTotal;
+      r.due += c.balanceDue;
+    }
+    for (const t of targetAgg) {
+      const r = map.get(t.salesmanId);
+      if (r && t.rulesTotal > 0) r.targetPct = t.avgPercent;
+    }
+    let list = [...map.values()].sort((a, b) => b.sales - a.sales || b.commission - a.commission);
+    if (filterSalesmanId !== '') list = list.filter(r => r.salesmanId === filterSalesmanId);
+    if (q) list = list.filter(r => r.name.toLowerCase().includes(q) || String(r.salesmanId).includes(q));
+    return list;
+  }, [sales, comm, targetAgg, filterSalesmanId, q]);
+
   const maxSales = Math.max(...filteredSales.map(s => s.total), 1);
   const maxComm = Math.max(...filteredComm.map(s => s.totalCommission), 1);
-  onFilterSalesmanIdChangeRef = onFilterSalesmanIdChange;
+  const maxOverview = Math.max(...overviewRows.map(r => r.sales), 1);
 
-  const topSales = [...sales].sort((a, b) => b.total - a.total).slice(0, 5);
-  const topComm = [...comm].sort((a, b) => b.totalCommission - a.totalCommission).slice(0, 5);
-  const atRisk = targetAgg.filter(t => t.rulesTotal > 0 && t.avgPercent < 70).slice(0, 5);
+  const topSales = [...sales].sort((a, b) => b.total - a.total).slice(0, 8);
+  const topComm = [...comm].sort((a, b) => b.totalCommission - a.totalCommission).slice(0, 8);
+  const atRisk = targetAgg.filter(t => t.rulesTotal > 0 && t.avgPercent < 70).slice(0, 6);
 
   const alerts = useMemo(() => {
     const list: { tone: 'warn' | 'info'; text: string }[] = [];
@@ -339,208 +410,316 @@ export function SalesmenReportsPanel({
   }, [activeCount, atRisk.length, comm, salesQ.isLoading, totalDue]);
 
   const loading = (salesQ.isLoading && !salesQ.data) || (commQ.isLoading && !commQ.data);
+  const loadError = salesQ.error ?? commQ.error;
+  const filterName = filterSalesmanId === ''
+    ? ''
+    : fixEdariName((salesmenQ.data?.items ?? []).find(s => s.id === filterSalesmanId)?.name) || `#${filterSalesmanId}`;
+
+  function sheet(): ReportExcelSheet {
+    const period = `${from} → ${to}`;
+    if (subTab === 1) {
+      return {
+        name: 'مبيعات',
+        title: 'مبيعات البائعين',
+        subtitle: period,
+        headers: ['البائع', 'المبلغ', 'فواتير', 'أصناف'],
+        rows: filteredSales.map(s => [fixEdariName(s.name) || s.name || s.salesmanId, s.total, s.count, s.lineCount ?? 0]),
+      };
+    }
+    if (subTab === 2) {
+      return {
+        name: 'عمولات',
+        title: 'عمولات البائعين',
+        subtitle: period,
+        headers: ['البائع', 'عمولة', 'مصروف', 'مستحق'],
+        rows: filteredComm.map(s => [fixEdariName(s.salesmanName) || s.salesmanName || s.salesmanId, s.totalCommission, s.paidOutTotal, s.balanceDue]),
+      };
+    }
+    if (subTab === 3) {
+      return {
+        name: 'أهداف',
+        title: 'أهداف البائعين',
+        subtitle: period,
+        headers: ['البائع', 'متوسط%', 'أهداف محققة', 'أهداف'],
+        rows: filteredTargets.map(t => [t.name, Number(t.avgPercent.toFixed(1)), t.rulesHit, t.rulesTotal]),
+      };
+    }
+    // نفس صفوف وأعمدة جدول «نظرة عامة» (يحترم البحث وتصفية البائع)
+    return {
+      name: 'نظرة عامة',
+      title: 'تقارير البائعين — نظرة عامة',
+      subtitle: period,
+      headers: ['البائع', 'المبيعات', 'الفواتير', 'العمولة', 'مصروف', 'مستحق', 'إنجاز الأهداف %'],
+      rows: overviewRows.map(r => [
+        r.name,
+        r.sales,
+        r.receipts,
+        r.commission,
+        r.paid,
+        r.due,
+        r.targetPct == null ? '—' : Number(r.targetPct.toFixed(0)),
+      ]),
+    };
+  }
 
   function exportCsv() {
-    const suffix = `${from}_${to}`;
-    if (subTab === 0) {
-      downloadCsv(`salesmen-overview_${suffix}.csv`, ['البائع', 'مبيعات', 'عمولة', 'مستحق'],
-        comm.map(c => {
-          const sale = sales.find(s => s.salesmanId === c.salesmanId);
-          return [c.salesmanName ?? c.salesmanId, sale?.total ?? 0, c.totalCommission, c.balanceDue];
-        }));
-    } else if (subTab === 1) {
-      downloadCsv(`salesmen-sales_${suffix}.csv`, ['المندوب', 'المبلغ', 'فواتير', 'أصناف'],
-        filteredSales.map(s => [s.name ?? s.salesmanId, s.total, s.count, s.lineCount ?? '']));
-    } else if (subTab === 2) {
-      downloadCsv(`salesmen-commissions_${suffix}.csv`, ['المندوب', 'عمولة', 'مصروف', 'مستحق'],
-        filteredComm.map(s => [s.salesmanName ?? s.salesmanId, s.totalCommission, s.paidOutTotal, s.balanceDue]));
-    } else if (subTab === 3) {
-      downloadCsv(`salesmen-targets_${suffix}.csv`, ['المندوب', 'متوسط%', 'أهداف محققة', 'أهداف'],
-        filteredTargets.map(t => [t.name, t.avgPercent.toFixed(1), t.rulesHit, t.rulesTotal]));
-    }
+    const s = sheet();
+    const names = ['salesmen-overview', 'salesmen-sales', 'salesmen-commissions', 'salesmen-targets'];
+    downloadCsv(`${names[subTab]}_${from}_${to}.csv`, s.headers, s.rows.map(r => r.map(c => c ?? '')));
   }
 
-  function printReport() {
-    const titles = ['نظرة عامة — البائعون', 'مبيعات البائعين', 'عمولات البائعين', 'أهداف البائعين'];
-    const rows = document.querySelector('.salesmen-report-print')?.innerHTML ?? '';
-    void printHtmlDoc(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${titles[subTab]}</title>
-      <style>body{font-family:Tahoma,sans-serif;padding:16px} table{width:100%;border-collapse:collapse} td,th{border:1px solid #ddd;padding:6px;text-align:right}</style>
-      </head><body><h2>${titles[subTab]} ${from} — ${to}</h2>${rows}</body></html>`);
-  }
+  const salesDelta = pctDelta(totalSales, prevSalesQ.data ? prevTotalSales : null);
+  const filtering = !!q || filterSalesmanId !== '';
+  const pickSalesman = (id: number) => onFilterSalesmanIdChange(id);
+
+  const overviewChart = (
+    <>
+      <ChartBlock title="أعلى مبيعات" subtitle="اضغط على بائع لتصفيته">
+        <HBarChart
+          series={[{ key: 'total', label: 'المبيعات' }]}
+          format={n => formatCurrency(n)}
+          emptyText="لا مبيعات"
+          onSelect={item => pickSalesman(Number(item.id))}
+          items={topSales.map(s => ({
+            id: s.salesmanId,
+            label: fixEdariName(s.name) || `#${s.salesmanId}`,
+            values: [s.total],
+            sub: `${formatNum(s.count)} فاتورة`,
+          }))}
+        />
+      </ChartBlock>
+      <ChartBlock title="أعلى عمولات" subtitle="العمولة مقابل المصروف">
+        <HBarChart
+          series={[
+            { key: 'earned', label: 'العمولة' },
+            { key: 'paid', label: 'المصروف' },
+          ]}
+          format={n => formatCurrency(n)}
+          emptyText="لا عمولات"
+          onSelect={item => pickSalesman(Number(item.id))}
+          items={topComm.map(s => ({
+            id: s.salesmanId,
+            label: fixEdariName(s.salesmanName) || `#${s.salesmanId}`,
+            values: [s.totalCommission, s.paidOutTotal],
+            sub: s.balanceDue > 0 ? `مستحق ${formatCurrency(s.balanceDue)}` : undefined,
+          }))}
+        />
+      </ChartBlock>
+      <ChartBlock
+        title="أهداف تحتاج متابعة"
+        subtitle="تحت 70% من الإنجاز"
+        actions={<Link to="/targets" className="text-[11.5px] font-semibold text-brand-700 hover:underline">الكل</Link>}
+      >
+        <ul className="divide-y divide-slate-100">
+          {atRisk.map(t => (
+            <li key={t.salesmanId} className="py-1.5">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="truncate text-[12px] font-medium text-header">{t.name}</span>
+                <Badge tone="warn">{formatNum(t.avgPercent, 0)}%</Badge>
+              </div>
+              <MiniBar value={t.avgPercent} max={100} tone="amber" />
+            </li>
+          ))}
+          {!atRisk.length && <li className="py-4 text-center text-[12px] text-slate-400">الجميع على المسار</li>}
+        </ul>
+      </ChartBlock>
+    </>
+  );
+
+  const salesChart = topSales.length > 0 ? (
+    <ChartBlock title="أعلى مبيعات" subtitle="اضغط على بائع لتصفيته">
+      <HBarChart
+        series={[{ key: 'total', label: 'المبيعات' }]}
+        format={n => formatCurrency(n)}
+        onSelect={item => pickSalesman(Number(item.id))}
+        items={topSales.map(s => ({ id: s.salesmanId, label: fixEdariName(s.name) || `#${s.salesmanId}`, values: [s.total], sub: `${formatNum(s.count)} فاتورة` }))}
+      />
+    </ChartBlock>
+  ) : null;
+
+  const commChart = topComm.length > 0 ? (
+    <ChartBlock title="أعلى عمولات" subtitle="العمولة مقابل المصروف">
+      <HBarChart
+        series={[
+          { key: 'earned', label: 'العمولة' },
+          { key: 'paid', label: 'المصروف' },
+        ]}
+        format={n => formatCurrency(n)}
+        onSelect={item => pickSalesman(Number(item.id))}
+        items={topComm.map(s => ({
+          id: s.salesmanId,
+          label: fixEdariName(s.salesmanName) || `#${s.salesmanId}`,
+          values: [s.totalCommission, s.paidOutTotal],
+          sub: s.balanceDue > 0 ? `مستحق ${formatCurrency(s.balanceDue)}` : undefined,
+        }))}
+      />
+    </ChartBlock>
+  ) : null;
+
+  const chartForTab = subTab === 0 ? overviewChart : subTab === 1 ? salesChart : subTab === 2 ? commChart : null;
+  const chartToggle = chartForTab ? <ChartToggle dock={dock} /> : undefined;
+  const emptyFiltered = 'لا نتائج مطابقة للبحث أو التصفية';
 
   return (
-    <div className="space-y-4 p-4">
-      <Panel>
-        <div className="flex flex-wrap items-end gap-3 p-3">
-          <Field label="من">
-            <Input type="date" value={from} onChange={e => onFromChange(e.target.value)} />
-          </Field>
-          <Field label="إلى">
-            <Input type="date" value={to} onChange={e => onToChange(e.target.value)} />
-          </Field>
-          <Field label="بحث">
-            <Input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="اسم أو رقم…"
-              className="min-w-[180px]"
-            />
-          </Field>
-          <Field label="المندوب">
-            <div className="flex gap-2">
-              <Select
-                value={filterSalesmanId === '' ? '' : String(filterSalesmanId)}
-                onChange={e => onFilterSalesmanIdChange(e.target.value ? Number(e.target.value) : '')}
-                className="min-w-[160px]"
-              >
-                <option value="">كل المندوبين</option>
-                {(salesmenQ.data?.items ?? []).map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </Select>
+    <div className="flex h-full min-h-[560px] flex-col">
+      <WorkspaceCard>
+        <FilterBar
+          footer={
+            <>
+              <SegmentedFilter<string>
+                label="نوع التقرير"
+                value={String(subTab)}
+                onChange={id => setSubTab(Number(id) as ReportTab)}
+                items={[
+                  { id: '0', label: 'نظرة عامة' },
+                  { id: '1', label: 'المبيعات', count: sales.length },
+                  { id: '2', label: 'العمولات', count: comm.length },
+                  { id: '3', label: 'الأهداف', count: targetAgg.length },
+                ]}
+              />
               {filterSalesmanId !== '' && (
-                <Btn size="sm" variant="ghost" onClick={() => onFilterSalesmanIdChange('')}>مسح</Btn>
+                <button
+                  type="button"
+                  onClick={() => onFilterSalesmanIdChange('')}
+                  className="inline-flex h-7 items-center gap-1 rounded-full border border-brand-200 bg-brand-50 ps-2.5 pe-1.5 text-[12px] font-medium text-brand-800 hover:bg-brand-100"
+                  title="إزالة التصفية"
+                >
+                  {filterName}
+                  <IconX size={12} />
+                </button>
               )}
+              <Link to="/reports?app=settlement" className="ms-auto text-[12px] font-semibold text-brand-700 hover:underline">كشف التسليم ←</Link>
+            </>
+          }
+        >
+          <FilterLabel label="بحث" grow>
+            <div className="relative">
+              <IconSearch size={15} className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="بحث باسم البائع أو رقمه…"
+                className="!h-8 !ps-8 text-[12.5px]"
+                aria-label="بحث"
+              />
             </div>
-          </Field>
-          <DatePresets onPick={(f, t) => { onFromChange(f); onToChange(t); }} />
-          <div className="flex flex-wrap gap-1 mr-auto">
-            <Btn size="sm" variant="ghost" onClick={() => { onFromChange(monthStartIso()); onToChange(todayIso()); }}>هذا الشهر</Btn>
-            <Btn size="sm" variant="secondary" onClick={exportCsv}>CSV</Btn>
-            <Btn size="sm" variant="secondary" onClick={printReport}>طباعة</Btn>
-            <Link to="/reports" className="self-center text-[12px] font-semibold text-brand-700 hover:underline">حسابات الصرف</Link>
+          </FilterLabel>
+          <div className="min-w-0">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-500">الفترة</span>
+            <div className="flex items-center gap-1.5">
+              <DatePresets variant="menu" from={from} to={to} onPick={(f, t) => { onFromChange(f); onToChange(t); }} />
+              <Input type="date" aria-label="من تاريخ" title="من تاريخ" value={from} onChange={e => onFromChange(e.target.value)} className="!h-8 !w-[140px] text-[12.5px]" />
+              <span className="text-slate-400">—</span>
+              <Input type="date" aria-label="إلى تاريخ" title="إلى تاريخ" value={to} onChange={e => onToChange(e.target.value)} className="!h-8 !w-[140px] text-[12.5px]" />
+            </div>
           </div>
-        </div>
-        {filterSalesmanId !== '' && (
-          <div className="border-t border-slate-100 px-3 py-2">
-            <FilterChip active onClick={() => onFilterSalesmanIdChange('')}>
-              مندوب #{filterSalesmanId} — إلغاء
-            </FilterChip>
-          </div>
-        )}
-      </Panel>
+          <FilterLabel label="البائع">
+            <Select
+              value={filterSalesmanId === '' ? '' : String(filterSalesmanId)}
+              onChange={e => onFilterSalesmanIdChange(e.target.value ? Number(e.target.value) : '')}
+              className="!h-8 text-[12.5px]"
+              aria-label="البائع"
+            >
+              <option value="">كل البائعين</option>
+              {(salesmenQ.data?.items ?? []).map(s => (
+                <option key={s.id} value={s.id}>{fixEdariName(s.name) || s.name}</option>
+              ))}
+            </Select>
+          </FilterLabel>
+          <FilterActions>
+            <ExcelBtn fileName={`salesmen-report_${from}_${to}`} getSheets={() => [sheet()]} />
+            <Btn size="sm" variant="ghost" onClick={exportCsv}>CSV</Btn>
+            <PrintBtn title={`${TITLES[subTab]} (${from} — ${to})`} getSheets={() => [sheet()]} />
+          </FilterActions>
+        </FilterBar>
 
-      {alerts.length > 0 && (
-        <div className="space-y-2">
-          {alerts.map(a => (
-            <Alert key={a.text} type={a.tone === 'warn' ? 'warning' : 'info'}>{a.text}</Alert>
-          ))}
-        </div>
-      )}
-
-      <div className="px-1">
-        <SegmentedTabs
-          items={[
-            { id: 0, label: 'نظرة عامة' },
-            { id: 1, label: 'المبيعات', count: sales.length },
-            { id: 2, label: 'العمولات', count: comm.length },
-            { id: 3, label: 'الأهداف', count: targetAgg.length },
+        <SummaryStrip
+          loading={loading}
+          cells={[
+            { label: 'بائعون نشطون', value: formatNum(activeCount), tone: 'brand', hint: `من ${formatNum(salesmenQ.data?.total ?? sales.length)}` },
+            { label: 'مبيعات الفترة', value: <Money value={totalSales} />, hint: deltaText(salesDelta, 'مقابل السابقة') },
+            { label: 'الفواتير', value: formatNum(totalReceipts) },
+            { label: 'العمولات', value: <Money value={totalCommission} /> },
+            { label: 'مستحق صرف', value: <Money value={totalDue} />, tone: totalDue ? 'warn' : undefined, onClick: () => setSubTab(2), active: subTab === 2 },
+            { label: 'متوسط / بائع', value: <Money value={activeCount ? totalSales / activeCount : 0} /> },
           ]}
-          value={subTab}
-          onChange={setSubTab}
         />
-      </div>
 
-      {loading && <Loading />}
+        {loadError && (
+          <ReportBanner><ReportError error={loadError} onRetry={() => { void salesQ.refetch(); void commQ.refetch(); }} /></ReportBanner>
+        )}
 
-      {subTab === 0 && !loading && (
-        <div className="space-y-4">
-          <KpiGrid
-            items={[
-              { label: 'بائعون نشطون', value: formatNum(activeCount), hint: `من ${formatNum(salesmenQ.data?.total ?? sales.length)}`, tone: 'brand' },
-              { label: 'مبيعات الفترة', value: formatCurrency(totalSales), hint: vsPrev(totalSales, prevTotalSales), tone: 'ok' },
-              { label: 'فواتير', value: formatNum(totalReceipts) },
-              { label: 'عمولات', value: formatCurrency(totalCommission), tone: 'brand' },
-              { label: 'مستحق صرف', value: formatCurrency(totalDue), tone: totalDue ? 'warn' : undefined },
-              { label: 'متوسط/بائع', value: formatCurrency(activeCount ? totalSales / activeCount : 0) },
-            ]}
-          />
+        {alerts.map(a => (
+          <ReportNote key={a.text} bar tone={a.tone === 'warn' ? 'warn' : 'info'}>{a.text}</ReportNote>
+        ))}
 
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <DashCard title="أعلى مبيعات">
-              <ul className="divide-y divide-slate-100">
-                {topSales.map((s, i) => (
-                  <li key={s.salesmanId} className="flex items-center gap-2 px-4 py-2.5">
-                    <span className="w-4 text-[11px] font-bold text-slate-400">{i + 1}</span>
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-header hover:text-brand-700"
-                      onClick={() => onFilterSalesmanIdChange(s.salesmanId)}
-                    >
-                      {fixEdariName(s.name) || `#${s.salesmanId}`}
-                    </button>
-                    <span className="text-[12px] font-bold tabular-nums">{formatCurrency(s.total)}</span>
-                  </li>
-                ))}
-                {!topSales.length && <li className="px-4 py-8 text-center text-[13px] text-slate-400">لا مبيعات</li>}
-              </ul>
-            </DashCard>
+        <ReportSplit chart={chartForTab} open={dock.open}>
+          {subTab === 0 && (
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              columns={overviewColumns(maxOverview, pickSalesman)}
+              rows={overviewRows}
+              getRowId={r => r.salesmanId}
+              loading={loading}
+              storageKey="salesmen-reports-overview"
+              exportName={`نظرة-البائعين-${from}_${to}`}
+              counterLabel="بائع"
+              emptyText={filtering ? emptyFiltered : 'لا مبيعات ولا عمولات في هذه الفترة'}
+              rowTone={r => (r.due > 0 ? 'bg-amber-50/50' : undefined)}
+              toolbar={chartToggle}
+            />
+          )}
 
-            <DashCard title="أعلى عمولات">
-              <ul className="divide-y divide-slate-100">
-                {topComm.map((s, i) => (
-                  <li key={s.salesmanId} className="flex items-center gap-2 px-4 py-2.5">
-                    <span className="w-4 text-[11px] font-bold text-slate-400">{i + 1}</span>
-                    <Link to="/reports" className="min-w-0 flex-1 truncate text-[13px] font-medium text-header hover:text-brand-700">
-                      {fixEdariName(s.salesmanName) || `#${s.salesmanId}`}
-                    </Link>
-                    <span className="text-[12px] font-bold tabular-nums">{formatCurrency(s.totalCommission)}</span>
-                  </li>
-                ))}
-                {!topComm.length && <li className="px-4 py-8 text-center text-[13px] text-slate-400">لا عمولات</li>}
-              </ul>
-            </DashCard>
+          {subTab === 1 && (
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              columns={salesReportColumns(maxSales, from, to, pickSalesman)}
+              rows={filteredSales}
+              getRowId={s => s.salesmanId}
+              loading={loading}
+              exportName={`مبيعات-البائعين-${from}_${to}`}
+              counterLabel="بائع"
+              emptyText={filtering ? emptyFiltered : 'لا مبيعات في هذه الفترة'}
+              toolbar={chartToggle}
+            />
+          )}
 
-            <DashCard title="أهداف تحتاج متابعة" action={<Link to="/targets" className="text-[12px] font-semibold text-brand-700 hover:underline">الكل</Link>}>
-              <ul className="divide-y divide-slate-100">
-                {atRisk.map(t => (
-                  <li key={t.salesmanId} className="px-4 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium text-header">{t.name}</span>
-                      <span className="text-[12px] font-bold tabular-nums text-amber-700">{formatNum(t.avgPercent, 0)}%</span>
-                    </div>
-                    <MiniBar value={t.avgPercent} max={100} tone="amber" />
-                  </li>
-                ))}
-                {!atRisk.length && <li className="px-4 py-8 text-center text-[13px] text-slate-400">الجميع على المسار</li>}
-              </ul>
-            </DashCard>
-          </div>
-        </div>
-      )}
+          {subTab === 2 && (
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              columns={commReportColumns(maxComm)}
+              rows={filteredComm}
+              getRowId={s => s.salesmanId}
+              loading={loading}
+              exportName={`عمولات-البائعين-${from}_${to}`}
+              counterLabel="بائع"
+              emptyText={filtering ? emptyFiltered : 'لا عمولات في هذه الفترة'}
+              toolbar={chartToggle}
+            />
+          )}
 
-      {subTab === 1 && !loading && (
-        <DataGrid
-          columns={salesReportColumns(maxSales, from, to)}
-          rows={filteredSales}
-          getRowId={s => s.salesmanId}
-          exportName={`مبيعات-البائعين-${from}_${to}`}
-          counterLabel="بائع"
-          emptyText="لا مبيعات في هذه الفترة"
-        />
-      )}
-
-      {subTab === 2 && !loading && (
-        <DataGrid
-          columns={commReportColumns(maxComm)}
-          rows={filteredComm}
-          getRowId={s => s.salesmanId}
-          exportName={`عمولات-البائعين-${from}_${to}`}
-          counterLabel="بائع"
-          emptyText="لا عمولات في هذه الفترة"
-        />
-      )}
-
-      {subTab === 3 && !loading && (
-        <DataGrid
-          columns={targetsReportColumns}
-          rows={filteredTargets}
-          getRowId={t => t.salesmanId}
-          exportName="أهداف-البائعين"
-          counterLabel="بائع"
-          emptyText="لا أهداف نشطة"
-        />
-      )}
+          {subTab === 3 && (
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              columns={targetsReportColumns}
+              rows={filteredTargets}
+              getRowId={t => t.salesmanId}
+              loading={targetsQ.isLoading}
+              exportName="أهداف-البائعين"
+              counterLabel="بائع"
+              emptyText="لا أهداف نشطة"
+            />
+          )}
+        </ReportSplit>
+      </WorkspaceCard>
     </div>
   );
 }

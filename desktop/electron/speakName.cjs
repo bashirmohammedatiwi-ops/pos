@@ -86,8 +86,16 @@ function startPiper(dir) {
   );
 
   let buf = Buffer.alloc(0);
-  /** @type {((wav: Buffer) => void) | null} */
+  /** @type {{ resolve: (wav: Buffer) => void, reject: (err: Error) => void, timer: NodeJS.Timeout } | null} */
   let waiter = null;
+
+  const settle = (fn) => {
+    if (!waiter) return;
+    const w = waiter;
+    waiter = null;
+    clearTimeout(w.timer);
+    fn(w);
+  };
 
   const pump = () => {
     if (!waiter || buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF') return;
@@ -95,9 +103,7 @@ function startPiper(dir) {
     if (size < 44 || size > 12_000_000 || buf.length < size) return;
     const wav = Buffer.from(buf.subarray(0, size));
     buf = buf.subarray(size);
-    const done = waiter;
-    waiter = null;
-    done(wav);
+    settle(w => w.resolve(wav));
   };
 
   proc.stdout.on('data', chunk => {
@@ -106,6 +112,12 @@ function startPiper(dir) {
   });
   proc.on('exit', () => {
     if (piper && piper.proc === proc) piper = null;
+    // المحرك توقف — لا نترك الطلب معلّقاً للأبد (كان يحجز كل طلبات النطق التالية)
+    settle(w => w.reject(new Error('tts-exited')));
+  });
+  proc.on('error', () => {
+    if (piper && piper.proc === proc) piper = null;
+    settle(w => w.reject(new Error('tts-failed')));
   });
 
   return {
@@ -114,8 +126,15 @@ function startPiper(dir) {
       proc.stdin.write(Buffer.from(`${text.replace(/[\r\n]+/g, ' ')}\n`, 'utf8'));
     },
     nextWav() {
-      return new Promise(resolve => {
-        waiter = resolve;
+      return new Promise((resolve, reject) => {
+        // مهلة: محرك عالق يُقتل ويُعاد تشغيله في الطلب التالي بدل تجميد النطق
+        const timer = setTimeout(() => {
+          settle(w => w.reject(new Error('tts-timeout')));
+          buf = Buffer.alloc(0);
+          try { proc.kill(); } catch { /* ignore */ }
+          if (piper && piper.proc === proc) piper = null;
+        }, 12_000);
+        waiter = { resolve, reject, timer };
         pump();
       });
     },
@@ -185,6 +204,10 @@ async function speakSalesmanName(rawText) {
     enqueuePlay(file);
     return { ok: true, cached: true };
   } catch (err) {
+    // أوقف المحرك العالق قبل تركه — وإلا تبقى عمليات piper يتيمة تستهلك الذاكرة
+    if (piper) {
+      try { piper.proc.kill(); } catch { /* ignore */ }
+    }
     piper = null;
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }

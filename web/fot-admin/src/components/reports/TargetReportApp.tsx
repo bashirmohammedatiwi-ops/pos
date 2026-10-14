@@ -3,18 +3,33 @@ import { useQuery } from '@tanstack/react-query';
 import { api, formatNum } from '@/api/client';
 import type { SalesmanDto, TargetBreakdownDto, TargetRuleDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
-import { Btn, Input } from '@/components/ui';
+import { Btn, EmptyState } from '@/components/ui';
+import { SummaryStrip } from '@/components/listWorkspace';
 import { SalesmanMultiSelect } from '@/components/SalesmanMultiSelect';
-import { IconSliders, IconTarget } from '@/components/icons';
+import { IconSliders, IconTarget, IconUsers } from '@/components/icons';
 import { ProgressCell } from '@/components/workspace';
-import { useBusinessPeriod } from '@/hooks/useBusinessPeriod';
-import { formatPeriodRange } from '@/lib/businessPeriod';
 import { fixEdariName } from '@/lib/text';
-import { ReportAppWindow } from './ReportAppWindow';
+import type { ReportExcelSheet } from '@/lib/reportExcel';
+import { ReportAppWindow, ReportAside } from './ReportAppWindow';
+import {
+  ChartBlock,
+  ChartToggle,
+  ExcelBtn,
+  HBarChart,
+  PeriodSelector,
+  PrintBtn,
+  ReportBanner,
+  ReportCenter,
+  ReportError,
+  ReportFill,
+  ReportSplit,
+  useChartDock,
+  useReportPeriod,
+  type ReportPeriodId,
+} from './ReportKit';
 
 const PIN_KEY = 'fot_report_targets_pinned';
 
-type PeriodId = 'week' | 'lastWeek' | 'month' | 'custom';
 type CompareMode = 'daily' | 'weekly' | 'monthly';
 
 function loadPinned(): number[] {
@@ -28,11 +43,13 @@ function loadPinned(): number[] {
 }
 
 function savePinned(ids: number[]) {
-  localStorage.setItem(PIN_KEY, JSON.stringify(ids));
+  try {
+    localStorage.setItem(PIN_KEY, JSON.stringify(ids));
+  } catch { /* تجاهل */ }
 }
 
-function modeFromPeriod(period: PeriodId, from: string, to: string): CompareMode {
-  if (period === 'month') return 'monthly';
+function modeFromPeriod(period: ReportPeriodId, from: string, to: string): CompareMode {
+  if (period === 'month' || period === 'lastMonth') return 'monthly';
   if (period === 'week' || period === 'lastWeek') return 'weekly';
   if (from && to && from === to) return 'daily';
   const a = new Date(`${from}T00:00:00`).getTime();
@@ -94,7 +111,7 @@ function columns(mode: CompareMode): GridColumn<Row>[] {
       mono: true,
       footer: 'sum',
       render: r => (
-        <span className="font-extrabold text-brand-800">
+        <span className="font-bold text-brand-800">
           {formatNum(r.sold)}{r.isAmount ? ' د.ع' : ''}
         </span>
       ),
@@ -104,6 +121,7 @@ function columns(mode: CompareMode): GridColumn<Row>[] {
       header: `المطلوب (${MODE_LABEL[mode]})`,
       width: 150,
       mono: true,
+      exportValue: r => (r.goal > 0 ? r.goal : '—'),
       render: r => (r.goal > 0 ? `${formatNum(r.goal)}${r.isAmount ? ' د.ع' : ''}` : '—'),
     },
     {
@@ -111,6 +129,7 @@ function columns(mode: CompareMode): GridColumn<Row>[] {
       header: 'المتبقي',
       width: 130,
       mono: true,
+      exportValue: r => (r.goal <= 0 ? '—' : r.hit ? 'تم' : r.remain),
       render: r => {
         if (r.goal <= 0) return <span className="text-slate-400">—</span>;
         if (r.hit) return <span className="font-bold text-emerald-700">تم</span>;
@@ -128,21 +147,16 @@ function columns(mode: CompareMode): GridColumn<Row>[] {
 }
 
 export function TargetReportApp({ onClose }: { onClose: () => void }) {
-  const { periods } = useBusinessPeriod();
-  const [period, setPeriod] = useState<PeriodId>('week');
-  const [customFrom, setCustomFrom] = useState(periods.currentWeek.from);
-  const [customTo, setCustomTo] = useState(periods.currentWeek.to);
+  const period = useReportPeriod({
+    storageKey: 'targets',
+    presets: ['today', 'week', 'lastWeek', 'month', 'lastMonth', 'custom'],
+    fallback: 'week',
+  });
+  const range = period.range;
   const [pinned, setPinned] = useState<number[]>(loadPinned);
   const [settingsOpen, setSettingsOpen] = useState(pinned.length === 0);
 
-  const range = useMemo(() => {
-    if (period === 'week') return periods.currentWeek;
-    if (period === 'lastWeek') return periods.previousWeek;
-    if (period === 'month') return periods.currentMonth;
-    return { from: customFrom, to: customTo };
-  }, [period, periods, customFrom, customTo]);
-
-  const mode = modeFromPeriod(period, range.from, range.to);
+  const mode = modeFromPeriod(period.period, range.from, range.to);
 
   const salesmenQ = useQuery({
     queryKey: ['salesmen', true],
@@ -169,106 +183,153 @@ export function TargetReportApp({ onClose }: { onClose: () => void }) {
     [pinned, nameById, rulesQ.data, breakdownsQ.data, mode],
   );
 
-  const hitCount = rows.filter(r => r.hit).length;
-  const withGoal = rows.filter(r => r.goal > 0).length;
+  const withGoalRows = rows.filter(r => r.goal > 0);
+  const hitCount = withGoalRows.filter(r => r.hit).length;
+  const withGoal = withGoalRows.length;
+  const avgPercent = withGoal ? withGoalRows.reduce((s, r) => s + Math.min(100, r.percent), 0) / withGoal : 0;
+  const behind = withGoalRows.filter(r => !r.hit && r.percent < 70).length;
+  const noTarget = new Set(rows.filter(r => r.ruleId === 0).map(r => r.salesmanId)).size;
+
+  // متوسط إنجاز كل بائع (لأهدافه ذات المطلوب)
+  const perSalesman = useMemo(() => {
+    const map = new Map<number, { name: string; sum: number; n: number; hit: number }>();
+    for (const r of rows) {
+      if (r.goal <= 0) continue;
+      const ex = map.get(r.salesmanId) ?? { name: r.salesmanName, sum: 0, n: 0, hit: 0 };
+      ex.sum += Math.min(100, Math.max(0, r.percent));
+      ex.n += 1;
+      ex.hit += r.hit ? 1 : 0;
+      map.set(r.salesmanId, ex);
+    }
+    return [...map.entries()]
+      .map(([id, v]) => ({ id, label: v.name, values: [v.sum / v.n], sub: `${formatNum(v.hit)} / ${formatNum(v.n)} أهداف محققة` }))
+      .sort((a, b) => b.values[0] - a.values[0]);
+  }, [rows]);
 
   function updatePinned(ids: number[]) {
     setPinned(ids);
     savePinned(ids);
   }
 
-  const periodBtns: { id: PeriodId; label: string }[] = [
-    { id: 'week', label: 'هذا الأسبوع' },
-    { id: 'lastWeek', label: 'الأسبوع الماضي' },
-    { id: 'month', label: 'هذا الشهر' },
-    { id: 'custom', label: 'تاريخ' },
-  ];
+  function sheets(): ReportExcelSheet[] {
+    return [{
+      name: 'الأهداف',
+      title: 'تقرير الأهداف',
+      subtitle: `${range.from} → ${range.to} · مقارنة ${MODE_LABEL[mode]}`,
+      headers: ['#', 'البائع', 'الهدف', 'المتحقق', `المطلوب (${MODE_LABEL[mode]})`, 'المتبقي', 'الإنجاز %'],
+      columnWidths: [36, 140, 160, 88, 96, 88, 72],
+      rows: rows.map(r => [
+        r.sortIndex,
+        r.salesmanName,
+        r.targetName,
+        r.sold,
+        r.goal || '',
+        r.goal > 0 ? (r.hit ? 'تم' : r.remain) : '',
+        r.goal > 0 ? Math.round(r.percent) : '',
+      ]),
+    }];
+  }
+
+  const loading = breakdownsQ.isLoading || rulesQ.isLoading;
+  const queryError = breakdownsQ.error ?? rulesQ.error;
+  const dock = useChartDock();
+
+  const chart = !loading && perSalesman.length > 0 ? (
+    <ChartBlock title="نسبة الإنجاز لكل بائع" subtitle="متوسط أهدافه في الفترة (حد أقصى 100%)">
+      <HBarChart
+        series={[{ key: 'pct', label: 'الإنجاز' }]}
+        format={n => `${formatNum(Math.round(n))}%`}
+        items={perSalesman.slice(0, 12)}
+      />
+    </ChartBlock>
+  ) : null;
 
   return (
     <ReportAppWindow
+      accent="linear-gradient(135deg, #818cf8 0%, #4338ca 100%)"
       title="تقرير الأهداف"
-      subtitle={`${formatPeriodRange(range.from, range.to)} · مقارنة ${MODE_LABEL[mode]} · ${formatNum(pinned.length)} بائع مثبت`}
-      icon={<IconTarget size={20} />}
-      accent="linear-gradient(135deg, #f59e0b 0%, #c2410c 100%)"
+      subtitle={`${period.label} · مقارنة ${MODE_LABEL[mode]} · ${formatNum(pinned.length)} بائع مثبت`}
+      icon={<IconTarget size={16} />}
+      toolbar={<PeriodSelector state={period} />}
       actions={
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(v => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition ${
-            settingsOpen ? 'bg-white text-orange-800' : 'bg-white/15 text-white hover:bg-white/25'
-          }`}
-        >
-          <IconSliders size={14} />
-          إعداد البائعين
-        </button>
+        <>
+          <Btn
+            size="sm"
+            variant={settingsOpen ? 'soft' : 'ghost'}
+            icon={<IconSliders size={14} />}
+            aria-pressed={settingsOpen}
+            onClick={() => setSettingsOpen(v => !v)}
+          >
+            البائعون
+          </Btn>
+          <ExcelBtn fileName={`اهداف-${range.from}_${range.to}`} getSheets={sheets} disabled={!rows.length || loading} />
+          <PrintBtn title={`تقرير الأهداف (${range.from} — ${range.to})`} getSheets={sheets} disabled={!rows.length || loading} />
+        </>
       }
+      aside={settingsOpen ? (
+        <PinSettings
+          salesmen={salesmen}
+          pinned={pinned}
+          onChange={updatePinned}
+          onDone={() => setSettingsOpen(false)}
+        />
+      ) : undefined}
       onClose={onClose}
     >
-      <div className="flex min-h-0 flex-1">
-        {settingsOpen && (
-          <PinSettings
-            salesmen={salesmen}
-            pinned={pinned}
-            onChange={updatePinned}
-            onDone={() => setSettingsOpen(false)}
+      {pinned.length === 0 ? (
+        <ReportCenter>
+          <EmptyState
+            icon={<IconUsers size={24} />}
+            title="ثبّت البائعين مرة واحدة"
+            description="كل بائع يظهر بصف لكل هدف مسجّل عليه. الاختيار يُحفظ على هذا الجهاز."
+            action={<Btn icon={<IconSliders size={14} />} onClick={() => setSettingsOpen(true)}>اختيار البائعين</Btn>}
           />
-        )}
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-            <div className="flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-              {periodBtns.map(b => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setPeriod(b.id)}
-                  className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
-                    period === b.id ? 'bg-header text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-                  }`}
-                >
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            {period === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="!py-1.5" />
-                <span className="text-[12px] text-slate-400">→</span>
-                <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="!py-1.5" />
-              </div>
-            )}
-            <div className="ms-auto text-[12.5px] font-semibold text-slate-500">
-              {withGoal ? `${formatNum(hitCount)} / ${formatNum(withGoal)} محققة` : '—'}
-            </div>
-          </div>
-
-          {pinned.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-              <p className="text-[16px] font-extrabold text-header">ثبّت البائعين مرة واحدة</p>
-              <p className="max-w-sm text-[13.5px] leading-6 text-slate-500">
-                كل بائع يظهر بصف لكل هدف مسجّل عليه. الاختيار يُحفظ على هذا الجهاز.
-              </p>
-              <Btn onClick={() => setSettingsOpen(true)}>اختيار البائعين</Btn>
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 p-3">
-              <DataGrid
-                embedded
-                fillHeight
-                columns={columns(mode)}
-                rows={rows}
-                getRowId={r => r.id}
-                loading={breakdownsQ.isLoading || rulesQ.isLoading}
-                storageKey="target-report-excel"
-                exportName={`اهداف-${range.from}_${range.to}`}
-                counterLabel="صف"
-                emptyText="لا أهداف لهؤلاء البائعين في هذه الفترة"
-                rowTone={r => (r.goal > 0 && r.hit ? 'bg-emerald-50/70' : r.goal > 0 && !r.hit ? 'bg-amber-50/50' : undefined)}
+        </ReportCenter>
+      ) : (
+        <ReportFill>
+          {queryError && (
+            <ReportBanner>
+              <ReportError
+                error={queryError}
+                onRetry={() => { void rulesQ.refetch(); void breakdownsQ.refetch(); }}
               />
-            </div>
+            </ReportBanner>
           )}
-        </div>
-      </div>
+
+          <SummaryStrip
+            loading={loading}
+            cells={[
+              {
+                label: 'أهداف محققة',
+                value: withGoal ? `${formatNum(hitCount)} / ${formatNum(withGoal)}` : '—',
+                tone: 'ok',
+                hint: withGoal ? `${formatNum(Math.round((hitCount / withGoal) * 100))}% من الأهداف` : 'لا أهداف بمطلوب',
+              },
+              { label: 'متوسط الإنجاز', value: `${formatNum(Math.round(avgPercent))}%`, tone: 'brand', hint: `مقارنة ${MODE_LABEL[mode]}` },
+              { label: 'تحت 70%', value: formatNum(behind), tone: behind > 0 ? 'warn' : undefined, hint: 'أهداف تحتاج متابعة' },
+              { label: 'بائعون بلا هدف', value: formatNum(noTarget), hint: `من ${formatNum(pinned.length)} مثبت` },
+            ]}
+          />
+
+          <ReportSplit chart={chart} open={dock.open}>
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              columns={columns(mode)}
+              rows={rows}
+              getRowId={r => r.id}
+              loading={loading}
+              storageKey="target-report-excel"
+              exportName={`اهداف-${range.from}_${range.to}`}
+              counterLabel="صف"
+              emptyText="لا أهداف لهؤلاء البائعين في هذه الفترة"
+              rowTone={r => (r.goal > 0 && r.hit ? 'bg-emerald-50/70' : r.goal > 0 && !r.hit ? 'bg-amber-50/50' : undefined)}
+              toolbar={chart ? <ChartToggle dock={dock} /> : undefined}
+            />
+          </ReportSplit>
+        </ReportFill>
+      )}
     </ReportAppWindow>
   );
 }
@@ -355,28 +416,22 @@ function PinSettings({
   onDone: () => void;
 }) {
   return (
-    <aside
-      className="flex w-[min(100%,320px)] shrink-0 flex-col border-l border-slate-200 bg-white"
-      data-keep-escape
+    <ReportAside
+      title="البائعون الظاهرون"
+      description="يُحفظ الاختيار على هذا الجهاز. كل بائع يظهر بصف مستقل لكل هدف."
+      footer={
+        <>
+          <span className="text-[12px] text-slate-500"><span className="num font-semibold">{formatNum(pinned.length)}</span> مثبت</span>
+          <Btn size="sm" onClick={onDone}>تم</Btn>
+        </>
+      }
     >
-      <div className="border-b border-slate-100 px-4 py-3">
-        <h3 className="text-[14px] font-extrabold text-header">البائعون الظاهرون</h3>
-        <p className="mt-1 text-[12px] leading-5 text-slate-500">
-          يُحفظ الاختيار هنا. كل بائع يظهر بصف مستقل لكل هدف.
-        </p>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <SalesmanMultiSelect
-          salesmen={salesmen.map(s => ({ id: s.id, name: fixEdariName(s.name) || `#${s.id}` }))}
-          selectedIds={pinned}
-          onChange={onChange}
-          emptyLabel="لم يُختر أحد بعد"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-3">
-        <span className="text-[12px] text-slate-500">{formatNum(pinned.length)} مثبت</span>
-        <Btn size="sm" onClick={onDone}>تم</Btn>
-      </div>
-    </aside>
+      <SalesmanMultiSelect
+        salesmen={salesmen.map(s => ({ id: s.id, name: fixEdariName(s.name) || `#${s.id}` }))}
+        selectedIds={pinned}
+        onChange={onChange}
+        emptyLabel="لم يُختر أحد بعد"
+      />
+    </ReportAside>
   );
 }

@@ -1,43 +1,160 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, formatDate, formatNum } from '@/api/client';
+import type { ClientErrorDto, PosTerminalMonitorDto } from '@/api/types';
 import { useToast } from '@/components/Toast';
-import { Btn, Loading } from '@/components/ui';
-import { CompactStatsBar, DashCard, FilterStrip, ListPageFooter, ListPageShell } from '@/components/workspace';
-import {
-  IconActivity,
-  IconAlert,
-  IconCheckCircle,
-  IconClock,
-  IconCloud,
-  IconDatabase,
-  IconMonitor,
-  IconRefresh,
-  IconShield,
-  IconWifi,
-} from '@/components/icons';
+import { Alert, Badge, Btn } from '@/components/ui';
+import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
+import { SegmentedFilter, SummaryStrip, WorkspaceBody, WorkspacePage } from '@/components/listWorkspace';
+import { IconAlert, IconCopy, IconExternal, IconMonitor, IconRefresh } from '@/components/icons';
+import { PulseDot, looksLikeHwId, shortHwId, terminalTitle, timeAgo } from '@/components/system/systemUi';
+import { Clip, CompactSearch, PaneHeader, StatusLine } from '@/components/operations/opsUi';
+import { copyText } from '@/lib/clipboard';
 
 type ErrorFilter = 'all' | 'admin' | 'pos';
+type Status = 'ok' | 'warn' | 'danger';
 
-function pingLabel(ms: number | null) {
-  if (ms == null) return { text: '—', tone: 'text-slate-400' };
-  if (ms < 100) return { text: `${Math.round(ms)} م.ث`, tone: 'text-emerald-600' };
-  if (ms < 400) return { text: `${Math.round(ms)} م.ث`, tone: 'text-amber-600' };
-  return { text: `${Math.round(ms)} م.ث`, tone: 'text-red-600' };
+function pingTone(ms: number | null): Status {
+  if (ms == null) return 'warn';
+  if (ms < 100) return 'ok';
+  if (ms < 400) return 'warn';
+  return 'danger';
 }
 
-function ageMinutes(iso?: string): number | null {
-  if (!iso) return null;
-  const ms = Date.now() - new Date(iso).getTime();
-  return Math.max(0, Math.round(ms / 60_000));
+function minutesShort(mins: number) {
+  return mins >= 60 ? `${formatNum(Math.floor(mins / 60))} س` : `${formatNum(mins)} د`;
+}
+
+/** معرّف جهاز قصير بسطر واحد — المعرّف الكامل في التلميح. */
+function DeviceLabel({ value }: { value?: string | null }) {
+  if (!value) return <span className="text-slate-300">—</span>;
+  if (looksLikeHwId(value)) {
+    return <span className="font-mono text-[11.5px] text-slate-600" title={value} dir="ltr">{shortHwId(value)}</span>;
+  }
+  return <Clip text={value} dir="ltr" className="font-mono text-[11.5px] text-slate-600" />;
+}
+
+const terminalColumns: GridColumn<PosTerminalMonitorDto>[] = [
+  {
+    key: 'isOnline',
+    header: 'الاتصال',
+    width: 100,
+    sortValue: t => (t.isOnline ? 'متصل' : 'غير متصل'),
+    filterValue: t => (t.isOnline ? 'متصل' : 'غير متصل'),
+    render: t => (
+      <span className="inline-flex items-center gap-1.5">
+        <PulseDot online={t.isOnline} size="sm" tone={(t.deadOffline ?? 0) > 0 ? 'danger' : undefined} />
+        <span className={t.isOnline ? 'font-semibold text-emerald-700' : 'text-slate-500'}>{t.isOnline ? 'متصل' : 'غير متصل'}</span>
+      </span>
+    ),
+  },
+  {
+    key: 'name',
+    header: 'نقطة البيع',
+    width: 190,
+    sortValue: t => terminalTitle(t),
+    filterValue: t => `${terminalTitle(t)} ${t.hwId ?? ''}`,
+    render: t => (
+      <span className="block truncate font-semibold text-header" title={t.hwId ? `${terminalTitle(t)} — ${t.hwId}` : terminalTitle(t)}>
+        {terminalTitle(t)}
+      </span>
+    ),
+  },
+  { key: 'sectionName', header: 'القسم', width: 130, render: t => <Clip text={t.sectionName} /> },
+  {
+    key: 'lastConnection',
+    header: 'آخر ظهور',
+    width: 100,
+    sortValue: t => t.lastConnection ?? '',
+    filterValue: t => timeAgo(t.lastConnection),
+    render: t => <span className="text-[12px]" title={t.lastConnection ? formatDate(t.lastConnection) : ''}>{timeAgo(t.lastConnection)}</span>,
+  },
+  { key: 'exeVersion', header: 'الإصدار', width: 90, render: t => (t.exeVersion ? <span className="num text-[12px]">v{t.exeVersion}</span> : <span className="text-slate-300">—</span>) },
+  {
+    key: 'pendingOffline',
+    header: 'بانتظار الرفع',
+    width: 100,
+    mono: true,
+    footer: 'sum',
+    sortValue: t => t.pendingOffline ?? 0,
+    render: t => ((t.pendingOffline ?? 0) > 0 ? <span className="text-sky-700">{formatNum(t.pendingOffline ?? 0)}</span> : <span className="text-slate-300">0</span>),
+  },
+  {
+    key: 'deadOffline',
+    header: 'متوقفة',
+    width: 80,
+    mono: true,
+    footer: 'sum',
+    sortValue: t => t.deadOffline ?? 0,
+    render: t => ((t.deadOffline ?? 0) > 0 ? <span className="font-bold text-red-700">{formatNum(t.deadOffline ?? 0)}</span> : <span className="text-slate-300">0</span>),
+  },
+  {
+    key: 'active',
+    header: 'الجهاز',
+    width: 80,
+    align: 'center',
+    sortValue: t => (t.active ? 'نشط' : 'موقوف'),
+    filterValue: t => (t.active ? 'نشط' : 'موقوف'),
+    render: t => (t.active ? <span className="text-slate-500">نشط</span> : <Badge>موقوف</Badge>),
+  },
+];
+
+function errorColumns(onCopy: (e: ClientErrorDto) => void): GridColumn<ClientErrorDto>[] {
+  return [
+    {
+      key: 'createdAt',
+      header: 'الوقت',
+      width: 100,
+      sortValue: e => e.createdAt,
+      filterValue: e => formatDate(e.createdAt),
+      render: e => <span className="text-[12px]" title={formatDate(e.createdAt)}>{timeAgo(e.createdAt)}</span>,
+    },
+    {
+      key: 'source',
+      header: 'المصدر',
+      width: 100,
+      filterValue: e => (e.source === 'pos' ? 'نقطة بيع' : 'لوحة التحكم'),
+      render: e => <Badge tone={e.source === 'pos' ? 'info' : 'brand'}>{e.source === 'pos' ? 'نقطة بيع' : 'لوحة التحكم'}</Badge>,
+    },
+    { key: 'terminal', header: 'الجهاز', width: 110, render: e => <DeviceLabel value={e.terminal} /> },
+    { key: 'appVersion', header: 'الإصدار', width: 80, render: e => (e.appVersion ? <span className="num text-[12px] text-slate-500">v{e.appVersion}</span> : <span className="text-slate-300">—</span>) },
+    { key: 'message', header: 'الرسالة', width: 380, render: e => <Clip text={e.message} className="font-semibold text-header" /> },
+    { key: 'context', header: 'السياق', width: 240, render: e => <Clip text={e.context} className="text-[12px] text-slate-500" /> },
+    {
+      key: 'copy',
+      header: 'نسخ',
+      width: 64,
+      align: 'center',
+      sortable: false,
+      exportable: false,
+      render: e => (
+        <button
+          type="button"
+          title="نسخ تفاصيل الخطأ"
+          aria-label="نسخ تفاصيل الخطأ"
+          onClick={ev => {
+            ev.stopPropagation();
+            onCopy(e);
+          }}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+        >
+          <IconCopy size={13} />
+        </button>
+      ),
+    },
+  ];
 }
 
 export function SystemHealthPage() {
   const toast = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [errorFilter, setErrorFilter] = useState<ErrorFilter>('all');
+  const [errorQuery, setErrorQuery] = useState('');
+  const [expanded, setExpanded] = useState<number | null>(null);
 
-  // Measured SQL ping: /health touches the DB server-side; we time the round-trip.
+  // زمن استجابة SQL: ‎/health يلمس قاعدة البيانات في الخادم ونقيس الذهاب والعودة.
   const sqlPing = useQuery({
     queryKey: ['system-health-ping'],
     queryFn: async () => {
@@ -77,254 +194,244 @@ export function SystemHealthPage() {
     staleTime: 45_000,
   });
 
+  const refreshing = sqlPing.isFetching || edariQ.isFetching || terminalsQ.isFetching || deadLettersQ.isFetching || clientErrorsQ.isFetching;
+
   async function refreshAll() {
-    await qc.invalidateQueries({ queryKey: ['system-health-ping'] });
-    await qc.invalidateQueries({ queryKey: ['edari-status'] });
-    await qc.invalidateQueries({ queryKey: ['terminal-monitor'] });
-    await qc.invalidateQueries({ queryKey: ['edari-dead-letters'] });
-    await qc.invalidateQueries({ queryKey: ['client-errors'] });
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['system-health-ping'] }),
+      qc.invalidateQueries({ queryKey: ['edari-status'] }),
+      qc.invalidateQueries({ queryKey: ['terminal-monitor'] }),
+      qc.invalidateQueries({ queryKey: ['edari-dead-letters'] }),
+      qc.invalidateQueries({ queryKey: ['client-errors'] }),
+    ]);
     toast.success('تم تحديث صحة النظام');
   }
 
-  const sql = pingLabel(sqlPing.data?.ms ?? null);
-  const edariAge = ageMinutes(edariQ.data?.lastHeartbeatAt);
-  const edariOk = edariQ.data?.connectionOk !== false && !edariQ.data?.circuitOpen;
-  const circuit = edariQ.data?.circuitOpen
-    ? `القاطع مفتوح — إعادة محاولة خلال ${edariQ.data?.circuitRetryInSeconds ?? 0}ث`
-    : 'يعمل';
+  async function copyError(e: ClientErrorDto) {
+    try {
+      await copyText([e.message, e.context, e.stack].filter(Boolean).join('\n\n'));
+      toast.success('تم نسخ تفاصيل الخطأ');
+    } catch {
+      toast.error('تعذر النسخ');
+    }
+  }
 
-  const allTerminals = (terminalsQ.data ?? []).flatMap(g => g.terminals);
-  const onlineTerminals = allTerminals.filter(t => t.isOnline || t.active);
+  const sqlMs = sqlPing.data?.ms ?? null;
+  const sqlOk = sqlPing.data?.ok === true;
+  const sqlStatus: Status = sqlPing.isError || (sqlPing.data && !sqlOk) ? 'danger' : pingTone(sqlMs);
+  const edari = edariQ.data;
+  const edariOk = !!edari && edari.connectionOk !== false && !edari.circuitOpen;
+  const edariStatus: Status = !edari ? 'warn' : edari.circuitOpen ? 'warn' : edari.connectionOk === false ? 'danger' : 'ok';
+  const deadCount = deadLettersQ.data?.length ?? 0;
+  const unsynced = edari?.unsyncedCount ?? 0;
+  const oldestMin = edari?.oldestUnsyncedMinutes ?? 0;
+
+  const allTerminals = useMemo(() => (terminalsQ.data ?? []).flatMap(g => g.terminals), [terminalsQ.data]);
+  const activeTerminals = allTerminals.filter(t => t.active);
+  const onlineTerminals = allTerminals.filter(t => t.isOnline);
+  const offlineActive = activeTerminals.filter(t => !t.isOnline);
+  const posDead = allTerminals.reduce((a, t) => a + (t.deadOffline ?? 0), 0);
+  const posPending = allTerminals.reduce((a, t) => a + (t.pendingOffline ?? 0), 0);
+  const sortedTerminals = useMemo(
+    () => [...allTerminals].sort((a, b) => (b.deadOffline ?? 0) - (a.deadOffline ?? 0) || Number(a.isOnline) - Number(b.isOnline)),
+    [allTerminals],
+  );
+
+  const errors = useMemo(() => clientErrorsQ.data ?? [], [clientErrorsQ.data]);
+  const filteredErrors = useMemo(() => {
+    const q = errorQuery.trim().toLowerCase();
+    if (!q) return errors;
+    return errors.filter(e => `${e.message} ${e.context ?? ''} ${e.terminal ?? ''} ${e.appVersion ?? ''}`.toLowerCase().includes(q));
+  }, [errors, errorQuery]);
+
+  // قائمة المشاكل الحالية لعرضها في الرأس
+  const issues: { text: string; tone: Status; to?: string }[] = [];
+  if (sqlStatus === 'danger') issues.push({ text: 'قاعدة البيانات لا تستجيب', tone: 'danger' });
+  if (edariStatus === 'danger') issues.push({ text: 'الاتصال بالأداري مقطوع', tone: 'danger', to: '/edari' });
+  if (edari?.circuitOpen) issues.push({ text: `الأداري متوقف مؤقتاً — يُستأنف خلال ${edari.circuitRetryInSeconds ?? 0} ث`, tone: 'warn', to: '/edari' });
+  if (deadCount > 0) issues.push({ text: `${formatNum(deadCount)} فاتورة متوقفة عن الترحيل`, tone: 'danger', to: '/edari' });
+  if (oldestMin >= 60) issues.push({ text: `فواتير معلّقة منذ ${formatNum(Math.floor(oldestMin / 60))} ساعة`, tone: 'warn', to: '/edari' });
+  if (posDead > 0) issues.push({ text: `${formatNum(posDead)} فاتورة أوفلاين متوقفة على نقاط البيع`, tone: 'danger', to: '/terminals' });
+  if (offlineActive.length > 0) issues.push({ text: `${formatNum(offlineActive.length)} نقطة بيع نشطة غير متصلة`, tone: 'warn', to: '/terminals' });
+
+  const initialLoading = sqlPing.isLoading && edariQ.isLoading;
+  const overall: Status = issues.some(i => i.tone === 'danger') ? 'danger' : issues.length ? 'warn' : 'ok';
+  const overallTitle = {
+    ok: 'كل الأنظمة تعمل بشكل طبيعي',
+    warn: 'النظام يعمل مع بعض التنبيهات',
+    danger: 'توجد مشاكل تحتاج تدخلاً',
+  }[overall];
+
+  const errCols = errorColumns(e => void copyError(e));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ListPageShell
-        filter={
-          <FilterStrip>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[10.5px] text-slate-500">
-                تشخيص الخادم · الإداري · نقاط البيع · أخطاء الواجهات
-              </p>
-              <Btn variant="secondary" size="sm" onClick={() => void refreshAll()}>
-                تحديث
-              </Btn>
-            </div>
-          </FilterStrip>
-        }
-        footer={
-          <ListPageFooter
-            stats={
-              <CompactStatsBar
-                items={[
-                  { label: 'SQL', value: sql.text, tone: sqlPing.data?.ok ? 'ok' : 'warn' },
-                  { label: 'Edari', value: edariOk ? 'متصل' : 'منقطع', tone: edariOk ? 'ok' : 'warn' },
-                  ...(edariAge != null ? [{ label: 'نبضة', value: `${formatNum(edariAge)}د` }] : []),
-                  { label: 'POS', value: `${formatNum(onlineTerminals.length)}/${formatNum(allTerminals.length)}`, tone: onlineTerminals.length === allTerminals.length && allTerminals.length > 0 ? 'ok' : 'warn' },
-                  { label: 'أخطاء 24س', value: formatNum(clientErrorsQ.data?.length ?? 0), tone: (clientErrorsQ.data?.length ?? 0) > 0 ? 'warn' : 'ok' },
-                ]}
-              />
-            }
-          />
-        }
-      >
-      <div className="space-y-2 overflow-auto p-2">
-      <div className="grid gap-2 xl:grid-cols-2">
-        {/* Server + Edari health */}
-        <DashCard title="الخادم والإداري" icon={<IconShield size={14} />}>
-          <div className="space-y-3 p-4 text-[13px]">
-            <HealthRow
-              icon={<IconDatabase size={15} />}
-              label="قاعدة البيانات FOT_POS_V2"
-              value={sqlPing.isLoading ? 'جاري الفحص…' : sqlPing.data?.ok ? 'متصل' : 'غير متصل'}
-              ok={sqlPing.data?.ok === true}
-              detail={sqlPing.data ? `زمن الاستجابة ${sql.text}` : undefined}
-            />
-            <HealthRow
-              icon={<IconCloud size={15} />}
-              label={`الإداري — نسخة ${edariQ.data?.databaseAlias ?? '—'}`}
-              value={edariOk ? 'متصل' : 'منقطع'}
-              ok={edariOk}
-              detail={circuit}
-            />
-            <HealthRow
-              icon={<IconRefresh size={15} />}
-              label="طابور الترحيل"
-              value={`${formatNum(edariQ.data?.unsyncedCount ?? 0)} بانتظار`}
-              ok={(edariQ.data?.unsyncedCount ?? 0) === 0}
-              detail={
-                edariQ.data?.oldestUnsyncedMinutes
-                  ? `أقدم فاتورة ${formatNum(Math.floor(edariQ.data.oldestUnsyncedMinutes / 60))} ساعة`
-                  : 'لا تراكم'
-              }
-            />
-            <HealthRow
-              icon={<IconAlert size={15} />}
-              label="فواتير متوقفة نهائياً (dead-letter)"
-              value={`${formatNum(deadLettersQ.data?.length ?? 0)}`}
-              ok={(deadLettersQ.data?.length ?? 0) === 0}
-              detail="تحتاج إجراءً يدوياً — راجع صفحة الإداري"
-            />
-            <HealthRow
-              icon={<IconClock size={15} />}
-              label="آخر سحب للكتالوج من الإداري"
-              value={edariQ.data?.lastDataPullAt ? formatDate(edariQ.data.lastDataPullAt) : '—'}
-              ok={true}
-            />
-          </div>
-        </DashCard>
-
-        {/* Terminals */}
-        <DashCard title="نقاط البيع" icon={<IconMonitor size={14} />}>
-          <div className="max-h-[340px] overflow-y-auto">
-            {terminalsQ.isLoading && <Loading />}
-            {!terminalsQ.isLoading && allTerminals.length === 0 && (
-              <p className="p-6 text-center text-[13px] text-muted">لا نقاط بيع مسجلة</p>
-            )}
-            {allTerminals.map(t => {
-              const online = t.isOnline || t.active;
-              const stuck = (t.deadOffline ?? 0) > 0;
-              return (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-[13px] last:border-b-0"
-                >
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-header">{t.name ?? t.hwId ?? t.id}</p>
-                      {t.lastConnection && (
-                        <p className="text-[11px] text-slate-400">آخر ظهور {formatDate(t.lastConnection)}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {(t.pendingOffline ?? 0) > 0 && (
-                      <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700 ring-1 ring-sky-200/60">
-                        {formatNum(t.pendingOffline!)} بانتظار الرفع
-                      </span>
-                    )}
-                    {stuck && (
-                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700 ring-1 ring-red-200/60">
-                        {formatNum(t.deadOffline!)} متوقفة
-                      </span>
-                    )}
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ring-1 ${
-                        online
-                          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/60'
-                          : 'bg-slate-100 text-slate-500 ring-slate-200/60'
-                      }`}
-                    >
-                      {online ? 'متصل' : 'منقطع'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </DashCard>
-      </div>
-
-      {/* Client errors */}
-      <DashCard
-        title="أخطاء الواجهات (لوحة التحكم ونقاط البيع)"
-        icon={<IconAlert size={14} />}
-        action={
-          <div className="flex gap-1.5">
-            {(['all', 'admin', 'pos'] as const).map(f => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setErrorFilter(f)}
-                className={`rounded-full px-3 py-1 text-[11px] font-bold transition ${
-                  errorFilter === f ? 'bg-header text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {f === 'all' ? 'الكل' : f === 'admin' ? 'لوحة التحكم' : 'نقاط البيع'}
-              </button>
+    <WorkspacePage>
+      {/* ── الحالة العامة + المؤشرات ── */}
+      <section className="card shrink-0 overflow-hidden">
+        <StatusLine
+          tone={initialLoading ? 'off' : overall}
+          dot={<PulseDot online={!initialLoading && overall === 'ok'} tone={initialLoading ? 'off' : overall} />}
+          title={initialLoading ? 'جاري فحص النظام…' : overallTitle}
+          detail="تحديث تلقائي كل دقيقة · الخادم، الأداري، نقاط البيع، أخطاء الواجهات"
+          actions={
+            <Btn variant="secondary" size="sm" icon={<IconRefresh size={14} className={refreshing ? 'animate-spin' : ''} />} onClick={() => void refreshAll()}>
+              فحص الآن
+            </Btn>
+          }
+        />
+        {!initialLoading && issues.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5 border-b border-slate-200 bg-white px-3 py-1.5">
+            {issues.map(i => (
+              <li key={i.text}>
+                {i.to ? (
+                  <Link to={i.to} className="inline-flex">
+                    <Badge tone={i.tone === 'danger' ? 'danger' : 'warn'} dot className="hover:brightness-95">{i.text} ←</Badge>
+                  </Link>
+                ) : (
+                  <Badge tone={i.tone === 'danger' ? 'danger' : 'warn'} dot>{i.text}</Badge>
+                )}
+              </li>
             ))}
-          </div>
-        }
-      >
-        <div className="max-h-[420px] overflow-y-auto">
-          {clientErrorsQ.isLoading && <Loading />}
-          {!clientErrorsQ.isLoading && (clientErrorsQ.data?.length ?? 0) === 0 && (
-            <div className="flex flex-col items-center gap-2 p-8 text-center">
-              <span className="icon-tile h-11 w-11 bg-emerald-50 text-emerald-600">
-                <IconCheckCircle size={20} />
-              </span>
-              <p className="text-[13px] text-slate-500">لا أخطاء مسجلة — كل الواجهات تعمل بسلاسة</p>
+          </ul>
+        )}
+        <SummaryStrip
+          loading={initialLoading}
+          cells={[
+            {
+              label: 'قاعدة البيانات',
+              value: sqlPing.isError ? 'لا تستجيب' : sqlOk ? 'متصلة' : sqlPing.data ? 'غير متصلة' : '—',
+              hint: sqlMs != null ? `زمن الاستجابة ${formatNum(Math.round(sqlMs))} م.ث` : 'لم يُقَس',
+              tone: sqlStatus,
+            },
+            {
+              label: `الأداري${edari?.databaseAlias ? ` · ${edari.databaseAlias}` : ''}`,
+              value: edari?.circuitOpen ? 'متوقف مؤقتاً' : edariOk ? 'متصل' : edari ? 'منقطع' : '—',
+              hint: edari?.circuitOpen
+                ? `إعادة المحاولة خلال ${edari.circuitRetryInSeconds ?? 0} ث`
+                : edari?.lastHeartbeatAt ? `آخر نبضة ${timeAgo(edari.lastHeartbeatAt)}` : undefined,
+              tone: edariStatus,
+              onClick: () => navigate('/edari'),
+            },
+            {
+              label: 'طابور الترحيل',
+              value: `${formatNum(unsynced)} بانتظار`,
+              hint: oldestMin ? `أقدمها منذ ${minutesShort(oldestMin)}` : 'لا تراكم',
+              tone: unsynced && oldestMin >= 60 ? 'warn' : 'ok',
+              onClick: () => navigate('/edari'),
+            },
+            {
+              label: 'متوقفة نهائياً',
+              value: formatNum(deadCount),
+              hint: deadCount ? 'تحتاج إجراءً من صفحة الأداري' : 'لا شيء',
+              tone: deadCount ? 'danger' : 'ok',
+              onClick: () => navigate('/edari'),
+            },
+            {
+              label: 'آخر جلب من الأداري',
+              value: <span title={edari?.lastDataPullAt ? formatDate(edari.lastDataPullAt) : undefined}>{timeAgo(edari?.lastDataPullAt)}</span>,
+              hint: edari?.liveMessage ?? undefined,
+            },
+            {
+              label: 'نقاط البيع المتصلة',
+              value: `${formatNum(onlineTerminals.length)} / ${formatNum(allTerminals.length)}`,
+              hint: posPending ? `${formatNum(posPending)} فاتورة أوفلاين بانتظار الرفع` : offlineActive.length ? `${formatNum(offlineActive.length)} نشطة غير متصلة` : 'كل الأجهزة النشطة متصلة',
+              tone: posDead ? 'danger' : offlineActive.length ? 'warn' : 'ok',
+              onClick: () => navigate('/terminals'),
+            },
+          ]}
+        />
+      </section>
+
+      {/* ── الجدولان ── */}
+      <div className="grid min-h-[820px] flex-1 grid-rows-[minmax(320px,2fr)_minmax(420px,3fr)] gap-2 xl:min-h-[360px] xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:grid-rows-1">
+        {/* ── نقاط البيع ── */}
+        <section className="card flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <PaneHeader
+            icon={<IconMonitor size={15} />}
+            title="نقاط البيع"
+            meta={`${formatNum(onlineTerminals.length)} متصل من ${formatNum(allTerminals.length)}`}
+          >
+            <Link to="/terminals">
+              <Btn size="xs" variant="ghost" icon={<IconExternal size={12} />}>إدارة الأجهزة</Btn>
+            </Link>
+          </PaneHeader>
+          {terminalsQ.isError && <div className="shrink-0 p-2"><Alert>تعذر تحميل حالة نقاط البيع.</Alert></div>}
+          <WorkspaceBody>
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              dense
+              columns={terminalColumns}
+              rows={sortedTerminals}
+              loading={terminalsQ.isLoading}
+              getRowId={t => t.id}
+              storageKey="system-terminals"
+              exportName="حالة-نقاط-البيع"
+              counterLabel="جهاز"
+              emptyText="لا نقاط بيع مسجلة"
+              rowTone={t => ((t.deadOffline ?? 0) > 0 ? 'bg-red-50/50' : t.active && !t.isOnline ? 'bg-amber-50/40' : undefined)}
+            />
+          </WorkspaceBody>
+        </section>
+
+        {/* ── أخطاء الواجهات ── */}
+        <section className="card flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <PaneHeader icon={<IconAlert size={15} />} title="أخطاء الواجهات" meta="لوحة التحكم ونقاط البيع — تُرسل فور حدوثها">
+            <SegmentedFilter
+              label="مصدر الخطأ"
+              value={errorFilter}
+              onChange={setErrorFilter}
+              items={[
+                { id: 'all', label: 'الكل' },
+                { id: 'admin', label: 'لوحة التحكم' },
+                { id: 'pos', label: 'نقاط البيع' },
+              ]}
+            />
+            <div className="w-56 max-w-full">
+              <CompactSearch value={errorQuery} onChange={setErrorQuery} placeholder="الرسالة، الجهاز، الإصدار…" />
+            </div>
+          </PaneHeader>
+          {clientErrorsQ.isError && (
+            <div className="shrink-0 p-2">
+              <Alert title="تعذر تحميل الأخطاء">
+                <Btn size="xs" variant="secondary" onClick={() => clientErrorsQ.refetch()}>إعادة المحاولة</Btn>
+              </Alert>
             </div>
           )}
-          {(clientErrorsQ.data ?? []).map(e => (
-            <div key={e.id} className="border-b border-slate-100 px-4 py-3 last:border-b-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                    e.source === 'pos' ? 'bg-sky-50 text-sky-700' : 'bg-brand-50 text-brand-700'
-                  }`}
-                >
-                  {e.source === 'pos' ? 'نقطة بيع' : 'لوحة التحكم'}
-                </span>
-                {e.terminal && <span className="font-mono text-[10px] text-slate-400">{e.terminal}</span>}
-                <span className="text-[11px] text-slate-400">{formatDate(e.createdAt)}</span>
-              </div>
-              <p dir="auto" className="mt-1 break-words text-[13px] font-semibold text-header">
-                {e.message}
-              </p>
-              {e.context && (
-                <p dir="auto" className="mt-0.5 truncate text-[11px] text-slate-400" title={e.context}>
-                  {e.context}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </DashCard>
-
-      {/* Live activity note */}
-      <div className="flex items-center gap-2 rounded-xl bg-slate-100/70 px-4 py-2.5 text-[11.5px] text-slate-500">
-        <IconActivity size={14} className="shrink-0 text-slate-400" />
-        تُحدَّث هذه الصفحة كل دقيقة تلقائياً — الأخطاء تُرسل من الواجهات فور حدوثها وتظهر خلال دقيقة
+          <WorkspaceBody>
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              dense
+              columns={errCols}
+              rows={filteredErrors}
+              loading={clientErrorsQ.isLoading}
+              getRowId={e => e.id}
+              storageKey="system-client-errors"
+              exportName="أخطاء-الواجهات"
+              counterLabel="خطأ"
+              initialSort={{ key: 'createdAt', dir: 'desc' }}
+              emptyText={errors.length ? 'لا أخطاء مطابقة للبحث' : 'لا أخطاء مسجلة — كل الواجهات تعمل بسلاسة'}
+              badge={<span className="hidden text-[11px] text-slate-400 md:inline">انقر الصف لعرض التفاصيل</span>}
+              expansion={{
+                isExpanded: e => expanded === e.id,
+                onToggle: e => setExpanded(x => (x === e.id ? null : e.id)),
+                render: e => (
+                  <div className="space-y-2 whitespace-normal">
+                    <p dir="auto" className="break-words text-[13px] font-semibold text-header">{e.message}</p>
+                    {e.context && <pre dir="ltr" className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-white p-2.5 text-[11.5px] text-slate-700 ring-1 ring-slate-200">{e.context}</pre>}
+                    {e.stack && <pre dir="ltr" className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-900 p-2.5 text-[11px] leading-5 text-slate-200">{e.stack}</pre>}
+                    {!e.context && !e.stack && <p className="text-[12px] text-slate-500">لا تفاصيل إضافية.</p>}
+                    <Btn size="xs" variant="secondary" icon={<IconCopy size={12} />} onClick={() => void copyError(e)}>نسخ التفاصيل</Btn>
+                  </div>
+                ),
+              }}
+            />
+          </WorkspaceBody>
+        </section>
       </div>
-      </div>
-      </ListPageShell>
-    </div>
-  );
-}
-
-function HealthRow({
-  icon,
-  label,
-  value,
-  ok,
-  detail,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  ok: boolean;
-  detail?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <span className={`icon-tile h-8 w-8 ${ok ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
-          {icon}
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-[12.5px] font-semibold text-header">{label}</p>
-          {detail && <p className="truncate text-[11px] text-slate-400">{detail}</p>}
-        </div>
-      </div>
-      <span
-        className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ${
-          ok ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/60' : 'bg-red-50 text-red-700 ring-red-200/60'
-        }`}
-      >
-        <IconWifi size={11} />
-        {value}
-      </span>
-    </div>
+    </WorkspacePage>
   );
 }

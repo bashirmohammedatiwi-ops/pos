@@ -8,6 +8,7 @@ import { fixEdariName } from '@/lib/text';
 import { getHwId } from '@/lib/money';
 import { rememberSale } from '@/lib/saleMirror';
 import { seedDeferredHistory, withSoldAt, type ReceiptHistoryCarrier } from './receiptHistory';
+import { mapBundleOffers, type PosBundleOfferDto } from '@/lib/bundleOffers';
 import { db, type OutboxRow, type OutboxStatus } from './db';
 
 export const OUTBOX_MAX_RETRIES = 8;
@@ -223,6 +224,16 @@ async function mapPool<T>(items: T[], limit: number, fn: (item: T) => Promise<vo
   await Promise.all(workers);
 }
 
+export async function syncBundleOffers() {
+  if (isServerUnreachable()) return;
+  try {
+    const remote = await api.bundleOffers();
+    await db.saveBundleOffers(mapBundleOffers(remote as PosBundleOfferDto[]));
+  } catch {
+    /* keep cached rules for offline */
+  }
+}
+
 export async function cacheReferenceData(force = false) {
   if (isServerUnreachable()) return;
   if (!force) {
@@ -259,6 +270,7 @@ export async function cacheReferenceData(force = false) {
     await db.saveDiscountQrPeople(people.map(p => ({ id: p.id, name: p.name, code: p.code })));
   }
   if (printRes.ok && printRes.value) await db.savePrintSettings(printRes.value);
+  await syncBundleOffers();
   await db.setMeta('ref_data_at', String(Date.now()));
   await refreshAttributionCache(true);
 }
@@ -294,7 +306,13 @@ export async function enqueueReceipt(
     lastError: null,
     status,
   });
-  await rememberSale(parked, localNumber);
+  // The sale is already safely queued above. A failure here (local history/snapshots) must
+  // not make checkout report failure — the cashier would charge the same sale again.
+  try {
+    await rememberSale(parked, localNumber);
+  } catch (e) {
+    console.error('rememberSale failed after enqueue', e);
+  }
   return localNumber;
 }
 

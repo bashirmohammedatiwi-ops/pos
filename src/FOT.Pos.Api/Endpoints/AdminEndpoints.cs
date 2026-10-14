@@ -38,6 +38,46 @@ public static class AdminEndpoints
 
         api.MapGet("/offers", async (OfferRepository repo, int page = 1, int pageSize = 50) =>
             await repo.ListAsync(page, pageSize, default));
+        api.MapGet("/offers/folders", async (OfferFolderRepository repo) =>
+            await repo.ListAsync(default));
+        api.MapPost("/offers/folders", async (OfferFolderRepository repo, CreateOfferFolderRequest req) =>
+        {
+            try
+            {
+                var id = await repo.CreateAsync(req.Name, default);
+                return Results.Ok(new { id });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+        api.MapPatch("/offers/folders/{id:long}", async (OfferFolderRepository repo, long id, RenameOfferFolderRequest req) =>
+        {
+            try
+            {
+                if (!await repo.RenameAsync(id, req.Name, default)) return Results.NotFound();
+                return Results.NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+        api.MapDelete("/offers/folders/{id:long}", async (OfferFolderRepository repo, long id) =>
+            await repo.DeleteAsync(id, default) ? Results.NoContent() : Results.NotFound());
+        api.MapPatch("/offers/{id:long}/folder", async (OfferFolderRepository repo, long id, MoveOfferToFolderRequest req) =>
+        {
+            try
+            {
+                if (!await repo.SetOfferFolderAsync(id, req.FolderId, default)) return Results.NotFound();
+                return Results.NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
         api.MapGet("/offers/stats", async (OfferRepository repo) =>
             await repo.GetStatsAsync(default));
         api.MapGet("/offers/lookup", async (ProductRepository products, OfferRepository offers, string q, int limit = 20) =>
@@ -110,6 +150,21 @@ public static class AdminEndpoints
             if (!await repo.UpdateAsync(id, req, default)) return Results.NotFound();
             await NotifyOfferPricesChangedAsync(repo, hub, id);
             return Results.NoContent();
+        });
+        api.MapGet("/offers/{id:long}/bundle-conditions", async (OfferRepository repo, long id) =>
+            Results.Ok(await repo.GetBundleConditionsAsync(id, default)));
+        api.MapPut("/offers/{id:long}/bundle-conditions", async (OfferRepository repo, long id, OfferBundleConditionsDto req, IHubContext<PosHub> hub) =>
+        {
+            try
+            {
+                await repo.SaveBundleConditionsAsync(id, req, default);
+                await NotifyOfferPricesChangedAsync(repo, hub, id);
+                return Results.NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
         });
         api.MapPost("/offers/{id:long}/details", async (OfferRepository repo, long id, UpsertOfferDetailRequest req, IHubContext<PosHub> hub) =>
         {
@@ -486,12 +541,41 @@ public static class AdminEndpoints
             await repo.SalesBySalesmanAsync(from ?? DateTime.Today, to ?? DateTime.Today, default));
         api.MapGet("/reports/movement", async (ReportRepository repo, DateTime? from, DateTime? to, string? search) =>
             await repo.ArticleMovementAsync(from ?? DateTime.Today, to ?? DateTime.Today, search, default));
+        api.MapGet("/reports/heatmap", async (ReportRepository repo, DateTime? from, DateTime? to, CancellationToken ct) =>
+            await repo.SalesHeatmapAsync(from ?? DateTime.Today.AddDays(-27), to ?? DateTime.Today, ct));
+        api.MapGet("/reports/cashier-performance", async (ReportRepository repo, DateTime? from, DateTime? to, CancellationToken ct) =>
+            await repo.CashierPerformanceAsync(from ?? DateTime.Today.AddDays(-6), to ?? DateTime.Today, ct));
+        api.MapGet("/reports/reorder", async (ReportRepository repo, int? days, int? coverDays, string? search, CancellationToken ct) =>
+            await repo.ReorderAsync(days ?? 30, coverDays ?? 14, search, ct));
+        api.MapGet("/reports/slow-movers", async (ReportRepository repo, int? days, decimal? minStock, string? search, int? limit, bool? neverSold, CancellationToken ct) =>
+            await repo.SlowMoversAsync(days ?? 30, minStock ?? 1, search, limit ?? 3000, ct, neverSold == true));
         api.MapGet("/reports/cash", async (ReportRepository repo, DateTime? from, DateTime? to) =>
             await repo.CashReportAsync(from ?? DateTime.Today, to ?? DateTime.Today, default));
+        api.MapGet("/reports/day-breakdown", async (ReportRepository repo, DateTime? date) =>
+            await repo.DayBreakdownAsync(date ?? DateTime.Today, default));
         api.MapGet("/reports/cashier-voids", async (CashierVoidRepository repo, DateTime? from, DateTime? to) =>
             await repo.SummaryAsync(from ?? DateTime.Today, to ?? DateTime.Today, default));
         api.MapGet("/reports/cashier-voids/{cashierId:long}", async (CashierVoidRepository repo, long cashierId, DateTime? from, DateTime? to) =>
             await repo.DetailAsync(cashierId, from ?? DateTime.Today, to ?? DateTime.Today, default));
+        api.MapGet("/reports/offer-sales/closures", async (OfferSalesReportRepository repo) =>
+            await repo.ListClosuresAsync(default));
+        api.MapGet("/reports/offer-sales/{offerId:long}", async (OfferSalesReportRepository repo, long offerId) =>
+        {
+            try
+            {
+                return Results.Ok(await repo.GetReportAsync(offerId, default));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(
+                    new { message = "تعذّر حساب التقرير. تأكد من ترحيل قاعدة البيانات 078.", error = ex.Message },
+                    statusCode: 500);
+            }
+        });
         api.MapGet("/reports/weekly-settlement", async (WeeklySettlementRepository repo, DateTime? weekStart) =>
             await repo.GetReportAsync(weekStart, default));
         api.MapPost("/reports/product-inquiry", async (ProductInquiryRepository repo, ProductInquiryRequest req) =>

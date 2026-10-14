@@ -83,8 +83,9 @@ async function prepareTicket(win, contentPx) {
 async function withReceiptWindow(html, contentPx, prefs, fn) {
   const htmlPath = path.join(os.tmpdir(), `fot-rcpt-${Date.now()}-${Math.random().toString(16).slice(2)}.html`);
   fs.writeFileSync(htmlPath, html, 'utf8');
+  // تُنشأ مخفية ثم تُعرض بلا تفعيل — show:true كان يسرق تركيز لوحة المفاتيح من النافذة الرئيسية
   const win = new BrowserWindow({
-    show: Boolean(prefs.show),
+    show: false,
     x: prefs.x,
     y: prefs.y,
     width: contentPx,
@@ -102,6 +103,7 @@ async function withReceiptWindow(html, contentPx, prefs, fn) {
     },
   });
   try {
+    if (prefs.show) win.showInactive();
     win.webContents.setZoomFactor(1);
     await win.loadFile(htmlPath);
     const size = await prepareTicket(win, contentPx);
@@ -261,231 +263,92 @@ async function printHtmlChromium(html, copies, deviceName, widthMm) {
   });
 }
 
-function clampMm(value, fallback, min, max) {
+/* ── ملصقات الباركود: صور نقطية جاهزة بدقة الطابعة تُطبع 1:1 بلا تحجيم ولا توسيط ── */
+
+function clampNum(value, fallback, min, max) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(max, Math.max(min, Math.round(n)));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
-function labelSizeMm(options) {
-  return {
-    widthMm: clampMm(options?.paperWidthMm, 50, 20, 280),
-    heightMm: clampMm(options?.paperHeightMm, 30, 15, 240),
-  };
-}
-
-function labelPx(mm) {
-  return Math.max(1, Math.round(Number(mm) / 25.4 * THERMAL_DPI));
-}
-
-async function withLabelWindow(html, widthPx, heightPx, prefs, fn) {
-  const htmlPath = path.join(os.tmpdir(), `fot-lbl-${Date.now()}-${Math.random().toString(16).slice(2)}.html`);
-  fs.writeFileSync(htmlPath, html, 'utf8');
-  const win = new BrowserWindow({
-    show: Boolean(prefs.show),
-    x: prefs.x,
-    y: prefs.y,
-    width: widthPx,
-    height: heightPx,
-    useContentSize: true,
-    frame: false,
-    skipTaskbar: true,
-    focusable: false,
-    backgroundColor: '#ffffff',
-    webPreferences: {
-      sandbox: true,
-      backgroundThrottling: false,
-      offscreen: Boolean(prefs.offscreen),
-      zoomFactor: 1,
-    },
-  });
+/**
+ * pages: مصفوفة PNG (data URL)، كل صورة = صف ملصقات واحد بحجم widthMm × heightMm عند dpi.
+ * تُرسل كلها في مهمة طباعة واحدة (صفحة لكل صف) — أسرع ولا تنقطع الرول بين الصفوف.
+ */
+async function printRaster(pages, opts = {}) {
+  const list = Array.isArray(pages) ? pages.filter(p => typeof p === 'string' && p.startsWith('data:image/png;base64,')) : [];
+  if (!list.length) return { ok: false, message: 'لا توجد ملصقات للطباعة' };
+  if (list.length > 2000) return { ok: false, message: 'عدد الصفوف كبير جداً — قسّم الطباعة' };
+  const widthMm = clampNum(opts.widthMm, 40, 10, 300);
+  const heightMm = clampNum(opts.heightMm, 25, 8, 300);
+  const dpi = Number(opts.dpi) === 300 ? 300 : 203;
+  const copies = Math.round(clampNum(opts.copies, 1, 1, 50));
+  const printerName = opts.printerName ? String(opts.printerName) : '';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fot-lbl-'));
   try {
-    win.webContents.setZoomFactor(1);
-    await win.loadFile(htmlPath);
-    await win.webContents.executeJavaScript(`
-      Promise.all([
-        document.fonts ? document.fonts.ready.catch(() => {}) : Promise.resolve(),
-        ...Array.from(document.images).map(img => img.complete
-          ? Promise.resolve()
-          : new Promise(done => {
-              img.addEventListener('load', done, { once: true });
-              img.addEventListener('error', done, { once: true });
-              setTimeout(done, 1500);
-            })),
-      ]).then(() => 1)
-    `, true);
-    win.setContentSize(widthPx, heightPx);
-    await sleep(200);
-    return await fn(win);
-  } finally {
-    if (!win.isDestroyed()) win.destroy();
-    try { fs.unlinkSync(htmlPath); } catch { /* ignore */ }
-  }
-}
-
-async function captureLabelPng(html, widthMm, heightMm) {
-  const widthPx = labelPx(widthMm);
-  const heightPx = labelPx(heightMm);
-  const tryCapture = async prefs => withLabelWindow(html, widthPx, heightPx, prefs, async win => {
-    const image = await win.webContents.capturePage({
-      x: 0,
-      y: 0,
-      width: widthPx,
-      height: heightPx,
+    const files = list.map((dataUrl, i) => {
+      const file = path.join(dir, `r${String(i).padStart(5, '0')}.png`);
+      fs.writeFileSync(file, Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64'));
+      return file;
     });
-    const px = image?.getSize?.() || { width: 0, height: 0 };
-    if (!image || image.isEmpty() || px.width < 40 || px.height < 30) {
-      throw new Error('empty capture');
-    }
-    const pngPath = path.join(os.tmpdir(), `fot-lbl-${Date.now()}.png`);
-    fs.writeFileSync(pngPath, image.toPNG());
-    return pngPath;
-  });
-
-  try {
-    return await tryCapture({ offscreen: true, show: false });
-  } catch {
-    return tryCapture({ offscreen: false, show: true, x: -4800, y: -4800 });
-  }
-}
-
-async function printPngGdiLabel(pngPath, printerName, copies, widthMm, heightMm) {
-  const script = `
+    const listFile = path.join(dir, 'list.txt');
+    fs.writeFileSync(listFile, files.join('\r\n'), 'utf8');
+    const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-$source = [System.Drawing.Image]::FromFile(${psQuote(pngPath)})
-$img = $null
-try {
-  $img = [System.Drawing.Bitmap]::new(
-    $source.Width, $source.Height,
-    [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
-  )
-  $img.SetResolution(${THERMAL_DPI}, ${THERMAL_DPI})
-  $raster = [System.Drawing.Graphics]::FromImage($img)
-  $attrs = New-Object System.Drawing.Imaging.ImageAttributes
+$files = [System.IO.File]::ReadAllLines(${psQuote(listFile)})
+$doc = New-Object System.Drawing.Printing.PrintDocument
+$doc.DocumentName = 'FOT POS Labels'
+$doc.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+${printerName ? `$doc.PrinterSettings.PrinterName = ${psQuote(printerName)}` : ''}
+if (-not $doc.PrinterSettings.IsValid) { throw 'الطابعة المختارة غير موجودة على هذا الجهاز' }
+$doc.OriginAtMargins = $false
+$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins 0,0,0,0
+$w = [Math]::Max(1, [int][Math]::Round(${widthMm} / 25.4 * 100))
+$h = [Math]::Max(1, [int][Math]::Round(${heightMm} / 25.4 * 100))
+$doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize 'FotLabel', $w, $h
+$doc.DefaultPageSettings.Landscape = $false
+$script:idx = 0
+$script:copy = 0
+$doc.add_PrintPage({
+  param($sender, $e)
+  $img = [System.Drawing.Image]::FromFile($files[$script:idx])
   try {
-    $raster.Clear([System.Drawing.Color]::White)
-    $raster.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
-    $raster.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
-    $attrs.SetThreshold(0.52)
-    $dest = [System.Drawing.Rectangle]::new(0, 0, $source.Width, $source.Height)
-    $raster.DrawImage(
-      $source, $dest, 0, 0, $source.Width, $source.Height,
-      [System.Drawing.GraphicsUnit]::Pixel, $attrs
-    )
-  } finally {
-    $attrs.Dispose()
-    $raster.Dispose()
-    $source.Dispose()
-    $source = $null
-  }
-  $doc = New-Object System.Drawing.Printing.PrintDocument
-  $doc.DocumentName = 'FOT POS Label'
-  $doc.PrintController = New-Object System.Drawing.Printing.StandardPrintController
-  ${printerName ? `$doc.PrinterSettings.PrinterName = ${psQuote(printerName)}` : ''}
-  if (-not $doc.PrinterSettings.IsValid) { throw 'تعريف الطابعة غير صالح' }
-  $doc.OriginAtMargins = $false
-  $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins 0,0,0,0
-  $w = [Math]::Max(1, [int]([double]${Number(widthMm)} / 25.4 * 100))
-  $h = [Math]::Max(1, [int]([double]${Number(heightMm)} / 25.4 * 100))
-  $doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize 'FotLabel', $w, $h
-  $doc.add_PrintPage({
-    param($sender, $e)
-    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
-    $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
-    $e.Graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
-    $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
-    $srcW = [double]$img.Width / [Math]::Max(1.0, [double]$img.HorizontalResolution) * 100.0
-    $srcH = [double]$img.Height / [Math]::Max(1.0, [double]$img.VerticalResolution) * 100.0
-    if ($srcW -lt 1) { $srcW = $w }
-    if ($srcH -lt 1) { $srcH = $h }
-    $fit = [Math]::Min($w / $srcW, $h / $srcH)
-    if ($fit -gt 1) { $fit = 1 }
-    $drawW = $srcW * $fit
-    $drawH = $srcH * $fit
-    $x = ($w - $drawW) / 2
-    $y = ($h - $drawH) / 2
-    $e.Graphics.DrawImage($img, [single]$x, [single]$y, [single]$drawW, [single]$drawH)
-    $e.HasMorePages = $false
-  })
-  for ($i = 0; $i -lt ${Math.max(1, copies)}; $i++) { $doc.Print() }
-} finally {
-  if ($img -ne $null) { $img.Dispose() }
-  if ($source -ne $null) { $source.Dispose() }
-}
+    $g = $e.Graphics
+    $g.PageUnit = [System.Drawing.GraphicsUnit]::Millimeter
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
+    # الإزاحة الصلبة للطابعة: نطرحها كي يبدأ الرسم من حافة الورقة الفعلية
+    $hx = [double]$e.PageSettings.HardMarginX * 0.254
+    $hy = [double]$e.PageSettings.HardMarginY * 0.254
+    $dw = [double]$img.Width / ${dpi} * 25.4
+    $dh = [double]$img.Height / ${dpi} * 25.4
+    $g.DrawImage($img, [single](-$hx), [single](-$hy), [single]$dw, [single]$dh)
+  } finally { $img.Dispose() }
+  $script:idx++
+  if ($script:idx -ge $files.Length) {
+    $script:copy++
+    if ($script:copy -lt ${copies}) { $script:idx = 0; $e.HasMorePages = $true } else { $e.HasMorePages = $false }
+  } else { $e.HasMorePages = $true }
+})
+$doc.Print()
 `;
-  await runPowerShell(script);
-}
-
-async function printLabelChromium(html, copies, deviceName, widthMm, heightMm) {
-  const cssHtml = html.replace(/<style>([\s\S]*?)<\/style>/i, (_block, css) => {
-    const scaled = css.replace(/(-?\d+(?:\.\d+)?)px/g, (_m, value) =>
-      `${Math.round((Number(value) * 96 / THERMAL_DPI) * 1000) / 1000}px`);
-    return `<style>${scaled}</style>`;
-  });
-  const widthPx = Math.round(Number(widthMm) / 25.4 * 96);
-  const heightPx = Math.round(Number(heightMm) / 25.4 * 96);
-  await withLabelWindow(cssHtml, widthPx, heightPx, { offscreen: false, show: true, x: -4800, y: -4800 }, async win => {
-    const options = {
-      silent: true,
-      printBackground: true,
-      deviceName: deviceName || undefined,
-      color: false,
-      landscape: false,
-      scaleFactor: 100,
-      margins: { marginType: 'none' },
-      dpi: { horizontal: THERMAL_DPI, vertical: THERMAL_DPI },
-      pageSize: {
-        width: Math.round(widthMm * MICRONS_PER_MM),
-        height: Math.round(heightMm * MICRONS_PER_MM),
-      },
-    };
-    for (let i = 0; i < copies; i++) {
-      try {
-        await printCopy(win, options);
-      } catch {
-        await printCopy(win, {
-          silent: true,
-          printBackground: true,
-          deviceName: deviceName || undefined,
-          margins: { marginType: 'none' },
-        });
-      }
-    }
-  });
-}
-
-async function printLabelJob(html, copies, deviceName, options) {
-  const { widthMm, heightMm } = labelSizeMm(options);
-  const n = Math.max(1, Number(copies) || 1);
-  const named = deviceName || undefined;
-  let pngPath;
-  try {
-    pngPath = await captureLabelPng(html, widthMm, heightMm);
-    await printPngGdiLabel(pngPath, named, n, widthMm, heightMm);
-    return { ok: true };
-  } catch (gdiErr) {
-    try {
-      await printLabelChromium(html, n, named, widthMm, heightMm);
-      return { ok: true };
-    } catch (e) {
-      const first = gdiErr instanceof Error ? gdiErr.message : String(gdiErr);
-      const second = e instanceof Error ? e.message : String(e);
-      return { ok: false, message: second || first };
-    }
+    await runPowerShell(script);
+    return { ok: true, rows: list.length };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
   } finally {
-    if (pngPath) {
-      try { fs.unlinkSync(pngPath); } catch { /* ignore */ }
-    }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }
 
 async function printHtml(html, copies = 1, deviceName, options) {
   if (!html || !String(html).includes('<')) {
-    return { ok: false, message: options?.kind === 'label' ? 'لا يوجد ملصق للطباعة' : 'لا توجد فاتورة للطباعة' };
+    return { ok: false, message: 'لا توجد فاتورة للطباعة' };
   }
-  if (options?.kind === 'label') {
-    return printLabelJob(html, copies, deviceName, options);
+  if (options?.kind === 'document') {
+    return printDocumentJob(html);
   }
   const widthMm = Number(options?.paperWidthMm) === 58 ? 58 : 80;
   const n = Math.max(1, Number(copies) || 1);
@@ -512,4 +375,46 @@ async function printHtml(html, copies = 1, deviceName, options) {
   }
 }
 
-module.exports = { printHtml };
+/**
+ * مستند A4 (تقرير/فاتورة كاملة): نافذة طباعة النظام ليختار المستخدم الطابعة والورق —
+ * لا يمر عبر مسار الفاتورة الحرارية (80mm) ولا يرسل للطابعة الافتراضية للكاشير.
+ */
+async function printDocumentJob(html) {
+  const htmlPath = path.join(os.tmpdir(), `fot-doc-${Date.now()}-${Math.random().toString(16).slice(2)}.html`);
+  fs.writeFileSync(htmlPath, html, 'utf8');
+  // نافذة معاينة ظاهرة — حوار طباعة النظام لا يظهر بثبات لنافذة مخفية على ويندوز
+  const parent = BrowserWindow.getFocusedWindow() || undefined;
+  const win = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 1000,
+    parent,
+    autoHideMenuBar: true,
+    title: 'معاينة الطباعة — FOT POS',
+    backgroundColor: '#ffffff',
+    webPreferences: { sandbox: true, backgroundThrottling: false },
+  });
+  try {
+    await win.loadFile(htmlPath);
+    win.show();
+    // انتظار تحميل الخطوط قبل الطباعة
+    await win.webContents.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : true').catch(() => true);
+    const result = await new Promise(resolve => {
+      win.webContents.print(
+        { silent: false, printBackground: true, margins: { marginType: 'default' } },
+        (ok, reason) => resolve({ ok, reason }),
+      );
+    });
+    if (result.ok) return { ok: true };
+    // إلغاء المستخدم ليس خطأ
+    if (/cancel/i.test(String(result.reason || ''))) return { ok: true, cancelled: true };
+    return { ok: false, message: result.reason || 'تعذرت الطباعة' };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+    try { fs.unlinkSync(htmlPath); } catch { /* ignore */ }
+  }
+}
+
+module.exports = { printHtml, printRaster };

@@ -9,6 +9,15 @@ import { getApiBase } from './apiBase';
 
 export { receiptHtml };
 
+/** Cashier permission can hide salesman on print even when the shop template shows it. */
+export function applyCashierPrintPermissions(
+  settings: PrintSettingsDto,
+  opts: { printSalesmanOnReceipt: boolean },
+): PrintSettingsDto {
+  if (opts.printSalesmanOnReceipt) return settings;
+  return { ...settings, showSalesman: false };
+}
+
 export async function printReceipt(data: ReceiptPrintPreviewDto, settings: PrintSettingsDto) {
   const html = receiptHtml(data, settings, getApiBase());
   const copies = settings.copies || 1;

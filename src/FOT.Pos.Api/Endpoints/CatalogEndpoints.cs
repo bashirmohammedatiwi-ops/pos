@@ -49,6 +49,9 @@ public static class CatalogEndpoints
 
         api.MapGet("/catalog/info", async (ProductRepository repo) => await repo.GetCatalogInfoAsync(default));
 
+        api.MapGet("/catalog/bundle-offers", async (OfferRepository offers) =>
+            Results.Ok(await offers.GetPosBundleOffersAsync(default)));
+
         // Reconciliation list for terminals: the delta feed cannot express a deletion, so a
         // terminal whose local count disagrees with the server pulls every live id and drops
         // whatever is no longer there.

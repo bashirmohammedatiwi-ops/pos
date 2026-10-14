@@ -81,8 +81,13 @@ export type FotDesktopBridge = {
     copies?: number,
     deviceName?: string | null,
     /** Roll/label size so the hidden print window uses the paper instead of the driver default. */
-    options?: { paperWidthMm?: number; paperHeightMm?: number; kind?: 'receipt' | 'label' },
+    options?: { paperWidthMm?: number; paperHeightMm?: number; kind?: 'receipt' | 'document' },
   ) => Promise<{ ok: boolean; message?: string }>;
+  /** صفوف ملصقات جاهزة (PNG بدقة الطابعة) تُطبع 1:1 في مهمة واحدة — صفحة لكل صف. */
+  printRaster?: (
+    pages: string[],
+    opts: { widthMm: number; heightMm: number; dpi: 203 | 300; printerName?: string | null; copies?: number },
+  ) => Promise<{ ok: boolean; message?: string; rows?: number }>;
   listPrinters?: () => Promise<PrinterInfo[]>;
   getPrintConfig?: () => Promise<{ printerName: string | null; askBeforePrint: boolean }>;
   setPrintConfig?: (config: { printerName?: string | null; askBeforePrint?: boolean }) => Promise<void>;

@@ -39,11 +39,12 @@ public sealed class SectionRepository(ISqlConnectionFactory db, CashBoxAccountRe
         ) tc ON tc.section_id = s.id
         LEFT JOIN (
             SELECT p.section_id,
-                   COUNT(*) AS TodayReceipts,
-                   SUM(CAST(r.total_amount AS DECIMAL(18,2))) AS TodaySales
+                   SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END) AS TodayReceipts,
+                   SUM(CAST(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END AS DECIMAL(18,2))) AS TodaySales
             FROM reciepts r
             INNER JOIN point_of_sales p ON p.id = r.point_of_sale_id
             WHERE CAST(r.creation_date AS date) = CAST(GETDATE() AS date)
+              AND COALESCE(r.kind, 0) IN (0, 1)
               AND COALESCE(r.is_pending, 0) = 0
             GROUP BY p.section_id
         ) rs ON rs.section_id = s.id
@@ -99,11 +100,12 @@ public sealed class SectionRepository(ISqlConnectionFactory db, CashBoxAccountRe
             ) tc ON tc.section_id = s.id
             LEFT JOIN (
                 SELECT p.section_id,
-                       COUNT(*) AS TodayReceipts,
-                       SUM(CAST(r.total_amount AS DECIMAL(18,2))) AS TodaySales
+                       SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END) AS TodayReceipts,
+                       SUM(CAST(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END AS DECIMAL(18,2))) AS TodaySales
                 FROM reciepts r
                 INNER JOIN point_of_sales p ON p.id = r.point_of_sale_id
                 WHERE CAST(r.creation_date AS date) = CAST(GETDATE() AS date)
+              AND COALESCE(r.kind, 0) IN (0, 1)
                   AND COALESCE(r.is_pending, 0) = 0
                 GROUP BY p.section_id
             ) rs ON rs.section_id = s.id

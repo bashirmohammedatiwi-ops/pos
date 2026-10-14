@@ -3,17 +3,31 @@ import { useQuery } from '@tanstack/react-query';
 import { api, formatCurrency, formatNum } from '@/api/client';
 import type { SalesmanCommissionSummaryDto, SalesmanDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
-import { Btn, Input } from '@/components/ui';
+import { Btn, EmptyState } from '@/components/ui';
+import { SummaryStrip } from '@/components/listWorkspace';
 import { SalesmanMultiSelect } from '@/components/SalesmanMultiSelect';
-import { IconCoins, IconSliders } from '@/components/icons';
-import { useBusinessPeriod } from '@/hooks/useBusinessPeriod';
-import { formatPeriodRange } from '@/lib/businessPeriod';
+import { IconCoins, IconSliders, IconUsers } from '@/components/icons';
 import { fixEdariName } from '@/lib/text';
-import { ReportAppWindow } from './ReportAppWindow';
+import type { ReportExcelSheet } from '@/lib/reportExcel';
+import { ReportAppWindow, ReportAside } from './ReportAppWindow';
+import {
+  ChartBlock,
+  ChartToggle,
+  ExcelBtn,
+  HBarChart,
+  Money,
+  PeriodSelector,
+  PrintBtn,
+  ReportBanner,
+  ReportCenter,
+  ReportError,
+  ReportFill,
+  ReportSplit,
+  useChartDock,
+  useReportPeriod,
+} from './ReportKit';
 
 const PIN_KEY = 'fot_report_commissions_pinned';
-
-type PeriodId = 'week' | 'lastWeek' | 'month' | 'custom';
 
 function loadPinned(): number[] {
   try {
@@ -26,7 +40,9 @@ function loadPinned(): number[] {
 }
 
 function savePinned(ids: number[]) {
-  localStorage.setItem(PIN_KEY, JSON.stringify(ids));
+  try {
+    localStorage.setItem(PIN_KEY, JSON.stringify(ids));
+  } catch { /* تجاهل */ }
 }
 
 type Row = SalesmanCommissionSummaryDto & { sortIndex: number };
@@ -45,6 +61,7 @@ function columns(): GridColumn<Row>[] {
       key: 'salesmanName',
       header: 'البائع',
       width: 240,
+      exportValue: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}`,
       render: r => <span className="font-semibold text-header">{fixEdariName(r.salesmanName) || `#${r.salesmanId}`}</span>,
     },
     {
@@ -53,7 +70,7 @@ function columns(): GridColumn<Row>[] {
       width: 160,
       mono: true,
       footer: 'sum',
-      render: r => <span className="font-extrabold text-brand-800">{formatCurrency(r.totalCommission)}</span>,
+      render: r => <span className="font-bold text-brand-800">{formatCurrency(r.totalCommission)}</span>,
     },
     {
       key: 'transactionCount',
@@ -87,19 +104,14 @@ function columns(): GridColumn<Row>[] {
 }
 
 export function CommissionReportApp({ onClose }: { onClose: () => void }) {
-  const { periods } = useBusinessPeriod();
-  const [period, setPeriod] = useState<PeriodId>('week');
-  const [customFrom, setCustomFrom] = useState(periods.currentWeek.from);
-  const [customTo, setCustomTo] = useState(periods.currentWeek.to);
+  const period = useReportPeriod({
+    storageKey: 'commissions',
+    presets: ['week', 'lastWeek', 'month', 'lastMonth', 'custom'],
+    fallback: 'week',
+  });
+  const range = period.range;
   const [pinned, setPinned] = useState<number[]>(loadPinned);
   const [settingsOpen, setSettingsOpen] = useState(pinned.length === 0);
-
-  const range = useMemo(() => {
-    if (period === 'week') return periods.currentWeek;
-    if (period === 'lastWeek') return periods.previousWeek;
-    if (period === 'month') return periods.currentMonth;
-    return { from: customFrom, to: customTo };
-  }, [period, periods, customFrom, customTo]);
 
   const salesmenQ = useQuery({
     queryKey: ['salesmen', true],
@@ -144,104 +156,137 @@ export function CommissionReportApp({ onClose }: { onClose: () => void }) {
     });
   }, [pinned, byId, nameById]);
 
-  const totalEarned = rows.reduce((s, r) => s + r.totalCommission, 0);
+  const totals = useMemo(() => ({
+    earned: rows.reduce((s, r) => s + r.totalCommission, 0),
+    paid: rows.reduce((s, r) => s + r.paidOutTotal, 0),
+    due: rows.reduce((s, r) => s + Math.max(0, r.balanceDue), 0),
+    dueCount: rows.filter(r => r.balanceDue > 0).length,
+    tx: rows.reduce((s, r) => s + r.transactionCount, 0),
+  }), [rows]);
 
   function updatePinned(ids: number[]) {
     setPinned(ids);
     savePinned(ids);
   }
 
-  const periodBtns: { id: PeriodId; label: string }[] = [
-    { id: 'week', label: 'هذا الأسبوع' },
-    { id: 'lastWeek', label: 'الأسبوع الماضي' },
-    { id: 'month', label: 'هذا الشهر' },
-    { id: 'custom', label: 'تاريخ' },
-  ];
+  function sheets(): ReportExcelSheet[] {
+    return [{
+      name: 'العمولات',
+      title: 'تقرير العمولات',
+      subtitle: `${range.from} → ${range.to}`,
+      headers: ['#', 'البائع', 'عمولة الفترة', 'الحركات', 'مدفوع', 'المستحق'],
+      columnWidths: [36, 160, 96, 72, 96, 96],
+      rows: rows.map(r => [r.sortIndex, r.salesmanName, r.totalCommission, r.transactionCount, r.paidOutTotal, r.balanceDue]),
+    }];
+  }
+
+  const loading = summaryQ.isLoading;
+  const hasRows = pinned.length > 0;
+  const dock = useChartDock();
+
+  const chart = !loading && totals.earned + totals.paid > 0 ? (
+    <ChartBlock title="العمولة مقابل المدفوع" subtitle="لكل بائع مثبت — مرّر للتفاصيل">
+      <HBarChart
+        series={[
+          { key: 'earned', label: 'عمولة الفترة' },
+          { key: 'paid', label: 'المدفوع' },
+        ]}
+        format={n => formatCurrency(n)}
+        items={[...rows]
+          .sort((a, b) => b.totalCommission - a.totalCommission)
+          .slice(0, 12)
+          .map(r => ({
+            id: r.salesmanId,
+            label: r.salesmanName || `#${r.salesmanId}`,
+            values: [r.totalCommission, r.paidOutTotal],
+            sub: r.balanceDue > 0 ? `المستحق ${formatCurrency(r.balanceDue)}` : undefined,
+          }))}
+      />
+    </ChartBlock>
+  ) : null;
 
   return (
     <ReportAppWindow
+      accent="linear-gradient(135deg, #fbbf24 0%, #b45309 100%)"
       title="تقرير العمولات"
-      subtitle={`${formatPeriodRange(range.from, range.to)} · ${formatNum(pinned.length)} بائع مثبت`}
-      icon={<IconCoins size={20} />}
+      subtitle={`${period.label} · ${formatNum(pinned.length)} بائع مثبت`}
+      icon={<IconCoins size={16} />}
+      toolbar={<PeriodSelector state={period} />}
       actions={
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(v => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition ${
-            settingsOpen ? 'bg-white text-brand-800' : 'bg-white/15 text-white hover:bg-white/25'
-          }`}
-        >
-          <IconSliders size={14} />
-          إعداد البائعين
-        </button>
+        <>
+          <Btn
+            size="sm"
+            variant={settingsOpen ? 'soft' : 'ghost'}
+            icon={<IconSliders size={14} />}
+            aria-pressed={settingsOpen}
+            onClick={() => setSettingsOpen(v => !v)}
+          >
+            البائعون
+          </Btn>
+          <ExcelBtn fileName={`عمولات-${range.from}_${range.to}`} getSheets={sheets} disabled={!hasRows || loading} />
+          <PrintBtn title={`تقرير العمولات (${range.from} — ${range.to})`} getSheets={sheets} disabled={!hasRows || loading} />
+        </>
       }
+      aside={settingsOpen ? (
+        <PinSettings
+          salesmen={salesmen}
+          pinned={pinned}
+          onChange={updatePinned}
+          onDone={() => setSettingsOpen(false)}
+        />
+      ) : undefined}
       onClose={onClose}
     >
-      <div className="flex min-h-0 flex-1">
-        {settingsOpen && (
-          <PinSettings
-            salesmen={salesmen}
-            pinned={pinned}
-            onChange={updatePinned}
-            onDone={() => setSettingsOpen(false)}
+      {!hasRows ? (
+        <ReportCenter>
+          <EmptyState
+            icon={<IconUsers size={24} />}
+            title="ثبّت البائعين مرة واحدة"
+            description="اختر من يظهر في هذا التقرير. الاختيار يُحفظ على هذا الجهاز ويبقى عند كل فتح، ويمكن تعديله من «البائعون»."
+            action={<Btn icon={<IconSliders size={14} />} onClick={() => setSettingsOpen(true)}>اختيار البائعين</Btn>}
           />
-        )}
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-            <div className="flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-              {periodBtns.map(b => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setPeriod(b.id)}
-                  className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
-                    period === b.id ? 'bg-header text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-                  }`}
-                >
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            {period === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="!py-1.5" />
-                <span className="text-[12px] text-slate-400">→</span>
-                <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="!py-1.5" />
-              </div>
-            )}
-            <div className="ms-auto text-[12.5px] font-semibold text-slate-500">
-              الإجمالي {formatCurrency(totalEarned)}
-            </div>
-          </div>
-
-          {pinned.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-              <p className="text-[16px] font-extrabold text-header">ثبّت البائعين مرة واحدة</p>
-              <p className="max-w-sm text-[13.5px] leading-6 text-slate-500">
-                اختر من يظهر في هذا الإكسل. الاختيار يُحفظ على هذا الجهاز ويبقى عند كل فتح، ويمكن تعديله من الإعداد.
-              </p>
-              <Btn onClick={() => setSettingsOpen(true)}>اختيار البائعين</Btn>
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 p-3">
-              <DataGrid
-                embedded
-                fillHeight
-                columns={columns()}
-                rows={rows}
-                getRowId={r => r.salesmanId}
-                loading={summaryQ.isLoading}
-                storageKey="commission-report-excel"
-                exportName={`عمولات-${range.from}_${range.to}`}
-                counterLabel="بائع"
-                emptyText="لا عمولات في هذه الفترة — البائعون المثبتون يظهرون بصفر"
-                rowTone={r => (r.balanceDue > 0 ? 'bg-amber-50/60' : undefined)}
-              />
-            </div>
+        </ReportCenter>
+      ) : (
+        <ReportFill>
+          {summaryQ.isError && (
+            <ReportBanner><ReportError error={summaryQ.error} onRetry={() => void summaryQ.refetch()} /></ReportBanner>
           )}
-        </div>
-      </div>
+
+          <SummaryStrip
+            loading={loading}
+            cells={[
+              { label: 'عمولة الفترة', value: <Money value={totals.earned} />, tone: 'brand', hint: `${formatNum(totals.tx)} حركة` },
+              { label: 'المدفوع', value: <Money value={totals.paid} />, tone: 'ok' },
+              {
+                label: 'المستحق للصرف',
+                value: <Money value={totals.due} />,
+                tone: totals.due > 0 ? 'warn' : undefined,
+                hint: totals.dueCount ? `${formatNum(totals.dueCount)} بائع لديهم مستحق` : 'لا مستحقات',
+              },
+              { label: 'متوسط العمولة / بائع', value: <Money value={rows.length ? totals.earned / rows.length : 0} /> },
+              { label: 'بائعون مثبتون', value: formatNum(rows.length), hint: period.label },
+            ]}
+          />
+
+          <ReportSplit chart={chart} open={dock.open}>
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              columns={columns()}
+              rows={rows}
+              getRowId={r => r.salesmanId}
+              loading={loading}
+              storageKey="commission-report-excel"
+              exportName={`عمولات-${range.from}_${range.to}`}
+              counterLabel="بائع"
+              emptyText="لا عمولات في هذه الفترة — البائعون المثبتون يظهرون بصفر"
+              rowTone={r => (r.balanceDue > 0 ? 'bg-amber-50/60' : undefined)}
+              toolbar={chart ? <ChartToggle dock={dock} /> : undefined}
+            />
+          </ReportSplit>
+        </ReportFill>
+      )}
     </ReportAppWindow>
   );
 }
@@ -258,28 +303,22 @@ function PinSettings({
   onDone: () => void;
 }) {
   return (
-    <aside
-      className="flex w-[min(100%,320px)] shrink-0 flex-col border-l border-slate-200 bg-white"
-      data-keep-escape
+    <ReportAside
+      title="البائعون الظاهرون"
+      description="يُحفظ الاختيار على هذا الجهاز ويبقى عند كل فتح — عدّله متى شئت."
+      footer={
+        <>
+          <span className="text-[12px] text-slate-500"><span className="num font-semibold">{formatNum(pinned.length)}</span> مثبت</span>
+          <Btn size="sm" onClick={onDone}>تم</Btn>
+        </>
+      }
     >
-      <div className="border-b border-slate-100 px-4 py-3">
-        <h3 className="text-[14px] font-extrabold text-header">البائعون الظاهرون</h3>
-        <p className="mt-1 text-[12px] leading-5 text-slate-500">
-          يُحفظ الاختيار هنا. ليس في كل فتح — عدّله متى شئت.
-        </p>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <SalesmanMultiSelect
-          salesmen={salesmen.map(s => ({ id: s.id, name: fixEdariName(s.name) || `#${s.id}` }))}
-          selectedIds={pinned}
-          onChange={onChange}
-          emptyLabel="لم يُختر أحد بعد"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-3">
-        <span className="text-[12px] text-slate-500">{formatNum(pinned.length)} مثبت</span>
-        <Btn size="sm" onClick={onDone}>تم</Btn>
-      </div>
-    </aside>
+      <SalesmanMultiSelect
+        salesmen={salesmen.map(s => ({ id: s.id, name: fixEdariName(s.name) || `#${s.id}` }))}
+        selectedIds={pinned}
+        onChange={onChange}
+        emptyLabel="لم يُختر أحد بعد"
+      />
+    </ReportAside>
   );
 }

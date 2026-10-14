@@ -1,13 +1,57 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, formatNum, receiptDisplayNumber, todayIso } from '@/api/client';
 import { offerTypeLabel } from '@/lib/offers';
 import { NAV_GROUPS } from '@/navigation/routes';
 import { useIncentiveAlerts } from '@/hooks/useIncentiveAlerts';
-import { ICONS, IconGrid, IconSearch, type IconKey } from '@/components/icons';
+import { ICONS, IconClock, IconGrid, IconHelp, IconRefresh, IconSearch, IconX, IconZap, type IconKey } from '@/components/icons';
+import { Kbd } from '@/components/ui';
 
-type CmdItem = { key: string; iconKey: IconKey; label: string; group: string; hint?: string; path: string; offerId?: number };
+type ActionId = 'help' | 'refresh';
+type CmdItem = {
+  key: string;
+  iconKey: IconKey;
+  label: string;
+  group: string;
+  hint?: string;
+  path: string;
+  offerId?: number;
+  action?: ActionId;
+};
+
+const RECENT_KEY = 'fot_admin_cmd_recent';
+const RECENT_GROUP = 'الأخيرة';
+const WORK_GROUP = 'عمل اليوم';
+const ACTION_GROUP = 'إجراءات سريعة';
+
+const ACTION_ICONS: Record<ActionId, (p: { size?: number }) => ReactNode> = {
+  help: IconHelp,
+  refresh: IconRefresh,
+};
+
+/** تمييز جزء النص المطابق لكلمة البحث. */
+function Highlight({ text, term }: { text: string; term: string }) {
+  if (!term) return <>{text}</>;
+  const i = text.toLowerCase().indexOf(term.toLowerCase());
+  if (i < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="rounded-sm bg-brand-100/80 px-0.5 text-brand-800">{text.slice(i, i + term.length)}</mark>
+      {text.slice(i + term.length)}
+    </>
+  );
+}
+
+function readRecents(): CmdItem[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') as CmdItem[];
+    return Array.isArray(raw) ? raw.filter(r => r && typeof r.path === 'string' && !r.action).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function CommandPalette({
   open,
@@ -19,10 +63,12 @@ export function CommandPalette({
   onOpen: () => void;
 }) {
   const nav = useNavigate();
+  const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
+  const [recentsVersion, setRecentsVersion] = useState(0);
   const term = q.trim();
 
   const productsQ = useQuery({
@@ -68,33 +114,46 @@ export function CommandPalette({
 
   const { atRiskCount } = useIncentiveAlerts();
 
+  const recents = useMemo(() => (open ? readRecents() : []), [open, recentsVersion]);
+
   const items = useMemo<CmdItem[]>(() => {
     const today = todayIso();
     const work: CmdItem[] = [
-      { key: 'w-today', iconKey: 'receipts', label: 'فواتير اليوم', group: 'عمل اليوم', path: `/receipts?from=${today}&to=${today}` },
-      { key: 'w-holds', iconKey: 'receipts', label: 'فواتير معلّقة', group: 'عمل اليوم', path: '/receipts?hold=1' },
-      { key: 'w-edari', iconKey: 'edari', label: 'ترحيل Edari', group: 'عمل اليوم', path: '/edari' },
-      { key: 'w-activity', iconKey: 'activity', label: 'حركات الكاشير', group: 'عمل اليوم', path: '/activity' },
-      { key: 'w-reports', iconKey: 'reports', label: 'التقارير', group: 'عمل اليوم', path: '/reports' },
-      { key: 'w-comm-report', iconKey: 'commissions', label: 'تقرير العمولات', group: 'عمل اليوم', path: '/reports?app=commissions' },
-      { key: 'w-target-report', iconKey: 'targets', label: 'تقرير الأهداف', group: 'عمل اليوم', path: '/reports?app=targets' },
-      { key: 'w-product-inquiry', iconKey: 'products', label: 'استعلام مادة', group: 'عمل اليوم', path: '/reports?app=product-inquiry' },
-      { key: 'w-seller-receipts', iconKey: 'receipts', label: 'فواتير البائع', group: 'عمل اليوم', path: '/reports?app=seller-receipts' },
-      { key: 'w-cashier-voids', iconKey: 'activity', label: 'حذف وإلغاء الكاشير', group: 'عمل اليوم', path: '/reports?app=cashier-voids' },
-      { key: 'w-offer', iconKey: 'offers', label: 'إنشاء عرض', group: 'عمل اليوم', path: '/offers?new=1' },
-      { key: 'w-comm', iconKey: 'commissions', label: 'مجاميع العمولة', group: 'عمل اليوم', path: '/commissions' },
-      { key: 'w-salesmen', iconKey: 'salesmen', label: 'تقارير البائعين', group: 'عمل اليوم', path: '/salesmen?tab=reports' },
-      { key: 'w-targets', iconKey: 'targets', label: 'إدارة الأهداف', group: 'عمل اليوم', path: '/targets' },
+      { key: 'w-today', iconKey: 'receipts', label: 'فواتير اليوم', group: WORK_GROUP, path: `/receipts?from=${today}&to=${today}` },
+      { key: 'w-holds', iconKey: 'receipts', label: 'فواتير معلّقة', group: WORK_GROUP, path: '/receipts?hold=1' },
+      { key: 'w-edari', iconKey: 'edari', label: 'ترحيل Edari', group: WORK_GROUP, path: '/edari' },
+      { key: 'w-activity', iconKey: 'activity', label: 'حركات الكاشير', group: WORK_GROUP, path: '/activity' },
+      { key: 'w-reports', iconKey: 'reports', label: 'التقارير', group: WORK_GROUP, path: '/reports' },
+      { key: 'w-comm-report', iconKey: 'commissions', label: 'تقرير العمولات', group: WORK_GROUP, path: '/reports?app=commissions' },
+      { key: 'w-target-report', iconKey: 'targets', label: 'تقرير الأهداف', group: WORK_GROUP, path: '/reports?app=targets' },
+      { key: 'w-product-inquiry', iconKey: 'products', label: 'استعلام مادة', group: WORK_GROUP, path: '/reports?app=product-inquiry' },
+      { key: 'w-seller-receipts', iconKey: 'receipts', label: 'فواتير البائع', group: WORK_GROUP, path: '/reports?app=seller-receipts' },
+      { key: 'w-daily-close', iconKey: 'receipts', label: 'تقرير نهاية اليوم', group: WORK_GROUP, path: '/reports?app=daily-close' },
+      { key: 'w-compare', iconKey: 'reports', label: 'مقارنة فترتين', group: WORK_GROUP, path: '/reports?app=compare' },
+      { key: 'w-peak-hours', iconKey: 'reports', label: 'أوقات الذروة', group: WORK_GROUP, path: '/reports?app=peak-hours' },
+      { key: 'w-cashier-perf', iconKey: 'cashiers', label: 'أداء الكاشير', group: WORK_GROUP, path: '/reports?app=cashier-performance' },
+      { key: 'w-reorder', iconKey: 'products', label: 'مواد ستنفد قريباً', group: WORK_GROUP, path: '/reports?app=reorder' },
+      { key: 'w-slow-movers', iconKey: 'products', label: 'المواد الراكدة', group: WORK_GROUP, path: '/reports?app=slow-movers' },
+      { key: 'w-settlement', iconKey: 'commissions', label: 'كشف التسليم', group: WORK_GROUP, path: '/reports?app=settlement' },
+      { key: 'w-cashier-voids', iconKey: 'activity', label: 'حذف وإلغاء الكاشير', group: WORK_GROUP, path: '/reports?app=cashier-voids' },
+      { key: 'w-offer', iconKey: 'offers', label: 'إنشاء عرض', group: WORK_GROUP, path: '/offers?new=1' },
+      { key: 'w-comm', iconKey: 'commissions', label: 'مجاميع العمولة', group: WORK_GROUP, path: '/commissions' },
+      { key: 'w-salesmen', iconKey: 'salesmen', label: 'تقارير البائعين', group: WORK_GROUP, path: '/salesmen?tab=reports' },
+      { key: 'w-targets', iconKey: 'targets', label: 'إدارة الأهداف', group: WORK_GROUP, path: '/targets' },
     ];
     if (atRiskCount > 0) {
       work.unshift({
         key: 'w-risk',
         iconKey: 'targets',
         label: `أهداف تحتاج متابعة (${formatNum(atRiskCount)})`,
-        group: 'عمل اليوم',
+        group: WORK_GROUP,
         path: '/targets',
       });
     }
+    const actions: CmdItem[] = [
+      { key: 'a-refresh', iconKey: 'dashboard', label: 'تحديث بيانات الصفحة', group: ACTION_GROUP, hint: 'إعادة جلب كل البيانات', path: '', action: 'refresh' },
+      { key: 'a-help', iconKey: 'dashboard', label: 'اختصارات لوحة المفاتيح', group: ACTION_GROUP, hint: 'F1', path: '', action: 'help' },
+    ];
     const pages = NAV_GROUPS.flatMap(g =>
       g.items.map(i => ({ key: i.path, iconKey: i.iconKey, label: i.label, group: g.label, hint: i.hint, path: i.path })),
     );
@@ -188,8 +247,22 @@ export function CommandPalette({
     const workHits = s
       ? work.filter(i => i.label.includes(term) || i.group.includes(term))
       : work;
-    return [...workHits, ...pageHits, ...offers, ...groups, ...targets, ...salesmen, ...cashiers, ...products, ...receipts];
-  }, [term, productsQ.data, receiptsQ.data, offersQ.data, cashiersQ.data, groupsQ.data, targetsQ.data, salesmenQ.data, atRiskCount]);
+    const actionHits = s ? actions.filter(i => i.label.includes(term)) : actions;
+    const recentHits = s ? [] : recents.map(r => ({ ...r, key: `recent-${r.key}`, group: RECENT_GROUP }));
+    return [
+      ...recentHits,
+      ...workHits,
+      ...pageHits,
+      ...offers,
+      ...groups,
+      ...targets,
+      ...salesmen,
+      ...cashiers,
+      ...products,
+      ...receipts,
+      ...actionHits,
+    ];
+  }, [term, recents, productsQ.data, receiptsQ.data, offersQ.data, cashiersQ.data, groupsQ.data, targetsQ.data, salesmenQ.data, atRiskCount]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -216,48 +289,69 @@ export function CommandPalette({
   }, [open]);
 
   useEffect(() => {
-    const el = listRef.current?.children[idx] as HTMLElement | undefined;
+    if (idx > items.length - 1) setIdx(Math.max(0, items.length - 1));
+  }, [items.length, idx]);
+
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
     el?.scrollIntoView({ block: 'nearest' });
   }, [idx]);
 
-  const recents = useMemo(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem('fot_admin_cmd_recent') || '[]') as CmdItem[];
-      return Array.isArray(raw) ? raw.slice(0, 5) : [];
-    } catch {
-      return [];
-    }
-  }, [open]);
-
-  const searching = term.length >= 2 && (productsQ.isFetching || receiptsQ.isFetching);
+  const searching = term.length >= 2 && (
+    productsQ.isFetching || receiptsQ.isFetching || offersQ.isFetching || cashiersQ.isFetching
+    || groupsQ.isFetching || salesmenQ.isFetching || targetsQ.isFetching
+  );
 
   function go(item: CmdItem) {
+    if (item.action) {
+      onClose();
+      setQ('');
+      if (item.action === 'help') window.setTimeout(() => window.dispatchEvent(new CustomEvent('fot-admin-help')), 0);
+      if (item.action === 'refresh') void qc.invalidateQueries();
+      return;
+    }
     if (item.offerId) sessionStorage.setItem('fot_admin_offer', String(item.offerId));
     try {
-      const prev = JSON.parse(localStorage.getItem('fot_admin_cmd_recent') || '[]') as CmdItem[];
-      const next = [item, ...prev.filter(x => x.key !== item.key)].slice(0, 6);
-      localStorage.setItem('fot_admin_cmd_recent', JSON.stringify(next));
+      const base = { ...item, key: item.key.replace(/^recent-/, '') };
+      const prev = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') as CmdItem[];
+      const next = [base, ...(Array.isArray(prev) ? prev : []).filter(x => x.key !== base.key)].slice(0, 6);
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
     } catch { /* ignore */ }
     nav(item.path);
     onClose();
     setQ('');
   }
 
+  function clearRecents() {
+    try {
+      localStorage.removeItem(RECENT_KEY);
+    } catch { /* ignore */ }
+    setRecentsVersion(v => v + 1);
+    inputRef.current?.focus();
+  }
+
   if (!open) return null;
 
-  const groupTints: Record<string, string> = {
-    'عمل اليوم': 'bg-brand-50 text-brand-600',
-    الصفحات: 'bg-slate-100 text-slate-500',
-  };
+  const groupCounts = items.reduce<Record<string, number>>((acc, it) => {
+    acc[it.group] = (acc[it.group] ?? 0) + 1;
+    return acc;
+  }, {});
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center bg-slate-900/40 p-4 pt-[10vh]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[80] flex animate-fade-in items-start justify-center bg-slate-900/45 p-4 pt-[9vh] backdrop-blur-[2px]"
+      onClick={onClose}
+      role="presentation"
+    >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-pop"
+        className="flex max-h-[80vh] w-full max-w-[640px] animate-pop-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-pop"
         onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="بحث سريع"
       >
         <div className="flex items-center gap-3 border-b border-slate-100 px-4">
-          <span className="text-slate-400"><IconSearch size={17} /></span>
+          <span className="text-slate-400"><IconSearch size={18} /></span>
           <input
             ref={inputRef}
             value={q}
@@ -266,83 +360,161 @@ export function CommandPalette({
               setIdx(0);
             }}
             onKeyDown={e => {
-              if (e.key === 'Escape') onClose();
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                if (q) {
+                  setQ('');
+                  setIdx(0);
+                } else onClose();
+              }
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setIdx(i => Math.min(items.length - 1, i + 1));
+                setIdx(i => (items.length ? (i + 1) % items.length : 0));
               }
               if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                setIdx(i => Math.max(0, i - 1));
+                setIdx(i => (items.length ? (i - 1 + items.length) % items.length : 0));
               }
-              if (e.key === 'Enter' && items[idx]) go(items[idx]);
+              if (e.key === 'Home' && !q) {
+                e.preventDefault();
+                setIdx(0);
+              }
+              if (e.key === 'End' && !q) {
+                e.preventDefault();
+                setIdx(Math.max(0, items.length - 1));
+              }
+              if (e.key === 'Enter' && items[idx]) {
+                e.preventDefault();
+                go(items[idx]);
+              }
             }}
-            placeholder="صفحة، عرض، كاشير، منتج، أو فاتورة…"
-            className="w-full bg-transparent py-4 text-[14.5px] outline-none placeholder:text-slate-400"
+            placeholder="ابحث عن صفحة، عرض، كاشير، بائع، منتج أو فاتورة…"
+            className="h-14 w-full bg-transparent text-[15px] text-slate-800 outline-none placeholder:text-slate-400"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="cmd-list"
+            aria-activedescendant={items[idx] ? `cmd-item-${idx}` : undefined}
           />
           {searching && (
-            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" aria-label="جاري البحث" />
+          )}
+          {q ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQ('');
+                setIdx(0);
+                inputRef.current?.focus();
+              }}
+              className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="مسح البحث"
+            >
+              <IconX size={14} />
+            </button>
+          ) : (
+            <span className="hidden shrink-0 sm:inline-flex"><Kbd>Esc</Kbd></span>
           )}
         </div>
-        {!term && recents.length > 0 && (
-          <div className="border-b border-slate-100 px-4 py-2.5">
-            <p className="mb-1.5 text-[10px] font-bold text-slate-400">الأخيرة</p>
-            <div className="flex flex-wrap gap-1.5">
-              {recents.map(r => {
-                const Rico = ICONS[r.iconKey] ?? IconGrid;
-                return (
-                  <button
-                    key={`recent-${r.key}`}
-                    type="button"
-                    onClick={() => go(r)}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-200"
-                  >
-                    <Rico size={12} />
-                    {r.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        <ul ref={listRef} className="max-h-[380px] overflow-y-auto py-1.5">
+
+        <div ref={listRef} id="cmd-list" role="listbox" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
           {items.map((item, i) => {
             const showGroup = i === 0 || items[i - 1].group !== item.group;
+            const active = i === idx;
+            const isRecent = item.group === RECENT_GROUP;
+            const ActionIco = item.action ? ACTION_ICONS[item.action] : null;
             const Ico = ICONS[item.iconKey] ?? IconGrid;
-            const tint = groupTints[item.group] ?? 'bg-slate-100 text-slate-500';
             return (
-              <li key={item.key}>
+              <Fragment key={item.key}>
                 {showGroup && (
-                  <div className="px-4 pb-1 pt-2.5 text-[10px] font-bold tracking-wide text-slate-400">{item.group}</div>
+                  <div className={`flex items-center justify-between px-2.5 pb-1 ${i === 0 ? 'pt-1' : 'pt-3'}`}>
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+                      {isRecent && <IconClock size={11} />}
+                      {item.group === ACTION_GROUP && <IconZap size={11} />}
+                      {item.group}
+                      <span className="num font-semibold text-slate-300">{formatNum(groupCounts[item.group] ?? 0)}</span>
+                    </span>
+                    {isRecent && (
+                      <button
+                        type="button"
+                        onClick={clearRecents}
+                        className="rounded px-1.5 text-[11px] font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                      >
+                        مسح
+                      </button>
+                    )}
+                  </div>
                 )}
                 <button
                   type="button"
+                  id={`cmd-item-${i}`}
+                  data-idx={i}
+                  role="option"
+                  aria-selected={active}
                   onClick={() => go(item)}
-                  onMouseEnter={() => setIdx(i)}
-                  className={`flex w-full items-center gap-3 px-3.5 py-2 text-right text-[13px] transition ${
-                    i === idx ? 'bg-brand-50/80 text-header' : 'hover:bg-slate-50'
+                  onMouseMove={() => {
+                    if (!active) setIdx(i);
+                  }}
+                  className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-right text-[13px] transition-colors ${
+                    active ? 'bg-brand-50 text-header' : 'text-slate-700'
                   }`}
                 >
-                  <span className={`icon-tile h-7 w-7 ${i === idx ? 'bg-brand-100 text-brand-700' : tint}`}>
-                    <Ico size={14} />
+                  {active && <span className="absolute inset-y-2 right-0 w-0.5 rounded-full bg-brand-500" aria-hidden />}
+                  <span
+                    className={`icon-tile h-8 w-8 shrink-0 rounded-lg ${
+                      active
+                        ? 'bg-brand-100 text-brand-700'
+                        : item.group === WORK_GROUP
+                          ? 'bg-brand-50 text-brand-600'
+                          : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {ActionIco ? <ActionIco size={15} /> : <Ico size={15} />}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
-                  {item.hint && <span className="max-w-[240px] truncate text-[11px] text-slate-400">{item.hint}</span>}
-                  {i === idx && (
-                    <kbd className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-slate-400">↵</kbd>
-                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">
+                      <Highlight text={item.label} term={term} />
+                    </span>
+                    {item.hint && <span className="block truncate text-[11.5px] font-normal text-slate-400">{item.hint}</span>}
+                  </span>
+                  {active ? (
+                    <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-brand-600">
+                      {item.action ? 'تنفيذ' : 'فتح'}
+                      <Kbd>↵</Kbd>
+                    </span>
+                  ) : isRecent ? (
+                    <span className="shrink-0 text-[11px] text-slate-300">{item.path.split('?')[0]}</span>
+                  ) : null}
                 </button>
-              </li>
+              </Fragment>
             );
           })}
-          {!items.length && <li className="px-4 py-10 text-center text-[13px] text-slate-400">لا نتائج</li>}
-        </ul>
-        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[11px] text-slate-400">
-          <span>حرفان للبحث في المنتجات والفواتير والعروض والعمولات والأهداف</span>
-          <span className="flex items-center gap-1">
-            <kbd className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold">Ctrl K</kbd>
-            <kbd className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold">↑↓</kbd>
-            <kbd className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold">↵</kbd>
+          {!items.length && (
+            <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+              <span className="icon-tile h-12 w-12 rounded-2xl bg-slate-100 text-slate-400"><IconSearch size={22} /></span>
+              <p className="text-[13.5px] font-bold text-slate-700">
+                {searching ? 'جاري البحث…' : `لا نتائج لـ «${term}»`}
+              </p>
+              {!searching && (
+                <p className="max-w-xs text-[12px] text-slate-500">
+                  جرّب كلمة أقصر، أو رقم الفاتورة، أو باركود المنتج.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[11px] text-slate-500">
+          <span className="flex items-center gap-3">
+            <span className="flex items-center gap-1"><Kbd>↑</Kbd><Kbd>↓</Kbd> تنقّل</span>
+            <span className="flex items-center gap-1"><Kbd>↵</Kbd> فتح</span>
+            <span className="flex items-center gap-1"><Kbd>Esc</Kbd> إغلاق</span>
+          </span>
+          <span className="hidden sm:inline">
+            {term.length === 1
+              ? 'اكتب حرفاً آخر للبحث في المنتجات والفواتير…'
+              : term.length >= 2
+                ? `${formatNum(items.length)} نتيجة`
+                : 'حرفان للبحث في المنتجات والفواتير والعروض والعمولات والأهداف'}
           </span>
         </div>
       </div>

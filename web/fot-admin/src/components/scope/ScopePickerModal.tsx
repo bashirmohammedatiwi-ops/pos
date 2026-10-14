@@ -1,3 +1,4 @@
+import { Portal } from '@/components/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useScrollLock } from '@/hooks/useScrollLock';
@@ -5,7 +6,7 @@ import { api, formatNum } from '@/api/client';
 import type { TreeNodeDto } from '@/api/types';
 import { fixEdariName } from '@/lib/text';
 import { useToast } from '@/components/Toast';
-import { Btn, Input, Loading } from '@/components/ui';
+import { Btn, Input, Loading, useConfirm } from '@/components/ui';
 import {
   IconCheckCircle,
   IconFolderClosed,
@@ -25,7 +26,7 @@ import { CommissionGroupPills, otherCommissionMemberships } from '@/components/c
  *                 أبداً — متوافق مع قارئ الباركود الذي يرسل Enter تلقائياً).
  *   الجهة اليسرى: المحتوى الحالي + التعديلات المؤشّرة.
  *
- *   الألوان:  أحمر  = الصنف موجود أصلاً داخل النطاق (مع علامة «مضاف»).
+ *   الألوان:  أخضر = الصنف موجود أصلاً داخل النطاق (مع علامة «مضاف»).
  *             أصفر = مؤشَّر للإضافة (تأشير بالضغط أو كلك-يمين ← إضافة).
  *             أحمر مشطوب = مؤشَّر للإزالة.
  *   كل لوحة تتحرك (scroll) بشكل مستقل، ولا يُحفظ أي شيء قبل زر «حفظ».
@@ -84,6 +85,8 @@ export function ScopePickerModal({
   commissionGroupId,
 }: ScopePickerModalProps) {
   const toast = useToast();
+  const confirm = useConfirm();
+  const confirmingRef = useRef(false);
   const [parent, setParent] = useState<number | undefined>();
   const [path, setPath] = useState<{ seq: number; name: string }[]>([]);
   const [search, setSearch] = useState('');
@@ -137,8 +140,10 @@ export function ScopePickerModal({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open && !saving && !menu) {
-        if (stagedCount > 0 && !window.confirm('هناك تعديلات مؤشَّرة غير محفوظة — إغلاق دون حفظ؟')) return;
-        onClose();
+        if (document.querySelector('[role="alertdialog"]')) return;
+        // نُعلِم المحرر الأب أن Escape عولج هنا
+        e.preventDefault();
+        void requestClose();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -288,28 +293,47 @@ export function ScopePickerModal({
     }
   }
 
+  async function requestClose() {
+    if (saving || confirmingRef.current) return;
+    if (stagedCount > 0) {
+      confirmingRef.current = true;
+      try {
+        const ok = await confirm({
+          title: 'إغلاق دون حفظ؟',
+          message: `هناك ${formatNum(stagedCount)} تعديل مؤشَّر لم يُحفظ وسيضيع.`,
+          confirmLabel: 'إغلاق دون حفظ',
+          danger: true,
+        });
+        if (!ok) return;
+      } finally {
+        confirmingRef.current = false;
+      }
+    }
+    onClose();
+  }
+
   if (!open) return null;
 
   const stateClasses: Record<RowState, string> = {
     normal: 'hover:bg-slate-50',
-    'in-scope': 'bg-red-50/80 ring-1 ring-inset ring-red-200',
-    'staged-add': 'bg-amber-100/90 ring-2 ring-inset ring-amber-400',
-    'staged-remove': 'bg-red-100 ring-2 ring-inset ring-red-400',
+    'in-scope': 'bg-brand-50/60 ring-1 ring-inset ring-brand-200',
+    'staged-add': 'bg-amber-50 ring-2 ring-inset ring-amber-300',
+    'staged-remove': 'bg-red-50 ring-2 ring-inset ring-red-300',
   };
 
   function StateBadge({ state }: { state: RowState }) {
     if (state === 'in-scope') {
       return (
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
           <IconCheckCircle size={11} /> مضاف
         </span>
       );
     }
     if (state === 'staged-add') {
-      return <span className="shrink-0 rounded-full bg-amber-300 px-2 py-0.5 text-[10px] font-bold text-amber-900">✓ سيُضاف</span>;
+      return <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-300">سيُضاف</span>;
     }
     if (state === 'staged-remove') {
-      return <span className="shrink-0 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">✕ سيُزال</span>;
+      return <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-inset ring-red-300">سيُزال</span>;
     }
     return null;
   }
@@ -332,7 +356,7 @@ export function ScopePickerModal({
         )}
         {(st === 'normal' || st === 'staged-add') && (
           <MenuItem
-            label={isProduct ? 'إضافة (تأشير أصفر)' : 'إضافة الشجرة كاملة'}
+            label={isProduct ? 'تأشير للإضافة' : 'إضافة الشجرة كاملة'}
             icon={<IconPlus size={12} />}
             onClick={() => {
               if (isProduct) {
@@ -404,31 +428,32 @@ export function ScopePickerModal({
   }
 
   return (
+    <Portal>
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-3"
-      onMouseDown={e => { if (e.target === e.currentTarget && !saving) { if (stagedCount === 0 || window.confirm('إغلاق دون حفظ التعديلات المؤشَّرة؟')) onClose(); } }}
+      className="fixed inset-0 z-[70] flex animate-fade-in items-center justify-center bg-slate-950/50 p-3 backdrop-blur-[2px]"
+      onMouseDown={e => { if (e.target === e.currentTarget) void requestClose(); }}
     >
       <div
         role="dialog"
         aria-modal="true"
         dir="rtl"
-        className="flex h-[min(880px,92vh)] w-[min(1280px,95vw)] flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 shadow-2xl"
+        className="flex h-[min(880px,92vh)] w-[min(1280px,95vw)] animate-pop-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-pop"
       >
         {/* ── الرأس ── */}
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center gap-3">
             <h2 className="text-[15px] font-bold text-header">{title}</h2>
-            <span className="rounded-full bg-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">{scopeName}</span>
+            <span className="max-w-[240px] truncate rounded-full bg-brand-50 px-2.5 py-0.5 text-[11.5px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">{scopeName}</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden items-center gap-3 text-[10.5px] font-semibold sm:flex">
-              <span className="flex items-center gap-1.5 text-red-600"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> مضاف حالياً</span>
+              <span className="flex items-center gap-1.5 text-brand-700"><span className="h-2.5 w-2.5 rounded-full bg-brand-500" /> مضاف حالياً</span>
               <span className="flex items-center gap-1.5 text-amber-700"><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> مؤشَّر للإضافة</span>
-              <span className="flex items-center gap-1.5 text-red-700"><span className="h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-red-200" /> مؤشَّر للإزالة</span>
+              <span className="flex items-center gap-1.5 text-red-700"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> مؤشَّر للإزالة</span>
             </div>
             <button
               type="button"
-              onClick={() => { if (!saving && (stagedCount === 0 || window.confirm('إغلاق دون حفظ التعديلات المؤشَّرة؟'))) onClose(); }}
+              onClick={() => void requestClose()}
               className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-500"
               title="إغلاق"
             >
@@ -444,12 +469,12 @@ export function ScopePickerModal({
             <div className="shrink-0 space-y-2 border-b border-slate-100 px-3.5 py-2.5">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-[13px] font-bold text-header">الكتالوج</h3>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${nodesQ.data?.source === 'edari' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${nodesQ.data?.source === 'edari' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>
                   {nodesQ.data?.source === 'edari' ? 'شجرة الإداري' : 'محلي'}
                 </span>
               </div>
               <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400">
+                <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-slate-400">
                   <IconSearch size={14} />
                 </span>
                 <Input
@@ -458,7 +483,7 @@ export function ScopePickerModal({
                   onChange={e => { setSearch(e.target.value); setBarcodeHit(null); }}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void onSearchEnter(); } }}
                   placeholder="بحث بالاسم/الباركود — Enter لا يضيف، فقط يؤشّر النتيجة"
-                  className="py-1.5 pe-3 ps-8"
+                  className="!ps-8"
                 />
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -474,7 +499,7 @@ export function ScopePickerModal({
             <div className="min-h-0 flex-1 overflow-y-auto" onScroll={() => setMenu(null)}>
               {nodesQ.isLoading && <Loading />}
               {!nodesQ.isLoading && rows.folders.length === 0 && rows.products.length === 0 && (
-                <p className="p-8 text-center text-[12.5px] text-muted">لا نتائج — جرّب مصطلحاً أقصر أو امسح باركوداً</p>
+                <p className="p-8 text-center text-[12.5px] text-slate-400">لا نتائج — جرّب مصطلحاً أقصر أو امسح باركوداً</p>
               )}
               {rows.folders.map((n, idx) => {
                 const st = treeState(n.seq);
@@ -490,12 +515,12 @@ export function ScopePickerModal({
                     }}
                   >
                     <button type="button" onClick={() => enterFolder(n)} className="flex min-w-0 flex-1 items-center gap-2.5 text-right">
-                      <span className={`icon-tile h-8 w-8 ${st === 'in-scope' || st === 'staged-remove' ? 'bg-red-100 text-red-600' : st === 'staged-add' ? 'bg-amber-200 text-amber-800' : 'bg-amber-50 text-amber-600'}`}>
+                      <span className={`icon-tile h-8 w-8 ${st === 'in-scope' ? 'bg-brand-100 text-brand-700' : st === 'staged-remove' ? 'bg-red-100 text-red-600' : st === 'staged-add' ? 'bg-amber-100 text-amber-800' : 'bg-amber-50 text-amber-600'}`}>
                         <IconFolderClosed size={15} />
                       </span>
                       <span className="min-w-0">
-                        <span className={`block truncate text-[13px] font-semibold ${st === 'staged-remove' ? 'text-red-400 line-through' : st === 'in-scope' ? 'text-red-700' : 'text-header'}`}>{name}</span>
-                        <span className="block text-[10px] text-slate-400">
+                        <span className={`block truncate text-[13px] font-semibold ${st === 'staged-remove' ? 'text-red-400 line-through' : st === 'in-scope' ? 'text-brand-800' : 'text-header'}`}>{name}</span>
+                        <span className="block text-[11px] text-slate-400">
                           {st === 'in-scope' ? 'الشجرة مضافة — منتجاتها الجديدة تدخل تلقائياً' : 'شجرة — اضغط للدخول أو أضِف كامل منتجاتها'}
                         </span>
                       </span>
@@ -507,9 +532,9 @@ export function ScopePickerModal({
                       title={st === 'normal' || st === 'staged-add' ? 'تأشير الشجرة للإضافة' : st === 'in-scope' ? 'تأشير الشجرة للإزالة' : 'إلغاء التأشير'}
                       className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
                         st === 'normal' ? 'bg-brand-50 text-brand-700 hover:bg-brand-100'
-                        : st === 'staged-add' ? 'bg-amber-300 text-amber-900 hover:bg-amber-400'
-                        : st === 'in-scope' ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                        : 'bg-red-500 text-white hover:bg-red-600'
+                        : st === 'staged-add' ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                        : st === 'in-scope' ? 'bg-white text-red-600 ring-1 ring-inset ring-red-200 hover:bg-red-50'
+                        : 'bg-red-600 text-white hover:bg-red-700'
                       }`}
                     >
                       {st === 'normal' || st === 'staged-add' ? '+ الشجرة' : st === 'in-scope' ? 'إزالة' : '✕ تراجع'}
@@ -531,14 +556,14 @@ export function ScopePickerModal({
                       setMenu({ x: e.clientX, y: e.clientY, target: { kind: 'product', seq: n.seq, name, barcode: n.barcode ?? undefined, price: n.price ?? undefined } });
                     }}
                   >
-                    <span className={`icon-tile h-8 w-8 ${st === 'in-scope' || st === 'staged-remove' ? 'bg-red-100 text-red-500' : st === 'staged-add' ? 'bg-amber-200 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <span className={`icon-tile h-8 w-8 ${st === 'in-scope' ? 'bg-brand-100 text-brand-700' : st === 'staged-remove' ? 'bg-red-100 text-red-500' : st === 'staged-add' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
                       <IconPackage size={14} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className={`block truncate text-[13px] ${st === 'staged-remove' ? 'font-medium text-red-400 line-through' : st === 'in-scope' ? 'font-semibold text-red-700' : 'font-medium text-header'}`}>
+                      <span className={`block truncate text-[13px] ${st === 'staged-remove' ? 'font-medium text-red-400 line-through' : st === 'in-scope' ? 'font-semibold text-brand-800' : 'font-medium text-header'}`}>
                         {name}
                       </span>
-                      {n.barcode && <span className="block font-mono text-[10px] text-slate-400">{n.barcode}</span>}
+                      {n.barcode && <span className="block font-mono text-[11px] text-slate-400">{n.barcode}</span>}
                       {commissionGroupId != null && (
                         <CommissionGroupPills groups={othersBySeq.get(n.seq)} currentGroupId={commissionGroupId} mode="others" />
                       )}
@@ -564,7 +589,7 @@ export function ScopePickerModal({
             <div className="shrink-0 border-b border-slate-100 px-3.5 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-[13px] font-bold text-header">المحتوى الحالي</h3>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
                   {formatNum(trees.reduce((n, t) => n + t.count, 0) + standalone.length)} صنف · {formatNum(trees.length)} شجرة
                 </span>
                 {stagedCount > 0 && (
@@ -626,7 +651,7 @@ export function ScopePickerModal({
                     <span className={`icon-tile h-7 w-7 ${removing ? 'bg-red-100 text-red-500' : 'bg-slate-100 text-slate-500'}`}><IconPackage size={13} /></span>
                     <span className="min-w-0 flex-1">
                       <span className={`block truncate text-[12.5px] font-medium ${removing ? 'text-red-400 line-through' : 'text-header'}`}>{item.name}</span>
-                      {(item.barcode || item.meta) && <span className="block truncate font-mono text-[10px] text-slate-400">{item.barcode ?? item.meta}</span>}
+                      {(item.barcode || item.meta) && <span className="block truncate font-mono text-[11px] text-slate-400">{item.barcode ?? item.meta}</span>}
                     </span>
                     {(item.price ?? 0) > 0 && (
                       <span className="shrink-0 text-[12px] font-bold tabular-nums text-slate-700">{formatNum(item.price ?? 0)}</span>
@@ -652,7 +677,7 @@ export function ScopePickerModal({
                     <div key={t.seq} className="flex items-center gap-2 px-3 py-1.5">
                       <span className="icon-tile h-7 w-7 bg-amber-200 text-amber-800"><IconFolderClosed size={13} /></span>
                       <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-amber-900">{t.name}</span>
-                      <span className="text-[10px] text-slate-400">بكامل منتجاتها</span>
+                      <span className="text-[11px] text-slate-400">بكامل منتجاتها</span>
                       <button type="button" onClick={() => toggleTree(t.seq, t.name)} className="rounded-lg p-1 text-amber-600 transition hover:bg-amber-200 hover:text-amber-900">
                         <IconX size={12} />
                       </button>
@@ -670,7 +695,7 @@ export function ScopePickerModal({
                       <span className="icon-tile h-7 w-7 bg-amber-200 text-amber-800"><IconPackage size={13} /></span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[12.5px] font-semibold text-amber-900">{p.name}</span>
-                        {p.barcode && <span className="block font-mono text-[10px] text-amber-700/70">{p.barcode}</span>}
+                        {p.barcode && <span className="block font-mono text-[11px] text-amber-700/70">{p.barcode}</span>}
                       </span>
                       {(p.price ?? 0) > 0 && (
                         <span className="shrink-0 text-[12px] font-bold tabular-nums text-amber-900">{formatNum(p.price ?? 0)}</span>
@@ -684,8 +709,8 @@ export function ScopePickerModal({
               )}
 
               {trees.length === 0 && standalone.length === 0 && addTrees.size === 0 && addProducts.size === 0 && (
-                <p className="p-8 text-center text-[12.5px] text-muted">
-                  لا محتوى بعد — تأشّر الأصناف من الكتالوج (تصفر لأصفر) ثم اضغط حفظ
+                <p className="p-8 text-center text-[12.5px] text-slate-400">
+                  لا محتوى بعد — أشّر الأصناف من الكتالوج (تظهر بالأصفر) ثم اضغط «حفظ التعديلات»
                 </p>
               )}
             </div>
@@ -698,7 +723,7 @@ export function ScopePickerModal({
             لا يُحفظ أي تعديل قبل الضغط على «حفظ» — التأشير قابل للتراجع بالضغط مجدداً
           </p>
           <div className="flex items-center gap-2">
-            <Btn variant="ghost" disabled={saving} onClick={() => { if (stagedCount === 0 || window.confirm('إغلاق دون حفظ التعديلات المؤشَّرة؟')) onClose(); }}>
+            <Btn variant="ghost" disabled={saving} onClick={() => void requestClose()}>
               إلغاء
             </Btn>
             <Btn loading={saving} disabled={stagedCount === 0} onClick={() => void save()}>
@@ -710,6 +735,7 @@ export function ScopePickerModal({
 
       {renderMenu()}
     </div>
+    </Portal>
   );
 }
 

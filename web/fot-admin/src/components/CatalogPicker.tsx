@@ -13,7 +13,16 @@ import {
 import { createPortal } from 'react-dom';
 import { api, formatNum } from '@/api/client';
 import type { TreeNodeDto } from '@/api/types';
-import { Btn, Field, Input, Loading } from '@/components/ui';
+import { Badge, Btn, EmptyState, Field, Input, Skeleton } from '@/components/ui';
+import { IconCheck, IconFolderClosed, IconPackage, IconPlus, IconSearch, IconX } from '@/components/icons';
+
+function IconMinus({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
 import {
   collectTreeLeaves,
   fetchTreeChildren,
@@ -521,26 +530,34 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
 
   return (
     <div className={fill ? 'flex h-full min-h-0 flex-1 flex-col gap-2' : 'space-y-3'}>
-      <div className={`shrink-0 rounded-lg border border-slate-200 bg-white ${fill ? 'p-2.5' : 'p-3'}`}>
-        <div className="grid gap-2 sm:grid-cols-2">
+      <div className={`card shrink-0 ${fill ? 'p-3' : 'p-3.5'}`}>
+        <div className="grid gap-2.5 sm:grid-cols-2">
           <Field label="بحث المنتج / الباركود">
             <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-slate-400">
+                {barcodeSearch && barcodeQ.isFetching ? (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+                ) : (
+                  <IconSearch size={15} />
+                )}
+              </span>
               <Input
                 autoFocus
                 data-keep-escape
                 value={productTerm}
                 onChange={e => setProductTerm(e.target.value)}
                 onKeyDown={onProductKey}
-                placeholder="امسح الباركود أو اكتب الاسم — لن يُضاف تلقائياً"
-                className="h-10 pe-14"
+                placeholder="امسح الباركود أو اكتب الاسم — Enter يؤشّر أول نتيجة"
+                className="h-10 ps-9 pe-9"
               />
               {productTerm && (
                 <button
                   type="button"
-                  className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-0.5 text-[11px] text-slate-500 hover:bg-white"
+                  aria-label="مسح البحث"
+                  className="absolute inset-y-0 end-2 flex items-center text-slate-400 hover:text-slate-700"
                   onClick={() => setProductTerm('')}
                 >
-                  مسح
+                  <IconX size={14} />
                 </button>
               )}
             </div>
@@ -553,81 +570,100 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
             <div />
           )}
         </div>
-        {barcodeSearch && barcodeQ.isFetching && (
-          <p className="mt-2 text-[12px] text-slate-500">جاري البحث بالباركود…</p>
-        )}
         {barcodeSearch && barcodeQ.isError && (
-          <p className="mt-2 text-[12px] text-red-600">لا منتج بهذا الباركود</p>
-        )}
-        {barcodeHit && (
-          <p className="mt-2 text-[12px] text-teal-700">
-            وُجد «{barcodeHit.name || barcodeHit.barcode}» يساراً — أشّره ثم أضفه. لن يُحفظ إلا من زر الحفظ.
+          <p className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-red-600">
+            <IconX size={13} /> لا منتج بهذا الباركود
           </p>
         )}
-        <p className="mt-2 text-[11px] leading-5 text-slate-500">
-          {hint ?? 'التأشير لا يحفظ. يسار: أشّر ثم زر أيمن → إضافة. يمين: أشّر بالأحمر ثم زر أيمن → إزالة. احفظ من أسفل النافذة.'}
+        {barcodeHit && (
+          <p className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-brand-700">
+            <IconCheck size={13} /> وُجد «{barcodeHit.name || barcodeHit.barcode}» في الكتالوج وتم تأشيره — أضفه ثم احفظ.
+          </p>
+        )}
+        <p className="mt-2 text-[11.5px] leading-5 text-slate-500">
+          {hint ?? 'التأشير لا يحفظ. الكتالوج: أشّر ثم «إضافة». المحتوى: أشّر ثم «إزالة». الزر الأيمن يفتح نفس الأوامر. احفظ من أسفل النافذة.'}
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
           {toolbar}
           {availableLeft.length > 0 && (
-            <Btn size="sm" variant="secondary" disabled={busy} onClick={markVisibleLeft}>
+            <Btn size="sm" variant="secondary" icon={<IconCheck size={13} />} disabled={busy} onClick={markVisibleLeft}>
               تأشير المعروض ({formatNum(availableLeft.length)})
             </Btn>
           )}
-          <Btn size="sm" disabled={busy || !addReady} onClick={stageAdd}>
+          <Btn size="sm" icon={<IconPlus size={13} />} disabled={busy || !addReady} onClick={stageAdd}>
             {addActionLabel}{addReady ? ` (${formatNum(addReadyCount)})` : ''}
           </Btn>
-          <Btn size="sm" variant="danger" disabled={busy || !removeReady} onClick={stageRemove}>
+          <Btn size="sm" variant="danger" icon={<IconMinus size={13} />} disabled={busy || !removeReady} onClick={stageRemove}>
             {removeActionLabel}{removeReady ? ` (${formatNum(removeReadyCount)})` : ''}
           </Btn>
         </div>
       </div>
 
       <div dir="ltr" className={`grid gap-3 lg:grid-cols-2 ${fill ? 'min-h-0 flex-1' : heightClass}`}>
-        <section dir="rtl" className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <header className="flex items-center justify-between gap-2 border-b border-slate-800/10 bg-slate-800 px-3 py-2.5 text-white">
-            <div>
-              <h3 className="text-[13px] font-semibold">{leftTitle}</h3>
-              <p className="text-[10px] text-white/70">تأشير ثم زر أيمن للإضافة</p>
+        <section dir="rtl" className="card flex min-h-0 flex-col overflow-hidden">
+          <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="icon-tile h-7 w-7 rounded-lg bg-slate-100 text-slate-600"><IconPackage size={14} /></span>
+              <div className="min-w-0">
+                <h3 className="truncate text-[13px] font-bold text-header">{leftTitle}</h3>
+                <p className="text-[11px] text-slate-500">أشّر الأصناف ثم «{addActionLabel}»</p>
+              </div>
             </div>
-            <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px]">
-              {formatNum(rows.length)}
-              {markedLeftCount > 0 && <span className="ms-1 text-teal-200">· {formatNum(markedLeftCount)} محدد</span>}
-            </span>
+            <div className="flex shrink-0 items-center gap-1">
+              <Badge className="num">{formatNum(rows.length)}</Badge>
+              {markedLeftCount > 0 && <Badge tone="brand" className="num">{formatNum(markedLeftCount)} مؤشّر</Badge>}
+            </div>
           </header>
 
           {activeTree && (
-            <div className="space-y-2 border-b border-teal-100 bg-teal-50/80 px-3 py-2 text-[12px] text-teal-950">
+            <div className="space-y-2 border-b border-brand-100 bg-brand-50/50 px-3 py-2 text-[12px] text-brand-950">
               <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate">
+                <span className="flex min-w-0 items-center gap-1.5">
                   {treeTrail.length > 0 && (
-                    <button type="button" className="me-2 font-medium text-teal-800 hover:underline" onClick={goBackTree}>
-                      رجوع
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-md bg-white px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50"
+                      onClick={goBackTree}
+                    >
+                      ↑ رجوع
                     </button>
                   )}
-                  شجرة {treeLabel(activeTree)}
-                  {treeCountQ.data?.count != null && <> · {formatNum(treeCountQ.data.count)} صنف</>}
-                  {leavesQ.data?.truncated && ` · أول ${formatNum(treeLeaves.length)}`}
+                  <IconFolderClosed size={13} className="shrink-0 text-amber-500" />
+                  <span className="truncate font-semibold">{treeLabel(activeTree)}</span>
+                  {treeCountQ.data?.count != null && <span className="shrink-0 num">· {formatNum(treeCountQ.data.count)} صنف</span>}
+                  {leavesQ.data?.truncated && <span className="shrink-0">· أول {formatNum(treeLeaves.length)}</span>}
                 </span>
-                <button type="button" className="shrink-0 text-[11px] font-medium text-teal-800 hover:underline" onClick={() => selectTree(null)}>
+                <button type="button" className="shrink-0 text-[11.5px] font-semibold text-brand-700 hover:underline" onClick={() => selectTree(null)}>
                   كل المنتجات
                 </button>
               </div>
-              <Input
-                data-keep-escape
-                value={leftFilter}
-                onChange={e => setLeftFilter(e.target.value)}
-                placeholder="تصفية منتجات هذه الشجرة…"
-                className="h-8 bg-white"
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 start-2.5 flex items-center text-slate-400">
+                  <IconSearch size={13} />
+                </span>
+                <Input
+                  data-keep-escape
+                  value={leftFilter}
+                  onChange={e => setLeftFilter(e.target.value)}
+                  placeholder="تصفية منتجات هذه الشجرة…"
+                  className="h-8 bg-white ps-8 text-[12.5px]"
+                />
+              </div>
               {leavesQ.isFetching && (
-                <p className="text-[11px] text-teal-800">جاري تحميل كل منتجات الشجرة…</p>
+                <p className="flex items-center gap-1.5 text-[11.5px] text-brand-800">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+                  جاري تحميل كل منتجات الشجرة…
+                </p>
               )}
             </div>
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto" onContextMenu={e => openMenu(e, 'left')}>
-            {catalogLoading && rows.length === 0 && <Loading />}
+            {catalogLoading && rows.length === 0 && (
+              <div className="space-y-2 p-3">
+                {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-7 w-full" />)}
+              </div>
+            )}
             {rows.map(row => {
               const added = inSelected(row, selectedKeys) || pendingAdd.has(row.key);
               const marked = !added && leftMarks.has(row.key);
@@ -652,20 +688,26 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
               );
             })}
             {!catalogLoading && rows.length === 0 && (
-              <p className="px-4 py-10 text-center text-sm text-muted">
-                {activeTree ? 'لا أصناف في هذه الشجرة — جرّب شجرة أدنى أو تأكد من المزامنة' : 'امسح باركوداً أو ابحث عن منتج أو اختر شجرة مواد'}
-              </p>
+              <EmptyState
+                compact
+                icon={activeTree ? <IconFolderClosed size={18} /> : <IconSearch size={18} />}
+                title={activeTree ? 'لا أصناف في هذه الشجرة' : 'ابدأ بالبحث'}
+                description={activeTree ? 'جرّب شجرة أدنى أو تأكد من المزامنة.' : 'امسح باركوداً أو ابحث عن منتج أو اختر شجرة مواد.'}
+              />
             )}
           </div>
 
           {!activeTree && (
-            <footer className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-[12px] text-slate-500">
-              <span>صفحة {formatNum(page)} / {formatNum(totalPages)}</span>
+            <footer className="flex items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-1.5 text-[11.5px] text-slate-500">
+              <span>
+                صفحة <span className="font-semibold text-slate-700 num">{formatNum(page)}</span> / <span className="num">{formatNum(totalPages)}</span>
+                {productsQ.data?.total != null && <span className="num"> · {formatNum(productsQ.data.total)} منتج</span>}
+              </span>
               <div className="flex gap-1">
-                <Btn size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                <Btn size="xs" variant="secondary" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
                   السابق
                 </Btn>
-                <Btn size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                <Btn size="xs" variant="secondary" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
                   التالي
                 </Btn>
               </div>
@@ -673,27 +715,42 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
           )}
         </section>
 
-        <section dir="rtl" className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-teal-200 bg-white shadow-sm">
-          <header className="flex items-center justify-between gap-2 border-b border-teal-700/20 bg-teal-700 px-3 py-2.5 text-white">
-            <div>
-              <h3 className="text-[13px] font-semibold">{rightTitle}</h3>
-              <p className="text-[10px] text-white/75">تأشير أحمر ثم زر أيمن للإزالة</p>
+        <section dir="rtl" className="card flex min-h-0 flex-col overflow-hidden ring-1 ring-inset ring-brand-100">
+          <header className="flex items-center justify-between gap-2 border-b border-brand-100 bg-brand-50/40 px-3 py-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="icon-tile h-7 w-7 rounded-lg bg-brand-100 text-brand-700"><IconCheck size={14} /></span>
+              <div className="min-w-0">
+                <h3 className="truncate text-[13px] font-bold text-header">{rightTitle}</h3>
+                <p className="text-[11px] text-slate-500">أشّر الأصناف ثم «{removeActionLabel}»</p>
+              </div>
             </div>
-            <div className="flex items-center gap-2 [&_button]:!border-white/25 [&_button]:!bg-white/15 [&_button]:!text-white hover:[&_button]:!bg-white/25">
+            <div className="flex shrink-0 items-center gap-1.5">
               {rightActions}
-              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px]">
-                {formatNum(rightLines.length)}
-                {pendingAdd.size > 0 && <span className="ms-1 text-emerald-200">+{formatNum(pendingAdd.size)}</span>}
-                {pendingRemove.size > 0 && <span className="ms-1 text-rose-200">−{formatNum(pendingRemove.size)}</span>}
-              </span>
+              <Badge className="num">{formatNum(rightLines.length)}</Badge>
+              {pendingAdd.size > 0 && <Badge tone="ok" className="num">+{formatNum(pendingAdd.size)}</Badge>}
+              {pendingRemove.size > 0 && <Badge tone="danger" className="num">−{formatNum(pendingRemove.size)}</Badge>}
             </div>
           </header>
           <div className="border-b border-slate-100 px-3 py-2">
-            <Input
-              value={rightFilter}
-              onChange={e => setRightFilter(e.target.value)}
-              placeholder="بحث في المحتوى…"
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 start-2.5 flex items-center text-slate-400">
+                <IconSearch size={13} />
+              </span>
+              <Input
+                data-keep-escape
+                value={rightFilter}
+                onChange={e => setRightFilter(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Escape' && rightFilter) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRightFilter('');
+                  }
+                }}
+                placeholder="بحث في المحتوى…"
+                className="h-8 ps-8 text-[12.5px]"
+              />
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto" onContextMenu={e => openMenu(e, 'right')}>
             {visibleRight.map(item => {
@@ -703,71 +760,77 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
                 <div
                   key={item.key}
                   onContextMenu={e => openMenu(e, 'right', undefined, item.key)}
-                  className={`flex items-start gap-2.5 border-b px-3 py-2.5 ${
+                  onClick={e => {
+                    if (busy || dropping) return;
+                    if ((e.target as HTMLElement).closest('input, button, a, select, textarea')) return;
+                    toggleRight(item.key, !marked);
+                  }}
+                  className={`flex cursor-pointer items-start gap-2 border-b px-3 py-1.5 transition-colors ${
                     dropping
-                      ? 'border-rose-100 bg-rose-50/90'
+                      ? 'border-red-100 bg-red-50/80'
                       : marked
-                        ? 'border-rose-50 bg-rose-50/70'
+                        ? 'border-red-50 bg-red-50/60'
                         : item.kind === 'pending'
-                          ? 'border-emerald-50 bg-emerald-50/70'
-                          : 'border-slate-50 hover:bg-slate-50/80'
+                          ? 'border-emerald-50 bg-emerald-50/60'
+                          : 'border-slate-100 hover:bg-slate-50/80'
                   }`}
                 >
                   <input
                     type="checkbox"
-                    className="mt-1 rounded border-rose-300 text-rose-600 accent-rose-600 focus:ring-rose-500"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-red-300 accent-red-600"
                     checked={marked || dropping}
                     disabled={busy}
                     onChange={e => toggleRight(item.key, e.target.checked)}
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       {item.badge && (
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                          item.kind === 'pending'
-                            ? 'bg-emerald-600 text-white'
-                            : dropping
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-slate-100 text-slate-600'
-                        }`}>
+                        <Badge tone={item.kind === 'pending' ? 'ok' : dropping ? 'danger' : 'default'}>
                           {dropping ? 'سيُحذف' : item.badge}
-                        </span>
+                        </Badge>
                       )}
-                      <span className={`truncate text-[13px] font-medium ${dropping ? 'text-rose-800 line-through' : 'text-slate-900'}`}>
+                      {!item.badge && dropping && <Badge tone="danger">سيُحذف</Badge>}
+                      <span
+                        className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${dropping ? 'text-red-800 line-through' : 'text-header'}`}
+                        title={item.title}
+                      >
                         {item.title}
                       </span>
+                      {item.subtitle && (
+                        <span className="max-w-[45%] shrink-0 truncate font-mono text-[11px] text-slate-400" dir="ltr">{item.subtitle}</span>
+                      )}
                     </div>
-                    {item.subtitle && <p className="mt-0.5 text-[11px] text-slate-500">{item.subtitle}</p>}
                     {!dropping && item.extra}
                   </div>
                 </div>
               );
             })}
             {rightLines.length === 0 && (
-              <p className="px-4 py-10 text-center text-sm text-muted">{rightEmpty}</p>
+              <EmptyState compact icon={<IconPlus size={18} />} title="لا عناصر بعد" description={rightEmpty} />
             )}
             {rightLines.length > 0 && visibleRight.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-muted">لا نتائج للتصفية</p>
+              <EmptyState
+                compact
+                icon={<IconSearch size={18} />}
+                title="لا نتائج للتصفية"
+                action={<Btn size="xs" variant="secondary" onClick={() => setRightFilter('')}>مسح التصفية</Btn>}
+              />
             )}
           </div>
         </section>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12px]">
-        <div className="flex flex-wrap items-center gap-2 text-slate-600">
-          <span className={`rounded-full px-2 py-0.5 ${markedLeftCount ? 'bg-teal-100 text-teal-800' : 'bg-white text-slate-400'}`}>
-            {formatNum(markedLeftCount)} مؤشّر للإضافة
-          </span>
-          <span className={`rounded-full px-2 py-0.5 ${pendingAdd.size ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-slate-400'}`}>
-            {formatNum(pendingAdd.size)} سيُضاف
-          </span>
-          <span className={`rounded-full px-2 py-0.5 ${rightMarks.size || pendingRemove.size ? 'bg-rose-100 text-rose-800' : 'bg-white text-slate-400'}`}>
+      <div className="card flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2 text-[12px]">
+        <div className="flex flex-wrap items-center gap-1.5 text-slate-600">
+          <Badge tone={markedLeftCount ? 'brand' : 'default'} className="num">{formatNum(markedLeftCount)} مؤشّر للإضافة</Badge>
+          <Badge tone={pendingAdd.size ? 'ok' : 'default'} className="num">{formatNum(pendingAdd.size)} سيُضاف</Badge>
+          <Badge tone={rightMarks.size || pendingRemove.size ? 'danger' : 'default'} className="num">
             {formatNum(pendingRemove.size || rightMarks.size)} سيُحذف
-          </span>
-          <span className="text-slate-400">{saveHint ?? 'التأشير لا يحفظ — اضغط حفظ بعد إضافة أو إزالة الأصناف.'}</span>
+          </Badge>
+          <span className="text-[11.5px] text-slate-500">{saveHint ?? 'التأشير لا يحفظ — اضغط حفظ بعد إضافة أو إزالة الأصناف.'}</span>
         </div>
         {hasWork && (
-          <Btn size="sm" variant="secondary" onClick={clearStaging}>إلغاء التحديد</Btn>
+          <Btn size="sm" variant="ghost" icon={<IconX size={13} />} onClick={clearStaging}>إلغاء التحديد</Btn>
         )}
       </div>
 
@@ -784,11 +847,11 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
               <button
                 type="button"
                 disabled={!addReady}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-right text-[13px] font-medium text-teal-800 hover:bg-teal-50 disabled:text-slate-300"
+                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-right text-[13px] font-medium text-brand-800 hover:bg-brand-50 disabled:text-slate-300"
                 onClick={stageAdd}
               >
                 <span>{addActionLabel}</span>
-                {addReady && <span className="text-[11px] text-teal-600">{formatNum(addReadyCount)}</span>}
+                {addReady && <span className="text-[11px] text-brand-600">{formatNum(addReadyCount)}</span>}
               </button>
               <p className="border-t border-slate-100 px-3 py-2 text-[11px] leading-5 text-slate-400">
                 تُعرض على اليمين كـ «جديد» ولا تُحفظ حتى تضغط حفظ.
@@ -799,11 +862,11 @@ export const CatalogPicker = forwardRef<CatalogPickerHandle, CatalogPickerProps>
               <button
                 type="button"
                 disabled={!removeReady}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-right text-[13px] font-medium text-rose-700 hover:bg-rose-50 disabled:text-slate-300"
+                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-right text-[13px] font-medium text-red-700 hover:bg-red-50 disabled:text-slate-300"
                 onClick={stageRemove}
               >
                 <span>{removeActionLabel}</span>
-                {removeReady && <span className="text-[11px] text-rose-500">{formatNum(removeReadyCount)}</span>}
+                {removeReady && <span className="text-[11px] text-red-500">{formatNum(removeReadyCount)}</span>}
               </button>
               <p className="border-t border-slate-100 px-3 py-2 text-[11px] leading-5 text-slate-400">
                 تظهر بخط أحمر مشطوب. الإزالة النهائية بعد حفظ النافذة.
@@ -937,19 +1000,24 @@ function TreeSelectField({
           }
         }}
         placeholder="ابحث واختر من كل الأشجار…"
-        className="h-10 pe-14"
+        className="h-10 ps-9 pe-9"
       />
+      <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-amber-500">
+        <IconFolderClosed size={15} />
+      </span>
       {value && (
         <button
           type="button"
-          className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-0.5 text-[11px] text-slate-500 hover:bg-white"
+          aria-label="إلغاء اختيار الشجرة"
+          title="إلغاء اختيار الشجرة"
+          className="absolute inset-y-0 end-2 flex items-center text-slate-400 hover:text-slate-700"
           onClick={() => {
             onChange(null);
             setQuery('');
             setOpen(false);
           }}
         >
-          مسح
+          <IconX size={14} />
         </button>
       )}
       {open && box && createPortal(
@@ -976,7 +1044,10 @@ function TreeSelectField({
                   setOpen(false);
                 }}
               >
-                <span className="min-w-0 truncate font-medium text-slate-800">{treeLabel(n)}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <IconFolderClosed size={14} className="shrink-0 text-amber-500" />
+                  <span className="truncate font-medium text-slate-800">{treeLabel(n)}</span>
+                </span>
                 <span className="shrink-0 font-mono text-[11px] text-slate-400">#{n.seq}{n.num ? ` · ${n.num}` : ''}</span>
               </button>
             </li>
@@ -1008,56 +1079,59 @@ function CatalogRowLine({
   onOpen?: () => void;
   onContextMenu?: (e: MouseEvent<HTMLDivElement>) => void;
 }) {
+  const folder = row.kind === 'folder';
   return (
     <div
       onContextMenu={onContextMenu}
-      className={`flex items-start gap-2.5 border-b px-3 py-2.5 text-right ${
+      onClick={e => {
+        // النقر على الصف كله يؤشّر/يلغي التأشير
+        if (added || disabled) return;
+        if ((e.target as HTMLElement).closest('input, button, a')) return;
+        onToggle(!checked);
+      }}
+      className={`flex items-center gap-2 border-b px-3 py-1.5 text-right transition-colors ${
         added
-          ? 'border-slate-50 bg-slate-50/80'
+          ? 'border-slate-100 bg-slate-50/80'
           : checked
-            ? 'border-teal-100 bg-teal-50'
-            : 'border-slate-50 hover:bg-slate-50'
+            ? 'cursor-pointer border-brand-100 bg-brand-50/70'
+            : 'cursor-pointer border-slate-100 hover:bg-slate-50'
       } ${disabled ? 'opacity-60' : ''}`}
     >
       {added ? (
-        <span className="mt-1 inline-flex h-[15px] w-[15px] items-center justify-center rounded border border-slate-300 bg-slate-100 text-[9px] text-slate-400">✓</span>
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-300 bg-slate-100 text-slate-400">
+          <IconCheck size={11} />
+        </span>
       ) : (
         <input
           type="checkbox"
-          className="mt-1 rounded border-slate-300 text-teal-600 accent-teal-600"
+          className="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600"
           checked={checked}
           disabled={disabled}
           onChange={e => onToggle(e.target.checked)}
         />
       )}
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-              row.kind === 'folder' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            {row.kind === 'folder' ? 'شجرة' : 'منتج'}
-          </span>
-          {added && (
-            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">مضاف</span>
-          )}
-          <span className="truncate text-[13px] font-medium text-slate-900">{row.name}</span>
-        </div>
-        <p className="mt-0.5 font-mono text-[11px] text-slate-500">
-          {row.kind === 'folder'
-            ? `#${row.seq}${row.num ? ` · ${row.num}` : ''}${row.productCount != null ? ` · ${formatNum(row.productCount)} صنف` : ''}`
-            : [row.barcode || row.num, `#${row.seq}`].filter(Boolean).join(' · ')}
-        </p>
-      </div>
+      <span
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+          folder ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'
+        }`}
+        title={folder ? 'شجرة' : 'منتج'}
+      >
+        {folder ? <IconFolderClosed size={12} /> : <IconPackage size={11} />}
+      </span>
+      <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${added ? 'text-slate-500' : 'text-header'}`} title={row.name}>
+        {row.name}
+      </span>
+      {folder && <Badge tone="warn">شجرة</Badge>}
+      {added && <Badge>مضاف</Badge>}
+      <span className="max-w-[45%] shrink-0 truncate font-mono text-[11px] text-slate-400" dir="ltr">
+        {folder
+          ? `#${row.seq}${row.num ? ` · ${row.num}` : ''}${row.productCount != null ? ` · ${formatNum(row.productCount)} صنف` : ''}`
+          : [row.barcode || row.num, `#${row.seq}`].filter(Boolean).join(' · ')}
+      </span>
       {onOpen && (
-        <button
-          type="button"
-          className="shrink-0 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-teal-800 ring-1 ring-teal-200 hover:bg-teal-50"
-          onClick={onOpen}
-        >
+        <Btn size="xs" variant="outline" className="shrink-0" onClick={onOpen}>
           فتح
-        </button>
+        </Btn>
       )}
     </div>
   );

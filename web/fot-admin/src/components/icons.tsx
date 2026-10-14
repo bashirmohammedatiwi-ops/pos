@@ -297,3 +297,33 @@ export type IconKey = keyof typeof ICONS;
 export const IconFolderClosed = (p: IconProps) => (
   <Ic {...p}><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></Ic>
 );
+
+/* ─── Shell extras ──────────────────────────────────────── */
+
+export const IconMaximize = (p: IconProps) => (
+  <Ic {...p}><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></Ic>
+);
+export const IconMinimize = (p: IconProps) => (
+  <Ic {...p}><path d="M8 3v3a2 2 0 0 1-2 2H3" /><path d="M21 8h-3a2 2 0 0 1-2-2V3" /><path d="M3 16h3a2 2 0 0 1 2 2v3" /><path d="M16 21v-3a2 2 0 0 1 2-2h3" /></Ic>
+);
+export const IconChevronLeft = (p: IconProps) => (
+  <Ic {...p}><path d="m15 18-6-6 6-6" /></Ic>
+);
+export const IconChevronRight = (p: IconProps) => (
+  <Ic {...p}><path d="m9 18 6-6-6-6" /></Ic>
+);
+export const IconPanel = (p: IconProps) => (
+  <Ic {...p}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></Ic>
+);
+export const IconStar = (p: IconProps) => (
+  <Ic {...p}><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></Ic>
+);
+export const IconCart = (p: IconProps) => (
+  <Ic {...p}><circle cx="8" cy="21" r="1" /><circle cx="19" cy="21" r="1" /><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></Ic>
+);
+export const IconReturn = (p: IconProps) => (
+  <Ic {...p}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></Ic>
+);
+export const IconGift = (p: IconProps) => (
+  <Ic {...p}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></Ic>
+);

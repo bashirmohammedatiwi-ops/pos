@@ -1,789 +1,681 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, formatCurrency, formatNum } from '@/api/client';
+import { api, formatCurrency } from '@/api/client';
 import type { ProductDto } from '@/api/types';
-import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
+import { NumberDraftInput } from '@/components/NumberDraftInput';
 import { useToast } from '@/components/Toast';
-import { Btn, Checkbox, Input, Select } from '@/components/ui';
-import { ClassicSummaryFooter, FilterField } from '@/components/classic/ClassicListLayout';
-import { IconPrinter, IconPlus, IconTrash, IconX } from '@/components/icons';
-import { isLikelyBarcode } from '@/lib/catalogBrowse';
+import { Btn, Checkbox, Input, Kbd, Select } from '@/components/ui';
+import { IconAlert, IconBarcode, IconCheck, IconPrinter, IconSliders, IconTrash, IconX, IconZap } from '@/components/icons';
 import {
-  CONTENT_TEMPLATES,
-  DEFAULT_LABEL_SETTINGS,
-  LABEL_SIZES,
-  LAYOUT_PRESETS,
-  buildLabelPreview,
-  buildSheetPreview,
-  clampColumns,
-  labelNameLooksLong,
-  printProductLabels,
-  productToLabelItem,
-  sheetMetrics,
-  type LabelFields,
-  type LabelItem,
-  type LabelSettings,
-  type LabelSizeId,
-  type LayoutPreset,
-} from '@/lib/labelPrint';
+  DEFAULT_SETUP,
+  SIZE_PRESETS,
+  renderCalibration,
+  renderRow,
+  rowWidthMm,
+  toRows,
+  type LabelContent,
+  type LabelData,
+  type LabelSetup,
+  type LabelWarnings,
+  type RenderedRow,
+} from '@/lib/labels/labelRender';
 import { fixEdariName } from '@/lib/text';
 
-const STORE_KEY = 'fot-barcode-label-v3';
-const FIELD_OPTIONS: { key: keyof LabelFields; label: string }[] = [
+/* ─────────────────────────────────────────────────────────────────────────────
+ * طباعة ملصقات الباركود — امسح أو ابحث، حدّد العدد، اطبع.
+ * الرسم يتم بنقاط الطابعة نفسها (203/300 DPI)، فالمعاينة = المطبوع حرفياً.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+const STORE_KEY = 'fot-labels-v4';
+
+type Prefs = LabelSetup & { printerName: string; defaultCopies: number; instantPrint: boolean };
+
+type QueueItem = { key: string; productId: number; data: LabelData; copies: number };
+
+const CONTENT_OPTIONS: { key: keyof LabelContent; label: string }[] = [
   { key: 'name', label: 'اسم المادة' },
   { key: 'price', label: 'السعر' },
-  { key: 'originalPrice', label: 'السعر قبل العرض' },
-  { key: 'barcode', label: 'رسم الباركود' },
-  { key: 'barcodeText', label: 'رقم الباركود' },
-  { key: 'articleNum', label: 'رقم المادة' },
-  { key: 'offer', label: 'اسم العرض' },
-  { key: 'discount', label: 'نسبة الخصم' },
+  { key: 'oldPrice', label: 'السعر قبل الخصم' },
+  { key: 'barcode', label: 'خطوط الباركود' },
+  { key: 'digits', label: 'أرقام الباركود' },
   { key: 'shop', label: 'اسم المحل' },
 ];
 
-type QueueRow = LabelItem & { id: string; productId: number };
+function num(v: unknown, fallback: number, min: number, max: number) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
 
-function loadSettings(): LabelSettings {
+function loadPrefs(): Prefs {
+  const base: Prefs = { ...DEFAULT_SETUP, content: { ...DEFAULT_SETUP.content }, printerName: '', defaultCopies: 1, instantPrint: false };
   try {
-    const raw = localStorage.getItem(STORE_KEY)
-      || localStorage.getItem('fot-barcode-label-v2')
-      || localStorage.getItem('fot-barcode-label-v1');
-    if (!raw) return { ...DEFAULT_LABEL_SETTINGS, fields: { ...DEFAULT_LABEL_SETTINGS.fields } };
-    const parsed = JSON.parse(raw) as Partial<LabelSettings>;
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return base;
+    const p = JSON.parse(raw) as Partial<Prefs>;
     return {
-      ...DEFAULT_LABEL_SETTINGS,
-      ...parsed,
-      fields: { ...DEFAULT_LABEL_SETTINGS.fields, ...parsed.fields },
-      nameLines: parsed.nameLines === 1 || parsed.nameLines === 3 ? parsed.nameLines : 2,
-      codeSize: parsed.codeSize === 'sm' || parsed.codeSize === 'lg' ? parsed.codeSize : 'md',
-      insetMm: Math.max(0.6, Math.min(3, Number(parsed.insetMm) || DEFAULT_LABEL_SETTINGS.insetMm)),
-      align: parsed.align === 'start' ? 'start' : 'center',
-      columns: clampColumns(parsed.columns ?? 3),
-      gapMm: Math.max(0, Math.min(10, Number(parsed.gapMm) || 2)),
-      rowGapMm: Math.max(0, Math.min(10, Number(parsed.rowGapMm) || 2)),
-      marginMm: Math.max(0, Math.min(8, Number(parsed.marginMm) || 0)),
-      rowsPerPage: Math.min(8, Math.max(1, Math.round(Number(parsed.rowsPerPage)) || 1)),
+      ...base,
+      widthMm: num(p.widthMm, base.widthMm, 15, 120),
+      heightMm: num(p.heightMm, base.heightMm, 10, 100),
+      columns: Math.round(num(p.columns, base.columns, 1, 4)),
+      gapMm: num(p.gapMm, base.gapMm, 0, 10),
+      sideMm: num(p.sideMm, base.sideMm, 0, 10),
+      dpi: p.dpi === 300 ? 300 : 203,
+      offsetXMm: num(p.offsetXMm, 0, -10, 10),
+      offsetYMm: num(p.offsetYMm, 0, -10, 10),
+      paddingMm: num(p.paddingMm, base.paddingMm, 0.6, 4),
+      content: { ...base.content, ...(p.content ?? {}) },
+      nameLines: p.nameLines === 1 ? 1 : 2,
+      textScale: p.textScale === 'sm' || p.textScale === 'lg' ? p.textScale : 'md',
+      currency: typeof p.currency === 'string' ? p.currency.slice(0, 8) : base.currency,
+      printerName: typeof p.printerName === 'string' ? p.printerName : '',
+      defaultCopies: Math.round(num(p.defaultCopies, 1, 1, 999)),
+      instantPrint: Boolean(p.instantPrint),
     };
   } catch {
-    return { ...DEFAULT_LABEL_SETTINGS, fields: { ...DEFAULT_LABEL_SETTINGS.fields } };
+    return base;
   }
 }
 
-function newRowId() {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+function savePrefs(p: Prefs) {
+  try {
+    const { shopName: _ignored, ...rest } = p;
+    localStorage.setItem(STORE_KEY, JSON.stringify(rest));
+  } catch {
+    /* التخزين غير متاح — الإعدادات تبقى لهذه الجلسة */
+  }
 }
 
-function applyLayout(preset: LayoutPreset, prev: LabelSettings): LabelSettings {
+function toLabel(p: ProductDto): LabelData {
+  const price = Number(p.price) || 0;
+  const orig = Number(p.originalPrice) || 0;
   return {
-    ...prev,
-    sizeId: preset.sizeId,
-    widthMm: preset.w,
-    heightMm: preset.h,
-    columns: preset.columns,
-    gapMm: preset.gap,
+    name: fixEdariName(p.name) || p.name || '',
+    barcode: (p.barcode || p.num || '').trim(),
+    price,
+    oldPrice: orig > price ? orig : undefined,
   };
+}
+
+/** صورة الصف كما ستُطبع (data URL) — مع حماية من أخطاء الرسم. */
+function rowsToPng(rows: RenderedRow[]) {
+  return rows.map(r => r.canvas.toDataURL('image/png'));
+}
+
+/** طباعة من المتصفح (بدون تطبيق سطح المكتب): صفحة لكل صف بالحجم الحقيقي. */
+function browserPrint(pngs: string[], widthMm: number, heightMm: number) {
+  const w = window.open('', '_blank', 'width=720,height=640');
+  if (!w) throw new Error('المتصفح منع نافذة الطباعة — اسمح بالنوافذ المنبثقة');
+  const imgs = pngs.map(src => `<img src="${src}" />`).join('');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>ملصقات</title><style>
+@page{size:${widthMm}mm ${heightMm}mm;margin:0}
+html,body{margin:0;padding:0;background:#fff}
+img{display:block;width:${widthMm}mm;height:${heightMm}mm;page-break-after:always;break-after:page;image-rendering:pixelated}
+img:last-child{page-break-after:auto;break-after:auto}
+</style></head><body>${imgs}<script>Promise.all([...document.images].map(i=>i.decode().catch(()=>{}))).then(()=>{print();setTimeout(()=>close(),300)})</script></body></html>`);
+  w.document.close();
 }
 
 export function BarcodeLabelsPage() {
   const toast = useToast();
-  const [params] = useSearchParams();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const copiesRef = useRef<HTMLInputElement>(null);
-  const openedCode = useRef(false);
-  const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [copies, setCopies] = useState(1);
-  const [current, setCurrent] = useState<ProductDto | null>(null);
-  const [queue, setQueue] = useState<QueueRow[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [settings, setSettings] = useState<LabelSettings>(loadSettings);
+  const [params, setParams] = useSearchParams();
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [term, setTerm] = useState('');
+  const [looking, setLooking] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [miss, setMiss] = useState('');
-  const [previewMode, setPreviewMode] = useState<'label' | 'sheet'>('label');
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [showSettings, setShowSettings] = useState(true);
+  const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(query.trim()), 220);
-    return () => clearTimeout(t);
-  }, [query]);
+  const settingsQ = useQuery({ queryKey: ['print-settings'], queryFn: api.printSettings, staleTime: 120_000 });
+  const shopName = (settingsQ.data?.headerText || settingsQ.data?.name || '').trim();
+  const setup: LabelSetup = useMemo(() => ({ ...prefs, shopName }), [prefs, shopName]);
 
-  useEffect(() => {
-    localStorage.setItem(STORE_KEY, JSON.stringify(settings));
-  }, [settings]);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const printQ = useQuery({
-    queryKey: ['print-settings'],
-    queryFn: api.printSettings,
-    staleTime: 120_000,
-  });
-  const shopName = (printQ.data?.headerText || printQ.data?.name || '').trim();
-
+  const desktop = typeof window !== 'undefined' ? window.fotDesktop : undefined;
   const printersQ = useQuery({
     queryKey: ['desktop-printers'],
-    queryFn: () => window.fotDesktop!.listPrinters!(),
-    enabled: Boolean(window.fotDesktop?.listPrinters),
+    queryFn: () => desktop!.listPrinters!(),
+    enabled: Boolean(desktop?.listPrinters),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => savePrefs(prefs), [prefs]);
+
+  const update = (patch: Partial<Prefs>) => setPrefs(p => ({ ...p, ...patch }));
+  const setContent = (key: keyof LabelContent, v: boolean) => setPrefs(p => ({ ...p, content: { ...p.content, [key]: v } }));
+
+  /* ── البحث ── */
+  const trimmed = term.trim();
+  const looksLikeCode = /^\S+$/.test(trimmed) && /\d{4,}/.test(trimmed);
+  const searchQ = useQuery({
+    queryKey: ['label-search', trimmed],
+    queryFn: () => api.searchProducts(trimmed),
+    enabled: trimmed.length >= 2 && !looksLikeCode,
     staleTime: 30_000,
   });
+  const results = trimmed.length >= 2 && !looksLikeCode ? (searchQ.data ?? []).slice(0, 12) : [];
+  useEffect(() => setActiveIdx(0), [trimmed]);
 
-  useEffect(() => {
-    if (settings.printerName || !printersQ.data?.length) return;
-    const hit = printersQ.data.find(p =>
-      /tsc|xprinter|godex|zebra|argox|honeywell|label|barcode|باركود|ملصق/i.test(`${p.name} ${p.displayName}`),
-    );
-    if (hit) setSettings(s => (s.printerName ? s : { ...s, printerName: hit.name }));
-  }, [printersQ.data, settings.printerName]);
-
-  const searchQ = useQuery({
-    queryKey: ['barcode-label-search', debounced],
-    queryFn: () => api.searchProducts(debounced),
-    enabled: debounced.length >= 2 && !isLikelyBarcode(debounced),
-  });
-
-  const lookupM = useMutation({
-    mutationFn: (code: string) => api.productByBarcode(code),
-    onSuccess: product => {
-      setCurrent(product);
-      setMiss('');
-      setQuery(product.barcode || product.num || query);
-      if (settings.autoPrint) void printNow(product, copies);
-      else copiesRef.current?.select();
-    },
-    onError: () => {
-      setCurrent(null);
-      setMiss('لا مادة بهذا الباركود');
-      toast.error('لا مادة بهذا الباركود');
-      inputRef.current?.select();
-    },
-  });
-
-  useEffect(() => {
-    if (openedCode.current) return;
-    const code = params.get('q')?.trim();
-    if (!code) return;
-    openedCode.current = true;
-    setQuery(code);
-    if (isLikelyBarcode(code) || /^\d{4,}$/.test(code)) lookupM.mutate(code);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (printing) return;
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
-        e.preventDefault();
-        if (queue.length) void printItems(queue);
-        else if (current) void printNow(current, copies);
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [current, copies, printing, settings, queue]);
-
-  function applySize(id: LabelSizeId) {
-    const preset = LABEL_SIZES.find(s => s.id === id);
-    if (!preset) return;
-    setSettings(s => ({
-      ...s,
-      sizeId: id,
-      widthMm: id === 'custom' ? s.widthMm : preset.w,
-      heightMm: id === 'custom' ? s.heightMm : preset.h,
-    }));
-  }
-
-  function patchField(key: keyof LabelFields, value: boolean) {
-    setSettings(s => ({ ...s, fields: { ...s.fields, [key]: value } }));
-  }
-
-  function toItem(product: ProductDto, qty = copies): LabelItem {
-    return productToLabelItem(product, qty, shopName);
-  }
-
-  function addToQueue(product: ProductDto, qty = copies) {
-    const item = toItem(product, qty);
-    setQueue(rows => {
-      const same = rows.find(r => r.productId === product.id && r.barcode === item.barcode);
-      if (same) {
-        const next = rows.map(r => (r.id === same.id ? { ...r, copies: r.copies + item.copies } : r));
-        setSelectedId(same.id);
-        return next;
-      }
-      const row: QueueRow = { ...item, id: newRowId(), productId: product.id };
-      setSelectedId(row.id);
-      return [...rows, row];
-    });
-    toast.success(`أُضيف ${item.name} × ${formatNum(item.copies)}`);
-    setQuery('');
-    inputRef.current?.focus();
-  }
-
-  async function printItems(items: LabelItem[]) {
-    if (!items.length) {
-      toast.error('لا ملصقات للطباعة');
-      return;
-    }
+  async function printRows(rows: RenderedRow[], label: string) {
+    if (!rows.length) return;
     setPrinting(true);
     try {
-      await printProductLabels(items, settings);
-      const metrics = sheetMetrics(settings);
-      const total = items.reduce((n, i) => n + i.copies, 0);
-      const rows = Math.ceil(total / metrics.columns);
-      toast.success(`طُبع ${formatNum(total)} ملصق · ${formatNum(rows)} صف × ${formatNum(metrics.columns)} أعمدة`);
+      const pngs = rowsToPng(rows);
+      const { widthMm, heightMm } = rows[0];
+      if (desktop?.printRaster) {
+        const res = await desktop.printRaster(pngs, {
+          widthMm,
+          heightMm,
+          dpi: prefs.dpi,
+          printerName: prefs.printerName || null,
+        });
+        if (!res.ok) throw new Error(res.message || 'تعذرت الطباعة');
+      } else {
+        browserPrint(pngs, widthMm, heightMm);
+      }
+      toast.success(label);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذرت الطباعة');
     } finally {
       setPrinting(false);
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
     }
   }
 
-  async function printNow(product: ProductDto, qty = copies) {
-    await printItems([toItem(product, qty)]);
+  function printItems(items: { data: LabelData; copies: number }[]) {
+    const total = items.reduce((s, i) => s + Math.max(0, Math.round(i.copies)), 0);
+    if (!total) return;
+    const rows = toRows(items, setup.columns).map(r => renderRow(r, setup));
+    void printRows(rows, `أُرسل ${total} ملصق للطابعة (${rows.length} صف)`);
   }
 
-  function onSubmitQuery() {
-    const term = query.trim();
-    if (!term) return;
-    if (current && (term === current.barcode || term === current.num)) {
-      void printNow(current, copies);
+  function addProduct(p: ProductDto, copies = prefs.defaultCopies) {
+    const data = toLabel(p);
+    if (!data.barcode) {
+      toast.error('هذه المادة بلا باركود ولا رقم مادة');
       return;
     }
-    if (isLikelyBarcode(term) || /^\d{4,}$/.test(term)) {
-      lookupM.mutate(term);
+    setTerm('');
+    if (prefs.instantPrint) {
+      printItems([{ data, copies }]);
       return;
     }
-    const first = searchQ.data?.[0];
-    if (first) {
-      setCurrent(first);
-      setMiss('');
-    } else {
-      toast.error('اختر مادة من النتائج أو امسح الباركود');
+    const key = `${p.id}`;
+    setQueue(q => {
+      const i = q.findIndex(x => x.key === key);
+      if (i >= 0) {
+        const next = [...q];
+        next[i] = { ...next[i], data, copies: Math.min(999, next[i].copies + copies) };
+        // المادة الممسوحة تصعد للأعلى
+        const [moved] = next.splice(i, 1);
+        return [moved, ...next];
+      }
+      return [{ key, productId: p.id, data, copies }, ...q];
+    });
+    setLastAddedKey(key);
+  }
+
+  async function lookup(raw: string) {
+    const code = raw.trim();
+    if (!code) return;
+    if (results.length && !looksLikeCode) {
+      addProduct(results[Math.min(activeIdx, results.length - 1)]);
+      return;
+    }
+    setLooking(true);
+    try {
+      const p = await api.productByBarcode(code);
+      addProduct(p);
+    } catch {
+      // ليس باركوداً معروفاً — جرّب البحث بالاسم/الرقم
+      try {
+        const list = await api.searchProducts(code);
+        const exact = list.find(x => x.barcode === code || x.num === code);
+        if (exact) addProduct(exact);
+        else if (list.length === 1) addProduct(list[0]);
+        else toast.error(list.length ? 'عدة مواد مطابقة — اختر من القائمة' : `لا توجد مادة بالباركود ${code}`);
+      } catch {
+        toast.error(`لا توجد مادة بالباركود ${code}`);
+      }
+    } finally {
+      setLooking(false);
     }
   }
 
-  const metrics = useMemo(() => sheetMetrics(settings), [settings]);
-  const activeLayout = LAYOUT_PRESETS.find(p =>
-    p.columns === settings.columns && p.w === settings.widthMm && p.h === settings.heightMm && p.gap === settings.gapMm,
-  )?.id;
+  // ?q= من صفحة المواد
+  const initialQ = params.get('q');
+  useEffect(() => {
+    if (!initialQ) return;
+    const next = new URLSearchParams(params);
+    next.delete('q');
+    setParams(next, { replace: true });
+    void lookup(initialQ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQ]);
 
-  const previewItem = useMemo(() => {
-    if (selectedId) {
-      const row = queue.find(r => r.id === selectedId);
-      if (row) return row;
+  useEffect(() => {
+    if (!lastAddedKey) return;
+    const t = setTimeout(() => setLastAddedKey(null), 900);
+    return () => clearTimeout(t);
+  }, [lastAddedKey]);
+
+  /* ── المعاينة والتحذيرات ── */
+  const previewItem: LabelData = queue[0]?.data ?? { name: 'كريم مرطب للبشرة الجافة 50 مل', barcode: '4007817327555', price: 12500, oldPrice: 15000 };
+  const preview = useMemo(() => {
+    try {
+      const row = renderRow(Array.from({ length: setup.columns }, () => previewItem), setup, { outline: true });
+      return { src: row.canvas.toDataURL('image/png'), warnings: row.warnings, widthMm: row.widthMm };
+    } catch {
+      return null;
     }
-    if (current) return toItem(current, copies);
-    return {
-      name: 'اسم المادة',
-      barcode: '1234567890128',
-      articleNum: 'A-100',
-      price: 12500,
-      originalPrice: 15000,
-      offerName: 'عرض الأسبوع',
-      discountPercent: 17,
-      shopName: shopName || 'اسم المحل',
-      copies: 1,
-    };
-  }, [current, copies, queue, selectedId, shopName]);
+  }, [setup, previewItem]);
 
-  const preview = useMemo(
-    () => buildSheetPreview([previewItem], settings),
-    [previewItem, settings],
-  );
-  const labelPreview = useMemo(
-    () => buildLabelPreview(previewItem, settings),
-    [previewItem, settings],
-  );
-  const previewScale = Math.min(1, 360 / preview.widthPx, 168 / preview.heightPx);
-  const labelScale = Math.min(2.4, 300 / labelPreview.widthPx, 210 / labelPreview.heightPx);
-  const longName = labelNameLooksLong(previewItem.name);
-  const totalLabels = queue.reduce((n, r) => n + r.copies, 0);
-  const queueRows = totalLabels ? Math.ceil(totalLabels / metrics.columns) : 0;
+  const itemWarnings = useMemo(() => {
+    const map = new Map<string, LabelWarnings>();
+    for (const it of queue.slice(0, 200)) {
+      try {
+        map.set(it.key, renderRow([it.data], { ...setup, columns: 1, sideMm: 0, gapMm: 0 }).warnings);
+      } catch {
+        /* ignore */
+      }
+    }
+    return map;
+  }, [queue, setup]);
 
-  const columns = useMemo<GridColumn<QueueRow>[]>(() => [
-    { key: 'name', header: 'المادة', width: 220, render: r => <span className="font-semibold text-header">{r.name}</span> },
-    { key: 'barcode', header: 'الباركود', width: 140, mono: true, render: r => <span dir="ltr">{r.barcode || '—'}</span> },
-    { key: 'price', header: 'السعر', width: 100, mono: true, render: r => formatCurrency(r.price) },
-    {
-      key: 'copies',
-      header: 'العدد',
-      width: 80,
-      mono: true,
-      footer: 'sum',
-      edit: {
-        type: 'number',
-        getValue: r => r.copies,
-        onCommit: (r, raw) => {
-          const n = Math.max(1, Math.min(999, Math.round(Number(raw)) || 1));
-          setQueue(rows => rows.map(x => (x.id === r.id ? { ...x, copies: n } : x)));
-        },
-      },
-      render: r => formatNum(r.copies),
-    },
-    {
-      key: 'actions',
-      header: '',
-      width: 88,
-      exportable: false,
-      render: r => (
-        <div className="flex gap-1">
-          <Btn size="sm" variant="secondary" disabled={printing} onClick={() => void printItems([r])}>
-            طباعة
-          </Btn>
-          <button
-            type="button"
-            className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-            title="حذف"
-            onClick={() => setQueue(rows => rows.filter(x => x.id !== r.id))}
-          >
-            <IconTrash size={14} />
-          </button>
-        </div>
-      ),
-    },
-  ], [printing, settings]);
+  const totalLabels = queue.reduce((s, i) => s + i.copies, 0);
+  const totalRows = Math.ceil(totalLabels / setup.columns);
+  const presetId = SIZE_PRESETS.find(p => p.w === prefs.widthMm && p.h === prefs.heightMm && p.cols === prefs.columns)?.id ?? 'custom';
+  const printers = printersQ.data ?? [];
 
   return (
-    <div className="barcode-studio">
-      <div className="barcode-scan">
-        <div className="flex flex-wrap items-end gap-2">
-          <FilterField label="امسح الباركود أو ابحث بالاسم" className="min-w-[280px] flex-1">
-            <div className="relative">
-              <Input
-                ref={inputRef}
-                value={query}
-                dir="ltr"
-                className="barcode-scan-input text-left"
-                placeholder="ضع المؤشر هنا وامسح الباركود — أو اكتب الاسم"
-                onChange={e => {
-                  setQuery(e.target.value);
-                  setMiss('');
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    onSubmitQuery();
-                  }
-                }}
-              />
-              {searchQ.data && searchQ.data.length > 0 && query.trim().length >= 2 && !isLikelyBarcode(query) && (
-                <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                  {searchQ.data.map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-right text-[13px] hover:bg-slate-50"
-                      onClick={() => {
-                        setCurrent(p);
-                        setMiss('');
-                        setQuery(p.barcode || p.name || '');
-                        inputRef.current?.focus();
-                      }}
-                    >
-                      <span className="font-semibold text-header">{fixEdariName(p.name) || p.barcode}</span>
-                      <span className="font-mono text-[11px] text-slate-400" dir="ltr">{p.barcode}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </FilterField>
-          <FilterField label="عدد الملصقات" className="w-[148px]">
-            <div className="barcode-qty">
-              <button type="button" onClick={() => setCopies(n => Math.max(1, n - 1))}>−</button>
-              <input
-                ref={copiesRef}
-                type="text"
-                inputMode="numeric"
-                className="num"
-                value={String(copies)}
-                onChange={e => setCopies(Math.max(1, Math.min(999, Number(e.target.value.replace(/\D/g, '')) || 1)))}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && current) {
-                    e.preventDefault();
-                    void printNow(current, copies);
-                  }
-                }}
-              />
-              <button type="button" onClick={() => setCopies(n => Math.min(999, n + 1))}>+</button>
-            </div>
-          </FilterField>
-          <Btn loading={lookupM.isPending} disabled={!query.trim()} variant="secondary" onClick={onSubmitQuery}>
-            إظهار المادة
-          </Btn>
-          <Btn disabled={!current} variant="secondary" onClick={() => current && addToQueue(current)}>
-            <IconPlus size={14} /> إضافة للطابور
-          </Btn>
-          <Btn disabled={!current || printing} loading={printing} onClick={() => current && void printNow(current)}>
-            <IconPrinter size={14} /> طباعة الآن
-          </Btn>
-        </div>
-        <p className="text-[11px] text-slate-500">
-          الطابعة تطبع <b className="text-header">{formatNum(metrics.columns)} أعمدة</b> في كل صف.
-          الصفحة {formatNum(metrics.pageWidthMm)} × {formatNum(metrics.pageHeightMm)} مم
-          {copies > 0 && ` · ${formatNum(copies)} ملصق = ${formatNum(Math.ceil(copies / metrics.columns))} صف`}.
-        </p>
-      </div>
-
-      <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="flex min-h-0 flex-col overflow-auto border-e border-slate-200">
-          {miss && (
-            <div className="border-b border-red-100 bg-red-50 px-3 py-2 text-[12px] font-semibold text-red-700">{miss}</div>
-          )}
-          {current ? (
-            <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-[16px] font-bold text-header" title={fixEdariName(current.name) || current.barcode}>
-                    {fixEdariName(current.name) || current.barcode}
-                  </p>
-                  <p className="mt-0.5 font-mono text-[12px] text-slate-500" dir="ltr">{current.barcode || current.num || '—'}</p>
-                </div>
-                <button
-                  type="button"
-                  className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
-                  onClick={() => { setCurrent(null); setQuery(''); inputRef.current?.focus(); }}
-                  title="إغلاق"
-                >
-                  <IconX size={16} />
-                </button>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Detail label="السعر" value={formatCurrency(current.price)} accent />
-                <Detail
-                  label="قبل العرض"
-                  value={current.originalPrice > current.price + 0.005 ? formatCurrency(current.originalPrice) : '—'}
-                />
-                <Detail label="رقم المادة" value={current.num || '—'} />
-                <Detail label="المخزون" value={formatNum(current.stock)} />
-                {current.offerName && <Detail label="العرض" value={current.offerName} />}
-                {current.discountPercent > 0 && <Detail label="الخصم" value={`${formatNum(current.discountPercent)}%`} />}
-              </div>
-            </div>
-          ) : (
-            <div className="border-b border-slate-100 px-3 py-8 text-center text-[13px] text-slate-500">
-              امسح الباركود لإظهار المادة — الملصقات تُصفّ {formatNum(metrics.columns)} في الصف الواحد كما تطبع الطابعة
-            </div>
-          )}
-
-          <div className="min-h-0 flex-1">
-            <DataGrid
-              columns={columns}
-              rows={queue}
-              getRowId={r => r.id}
-              selectedId={selectedId ?? undefined}
-              onRowClick={r => setSelectedId(r.id)}
-              embedded
-              fillHeight
-              maxHeight="100%"
-              storageKey="barcode-label-queue"
-              counterLabel="مادة"
-              emptyText="الطابور فارغ — أضف مواداً لطباعة دفعة واحدة على الرول"
-              exportName="طابور-الباركود"
-              toolbar={
-                queue.length > 0 ? (
-                  <div className="flex gap-1">
-                    <Btn size="sm" disabled={printing} onClick={() => void printItems(queue)}>
-                      طباعة الطابور
-                    </Btn>
-                    <Btn size="sm" variant="secondary" onClick={() => { setQueue([]); setSelectedId(null); }}>
-                      تفريغ
-                    </Btn>
-                  </div>
-                ) : undefined
-              }
+    <div className="flex min-h-0 flex-1 gap-3">
+      {/* ── العمود الرئيسي: المسح + قائمة الطباعة ── */}
+      <section className="card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white p-4">
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 start-4 flex items-center text-slate-400">
+              {looking ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-brand-600" /> : <IconBarcode size={22} />}
+            </span>
+            <input
+              ref={inputRef}
+              autoFocus
+              value={term}
+              onChange={e => setTerm(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void lookup(term);
+                } else if (e.key === 'ArrowDown' && results.length) {
+                  e.preventDefault();
+                  setActiveIdx(i => Math.min(results.length - 1, i + 1));
+                } else if (e.key === 'ArrowUp' && results.length) {
+                  e.preventDefault();
+                  setActiveIdx(i => Math.max(0, i - 1));
+                } else if (e.key === 'Escape') {
+                  setTerm('');
+                }
+              }}
+              placeholder="امسح الباركود أو اكتب اسم المادة…"
+              className="h-14 w-full rounded-2xl border-2 border-slate-200 bg-white ps-12 pe-4 text-[17px] font-semibold text-slate-800 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15"
             />
+            {results.length > 0 && (
+              <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-[360px] overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                {results.map((p, i) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseEnter={() => setActiveIdx(i)}
+                    onMouseDown={e => {
+                      e.preventDefault();
+                      addProduct(p);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-start ${i === activeIdx ? 'bg-brand-50' : 'hover:bg-slate-50'}`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-bold text-slate-800">{fixEdariName(p.name)}</span>
+                      <span className="num block text-[11.5px] text-slate-500" dir="ltr">{p.barcode || p.num || '—'}</span>
+                    </span>
+                    <span className="num shrink-0 text-[13px] font-extrabold text-brand-800">{formatCurrency(p.price)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px] text-slate-600">
+            <label className="flex items-center gap-2">
+              <span className="font-semibold">عدد النسخ لكل مسح</span>
+              <NumberDraftInput
+                value={prefs.defaultCopies}
+                onValueChange={n => update({ defaultCopies: n })}
+                min={1}
+                max={999}
+                integer
+                className="!h-8 !w-20 text-center num"
+              />
+            </label>
+            <Checkbox
+              checked={prefs.instantPrint}
+              onChange={v => update({ instantPrint: v })}
+              label={<span className="inline-flex items-center gap-1"><IconZap size={13} className="text-amber-500" />طباعة فورية عند المسح</span>}
+            />
+            <span className="ms-auto hidden items-center gap-1.5 text-slate-400 md:inline-flex">
+              <Kbd>Enter</Kbd> إضافة · <Kbd>↑</Kbd><Kbd>↓</Kbd> اختيار · <Kbd>Esc</Kbd> مسح
+            </span>
           </div>
         </div>
 
-        <aside className="flex min-h-0 flex-col gap-3 overflow-auto bg-slate-50/60 p-3">
-          <section className="rounded-xl border border-slate-200 bg-white p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[12px] font-bold text-header">معاينة الملصق</p>
-              <div className="barcode-preview-tabs">
-                <button type="button" className={previewMode === 'label' ? 'is-on' : ''} onClick={() => setPreviewMode('label')}>ملصق</button>
-                <button type="button" className={previewMode === 'sheet' ? 'is-on' : ''} onClick={() => setPreviewMode('sheet')}>صف الطابعة</button>
+        {/* قائمة الطباعة */}
+        <div className="min-h-0 flex-1 overflow-auto">
+          {queue.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+                <IconBarcode size={32} />
               </div>
+              <div className="text-[16px] font-extrabold text-slate-800">{prefs.instantPrint ? 'الطباعة الفورية مفعّلة' : 'قائمة الطباعة فارغة'}</div>
+              <p className="max-w-sm text-[13px] leading-6 text-slate-500">
+                {prefs.instantPrint
+                  ? 'كل مادة تمسحها تُطبع مباشرة بعدد النسخ المحدد.'
+                  : 'امسح باركود المادة أو ابحث باسمها. مسح نفس المادة مرة أخرى يزيد عدد نسخها.'}
+              </p>
             </div>
-            {previewMode === 'label' ? (
-              <>
-                <div className="barcode-sheet-stage barcode-sheet-stage-label">
-                  <div
-                    className="barcode-label-frame"
-                    style={{ width: labelPreview.widthPx * labelScale, height: labelPreview.heightPx * labelScale }}
-                  >
-                    <div
-                      className="barcode-sheet-cut overflow-hidden"
-                      style={{ width: labelPreview.widthPx * labelScale, height: labelPreview.heightPx * labelScale }}
-                    >
-                      <div
-                        style={{
-                          width: labelPreview.widthPx,
-                          height: labelPreview.heightPx,
-                          transform: `scale(${labelScale})`,
-                          transformOrigin: 'top left',
-                        }}
-                        dangerouslySetInnerHTML={{ __html: labelPreview.html }}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <p className="barcode-hri-live" dir="ltr">{previewItem.barcode || previewItem.articleNum || '—'}</p>
-                <p className="mt-1 text-center text-[11px] leading-5 text-slate-500">
-                  {settings.widthMm} × {settings.heightMm} مم · الرقم يُطبع كما هو بدون خانة زائدة
-                </p>
-              </>
+          ) : (
+            <table className="w-full min-w-[560px] border-collapse text-[13px]">
+              <thead className="sticky top-0 z-[2] bg-slate-50 text-[11.5px] font-bold text-slate-500 shadow-[inset_0_-1px_0_#e2e8f0]">
+                <tr>
+                  <th className="w-10 px-3 py-2 text-center">#</th>
+                  <th className="px-3 py-2 text-start">المادة</th>
+                  <th className="px-3 py-2 text-start">الباركود</th>
+                  <th className="px-3 py-2 text-start">السعر</th>
+                  <th className="w-[150px] px-3 py-2 text-center">عدد الملصقات</th>
+                  <th className="w-[120px] px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {queue.map((it, idx) => {
+                  const w = itemWarnings.get(it.key);
+                  const problem = w?.invalidBarcode
+                    ? 'الباركود يحتوي رموزاً لا تُطبع'
+                    : w?.barcodeTooLong
+                      ? 'الباركود أطول من عرض الملصق — اختر ملصقاً أعرض'
+                      : w?.barcodeThin
+                        ? 'خطوط الباركود رفيعة جداً على هذا العرض — قد يصعب مسحها'
+                        : null;
+                  return (
+                    <tr key={it.key} className={`border-b border-slate-100 transition-colors ${lastAddedKey === it.key ? 'bg-emerald-50' : 'hover:bg-slate-50/70'}`}>
+                      <td className="num px-3 py-2 text-center text-slate-400">{idx + 1}</td>
+                      <td className="px-3 py-2">
+                        <div className="font-bold text-slate-800">{it.data.name}</div>
+                        {problem && (
+                          <div className="mt-0.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-amber-700">
+                            <IconAlert size={12} />
+                            {problem}
+                          </div>
+                        )}
+                      </td>
+                      <td className="num px-3 py-2 text-slate-600" dir="ltr" style={{ textAlign: 'right' }}>{it.data.barcode}</td>
+                      <td className="px-3 py-2">
+                        <span className="num font-extrabold text-brand-800">{formatCurrency(it.data.price)}</span>
+                        {it.data.oldPrice ? <span className="num ms-2 text-[11.5px] text-slate-400 line-through">{formatCurrency(it.data.oldPrice)}</span> : null}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center justify-center gap-1">
+                          <StepBtn onClick={() => setQueue(q => q.map(x => (x.key === it.key ? { ...x, copies: Math.max(1, x.copies - 1) } : x)))}>−</StepBtn>
+                          <NumberDraftInput
+                            value={it.copies}
+                            onValueChange={n => setQueue(q => q.map(x => (x.key === it.key ? { ...x, copies: n } : x)))}
+                            min={1}
+                            max={999}
+                            integer
+                            className="!h-8 !w-16 text-center num font-bold"
+                          />
+                          <StepBtn onClick={() => setQueue(q => q.map(x => (x.key === it.key ? { ...x, copies: Math.min(999, x.copies + 1) } : x)))}>+</StepBtn>
+                        </div>
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <Btn size="xs" variant="ghost" icon={<IconPrinter size={13} />} disabled={printing} onClick={() => printItems([it])}>
+                            طباعة
+                          </Btn>
+                          <button
+                            type="button"
+                            title="إزالة"
+                            onClick={() => setQueue(q => q.filter(x => x.key !== it.key))}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          >
+                            <IconX size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* شريط الطباعة */}
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-slate-200 bg-white px-4 py-3">
+          <div className="text-[13px] text-slate-600">
+            <span className="num font-extrabold text-slate-900">{queue.length}</span> مادة ·{' '}
+            <span className="num font-extrabold text-slate-900">{totalLabels}</span> ملصق ·{' '}
+            <span className="num font-extrabold text-slate-900">{totalRows}</span> صف
+          </div>
+          <div className="ms-auto flex items-center gap-2">
+            {queue.length > 0 && (
+              <Btn variant="ghost" size="md" icon={<IconTrash size={15} />} onClick={() => setQueue([])}>
+                تفريغ
+              </Btn>
+            )}
+            <Btn
+              size="lg"
+              icon={<IconPrinter size={17} />}
+              loading={printing}
+              disabled={!totalLabels || printing}
+              onClick={() => printItems(queue)}
+            >
+              طباعة الكل ({totalLabels})
+            </Btn>
+          </div>
+        </div>
+      </section>
+
+      {/* ── اللوحة الجانبية: المعاينة + الإعداد ── */}
+      <aside className="card flex min-h-0 w-[330px] shrink-0 flex-col overflow-hidden max-lg:hidden 2xl:w-[380px]">
+        <div className="border-b border-slate-100 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[13px] font-extrabold text-slate-800">معاينة بالحجم الفعلي للطباعة</div>
+            <span className="num rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-500" dir="ltr">
+              {prefs.widthMm}×{prefs.heightMm} mm · {prefs.dpi}dpi
+            </span>
+          </div>
+          <div className="flex items-center justify-center rounded-xl bg-[repeating-conic-gradient(#f1f5f9_0_25%,#fff_0_50%)] bg-[length:14px_14px] p-3 ring-1 ring-slate-200">
+            {preview ? (
+              <img
+                src={preview.src}
+                alt="معاينة الملصق"
+                className="max-w-full bg-white shadow-sm ring-1 ring-slate-300"
+                style={{ width: `${Math.min(330, preview.widthMm * (330 / Math.max(rowWidthMm(setup), 40)))}px` }}
+              />
             ) : (
-              <>
-                <div className="barcode-sheet-stage">
-                  <div
-                    className="barcode-sheet-cut overflow-hidden"
-                    style={{ width: preview.widthPx * previewScale, height: preview.heightPx * previewScale }}
-                  >
-                    <div
-                      style={{
-                        width: preview.widthPx,
-                        height: preview.heightPx,
-                        transform: `scale(${previewScale})`,
-                        transformOrigin: 'top left',
-                      }}
-                      dangerouslySetInnerHTML={{ __html: preview.html }}
-                    />
-                  </div>
-                </div>
-                <p className="mt-2 text-center text-[11px] leading-5 text-slate-500">
-                  الصفحة {metrics.pageWidthMm} × {metrics.pageHeightMm} مم
-                  {metrics.gap > 0 ? ` · فراغ ${metrics.gap} مم` : ''}
-                  {' · '}
-                  طابق عرض الصفحة مع عرض الرول في تعريف الطابعة
-                </p>
-              </>
+              <div className="py-8 text-[12px] text-rose-600">تعذر رسم المعاينة</div>
             )}
-            {longName && (
-              <p className="barcode-warn">الاسم طويل — سيُضغط داخل حدود الملصق دون الخروج عن مكان الطباعة</p>
-            )}
-          </section>
+          </div>
+          {preview?.warnings.barcodeTooLong && <Warn>الباركود لا يتسع في هذا العرض — اختر ملصقاً أعرض أو أقل أعمدة.</Warn>}
+          {preview && !preview.warnings.barcodeTooLong && preview.warnings.barcodeThin && (
+            <Warn>خطوط الباركود بعرض نقطة واحدة — يُقرأ بماسح جيد، والأفضل ملصق أعرض أو دقة 300.</Warn>
+          )}
+          <div className="mt-3 flex gap-2">
+            <Btn
+              variant="secondary"
+              size="sm"
+              className="flex-1"
+              icon={<IconCheck size={14} />}
+              disabled={printing}
+              onClick={() => void printRows([renderCalibration(setup)], 'أُرسل ملصق المعايرة — تأكد أن الإطار على حافة الملصق تماماً')}
+            >
+              ملصق معايرة
+            </Btn>
+            <Btn variant="ghost" size="sm" icon={<IconSliders size={14} />} onClick={() => setShowSettings(v => !v)}>
+              {showSettings ? 'إخفاء الإعداد' : 'الإعداد'}
+            </Btn>
+          </div>
+        </div>
 
-          <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-[12px] font-bold text-header">تخطيط الرول</p>
-            <div className="barcode-cols">
-              {[1, 2, 3, 4].map(n => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`barcode-col-btn ${settings.columns === n ? 'is-on' : ''}`}
-                  onClick={() => setSettings(s => ({ ...s, columns: n, gapMm: n === 1 ? 0 : Math.max(s.gapMm, 2) }))}
-                >
-                  <span className="barcode-col-dots">
-                    {Array.from({ length: n }, (_, i) => <span key={i} />)}
-                  </span>
-                  <span className="text-[11px] font-bold">{n === 1 ? 'عمود' : `${n} أعمدة`}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {LAYOUT_PRESETS.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`barcode-chip ${activeLayout === p.id ? 'is-on' : ''}`}
-                  onClick={() => setSettings(s => applyLayout(p, s))}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <FilterField label="مقاس الملصق الواحد">
-              <Select value={settings.sizeId} onChange={e => applySize(e.target.value as LabelSizeId)}>
-                {LABEL_SIZES.map(s => (
-                  <option key={s.id} value={s.id}>{s.label}</option>
-                ))}
-              </Select>
-            </FilterField>
-            {settings.sizeId === 'custom' && (
-              <div className="grid grid-cols-2 gap-2">
-                <FilterField label="العرض مم">
-                  <Input
-                    type="number"
-                    min={20}
-                    max={120}
-                    value={settings.widthMm}
-                    onChange={e => setSettings(s => ({ ...s, widthMm: Math.max(20, Math.min(120, Number(e.target.value) || 40)) }))}
-                  />
-                </FilterField>
-                <FilterField label="الارتفاع مم">
-                  <Input
-                    type="number"
-                    min={15}
-                    max={100}
-                    value={settings.heightMm}
-                    onChange={e => setSettings(s => ({ ...s, heightMm: Math.max(15, Math.min(100, Number(e.target.value) || 30)) }))}
-                  />
-                </FilterField>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <FilterField label="فراغ بين الملصقات">
-                <Input
-                  type="number"
-                  min={0}
-                  max={10}
-                  step={0.5}
-                  value={settings.gapMm}
-                  onChange={e => setSettings(s => ({ ...s, gapMm: Math.max(0, Math.min(10, Number(e.target.value) || 0)) }))}
-                />
-              </FilterField>
-              <FilterField label="هامش الصفحة">
-                <Input
-                  type="number"
-                  min={0}
-                  max={8}
-                  step={0.5}
-                  value={settings.marginMm}
-                  onChange={e => setSettings(s => ({ ...s, marginMm: Math.max(0, Math.min(8, Number(e.target.value) || 0)) }))}
-                />
-              </FilterField>
-              <FilterField label="هامش آمن داخل الملصق">
-                <Input
-                  type="number"
-                  min={0.6}
-                  max={3}
-                  step={0.1}
-                  value={settings.insetMm}
-                  onChange={e => setSettings(s => ({ ...s, insetMm: Math.max(0.6, Math.min(3, Number(e.target.value) || 1.4)) }))}
-                />
-              </FilterField>
-              <FilterField label="صفوف/صفحة">
-                <Input
-                  type="number"
-                  min={1}
-                  max={8}
-                  value={settings.rowsPerPage}
-                  onChange={e => setSettings(s => ({ ...s, rowsPerPage: Math.min(8, Math.max(1, Number(e.target.value) || 1)) }))}
-                />
-              </FilterField>
-            </div>
-            <p className="text-[11px] leading-5 text-slate-500">
-              للرول ذي ثلاثة أعمدة اترك الصفوف 1. الهامش الآمن يُبقي الأشرطة والرقم داخل حدود الملصق.
-            </p>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-3">
-            <p className="mb-2 text-[12px] font-bold text-header">محتوى الملصق</p>
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {CONTENT_TEMPLATES.map(t => {
-                const on = JSON.stringify(settings.fields) === JSON.stringify(t.fields);
-                return (
+        {showSettings && (
+          <div className="min-h-0 flex-1 space-y-5 overflow-auto p-4">
+            <Section title="حجم الملصق">
+              <div className="grid grid-cols-2 gap-1.5">
+                {SIZE_PRESETS.map(p => (
                   <button
-                    key={t.id}
+                    key={p.id}
                     type="button"
-                    title={t.hint}
-                    className={`barcode-chip ${on ? 'is-on' : ''}`}
-                    onClick={() => setSettings(s => ({ ...s, fields: { ...t.fields } }))}
+                    onClick={() => update({ widthMm: p.w, heightMm: p.h, columns: p.cols, gapMm: p.gap })}
+                    className={`rounded-lg border px-2 py-1.5 text-[12px] font-bold transition ${presetId === p.id ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
                   >
-                    {t.label}
+                    {p.label}
                   </button>
-                );
-              })}
-            </div>
-            <div className="grid grid-cols-1 gap-1.5">
-              {FIELD_OPTIONS.map(opt => (
-                <Checkbox
-                  key={opt.key}
-                  label={opt.label}
-                  checked={settings.fields[opt.key]}
-                  onChange={v => patchField(opt.key, v)}
-                />
-              ))}
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <FilterField label="سطور الاسم">
-                <Select
-                  value={String(settings.nameLines)}
-                  onChange={e => setSettings(s => ({
-                    ...s,
-                    nameLines: e.target.value === '1' ? 1 : e.target.value === '3' ? 3 : 2,
-                  }))}
-                >
-                  <option value="1">سطر واحد</option>
-                  <option value="2">سطران</option>
-                  <option value="3">ثلاثة — للأسماء الطويلة</option>
-                </Select>
-              </FilterField>
-              <FilterField label="حجم رقم الباركود">
-                <Select
-                  value={settings.codeSize}
-                  onChange={e => setSettings(s => ({
-                    ...s,
-                    codeSize: e.target.value === 'sm' || e.target.value === 'lg' ? e.target.value : 'md',
-                  }))}
-                >
-                  <option value="sm">صغير</option>
-                  <option value="md">واضح</option>
-                  <option value="lg">كبير</option>
-                </Select>
-              </FilterField>
-              <FilterField label="المحاذاة">
-                <Select
-                  value={settings.align}
-                  onChange={e => setSettings(s => ({ ...s, align: e.target.value === 'start' ? 'start' : 'center' }))}
-                >
-                  <option value="center">وسط</option>
-                  <option value="start">يمين</option>
-                </Select>
-              </FilterField>
-            </div>
-            <p className="mt-2 text-[11px] leading-5 text-slate-500">
-              الرقم أسفل الأشرطة هو نفس باركود المادة — بلا خانة تحقق زائدة في النهاية.
-            </p>
-          </section>
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Field label="العرض (مم)">
+                  <NumberDraftInput value={prefs.widthMm} onValueChange={n => update({ widthMm: n })} min={15} max={120} step={0.5} />
+                </Field>
+                <Field label="الارتفاع (مم)">
+                  <NumberDraftInput value={prefs.heightMm} onValueChange={n => update({ heightMm: n })} min={10} max={100} step={0.5} />
+                </Field>
+                <Field label="الأعمدة في الصف">
+                  <Select value={prefs.columns} onChange={e => update({ columns: Number(e.target.value) })}>
+                    {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+                  </Select>
+                </Field>
+                <Field label="الفراغ بين الملصقات">
+                  <NumberDraftInput value={prefs.gapMm} onValueChange={n => update({ gapMm: n })} min={0} max={10} step={0.5} disabled={prefs.columns === 1} />
+                </Field>
+                <Field label="هامش الرول (يمين/يسار)">
+                  <NumberDraftInput value={prefs.sideMm} onValueChange={n => update({ sideMm: n })} min={0} max={10} step={0.5} />
+                </Field>
+                <Field label="حشوة داخلية">
+                  <NumberDraftInput value={prefs.paddingMm} onValueChange={n => update({ paddingMm: n })} min={0.6} max={4} step={0.1} />
+                </Field>
+              </div>
+              <div className="mt-1.5 text-[11.5px] text-slate-500">
+                عرض الصف الكامل: <span className="num font-bold text-slate-700">{Math.round(rowWidthMm(setup) * 10) / 10} مم</span> — يجب أن يطابق عرض الرول في تعريف الطابعة.
+              </div>
+            </Section>
 
-          <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-[12px] font-bold text-header">الطابعة</p>
-            {printersQ.data && printersQ.data.length > 0 ? (
-              <FilterField label="طابعة الباركود">
-                <Select
-                  value={settings.printerName}
-                  onChange={e => setSettings(s => ({ ...s, printerName: e.target.value }))}
-                >
-                  <option value="">الطابعة الافتراضية</option>
-                  {printersQ.data.map(p => (
-                    <option key={p.name} value={p.name}>{p.displayName || p.name}</option>
-                  ))}
-                </Select>
-              </FilterField>
-            ) : (
-              <p className="text-[11px] text-slate-500">اختر الطابعة من إعدادات ويندوز إن لم تظهر هنا.</p>
-            )}
-            <Checkbox
-              label="طباعة مباشرة بعد إدخال الباركود"
-              checked={settings.autoPrint}
-              onChange={v => setSettings(s => ({ ...s, autoPrint: v }))}
-            />
-          </section>
-        </aside>
-      </div>
+            <Section title="محتوى الملصق">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                {CONTENT_OPTIONS.map(o => (
+                  <Checkbox
+                    key={o.key}
+                    checked={prefs.content[o.key]}
+                    onChange={v => setContent(o.key, v)}
+                    label={o.label}
+                    disabled={o.key === 'shop' && !shopName}
+                  />
+                ))}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <Field label="أسطر الاسم">
+                  <Select value={prefs.nameLines} onChange={e => update({ nameLines: e.target.value === '1' ? 1 : 2 })}>
+                    <option value={1}>سطر</option>
+                    <option value={2}>سطران</option>
+                  </Select>
+                </Field>
+                <Field label="حجم النص">
+                  <Select value={prefs.textScale} onChange={e => update({ textScale: e.target.value as Prefs['textScale'] })}>
+                    <option value="sm">صغير</option>
+                    <option value="md">متوسط</option>
+                    <option value="lg">كبير</option>
+                  </Select>
+                </Field>
+                <Field label="العملة">
+                  <Input value={prefs.currency} maxLength={8} onChange={e => update({ currency: e.target.value })} />
+                </Field>
+              </div>
+            </Section>
 
-      <ClassicSummaryFooter
-        items={[
-          { label: 'مواد الطابور', value: formatNum(queue.length) },
-          { label: 'ملصقات', value: formatNum(totalLabels), accent: true },
-          { label: 'صفوف ستُطبع', value: formatNum(queueRows) },
-          { label: 'أعمدة الطابعة', value: formatNum(metrics.columns) },
-          { label: 'مقاس الصفحة', value: `${metrics.pageWidthMm} × ${metrics.pageHeightMm} مم` },
-        ]}
-      />
+            <Section title="الطابعة">
+              {desktop?.printRaster ? (
+                <Field label="طابعة الملصقات">
+                  <Select value={prefs.printerName} onChange={e => update({ printerName: e.target.value })}>
+                    <option value="">الطابعة الافتراضية</option>
+                    {printers.map(p => (
+                      <option key={p.name} value={p.name}>
+                        {p.displayName || p.name}
+                        {p.isDefault ? ' (افتراضية)' : ''}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : (
+                <div className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">
+                  تعمل من المتصفح: ستظهر نافذة الطباعة — اختر طابعة الملصقات واضبط الهوامش على «بلا».
+                </div>
+              )}
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <Field label="دقة الطابعة">
+                  <Select value={prefs.dpi} onChange={e => update({ dpi: e.target.value === '300' ? 300 : 203 })}>
+                    <option value={203}>203 dpi</option>
+                    <option value={300}>300 dpi</option>
+                  </Select>
+                </Field>
+                <Field label="إزاحة أفقية">
+                  <NumberDraftInput value={prefs.offsetXMm} onValueChange={n => update({ offsetXMm: n })} min={-10} max={10} step={0.5} />
+                </Field>
+                <Field label="إزاحة عمودية">
+                  <NumberDraftInput value={prefs.offsetYMm} onValueChange={n => update({ offsetYMm: n })} min={-10} max={10} step={0.5} />
+                </Field>
+              </div>
+              <p className="mt-1.5 text-[11.5px] leading-5 text-slate-500">
+                اطبع «ملصق معايرة»: إن خرج الإطار مزاحاً عن حافة الملصق، صحّحه بالإزاحة (بالمليمتر، موجب = يمين/أسفل).
+              </p>
+            </Section>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
 
-function Detail({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function StepBtn({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
-      <p className="text-[10px] font-semibold text-slate-500">{label}</p>
-      <p className={`truncate text-[13px] font-bold ${accent ? 'text-brand-700' : 'text-header'}`}>{value}</p>
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-[16px] font-bold text-slate-600 hover:bg-slate-50 active:bg-slate-100"
+    >
+      {children}
+    </button>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="mb-2 text-[11.5px] font-extrabold uppercase tracking-wide text-slate-400">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11.5px] font-semibold text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Warn({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11.5px] font-semibold leading-5 text-amber-800">
+      <IconAlert size={13} className="mt-0.5 shrink-0" />
+      {children}
     </div>
   );
 }

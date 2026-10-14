@@ -135,6 +135,33 @@ export interface OfferDto {
   type: number;
   detailCount: number;
   activeProductCount: number;
+  folderId?: number | null;
+  folderName?: string | null;
+  /** فترة العرض — متوفرة من الخادم الحديث ضمن القائمة. */
+  unlimited?: boolean;
+  fromDate?: string | null;
+  toDate?: string | null;
+}
+
+/**
+ * شروط تفعيل العرض المشروط.
+ * matchMode: 0 كل المواد المشروطة · 1 عدد منها (minCount).
+ * countBasis: 0 مواد مختلفة · 1 عدد قطع (تكرار نفس المادة يُحسب).
+ */
+export interface OfferBundleConditionsDto {
+  matchMode: 0 | 1;
+  minCount: number;
+  countBasis: 0 | 1;
+  minQtyEach: number;
+  minRequiredAmount: number;
+  requiredDiscount: number;
+}
+
+export interface OfferFolderDto {
+  id: number;
+  name: string;
+  sortOrder: number;
+  offerCount: number;
 }
 
 export interface OfferDetailDto {
@@ -200,6 +227,7 @@ export interface CreateOfferRequest {
   priority: number;
   type: number;
   enabled: boolean;
+  folderId?: number | null;
 }
 
 export interface UpdateOfferRequest {
@@ -516,6 +544,65 @@ export interface CashierVoidReportDto {
   cancelledAmount: number;
 }
 
+export interface OfferSalesClosureDto {
+  id: number;
+  offerId: number;
+  offerName: string;
+  periodFrom: string;
+  periodTo: string;
+  closedAt: string;
+  totalAmount: number;
+  totalQuantity: number;
+}
+
+export interface OfferSalesProductRowDto {
+  articleSeq: number;
+  barcode?: string | null;
+  name?: string | null;
+  quantity: number;
+  amount: number;
+  listAmount: number;
+  discountAmount: number;
+  sharePercent: number;
+}
+
+export interface OfferSalesDailyRowDto {
+  date: string;
+  quantity: number;
+  amount: number;
+  receiptCount: number;
+}
+
+export interface OfferSalesUnsoldRowDto {
+  barcode?: string | null;
+  name?: string | null;
+}
+
+export interface OfferSalesReportDto {
+  offerId: number;
+  offerName: string;
+  offerType: number;
+  discountPercent: number;
+  periodFrom: string;
+  periodTo: string;
+  periodDays: number;
+  storeLabel?: string | null;
+  scopeProductCount: number;
+  soldProductCount: number;
+  unsoldProductCount: number;
+  receiptCount: number;
+  totalQuantity: number;
+  totalAmount: number;
+  totalListAmount: number;
+  totalDiscountAmount: number;
+  averageDailyAmount: number;
+  averageTicketAmount: number;
+  generatedAt: string;
+  daily: OfferSalesDailyRowDto[];
+  products: OfferSalesProductRowDto[];
+  unsoldSamples: OfferSalesUnsoldRowDto[];
+}
+
 export interface CashierVoidEventDto {
   id: number;
   kind: string;
@@ -728,6 +815,8 @@ export interface CashierPermissionsDto {
   allowCreditReceipt: boolean;
   allowSalesReturn: boolean;
   allowGiftReceipt: boolean;
+  /** Gift dock only after discount QR scan; gift lines by barcode only. */
+  giftViaDiscountQr?: boolean;
   allowPriceChange: boolean;
   allowSearchArticles: boolean;
   allowEditReceipt: boolean;
@@ -738,6 +827,7 @@ export interface CashierPermissionsDto {
   /** Hide the salesman groups in POS and pick one salesman for the whole invoice. */
   hideSalesmanGroups?: boolean;
   invoiceBoundReturn?: boolean;
+  printSalesmanOnReceipt?: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   numberOfHoldReceipts: number;
@@ -754,6 +844,8 @@ export interface UpdatePermissionsRequest {
   allowCreditReceipt: boolean;
   allowSalesReturn: boolean;
   allowGiftReceipt: boolean;
+  /** Gift dock only after discount QR scan; gift lines by barcode only. */
+  giftViaDiscountQr?: boolean;
   allowPriceChange: boolean;
   allowSearchArticles: boolean;
   allowEditReceipt: boolean;
@@ -761,6 +853,7 @@ export interface UpdatePermissionsRequest {
   allowProductDiscount: boolean;
   hideSalesmanGroups: boolean;
   invoiceBoundReturn: boolean;
+  printSalesmanOnReceipt: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   numberOfHoldReceipts: number;
@@ -845,6 +938,104 @@ export interface MovementRowDto {
   barcode?: string;
   soldQty: number;
   soldAmount: number;
+  returnedQty?: number;
+  giftQty?: number;
+  receiptCount?: number;
+}
+
+export interface HeatCellDto {
+  weekday: number;
+  hour: number;
+  total: number;
+  count: number;
+}
+
+export interface HeatmapReportDto {
+  posStartDate?: string | null;
+  cells: HeatCellDto[];
+}
+
+export interface CashierPerformanceRowDto {
+  cashierId: number;
+  name?: string | null;
+  sectionName?: string | null;
+  netSales: number;
+  receiptCount: number;
+  returnsTotal: number;
+  returnsCount: number;
+  giftCount: number;
+  manualDiscount: number;
+  cardTotal: number;
+  daysWorked: number;
+  firstAt?: string | null;
+  lastAt?: string | null;
+}
+
+export interface ReorderRowDto {
+  articleId: number;
+  name?: string | null;
+  barcode?: string | null;
+  stock: number;
+  price: number;
+  soldQty: number;
+  dailyRate: number;
+  coverDays: number;
+  lastSaleDate?: string | null;
+}
+
+export interface ReorderReportDto {
+  effectiveDays: number;
+  coverDays: number;
+  outOfStock: number;
+  underWeek: number;
+  total: number;
+  rows: ReorderRowDto[];
+}
+
+export interface SlowMoverRowDto {
+  articleId: number;
+  name?: string | null;
+  barcode?: string | null;
+  stock: number;
+  price: number;
+  stockValue: number;
+  lastSaleDate?: string | null;
+  totalSoldQty: number;
+}
+
+export interface SlowMoverReportDto {
+  since: string;
+  posStartDate?: string | null;
+  totalCount: number;
+  totalValue: number;
+  neverSoldCount: number;
+  rows: SlowMoverRowDto[];
+}
+
+export interface HourBucketDto {
+  hour: number;
+  total: number;
+  count: number;
+}
+
+export interface NamedTotalDto {
+  id: number;
+  name: string;
+  sub?: string | null;
+  total: number;
+  count: number;
+}
+
+/** تفصيل يوم للوحة الرئيسية. */
+export interface DayBreakdownDto {
+  date: string;
+  hourly: HourBucketDto[];
+  prevHourly: HourBucketDto[];
+  bySection: NamedTotalDto[];
+  byPos: NamedTotalDto[];
+  byCashier: NamedTotalDto[];
+  cardTotal: number;
+  cardCount: number;
 }
 
 export interface CashReportDto {
@@ -853,6 +1044,8 @@ export interface CashReportDto {
   totalPayment: number;
   totalCashBack: number;
   averageTicket: number;
+  returnsTotal?: number;
+  returnsCount?: number;
 }
 
 export interface CommissionRuleDto {
@@ -1586,6 +1779,7 @@ export interface ProductInquiryRequest {
   treeSeqs?: number[];
   commissionGroupId?: number | null;
   salesmanId?: number | null;
+  fullDetails?: boolean;
 }
 
 export interface ProductInquiryScopeDto {

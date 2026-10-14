@@ -34,11 +34,11 @@ export function CommissionGroupPills({
   return (
     <div className="mt-1 min-w-0">
       {mode === 'others' && (
-        <p className="mb-0.5 text-[10px] font-bold text-amber-800">موجود في مجموعة عمولات أخرى</p>
+        <p className="mb-0.5 text-[10.5px] font-bold text-amber-800">موجود في مجموعة عمولات أخرى</p>
       )}
       <ul className="flex flex-wrap gap-1">
         {list.map(g => {
-          const cls = `inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ring-1 ${
+          const cls = `inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
             mode === 'others'
               ? 'bg-amber-50 text-amber-900 ring-amber-200 hover:bg-amber-100'
               : g.isActive
@@ -48,13 +48,13 @@ export function CommissionGroupPills({
           const body = (
             <>
               <span className="truncate">{g.groupName}</span>
-              <span className="shrink-0 text-[9.5px] text-slate-400">
+              <span className="shrink-0 text-[10.5px] text-slate-400">
                 {commissionValueLabel(g.commissionType, g.commissionValue)}
               </span>
               {g.sourceTreeName && (
-                <span className="truncate text-[9.5px] text-slate-400">· {g.sourceTreeName}</span>
+                <span className="truncate text-[10.5px] text-slate-400">· {g.sourceTreeName}</span>
               )}
-              {!g.isActive && <span className="shrink-0 text-[9.5px]">متوقفة</span>}
+              {!g.isActive && <span className="shrink-0 text-[10.5px]">متوقفة</span>}
             </>
           );
           return (

@@ -21,18 +21,31 @@ import type {
 } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 import { useToast } from '@/components/Toast';
-import { IconPackage } from '@/components/icons';
-import { Btn, Input, Loading, Select } from '@/components/ui';
+import { IconDownload, IconFolder, IconPackage, IconSearch, IconX } from '@/components/icons';
+import { Btn, EmptyState, Input, Kbd, Loading, Select, Tabs } from '@/components/ui';
+import { SummaryStrip } from '@/components/listWorkspace';
 import { TreeMultiPickerDialog } from '@/components/TreeMultiPickerDialog';
-import { SoftChip } from '@/components/workspace';
-import { useBusinessPeriod } from '@/hooks/useBusinessPeriod';
-import { formatPeriodRange } from '@/lib/businessPeriod';
 import { isLikelyBarcode, productSeq } from '@/lib/catalogBrowse';
 import { fixEdariName } from '@/lib/text';
+import { downloadProductInquiryExcel } from '@/lib/productInquiryExcel';
 import { printReceiptA4 } from '@/lib/receiptPrint';
 import { ReportAppWindow } from './ReportAppWindow';
+import {
+  ChartBlock,
+  ChartToggle,
+  HBarChart,
+  Money,
+  PeriodSelector,
+  ReportBanner,
+  ReportCenter,
+  ReportError,
+  ReportFill,
+  ReportNote,
+  ReportSplit,
+  useChartDock,
+  useReportPeriod,
+} from './ReportKit';
 
-type PeriodId = 'week' | 'lastWeek' | 'month' | 'custom';
 type ScopeMode = 'products' | 'trees' | 'group';
 type ResultTab = 'products' | 'salesmen' | 'commissions' | 'receipts';
 
@@ -50,12 +63,30 @@ function receiptLabel(number?: number | null, id?: number) {
   return id ? `#${id}` : '—';
 }
 
+function ScopeChip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
+  return (
+    <span className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-full border border-brand-200 bg-brand-50 ps-2.5 pe-1 text-[12px] font-medium text-brand-800">
+      <span className="truncate">{children}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="rounded-full p-0.5 text-brand-700 transition hover:bg-brand-100"
+        aria-label="إزالة"
+      >
+        <IconX size={12} />
+      </button>
+    </span>
+  );
+}
+
 export function ProductInquiryApp({ onClose }: { onClose: () => void }) {
   const toast = useToast();
-  const { periods } = useBusinessPeriod();
-  const [period, setPeriod] = useState<PeriodId>('week');
-  const [customFrom, setCustomFrom] = useState(periods.currentWeek.from);
-  const [customTo, setCustomTo] = useState(periods.currentWeek.to);
+  const period = useReportPeriod({
+    storageKey: 'product-inquiry',
+    presets: ['today', 'week', 'lastWeek', 'month', 'lastMonth', 'custom'],
+    fallback: 'week',
+  });
+  const range = period.range;
   const [mode, setMode] = useState<ScopeMode>('products');
   const [products, setProducts] = useState<PickedProduct[]>([]);
   const [trees, setTrees] = useState<TargetTreeLinkDto[]>([]);
@@ -64,13 +95,7 @@ export function ProductInquiryApp({ onClose }: { onClose: () => void }) {
   const [treePickerOpen, setTreePickerOpen] = useState(false);
   const [tab, setTab] = useState<ResultTab>('salesmen');
   const [expandedReceiptId, setExpandedReceiptId] = useState<number | null>(null);
-
-  const range = useMemo(() => {
-    if (period === 'week') return periods.currentWeek;
-    if (period === 'lastWeek') return periods.previousWeek;
-    if (period === 'month') return periods.currentMonth;
-    return { from: customFrom, to: customTo };
-  }, [period, periods, customFrom, customTo]);
+  const [exporting, setExporting] = useState(false);
 
   const salesmenQ = useQuery({
     queryKey: ['salesmen', true],
@@ -126,22 +151,47 @@ export function ProductInquiryApp({ onClose }: { onClose: () => void }) {
     inquiry.mutate(req);
   }
 
-  const periodBtns: { id: PeriodId; label: string }[] = [
-    { id: 'week', label: 'هذا الأسبوع' },
-    { id: 'lastWeek', label: 'الأسبوع الماضي' },
-    { id: 'month', label: 'هذا الشهر' },
-    { id: 'custom', label: 'تاريخ' },
-  ];
+  // Ctrl+Enter يشغّل الاستعلام من أي مكان في النافذة
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        // لا تشغيل خلف منتقي الشجرة المفتوح أو أثناء استعلام جارٍ
+        if (treePickerOpen || inquiry.isPending) return;
+        e.preventDefault();
+        runInquiry();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  async function exportExcel() {
+    const req = buildRequest();
+    if (!req) return;
+    setExporting(true);
+    try {
+      const full = await api.productInquiry({ ...req, fullDetails: true });
+      downloadProductInquiryExcel(full, {
+        from: range.from,
+        to: range.to,
+        scope: full.scope.label ?? scopeHint,
+      });
+      if (full.receiptsTruncated || full.commissionsTruncated) {
+        toast.error('تم التصدير لكن بعض السجلات تجاوزت حد التصدير — قلّل الفترة أو النطاق');
+      } else {
+        toast.success('تم تنزيل ملف Excel');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تصدير Excel');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const modeBtns: { id: ScopeMode; label: string }[] = [
     { id: 'products', label: 'منتجات' },
     { id: 'trees', label: 'شجرة' },
     { id: 'group', label: 'مجموعة عمولة' },
-  ];
-  const tabs: { id: ResultTab; label: string }[] = [
-    { id: 'products', label: 'المنتجات' },
-    { id: 'salesmen', label: 'تجميع حسب البائع' },
-    { id: 'commissions', label: 'تفاصيل العمولات' },
-    { id: 'receipts', label: 'الفواتير' },
   ];
 
   const scopeHint = useMemo(() => {
@@ -151,93 +201,144 @@ export function ProductInquiryApp({ onClose }: { onClose: () => void }) {
     return g?.name ?? 'لم تُختر مجموعة';
   }, [mode, products.length, trees.length, groupsQ.data, groupId]);
 
+  const scopeReady = mode === 'products' ? products.length > 0 : mode === 'trees' ? trees.length > 0 : !!groupId;
+  const dock = useChartDock();
+
+  const salesmenChart = data && data.salesmen.length > 1 ? (
+    <ChartBlock title="البائعون في هذا النطاق" subtitle="مبلغ البيع والعمولة — أعلى 10">
+      <HBarChart
+        series={[
+          { key: 'sales', label: 'مبلغ البيع' },
+          { key: 'commission', label: 'العمولة' },
+        ]}
+        format={n => formatCurrency(n)}
+        items={[...data.salesmen]
+          .sort((a, b) => b.salesAmount - a.salesAmount)
+          .slice(0, 10)
+          .map(s => ({
+            id: s.salesmanId,
+            label: fixEdariName(s.salesmanName) || `#${s.salesmanId}`,
+            values: [s.salesAmount, s.commissionAmount],
+            sub: `${formatNum(s.quantity)} قطعة · ${formatNum(s.receiptCount)} فاتورة`,
+          }))}
+      />
+    </ChartBlock>
+  ) : null;
+
   return (
     <ReportAppWindow
+      accent="linear-gradient(135deg, #38bdf8 0%, #0369a1 100%)"
       title="استعلام مادة"
-      subtitle={`${formatPeriodRange(range.from, range.to)} · ${scopeHint}`}
-      icon={<IconPackage size={20} />}
-      accent="linear-gradient(135deg, #818cf8 0%, #4338ca 100%)"
+      subtitle={`${period.label} · ${scopeHint}`}
+      icon={<IconPackage size={16} />}
+      toolbar={<PeriodSelector state={period} />}
+      actions={
+        <Btn
+          size="sm"
+          variant="secondary"
+          icon={<IconDownload size={14} />}
+          onClick={() => void exportExcel()}
+          loading={exporting}
+          disabled={exporting || inquiry.isPending || !scopeReady}
+          title="تصدير كامل التفاصيل إلى Excel"
+        >
+          تصدير Excel
+        </Btn>
+      }
       onClose={onClose}
     >
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 space-y-3 border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-              {periodBtns.map(b => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setPeriod(b.id)}
-                  className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
-                    period === b.id ? 'bg-header text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-                  }`}
-                >
-                  {b.label}
-                </button>
-              ))}
+      <ReportFill>
+        {/* نطاق الاستعلام — شريط فلاتر بعناوين صغيرة */}
+        <div className="relative z-20 shrink-0 border-b border-slate-200 bg-slate-50/70 px-3 pb-2 pt-1.5">
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <span className="mb-1 block text-[11px] font-semibold text-slate-500">النطاق</span>
+              <div className="flex rounded-lg bg-slate-200/60 p-0.5" role="radiogroup" aria-label="نوع النطاق">
+                {modeBtns.map(b => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === b.id}
+                    onClick={() => setMode(b.id)}
+                    className={`h-7 rounded-md px-3 text-[12px] font-semibold transition ${
+                      mode === b.id
+                        ? 'bg-white text-brand-800 shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200'
+                        : 'text-slate-600 hover:text-header'
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            {period === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="!py-1.5" />
-                <span className="text-[12px] text-slate-400">→</span>
-                <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="!py-1.5" />
+
+            {mode === 'products' && (
+              <ProductChips
+                products={products}
+                onAdd={p => setProducts(prev => prev.some(x => x.seq === p.seq) ? prev : [...prev, p])}
+              />
+            )}
+            {mode === 'trees' && (
+              <div>
+                <span className="mb-1 block text-[11px] font-semibold text-slate-500">الأشجار</span>
+                <Btn size="sm" variant="secondary" icon={<IconFolder size={14} />} onClick={() => setTreePickerOpen(true)}>
+                  اختيار أشجار{trees.length ? ` (${formatNum(trees.length)})` : ''}
+                </Btn>
               </div>
             )}
-            <div className="flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-              {modeBtns.map(b => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setMode(b.id)}
-                  className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
-                    mode === b.id ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-                  }`}
-                >
-                  {b.label}
-                </button>
-              ))}
+            {mode === 'group' && (
+              <label className="block w-full sm:w-[320px]">
+                <span className="mb-1 block text-[11px] font-semibold text-slate-500">مجموعة العمولة</span>
+                <Select value={groupId} onChange={e => setGroupId(e.target.value)} className="!h-8 text-[12.5px]" aria-label="مجموعة العمولة">
+                  <option value="">اختر مجموعة عمولة</option>
+                  {(groupsQ.data ?? []).map(g => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}{g.isActive ? '' : ' (متوقفة)'} · {formatNum(g.productCount)} صنف
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            )}
+
+            <label className="block w-full sm:w-[200px]">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-500">البائع</span>
+              <Select value={salesmanId} onChange={e => setSalesmanId(e.target.value)} className="!h-8 text-[12.5px]" aria-label="البائع">
+                <option value="">كل البائعين</option>
+                {(salesmenQ.data?.items ?? []).map(s => (
+                  <option key={s.id} value={s.id}>{fixEdariName(s.name) || `#${s.id}`}</option>
+                ))}
+              </Select>
+            </label>
+
+            <div className="ms-auto flex items-center gap-2">
+              <span className="hidden items-center gap-1 text-[11px] text-slate-400 lg:inline-flex">
+                <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
+              </span>
+              <Btn onClick={runInquiry} loading={inquiry.isPending} disabled={!scopeReady} icon={<IconSearch size={14} />} title="Ctrl+Enter">
+                استعلام
+              </Btn>
             </div>
-            <Select value={salesmanId} onChange={e => setSalesmanId(e.target.value)} className="!w-[200px] !py-1.5">
-              <option value="">كل المندوبين</option>
-              {(salesmenQ.data?.items ?? []).map(s => (
-                <option key={s.id} value={s.id}>{fixEdariName(s.name) || `#${s.id}`}</option>
-              ))}
-            </Select>
-            <Btn onClick={runInquiry} loading={inquiry.isPending} className="ms-auto">
-              استعلام
-            </Btn>
           </div>
 
-          {mode === 'products' && (
-            <ProductChips
-              products={products}
-              onAdd={p => setProducts(prev => prev.some(x => x.seq === p.seq) ? prev : [...prev, p])}
-              onRemove={seq => setProducts(prev => prev.filter(p => p.seq !== seq))}
-            />
-          )}
-          {mode === 'trees' && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Btn size="sm" variant="secondary" onClick={() => setTreePickerOpen(true)}>اختيار أشجار</Btn>
-              {trees.map(t => (
-                <SoftChip key={t.treeSeq} tone="brand">
-                  <span className="inline-flex items-center gap-1">
-                    {t.treeName ?? `شجرة #${t.treeSeq}`}
-                    <button type="button" className="text-indigo-700" onClick={() => setTrees(prev => prev.filter(x => x.treeSeq !== t.treeSeq))}>×</button>
-                  </span>
-                </SoftChip>
+          {mode === 'products' && products.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {products.map(p => (
+                <ScopeChip key={p.seq} onRemove={() => setProducts(prev => prev.filter(x => x.seq !== p.seq))}>{p.name}</ScopeChip>
               ))}
-              {trees.length === 0 && <span className="text-[12.5px] text-slate-400">لم تُختر شجرة بعد</span>}
+              {products.length > 1 && (
+                <Btn size="xs" variant="ghost" onClick={() => setProducts([])}>مسح الكل</Btn>
+              )}
             </div>
           )}
-          {mode === 'group' && (
-            <Select value={groupId} onChange={e => setGroupId(e.target.value)} className="!max-w-md !py-1.5">
-              <option value="">اختر مجموعة عمولة</option>
-              {(groupsQ.data ?? []).map(g => (
-                <option key={g.id} value={g.id}>
-                  {g.name}{g.isActive ? '' : ' (متوقفة)'} · {formatNum(g.productCount)} صنف
-                </option>
+          {mode === 'trees' && trees.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {trees.map(t => (
+                <ScopeChip key={t.treeSeq} onRemove={() => setTrees(prev => prev.filter(x => x.treeSeq !== t.treeSeq))}>
+                  {t.treeName ?? `شجرة #${t.treeSeq}`}
+                </ScopeChip>
               ))}
-            </Select>
+            </div>
           )}
         </div>
 
@@ -248,71 +349,79 @@ export function ProductInquiryApp({ onClose }: { onClose: () => void }) {
           onChange={setTrees}
         />
 
-        {!data && !inquiry.isPending && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-            <p className="text-[16px] font-extrabold text-header">اختر نطاقاً ثم اضغط استعلام</p>
-            <p className="max-w-md text-[13.5px] leading-6 text-slate-500">
-              منتج واحد أو عدة منتجات، شجرة Edari، أو مجموعة عمولة. تظهر المبيعات والعمولات والبائعون والفواتير لنفس الفترة.
-            </p>
-          </div>
+        {inquiry.isError && !inquiry.isPending && (
+          <ReportBanner><ReportError error={inquiry.error} title="تعذّر الاستعلام" onRetry={runInquiry} /></ReportBanner>
+        )}
+
+        {!data && !inquiry.isPending && !inquiry.isError && (
+          <ReportCenter>
+            <EmptyState
+              icon={<IconPackage size={24} />}
+              title="اختر نطاقاً ثم اضغط «استعلام»"
+              description="تظهر الكمية ومبلغ البيع والعمولات، مع تجميع حسب البائع وتفاصيل الفواتير لنفس الفترة."
+            />
+          </ReportCenter>
         )}
 
         {inquiry.isPending && (
-          <div className="flex flex-1 items-center justify-center"><Loading /></div>
+          <>
+            <SummaryStrip loading cells={[{ label: 'الكمية', value: '' }, { label: 'مبلغ البيع', value: '' }, { label: 'الفواتير', value: '' }, { label: 'العمولة', value: '' }]} />
+            <ReportCenter><Loading /></ReportCenter>
+          </>
         )}
 
         {data && !inquiry.isPending && (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-4">
-              <Kpi label="الكمية" value={formatNum(data.summary.quantity)} />
-              <Kpi label="مبلغ البيع" value={formatCurrency(data.summary.salesAmount)} />
-              <Kpi label="الفواتير" value={formatNum(data.summary.receiptCount)} />
-              <Kpi
-                label="العمولة"
-                value={formatCurrency(data.summary.commissionAmount)}
-                hint={`${formatNum(data.summary.commissionLineCount)} سطر`}
-              />
-            </div>
+          <>
+            <SummaryStrip
+              cells={[
+                { label: 'الكمية', value: formatNum(data.summary.quantity) },
+                { label: 'مبلغ البيع', value: <Money value={data.summary.salesAmount} />, tone: 'brand' },
+                { label: 'الفواتير', value: formatNum(data.summary.receiptCount) },
+                { label: 'العمولة', value: <Money value={data.summary.commissionAmount} />, hint: `${formatNum(data.summary.commissionLineCount)} سطر` },
+                { label: 'البائعون', value: formatNum(data.salesmen.length) },
+                { label: 'الأصناف', value: formatNum(data.products.length) },
+              ]}
+            />
             {(data.receiptsTruncated || data.commissionsTruncated) && (
-              <p className="shrink-0 bg-amber-50 px-4 py-1.5 text-[12px] font-semibold text-amber-800">
+              <ReportNote tone="warn" bar>
                 النتائج مقتطعة للعرض
                 {data.receiptsTruncated ? ' — أول 400 فاتورة' : ''}
                 {data.commissionsTruncated ? ' — أول 800 سطر عمولة' : ''}
-                . الملخص أعلاه كامل.
-              </p>
+                . الملخص أعلاه كامل. استخدم «تصدير Excel» للتفاصيل الكاملة.
+              </ReportNote>
             )}
-            <div className="flex shrink-0 flex-wrap gap-1 border-b border-slate-200 bg-white px-4 pt-2">
-              {tabs.map(t => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  className={`rounded-t-lg px-3 py-2 text-[12.5px] font-bold transition ${
-                    tab === t.id
-                      ? 'bg-slate-100 text-header'
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
+
+            <div className="shrink-0 bg-white px-2">
+              <Tabs
+                items={[
+                  { id: 'salesmen' as ResultTab, label: 'تجميع حسب البائع', count: data.salesmen.length },
+                  { id: 'products' as ResultTab, label: 'المنتجات', count: data.products.length },
+                  { id: 'commissions' as ResultTab, label: 'تفاصيل العمولات', count: data.commissions.length },
+                  { id: 'receipts' as ResultTab, label: 'الفواتير', count: data.receipts.length },
+                ]}
+                value={tab}
+                onChange={setTab}
+              />
             </div>
-            <div className="min-h-0 flex-1 p-3">
-              {tab === 'products' && (
+
+            {tab === 'products' && (
+              <DataGrid
+                variant="sheet"
+                embedded
+                fillHeight
+                columns={productColumns()}
+                rows={data.products}
+                getRowId={r => r.articleSeq}
+                storageKey="product-inquiry-products"
+                exportName={`استعلام-منتجات-${range.from}_${range.to}`}
+                counterLabel="صنف"
+                emptyText="لا مبيعات ولا عمولات لهذه الأصناف في الفترة"
+              />
+            )}
+            {tab === 'salesmen' && (
+              <ReportSplit chart={salesmenChart} open={dock.open}>
                 <DataGrid
-                  embedded
-                  fillHeight
-                  columns={productColumns()}
-                  rows={data.products}
-                  getRowId={r => r.articleSeq}
-                  storageKey="product-inquiry-products"
-                  exportName={`استعلام-منتجات-${range.from}_${range.to}`}
-                  counterLabel="صنف"
-                  emptyText="لا مبيعات ولا عمولات لهذه الأصناف في الفترة"
-                />
-              )}
-              {tab === 'salesmen' && (
-                <DataGrid
+                  variant="sheet"
                   embedded
                   fillHeight
                   columns={salesmanColumns()}
@@ -322,74 +431,67 @@ export function ProductInquiryApp({ onClose }: { onClose: () => void }) {
                   exportName={`استعلام-بائعين-${range.from}_${range.to}`}
                   counterLabel="بائع"
                   emptyText="لا بائعين في هذا النطاق"
+                  toolbar={salesmenChart ? <ChartToggle dock={dock} /> : undefined}
                 />
-              )}
-              {tab === 'commissions' && (
-                <DataGrid
-                  embedded
-                  fillHeight
-                  columns={commissionColumns()}
-                  rows={data.commissions}
-                  getRowId={r => r.id}
-                  storageKey="product-inquiry-commissions"
-                  exportName={`استعلام-عمولات-${range.from}_${range.to}`}
-                  counterLabel="سطر"
-                  emptyText="لا عمولات مسجّلة لهذه الأصناف في الفترة"
-                  expansion={{
-                    isExpanded: r => expandedReceiptId === r.receiptId,
-                    onToggle: r => setExpandedReceiptId(id => id === r.receiptId ? null : r.receiptId),
-                    render: r => <InquiryReceiptDetail receiptId={r.receiptId} receiptNumber={r.receiptNumber} />,
-                  }}
-                />
-              )}
-              {tab === 'receipts' && (
-                <DataGrid
-                  embedded
-                  fillHeight
-                  columns={receiptColumns()}
-                  rows={data.receipts}
-                  getRowId={r => r.receiptId}
-                  storageKey="product-inquiry-receipts"
-                  exportName={`استعلام-فواتير-${range.from}_${range.to}`}
-                  counterLabel="فاتورة"
-                  emptyText="لا فواتير بيع لهذه الأصناف في الفترة"
-                  expansion={{
-                    isExpanded: r => expandedReceiptId === r.receiptId,
-                    onToggle: r => setExpandedReceiptId(id => id === r.receiptId ? null : r.receiptId),
-                    render: r => <InquiryReceiptDetail receiptId={r.receiptId} receiptNumber={r.receiptNumber} />,
-                  }}
-                />
-              )}
-            </div>
-          </div>
+              </ReportSplit>
+            )}
+            {tab === 'commissions' && (
+              <DataGrid
+                variant="sheet"
+                embedded
+                fillHeight
+                columns={commissionColumns()}
+                rows={data.commissions}
+                getRowId={r => r.id}
+                storageKey="product-inquiry-commissions"
+                exportName={`استعلام-عمولات-${range.from}_${range.to}`}
+                counterLabel="سطر"
+                emptyText="لا عمولات مسجّلة لهذه الأصناف في الفترة"
+                expansion={{
+                  isExpanded: r => expandedReceiptId === r.receiptId,
+                  onToggle: r => setExpandedReceiptId(id => id === r.receiptId ? null : r.receiptId),
+                  render: r => <InquiryReceiptDetail receiptId={r.receiptId} receiptNumber={r.receiptNumber} />,
+                }}
+              />
+            )}
+            {tab === 'receipts' && (
+              <DataGrid
+                variant="sheet"
+                embedded
+                fillHeight
+                columns={receiptColumns()}
+                rows={data.receipts}
+                getRowId={r => `${r.receiptId}-${r.salesmanId}`}
+                storageKey="product-inquiry-receipts"
+                exportName={`استعلام-فواتير-${range.from}_${range.to}`}
+                counterLabel="فاتورة"
+                emptyText="لا فواتير بيع لهذه الأصناف في الفترة"
+                expansion={{
+                  isExpanded: r => expandedReceiptId === r.receiptId,
+                  onToggle: r => setExpandedReceiptId(id => id === r.receiptId ? null : r.receiptId),
+                  render: r => <InquiryReceiptDetail receiptId={r.receiptId} receiptNumber={r.receiptNumber} />,
+                }}
+              />
+            )}
+          </>
         )}
-      </div>
+      </ReportFill>
     </ReportAppWindow>
   );
 }
 
-function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-      <div className="text-[11px] font-semibold text-slate-500">{label}</div>
-      <div className="text-[16px] font-extrabold text-header">{value}</div>
-      {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
-    </div>
-  );
-}
-
+/** حقل بحث المنتج (اسم/باركود) — الشرائح تُعرض تحت شريط النطاق. */
 function ProductChips({
   products,
   onAdd,
-  onRemove,
 }: {
   products: PickedProduct[];
   onAdd: (p: PickedProduct) => void;
-  onRemove: (seq: number) => void;
 }) {
   const toast = useToast();
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [active, setActive] = useState(0);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 250);
     return () => clearTimeout(t);
@@ -400,6 +502,9 @@ function ProductChips({
     queryFn: () => api.searchProducts(debounced),
     enabled: debounced.length >= 2 && !isLikelyBarcode(debounced),
   });
+  const results = q.trim().length >= 2 ? (searchQ.data ?? []) : [];
+
+  useEffect(() => setActive(0), [debounced]);
 
   async function addBarcode(code: string) {
     const value = code.trim();
@@ -423,44 +528,59 @@ function ProductChips({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="relative max-w-lg">
+    <div className="min-w-[240px] flex-[2_1_320px]">
+      <span className="mb-1 block text-[11px] font-semibold text-slate-500">
+        المنتجات{products.length ? ` (${formatNum(products.length)})` : ''}
+      </span>
+      <div className="relative">
+        <IconSearch size={15} className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
         <Input
           value={q}
           onChange={e => setQ(e.target.value)}
           onKeyDown={e => {
-            if (e.key !== 'Enter') return;
+            if (e.key === 'ArrowDown' && results.length) {
+              e.preventDefault();
+              setActive(i => Math.min(results.length - 1, i + 1));
+              return;
+            }
+            if (e.key === 'ArrowUp' && results.length) {
+              e.preventDefault();
+              setActive(i => Math.max(0, i - 1));
+              return;
+            }
+            if (e.key === 'Escape' && q) {
+              e.preventDefault();
+              setQ('');
+              return;
+            }
+            if (e.key !== 'Enter' || e.ctrlKey || e.metaKey) return;
             e.preventDefault();
             if (isLikelyBarcode(q)) void addBarcode(q);
+            // النتائج من بحث مؤجَّل — لا نختار إلا إن طابقت النص الحالي واكتمل الجلب
+            else if (debounced === q.trim() && !searchQ.isFetching && results[active]) pick(results[active]);
           }}
           placeholder="اسم أو باركود ثم Enter — يمكن إضافة أكثر من صنف"
-          className="!py-1.5"
+          className="!h-8 !ps-8 text-[12.5px]"
+          aria-label="بحث منتج"
         />
-        {searchQ.data && searchQ.data.length > 0 && q.trim().length >= 2 && (
-          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-            {searchQ.data.map(p => (
+        {results.length > 0 && (
+          <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-[var(--shadow-pop)]" role="listbox">
+            {results.map((p, i) => (
               <button
                 key={productSeq(p)}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-right text-[13px] hover:bg-slate-50"
+                role="option"
+                aria-selected={i === active}
+                className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-right text-[12.5px] ${i === active ? 'bg-brand-50' : 'hover:bg-slate-50'}`}
+                onMouseEnter={() => setActive(i)}
                 onClick={() => pick(p)}
               >
-                <span className="font-semibold text-header">{fixEdariName(p.name) || p.barcode || `#${productSeq(p)}`}</span>
-                <span className="font-mono text-[11px] text-slate-400">{p.barcode}</span>
+                <span className="truncate font-medium text-header">{fixEdariName(p.name) || p.barcode || `#${productSeq(p)}`}</span>
+                <span className="shrink-0 font-mono text-[11px] text-slate-400">{p.barcode}</span>
               </button>
             ))}
           </div>
         )}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {products.map(p => (
-          <SoftChip key={p.seq} tone="brand">
-            <span className="inline-flex items-center gap-1">
-              {p.name}
-              <button type="button" className="text-indigo-700" onClick={() => onRemove(p.seq)}>×</button>
-            </span>
-          </SoftChip>
-        ))}
       </div>
     </div>
   );
@@ -468,7 +588,7 @@ function ProductChips({
 
 function productColumns(): GridColumn<ProductInquiryProductRowDto>[] {
   return [
-    { key: 'productName', header: 'المنتج', width: 280, render: r => <span className="font-semibold text-header">{fixEdariName(r.productName) || `#${r.articleSeq}`}</span> },
+    { key: 'productName', header: 'المنتج', width: 280, exportValue: r => fixEdariName(r.productName) || `#${r.articleSeq}`, render: r => <span className="font-semibold text-header">{fixEdariName(r.productName) || `#${r.articleSeq}`}</span> },
     { key: 'barcode', header: 'الباركود', width: 140, mono: true },
     { key: 'quantity', header: 'الكمية', width: 110, mono: true, footer: 'sum' },
     { key: 'salesAmount', header: 'مبلغ البيع', width: 140, mono: true, footer: 'sum', render: r => formatCurrency(r.salesAmount) },
@@ -479,7 +599,7 @@ function productColumns(): GridColumn<ProductInquiryProductRowDto>[] {
 
 function salesmanColumns(): GridColumn<ProductInquirySalesmanRowDto>[] {
   return [
-    { key: 'salesmanName', header: 'البائع', width: 240, render: r => <span className="font-semibold text-header">{fixEdariName(r.salesmanName) || `#${r.salesmanId}`}</span> },
+    { key: 'salesmanName', header: 'البائع', width: 240, exportValue: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}`, render: r => <span className="font-semibold text-header">{fixEdariName(r.salesmanName) || `#${r.salesmanId}`}</span> },
     { key: 'quantity', header: 'الكمية', width: 110, mono: true, footer: 'sum' },
     { key: 'salesAmount', header: 'مبلغ البيع', width: 150, mono: true, footer: 'sum', render: r => formatCurrency(r.salesAmount) },
     { key: 'commissionAmount', header: 'العمولة', width: 150, mono: true, footer: 'sum', render: r => <span className="font-extrabold text-brand-800">{formatCurrency(r.commissionAmount)}</span> },
@@ -489,15 +609,16 @@ function salesmanColumns(): GridColumn<ProductInquirySalesmanRowDto>[] {
 
 function commissionColumns(): GridColumn<ProductInquiryCommissionRowDto>[] {
   return [
-    { key: 'saleDate', header: 'التاريخ', width: 120, render: r => shortDate(r.saleDate) },
-    { key: 'receiptNumber', header: 'الفاتورة', width: 110, mono: true, render: r => receiptLabel(r.receiptNumber, r.receiptId) },
-    { key: 'productName', header: 'المنتج', width: 200, render: r => fixEdariName(r.productName) || `#${r.articleSeq}` },
-    { key: 'salesmanName', header: 'البائع', width: 160, render: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}` },
+    { key: 'saleDate', header: 'التاريخ', width: 120, exportValue: r => shortDate(r.saleDate), render: r => shortDate(r.saleDate) },
+    { key: 'receiptNumber', header: 'الفاتورة', width: 110, mono: true, exportValue: r => receiptLabel(r.receiptNumber, r.receiptId), render: r => receiptLabel(r.receiptNumber, r.receiptId) },
+    { key: 'productName', header: 'المنتج', width: 200, exportValue: r => fixEdariName(r.productName) || `#${r.articleSeq}`, render: r => fixEdariName(r.productName) || `#${r.articleSeq}` },
+    { key: 'salesmanName', header: 'البائع', width: 160, exportValue: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}`, render: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}` },
     { key: 'commissionGroupName', header: 'المجموعة', width: 160, render: r => r.commissionGroupName || '—' },
     {
       key: 'commissionType',
       header: 'النوع',
       width: 140,
+      exportValue: r => (r.commissionType ? formatCommissionLabel(r.commissionType, r.commissionValue) : '—'),
       render: r => r.commissionType ? formatCommissionLabel(r.commissionType, r.commissionValue) : '—',
     },
     { key: 'quantity', header: 'الكمية', width: 90, mono: true, footer: 'sum' },
@@ -508,9 +629,9 @@ function commissionColumns(): GridColumn<ProductInquiryCommissionRowDto>[] {
 
 function receiptColumns(): GridColumn<ProductInquiryReceiptRowDto>[] {
   return [
-    { key: 'saleDate', header: 'التاريخ', width: 130, render: r => shortDate(r.saleDate) },
-    { key: 'receiptNumber', header: 'الفاتورة', width: 120, mono: true, render: r => <span className="font-bold text-indigo-800">{receiptLabel(r.receiptNumber, r.receiptId)}</span> },
-    { key: 'salesmanName', header: 'البائع', width: 180, render: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}` },
+    { key: 'saleDate', header: 'التاريخ', width: 130, exportValue: r => shortDate(r.saleDate), render: r => shortDate(r.saleDate) },
+    { key: 'receiptNumber', header: 'الفاتورة', width: 120, mono: true, exportValue: r => receiptLabel(r.receiptNumber, r.receiptId), render: r => <span className="font-bold text-brand-800">{receiptLabel(r.receiptNumber, r.receiptId)}</span> },
+    { key: 'salesmanName', header: 'البائع', width: 180, exportValue: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}`, render: r => fixEdariName(r.salesmanName) || `#${r.salesmanId}` },
     { key: 'quantity', header: 'كمية النطاق', width: 120, mono: true, footer: 'sum' },
     { key: 'salesAmount', header: 'مبلغ النطاق', width: 140, mono: true, footer: 'sum', render: r => formatCurrency(r.salesAmount) },
     { key: 'commissionAmount', header: 'العمولة', width: 130, mono: true, footer: 'sum', render: r => formatCurrency(r.commissionAmount) },
@@ -519,7 +640,7 @@ function receiptColumns(): GridColumn<ProductInquiryReceiptRowDto>[] {
 }
 
 const itemColumns: GridColumn<ReceiptItemDto>[] = [
-  { key: 'name', header: 'المنتج', width: 240, render: r => <span className="font-semibold">{fixEdariName(r.name) || `#${r.articleId}`}</span> },
+  { key: 'name', header: 'المنتج', width: 240, exportValue: r => fixEdariName(r.name) || `#${r.articleId}`, render: r => <span className="font-semibold">{fixEdariName(r.name) || `#${r.articleId}`}</span> },
   { key: 'barcode', header: 'الباركود', width: 120, mono: true },
   { key: 'quantity', header: 'الكمية', width: 85, mono: true, footer: 'sum' },
   { key: 'price', header: 'السعر', width: 90, mono: true, render: r => formatCurrency(r.price) },
@@ -549,7 +670,7 @@ function InquiryReceiptDetail({ receiptId, receiptNumber }: { receiptId: number;
         <span className="text-[12.5px] font-bold text-header">فاتورة {receiptLabel(receiptNumber ?? detail?.number, receiptId)}</span>
         <Link
           to={`/receipts?highlight=${receiptId}`}
-          className="text-[12px] font-semibold text-indigo-700 hover:underline"
+          className="text-[12px] font-semibold text-brand-700 hover:underline"
         >
           فتح في الفواتير
         </Link>

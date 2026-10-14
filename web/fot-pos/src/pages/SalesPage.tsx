@@ -41,6 +41,7 @@ import { CARD_APPROVED_HOLD_MS, chargeCard, cardPayDelay, formatCardError } from
 import { CardPayOverlay, type CardPayOverlayState } from '@/components/CardPayOverlay';
 import { CreditAccountPicker } from '@/components/CreditAccountPicker';
 import { CartGroupBar } from '@/components/CartGroupBar';
+import { BundleProgressStrip } from '@/components/BundleProgressStrip';
 import { CartTable } from '@/components/CartTable';
 import { ArticleGroupsBar } from '@/components/ArticleGroupsBar';
 import { SalesmanPicker } from '@/components/SalesmanPicker';
@@ -48,6 +49,11 @@ import { CashBoxPicker, cashBoxLabel } from '@/components/CashBoxPicker';
 import { PosSidebar } from '@/components/PosSidebar';
 import { canUseServer } from '@/lib/connectionGate';
 import { db } from '@/lib/db';
+import {
+  applyBundlePricingToCart,
+  cartPricesEqual,
+  type BundleOfferRule,
+} from '@/lib/bundleOffers';
 import { offerSalePrice, withOfferSalePrice, withOfferSalePrices } from '@/lib/offerPrice';
 import { focusInputVisualRight, onInputClickVisualRight, onInputFocusVisualRight } from '@/lib/focusInput';
 import { useBarcodeCapture } from '@/hooks/useBarcodeCapture';
@@ -56,7 +62,7 @@ import { useLanConnection } from '@/hooks/useLanConnection';
 import { usePosHub } from '@/hooks/usePosHub';
 import { createDebouncedSync } from '@/lib/syncSchedule';
 import { formatIqd, formatNum } from '@/lib/money';
-import { printReceipt } from '@/lib/printReceipt';
+import { applyCashierPrintPermissions, printReceipt } from '@/lib/printReceipt';
 import { isDarkRgb, winCss } from '@/lib/winColor';
 import {
   buildReceiptPayload,
@@ -197,6 +203,7 @@ export function SalesPage({
   const [scan, setScan] = useState('');
   useEffect(() => { scanValueRef.current = scan; }, [scan]);
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [bundleRules, setBundleRules] = useState<BundleOfferRule[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [flashKey, setFlashKey] = useState<string | null>(null);
   const [flashGen, setFlashGen] = useState(0);
@@ -223,6 +230,11 @@ export function SalesPage({
   const fullscreen = useFullscreen();
   const [busy, setBusy] = useState(false);
   const [cardPay, setCardPay] = useState<CardPayOverlayState>({ phase: 'idle' });
+  /** Set synchronously when a checkout starts — blocks a second save/charge before `busy` re-renders. */
+  const busyRef = useRef(false);
+  const lastKeyAtRef = useRef(0);
+  const cardPhaseRef = useRef<CardPayOverlayState['phase']>('idle');
+  cardPhaseRef.current = cardPay.phase;
   const [toast, setToast] = useState('');
   const toastTimer = useRef(0);
   const [overlay, setOverlay] = useState<Overlay>('none');
@@ -265,6 +277,11 @@ export function SalesPage({
   const [cashReportLoading, setCashReportLoading] = useState(false);
 
   const px = useMemo(() => resolveCashierPermissions(session.permissions), [session.permissions]);
+
+  const forReceiptPrint = useCallback(
+    (settings: PrintSettingsDto) => applyCashierPrintPermissions(settings, { printSalesmanOnReceipt: px.printSalesmanOnReceipt }),
+    [px.printSalesmanOnReceipt],
+  );
   const slotCount = px.invoiceSlotCount;
   const cashBoxes = session.cashBoxes ?? [];
   const selectedLine = cart.find(l => l.key === selectedKey) ?? null;
@@ -309,6 +326,7 @@ export function SalesPage({
     }
     if (saleKind === 1 && px.invoiceBoundReturn && !returnSource) setSaleKind(0);
     if (saleKind === 2 && !px.allowGiftReceipt) setSaleKind(0);
+    if (saleKind === 2 && px.giftViaDiscountQr && !discountQr) setSaleKind(0);
     if (accountId > 0 && !px.allowCreditReceipt) setAccountId(0);
     if (!px.allowSearchArticles && groupFilter) setGroupFilter('');
     if (!px.makeDiscount && !discountQr && userDiscount > 0) {
@@ -350,7 +368,10 @@ export function SalesPage({
       window.setTimeout(() => {
         if (overlayRef.current !== 'none') return;
         const target = e.target as HTMLElement | null;
-        if (target?.closest('.pos-overlay, [role="dialog"], .pos-products, .pos-credit-picker, .pos-context')) return;
+        if (target?.closest('.pos-overlay, [role="dialog"], .pos-credit-picker, .pos-article-groups-search-clear')) return;
+        // Products panel / context bar: plain buttons (group pills, sort, cart-group cards) hand
+        // focus back to the scanner; anything else there (search box, scrolling) keeps focus.
+        if (target?.closest('.pos-products, .pos-context') && !target.closest('button')) return;
         const active = document.activeElement as HTMLElement | null;
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
           return;
@@ -368,6 +389,7 @@ export function SalesPage({
     setDeferredCount(stats.deferred);
     setDeadCount(stats.dead);
     setCatalogCount(await db.productCount());
+    setBundleRules(await db.loadBundleOffers<BundleOfferRule>());
     const cachedPrint = await db.loadPrintSettings();
     if (cachedPrint) setPrintSettings(cachedPrint);
     const cachedAccounts = await db.loadAccounts();
@@ -584,6 +606,19 @@ export function SalesPage({
   const applyTargets = session.applyTargets !== false;
   const attrFlags = { applyCommissions, applyTargets };
 
+  const cartCompositionSig = useMemo(
+    () => cart.map(l => `${l.articleSeq ?? 0}:${l.quantity}:${l.sourceItemId ?? ''}`).join('|'),
+    [cart],
+  );
+
+  useEffect(() => {
+    if (!bundleRules.length) return;
+    setCart(prev => {
+      const next = applyBundlePricingToCart(prev, bundleRules);
+      return cartPricesEqual(prev, next) ? prev : next;
+    });
+  }, [cartCompositionSig, bundleRules]);
+
   const applyPreviewToKey = useCallback((_key: string, _articleId: number, _barcode: string | null, _salesmanId: number, _price: number) => {
     // Commission is calculated on the server when the queued sale uploads.
     // A live preview used to wait on the LAN and stall the scan when it dropped.
@@ -612,12 +647,14 @@ export function SalesPage({
       const line: CartLine = {
         key: `${p.id}-${gkey}-${sid}-${Date.now()}`,
         articleId: p.id,
+        articleSeq: p.seq,
         num: p.num ?? null,
         barcode: p.barcode,
         name: p.name || p.barcode || `#${p.id}`,
         quantity: extras?.maxQty != null ? Math.min(qty, extras.maxQty) : qty,
         price,
         originalPrice,
+        catalogUnitPrice: price,
         discount: 0,
         salesmanId: sid,
         salesmanName: sname,
@@ -658,7 +695,12 @@ export function SalesPage({
     }
   }, [online]);
 
-  const addProductWithAttribution = useCallback(async (p: ProductDto, qty = 1) => {
+  const addProductWithAttribution = useCallback(async (p: ProductDto, qty = 1, opts?: { fromScan?: boolean }) => {
+    if (saleKind === 2 && px.giftViaDiscountQr && !opts?.fromScan) {
+      showToast('في وضع الهدية أضف الأصناف بمسح الباركود فقط');
+      focusScan();
+      return;
+    }
     if (px.invoiceBoundReturn && returnSource) {
       const match = matchReturnProduct(returnSource, cart, p, qty);
       if (!match.ok) {
@@ -709,7 +751,7 @@ export function SalesPage({
     }
 
     addProductDirect(p, qty, sid, sname, gkey, glabel);
-  }, [activeGroupKey, addProductDirect, attrFlags, cart, cartGroups, focusScan, loadAllowedSalesmen, online, px.invoiceBoundReturn, pushLine, returnSource, salesmanId, salesmen, session.salesmanName, showToast, singleSeller]);
+  }, [activeGroupKey, addProductDirect, attrFlags, cart, cartGroups, focusScan, loadAllowedSalesmen, online, px.giftViaDiscountQr, px.invoiceBoundReturn, pushLine, returnSource, saleKind, salesmanId, salesmen, session.salesmanName, showToast, singleSeller]);
 
   function applyReturnSource(src: ReceiptReturnSourceDto) {
     if (src.kind !== 0) {
@@ -792,7 +834,11 @@ export function SalesPage({
         return;
       }
       setDiscountQr(person);
-      showToast(`خصم غير محدود — معتمد من ${person.name}`);
+      showToast(
+        px.giftViaDiscountQr && px.allowGiftReceipt
+          ? `خصم غير محدود — معتمد من ${person.name} · يمكنك الآن إصدار هدية`
+          : `خصم غير محدود — معتمد من ${person.name}`,
+      );
       setScan('');
       setScanError(null);
       focusScan();
@@ -818,7 +864,7 @@ export function SalesPage({
       return;
     }
     setScanError(null);
-    await addProductWithAttribution(p, qty);
+    await addProductWithAttribution(p, qty, { fromScan: true });
   }
 
   useBarcodeCapture((overlay === 'none' || overlay === 'return-invoice') && !busy && !confirmAsk, code => {
@@ -849,6 +895,13 @@ export function SalesPage({
 
   function changeQty(key: string, delta: number) {
     setQtyDraft(null);
+    const current = cart.find(l => l.key === key);
+    if (current && Math.max(0, cappedQty(current, current.quantity + delta)) <= 0) {
+      // Dropping to zero removes the line — go through the delete path (permission,
+      // confirmation, void audit) instead of silently filtering it out.
+      removeLine(key);
+      return;
+    }
     setCart(prev =>
       prev
         .map(l => {
@@ -966,6 +1019,10 @@ export function SalesPage({
       showToast('لا صلاحية للهدايا');
       return;
     }
+    if (next === 2 && px.giftViaDiscountQr && !discountQr) {
+      showToast('امسح رمز QR للخصم غير المحدود لتفعيل الهدية');
+      return;
+    }
     if (next === 1 && px.invoiceBoundReturn) {
       if (returnMode) {
         setReturnSource(null);
@@ -980,7 +1037,10 @@ export function SalesPage({
     }
     if (next !== 1) setReturnSource(null);
     setSaleKind(current => (current === next ? 0 : next));
-    if (next === 2) setAccountId(0);
+    if (next === 2) {
+      setAccountId(0);
+      if (px.giftViaDiscountQr) setProductsOpen(false);
+    }
   }
 
   function enterSaleMode() {
@@ -1127,11 +1187,22 @@ export function SalesPage({
     const n = Number(discountInput) || 0;
     setUserDiscount(capUserDiscount(subtotal * n / 100, discountQr ? 0 : px.userDiscountLimit, subtotal));
   }, [discountInput, discountMode, discountQr, px.makeDiscount, px.userDiscountLimit, subtotal]);
+  // An amount discount was capped against the subtotal when typed; removing lines afterwards
+  // must pull it down with the subtotal (never raise it back on its own).
+  useEffect(() => {
+    if (discountMode !== 'amount') return;
+    setUserDiscount(prev => {
+      const capped = capUserDiscount(prev, 0, subtotal);
+      return capped < prev ? capped : prev;
+    });
+  }, [discountMode, subtotal]);
   const cash = Number(cashGiven || 0);
   const change = cash - total;
   const creditMode = accountId > 0;
   const giftMode = saleKind === 2;
   const returnMode = saleKind === 1;
+  const canShowGift = px.allowGiftReceipt && (!px.giftViaDiscountQr || Boolean(discountQr));
+  const giftBarcodeOnly = giftMode && px.giftViaDiscountQr;
   const selectedAccount = accounts.find(a => a.id === accountId);
   const needsCash = !giftMode && !creditMode;
   const cardBlocked = cardBlockedReason({ saleKind, accountId, recalledHoldId: null, total });
@@ -1248,7 +1319,7 @@ export function SalesPage({
     const price = Math.max(minPrice, next);
     setCart(prev => prev.map(l => {
       if (l.key !== selectedLine.key) return l;
-      const updated = { ...l, price };
+      const updated = { ...l, price, catalogUnitPrice: price, manualPrice: true };
       return { ...updated, commissionAmount: lineCommissionAmount(updated) };
     }));
     applyPreviewToKey(selectedLine.key, selectedLine.articleId, selectedLine.barcode, selectedLine.salesmanId, price);
@@ -1333,9 +1404,10 @@ export function SalesPage({
       autoPrint: true,
       receiptTemplate: 'classic',
     };
-    await db.saveLastReceipt({ data, settings });
+    const effective = forReceiptPrint(settings);
+    await db.saveLastReceipt({ data, settings: effective });
     if (settings.autoPrint !== false) {
-      try { await printReceipt(data, settings); } catch { showToast('تعذرت الطباعة'); }
+      try { await printReceipt(data, effective); } catch { showToast('تعذرت الطباعة'); }
     }
   }
 
@@ -1574,7 +1646,7 @@ export function SalesPage({
       total: totalAmount,
       paid,
       change: 0,
-    }, settings);
+    }, forReceiptPrint(settings));
   }
 
   async function testPrint() {
@@ -1605,7 +1677,7 @@ export function SalesPage({
       total: 1000,
       paid: 1000,
       change: 0,
-    }, settings);
+    }, forReceiptPrint(settings));
   }
 
   async function reprintLast() {
@@ -1614,7 +1686,7 @@ export function SalesPage({
       showToast('لا توجد فاتورة أخيرة للطباعة');
       return;
     }
-    await printReceipt(last.data, last.settings);
+    await printReceipt(last.data, forReceiptPrint(last.settings));
   }
 
   async function reprintOfficialNumbers(flushed: FlushOutboxResult) {
@@ -1657,7 +1729,7 @@ export function SalesPage({
       total: detail.totalAmount,
       paid: detail.payment,
       change: detail.cashBack,
-    }, settings);
+    }, forReceiptPrint(settings));
   }
 
   async function reprintReceipt(row: TodayReceiptRow) {
@@ -1690,7 +1762,7 @@ export function SalesPage({
         total: detail.totalAmount,
         paid: detail.payment,
         change: detail.cashBack,
-      }, settings);
+      }, forReceiptPrint(settings));
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'تعذرت إعادة الطباعة');
     }
@@ -1728,11 +1800,14 @@ export function SalesPage({
   function cancelCardPay() {
     cardPayErrorRef.current = false;
     setCardPay({ phase: 'idle' });
+    busyRef.current = false;
     setBusy(false);
     focusScan();
   }
 
   async function checkout(method: 'cash' | 'card' = 'cash', cardOverride?: CardPaymentDto) {
+    // A save or card charge is already running — never start a second one.
+    if (busyRef.current) return;
     if (cart.length === 0) {
       showToast('السلة فارغة');
       return;
@@ -1758,6 +1833,7 @@ export function SalesPage({
       return;
     }
 
+    busyRef.current = true;
     setBusy(true);
     try {
       let card: CardPaymentDto | undefined = cardOverride;
@@ -1885,13 +1961,19 @@ export function SalesPage({
       showToast(e instanceof Error ? e.message : 'فشل حفظ الفاتورة');
     } finally {
       if (!cardPayErrorRef.current) {
+        busyRef.current = false;
         setBusy(false);
         focusScan();
       }
     }
   }
 
-  cardRetryRef.current = () => { void checkout('card'); };
+  cardRetryRef.current = () => {
+    // Retry is only valid from the card error screen; the failed attempt left busy set on purpose.
+    if (!cardPayErrorRef.current) return;
+    busyRef.current = false;
+    void checkout('card');
+  };
 
   async function lookupPrice() {
     const { code } = parseScan(decodeScannerText(priceScan));
@@ -1908,14 +1990,26 @@ export function SalesPage({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const now = Date.now();
+      const inBurst = now - lastKeyAtRef.current < 80;
+      lastKeyAtRef.current = now;
       if (confirmAsk) return;
+      // Keys the barcode capture already consumed (scanner Enter / '-' inside a code) must not
+      // act on the cart again. A lone manual '+'/'-' (not part of a fast scanner burst) still works.
+      if (e.defaultPrevented && !/^F\d{1,2}$/.test(e.key)) {
+        const manualQtyKey = !inBurst && (e.key === '+' || e.key === '-');
+        if (!manualQtyKey) return;
+      }
       const tag = (e.target as HTMLElement | null)?.tagName;
       const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+      // A save or card charge is in progress — no hotkey may start another sale action.
+      const payLocked = busyRef.current || cardPhaseRef.current !== 'idle';
+      const cartKeysOk = !inField && overlay === 'none' && !payLocked;
       if (e.key === 'F1') { e.preventDefault(); void fullscreen.toggle(); }
       if (e.key === 'F2') { e.preventDefault(); focusScan(); }
-      if (e.key === 'F3') { e.preventDefault(); if (cart.length) void checkout('cash'); }
-      if (e.key === 'F4' && slotCount > 1) { e.preventDefault(); cycleSlot(); }
-      if (e.key === 'F5' && slotCount > 1) { e.preventDefault(); firstParkedSlot(); }
+      if (e.key === 'F3') { e.preventDefault(); if (cart.length && !payLocked) void checkout('cash'); }
+      if (e.key === 'F4' && slotCount > 1) { e.preventDefault(); if (!payLocked) cycleSlot(); }
+      if (e.key === 'F5' && slotCount > 1) { e.preventDefault(); if (!payLocked) firstParkedSlot(); }
       if (e.key === 'F6') { e.preventDefault(); addCartGroup(); }
       if (e.key === 'F7') { e.preventDefault(); void reprintLast(); }
       if (e.key === 'F8') { e.preventDefault(); setProductsOpen(v => !v); }
@@ -1933,16 +2027,19 @@ export function SalesPage({
       }
       if (e.key === 'F10') {
         e.preventDefault();
+        if (payLocked) return;
         if (!cart.length) return;
         if (cardBlocked) { showToast(cardBlocked); return; }
         void checkout('card');
       }
       if (e.key === 'F12') {
         e.preventDefault();
+        if (payLocked) return;
         if (lastProduct) void addProductWithAttribution(lastProduct);
         else showToast('لا يوجد منتج أخير للتكرار');
       }
-      if (e.key === 'Escape') {
+      // The deferred-invoice editor handles its own Escape; closing it here would discard edits.
+      if (e.key === 'Escape' && overlay !== 'deferred-edit') {
         e.preventDefault();
         if (overlay === 'add-salesman') {
           cancelPendingAdd();
@@ -1963,9 +2060,9 @@ export function SalesPage({
           focusScan();
         }
       }
-      if (!inField && px.deleteItem && e.key === 'Delete' && selectedKey) { e.preventDefault(); removeLine(selectedKey); }
-      if (!inField && (e.key === '+' || e.key === '=' ) && selectedKey) { e.preventDefault(); changeQty(selectedKey, 1); }
-      if (!inField && (e.key === '-' || e.key === '_') && selectedKey) { e.preventDefault(); changeQty(selectedKey, -1); }
+      if (cartKeysOk && px.deleteItem && e.key === 'Delete' && selectedKey) { e.preventDefault(); removeLine(selectedKey); }
+      if (cartKeysOk && (e.key === '+' || e.key === '=' ) && selectedKey) { e.preventDefault(); changeQty(selectedKey, 1); }
+      if (cartKeysOk && (e.key === '-' || e.key === '_') && selectedKey) { e.preventDefault(); changeQty(selectedKey, -1); }
       const inScan = e.target === scanRef.current;
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (!inField || inScan) && cart.length) {
         e.preventDefault();
@@ -1983,11 +2080,11 @@ export function SalesPage({
         commitQtyOverlay();
         return;
       }
-      if (!inField && overlay === 'none' && e.key === 'Enter' && selectedKey) {
+      if (cartKeysOk && e.key === 'Enter' && selectedKey) {
         const line = cart.find(l => l.key === selectedKey);
         if (line) { e.preventDefault(); focusLineQty(line); }
       }
-      if (!inField && px.deleteItem && e.key === 'Backspace' && cart.length) {
+      if (cartKeysOk && px.deleteItem && e.key === 'Backspace' && cart.length) {
         e.preventDefault();
         const last = cart[cart.length - 1];
         if (last) removeLine(last.key);
@@ -2166,6 +2263,7 @@ export function SalesPage({
                 className="ms-2 underline"
                 onClick={() => {
                   setDiscountQr(null);
+                  if (saleKind === 2 && px.giftViaDiscountQr) setSaleKind(0);
                   if (!px.makeDiscount) {
                     setUserDiscount(0);
                     setDiscountInput('');
@@ -2178,7 +2276,9 @@ export function SalesPage({
           )}
           {giftMode && (
             <div className="pos-mode-banner is-gift">
-              وضع الهدية — بدون تحصيل نقدي
+              {giftBarcodeOnly
+                ? 'وضع الهدية — أضف الأصناف بمسح الباركود فقط'
+                : 'وضع الهدية — بدون تحصيل نقدي'}
             </div>
           )}
           <div className="pos-scan-stack">
@@ -2191,7 +2291,7 @@ export function SalesPage({
                 <input
                   ref={scanRef}
                   value={scan}
-                  disabled={overlay !== 'none'}
+                  disabled={overlay !== 'none' || busy || cardPay.phase !== 'idle'}
                   onChange={e => {
                     setScanError(null);
                     const value = e.currentTarget?.value ?? e.target?.value ?? '';
@@ -2253,6 +2353,7 @@ export function SalesPage({
                 <button type="button" className="pos-chip" onClick={fillReturnAll}>استرجاع الكل</button>
               </div>
             )}
+            {!returnSource && !returnMode && <BundleProgressStrip cart={cart} rules={bundleRules} />}
           </div>
           <div className="pos-cart-body">
             {cart.length === 0 && (
@@ -2310,7 +2411,7 @@ export function SalesPage({
         </section>
 
         {productsOpen && (
-          <section className="pos-panel pos-products">
+          <section className={`pos-panel pos-products${giftBarcodeOnly ? ' opacity-60 pointer-events-none' : ''}`}>
             <ArticleGroupsBar
               groups={groups}
               selectedId={groupId}
@@ -2351,7 +2452,7 @@ export function SalesPage({
             <DockGlyph kind="sale" />
             <span>بيع</span>
           </button>
-          {px.allowGiftReceipt && (
+          {canShowGift && (
             <button type="button" onClick={() => toggleKind(2)} className={`pos-dock-mode ${giftMode ? 'on-gift' : ''}`}>
               <DockGlyph kind="gift" />
               <span>هدية</span>
@@ -2483,8 +2584,8 @@ export function SalesPage({
           title="المادة غير موجودة"
           message={`لا توجد مادة للباركود \u2066${confirmAsk.code}\u2069`}
           confirmLabel="حسناً"
-          onConfirm={() => { setConfirmAsk(null); focusScan(); }}
-          onCancel={() => { setConfirmAsk(null); focusScan(); }}
+          onConfirm={() => { scanValueRef.current = ''; setScan(''); setConfirmAsk(null); focusScan(); }}
+          onCancel={() => { scanValueRef.current = ''; setScan(''); setConfirmAsk(null); focusScan(); }}
         />
       )}
 
@@ -2768,6 +2869,7 @@ export function SalesPage({
               {printSettings?.headerText || 'فاتورة نقطة البيع'} · {printSettings?.paperWidthMm || 80}مم · {printSettings?.copies || 1} نسخة
               {printSettings?.receiptTemplate === 'compact' ? ' · مضغوط' : printSettings?.receiptTemplate === 'branded' ? ' · مميز' : ' · كلاسيكي'}
               {printSettings?.autoPrint === false ? ' · الطباعة التلقائية متوقفة' : ' · طباعة تلقائية'}
+              {!px.printSalesmanOnReceipt ? ' · اسم البائع لا يُطبع (صلاحية الكاشير)' : ''}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => void testPrint()} className="pos-chip h-10">طباعة تجريبية</button>

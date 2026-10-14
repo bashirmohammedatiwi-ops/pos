@@ -1,4 +1,6 @@
+using System.Data.Common;
 using System.Globalization;
+using System.Reflection;
 using ClosedXML.Excel;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -132,8 +134,11 @@ catch (IOException)
     Console.WriteLine($"Desktop Excel (alt): {alt}");
 }
 
+var pdfPath = Path.ChangeExtension(desktopPath, ".pdf");
+ExportPdf(outPath, pdfPath);
 Console.WriteLine($"Created: {outPath}");
 Console.WriteLine($"Created: {outXlsx} ({priced.Count} products)");
+Console.WriteLine($"Created: {pdfPath}");
 
 static void ExportExcel(string path, List<PricedProduct> priced, decimal distMin, decimal distMax, decimal consMin, decimal consMax, string generated)
 {
@@ -197,6 +202,32 @@ static void ExportExcel(string path, List<PricedProduct> priced, decimal distMin
     ws.Columns().AdjustToContents();
     ws.SheetView.FreezeRows(headerRow);
     wb.SaveAs(path);
+}
+
+static void ExportPdf(string docxPath, string pdfPath)
+{
+    var wordType = Type.GetTypeFromProgID("Word.Application")
+        ?? throw new InvalidOperationException("Microsoft Word غير مثبت، تعذر إنشاء PDF.");
+    dynamic word = Activator.CreateInstance(wordType)!;
+    word.Visible = false;
+    word.DisplayAlerts = 0;
+    try
+    {
+        dynamic doc = word.Documents.Open(docxPath, false, true);
+        try
+        {
+            if (File.Exists(pdfPath)) File.Delete(pdfPath);
+            doc.ExportAsFixedFormat(pdfPath, 17);
+        }
+        finally
+        {
+            doc.Close(false);
+        }
+    }
+    finally
+    {
+        word.Quit();
+    }
 }
 
 static string SanitizeText(string? text)
@@ -292,34 +323,139 @@ static string FmtUsd(decimal v) => v.ToString("$0.00", CultureInfo.InvariantCult
 
 static async Task<List<RawProduct>> LoadProductsAsync()
 {
+    var edari = LoadEdariLeaves();
+    Console.WriteLine($"Edari 2026 leaves: {edari.Count}");
+    var names = await LoadEnglishNamesAsync();
     var rows = new List<RawProduct>();
-    await using var conn = new SqlConnection(connStr);
-    await conn.OpenAsync();
-    await using var cmd = conn.CreateCommand();
-    cmd.CommandText = """
-        SELECT
-            LTRIM(RTRIM(Barcode)) AS Barcode,
-            LTRIM(RTRIM(CONVERT(NVARCHAR(4000), Name2))) AS EnglishName,
-            CAST(COALESCE(SellPr1, 0) AS DECIMAL(18,0)) AS Wholesale,
-            CAST(COALESCE(SellPr4, 0) AS DECIMAL(18,0)) AS Consumer
-        FROM articles
-        WHERE Father = @folderSeq
-          AND COALESCE(Barcode, N'') <> N''
-          AND NOT EXISTS (SELECT 1 FROM articles c WHERE c.Father = articles.Seq)
-        ORDER BY Name2, Barcode
-        """;
-    cmd.Parameters.AddWithValue("@folderSeq", evoludermFolderSeq);
-    await using var r = await cmd.ExecuteReaderAsync();
-    while (await r.ReadAsync())
+    foreach (var item in edari)
     {
-        rows.Add(new RawProduct(
-            r.GetString(0),
-            r.IsDBNull(1) ? "" : r.GetString(1),
-            r.GetDecimal(2),
-            r.GetDecimal(3)));
+        var name = names.TryGetValue(item.Barcode, out var english) && !string.IsNullOrWhiteSpace(english)
+            ? english
+            : item.Name;
+        rows.Add(new RawProduct(item.Barcode, name, item.Wholesale, item.Consumer));
     }
-    return rows;
+    return rows
+        .OrderBy(p => p.EnglishName, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(p => p.Barcode, StringComparer.Ordinal)
+        .ToList();
 }
+
+static List<(string Barcode, string Name, decimal Wholesale, decimal Consumer)> LoadEdariLeaves()
+{
+    var apiDirs = new[]
+    {
+        @"C:\Program Files\FOT POS Server\Api",
+        @"C:\Program Files\FOT POS\Server\Api",
+    };
+    var baseDir = apiDirs.FirstOrDefault(d => File.Exists(Path.Combine(d, "NexusDB.ADOProvider.dll")))
+        ?? throw new InvalidOperationException("NexusDB.ADOProvider.dll not found.");
+    Environment.CurrentDirectory = baseDir;
+    var asm = Assembly.LoadFrom(Path.Combine(baseDir, "NexusDB.ADOProvider.dll"));
+    DbProviderFactories.RegisterFactory("NexusDB.ADOProvider",
+        asm.GetType("NexusDB.ADOProvider.NexusDBProviderFactory")!);
+    using var conn = DbProviderFactories.GetFactory("NexusDB.ADOProvider").CreateConnection()!;
+    conn.ConnectionString = "server=127.0.0.1;database=2026;port=16000;Native=true";
+    conn.Open();
+
+    var nodes = new List<(long Seq, long Father, string Barcode, string Name2, string Name1, decimal SellPr1, decimal SellPr4)>();
+    using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = "SELECT Seq, Father, Barcode, Name2, Name1, SellPr1, SellPr4 FROM File13n";
+        cmd.CommandTimeout = 600;
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            nodes.Add((
+                ToLong(r.GetValue(0)),
+                ToLong(r.GetValue(1)),
+                ReadStr(r.GetValue(2)),
+                ReadStr(r.GetValue(3)),
+                ReadStr(r.GetValue(4)),
+                ToDecimal(r.GetValue(5)),
+                ToDecimal(r.GetValue(6))));
+        }
+    }
+
+    var fathers = nodes.Select(n => n.Father).Where(f => f > 0).ToHashSet();
+    var bySeq = nodes.ToDictionary(n => n.Seq);
+    long folder = evoludermFolderSeq;
+    if (!bySeq.ContainsKey(folder))
+    {
+        folder = nodes.FirstOrDefault(n =>
+            n.Name1.Contains("EVOLUDERM", StringComparison.OrdinalIgnoreCase)
+            || n.Name2.Contains("EVOLUDERM", StringComparison.OrdinalIgnoreCase)
+            || n.Name1.Contains("ايفولوديرم", StringComparison.OrdinalIgnoreCase)).Seq;
+    }
+    if (folder == 0)
+        throw new InvalidOperationException("مجلد EVOLUDERM غير موجود في الإداري.");
+    Console.WriteLine($"Edari folder Seq: {folder}");
+
+    bool UnderFolder(long seq)
+    {
+        var guard = 0;
+        var current = seq;
+        while (bySeq.TryGetValue(current, out var node) && guard++ < 12)
+        {
+            if (node.Father == folder || node.Seq == folder) return node.Seq != folder;
+            current = node.Father;
+            if (current <= 0) return false;
+        }
+        return false;
+    }
+
+    return nodes
+        .Where(n => !fathers.Contains(n.Seq) && UnderFolder(n.Seq) && !string.IsNullOrWhiteSpace(n.Barcode))
+        .Select(n => (
+            NormalizeBarcode(n.Barcode),
+            string.IsNullOrWhiteSpace(n.Name2) ? n.Name1 : n.Name2,
+            n.SellPr1,
+            n.SellPr4))
+        .ToList();
+}
+
+static async Task<Dictionary<string, string>> LoadEnglishNamesAsync()
+{
+    var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    try
+    {
+        await using var conn = new SqlConnection(connStr);
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT LTRIM(RTRIM(Barcode)), LTRIM(RTRIM(CONVERT(NVARCHAR(4000), Name2)))
+            FROM articles
+            WHERE Father = @folderSeq AND COALESCE(Barcode, N'') <> N''
+            """;
+        cmd.Parameters.AddWithValue("@folderSeq", evoludermFolderSeq);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var barcode = NormalizeBarcode(r.GetString(0));
+            var name = r.IsDBNull(1) ? "" : r.GetString(1);
+            if (!string.IsNullOrWhiteSpace(barcode) && !string.IsNullOrWhiteSpace(name))
+                map[barcode] = name;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("English names unavailable: " + ex.Message);
+    }
+    return map;
+}
+
+static long ToLong(object? v)
+{
+    if (v is null or DBNull) return 0;
+    return Convert.ToInt64(Convert.ToDecimal(v));
+}
+
+static decimal ToDecimal(object? v)
+{
+    if (v is null or DBNull) return 0;
+    return Convert.ToDecimal(v);
+}
+
+static string ReadStr(object? v) => v is null or DBNull ? "" : Convert.ToString(v)?.Trim() ?? "";
 
 static string[] PriceNotes(string date) =>
 [

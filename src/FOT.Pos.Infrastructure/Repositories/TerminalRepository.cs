@@ -183,10 +183,11 @@ public sealed class TerminalRepository(ISqlConnectionFactory db)
             LEFT JOIN sections s ON s.id = p.section_id
             LEFT JOIN (
                 SELECT point_of_sale_id AS PosId,
-                       COUNT(*) AS TodayReceipts,
-                       SUM(CAST(total_amount AS DECIMAL(18,2))) AS TodaySales
+                       SUM(CASE WHEN kind = 1 THEN 0 ELSE 1 END) AS TodayReceipts,
+                       SUM(CAST(CASE WHEN kind = 1 THEN -total_amount ELSE total_amount END AS DECIMAL(18,2))) AS TodaySales
                 FROM reciepts
                 WHERE CAST(creation_date AS date) = CAST(GETDATE() AS date)
+                  AND COALESCE(kind, 0) IN (0, 1)
                   AND COALESCE(is_pending, 0) = 0
                 GROUP BY point_of_sale_id
             ) rs ON rs.PosId = p.id

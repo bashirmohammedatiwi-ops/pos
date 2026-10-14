@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNum } from '@/api/client';
+import { downloadReportExcel } from '@/lib/reportExcel';
+import { printTable } from '@/lib/tablePrint';
 import { Loading } from '@/components/ui';
 
 /**
@@ -27,6 +29,8 @@ export interface GridColumn<T> {
   pinned?: 'start' | 'end';
   /** مفتاح فرز بديل إن كانت الخلية كائناً/منسقة. */
   sortValue?: (row: T) => string | number;
+  /** قيمة النسخ/التصدير (Excel/CSV) — النص كما يراه المستخدم؛ الأرقام تبقى أرقاماً في Excel. */
+  exportValue?: (row: T) => string | number | null | undefined;
   /** قيمة الفلتر السريع — افتراضياً String(row[key]). */
   filterValue?: (row: T) => string;
   render?: (row: T, index: number) => React.ReactNode;
@@ -106,13 +110,30 @@ export interface DataGridProps<T> {
   variant?: 'default' | 'sheet';
 }
 
+/** عناصر داخل الصف لا تُطلق تحديد الصف/فتحه عند النقر عليها. */
+const ROW_INTERACTIVE = 'button, a, input, select, textarea, label, [contenteditable="true"]';
+
+/** عرض تدريجي: أول دفعة صفوف ثم المزيد عند الاقتراب من نهاية التمرير — جداول بآلاف الصفوف تبقى سريعة. */
+const RENDER_CHUNK = 250;
+
 const ALIGN_CLASS: Record<GridAlign, string> = {
   start: 'text-start',
   center: 'text-center',
   end: 'text-end',
 };
 
-function cellText<T>(col: GridColumn<T>, row: T): string {
+/** القيمة الخام للتصدير: exportValue ← filterValue (نص مقروء) ← حقل الصف ← sortValue. */
+function gridExportRaw<T>(col: GridColumn<T>, row: T): string | number | null | undefined {
+  if (col.exportValue) return col.exportValue(row);
+  if (col.filterValue) return col.filterValue(row);
+  const v = (row as Record<string, unknown>)[col.key];
+  if (typeof v === 'number' || typeof v === 'string') return v;
+  if (typeof v === 'boolean') return v ? 'نعم' : 'لا';
+  if (col.sortValue) return col.sortValue(row);
+  return v == null ? '' : String(v);
+}
+
+export function gridCellText<T>(col: GridColumn<T>, row: T): string {
   const v = (row as Record<string, unknown>)[col.key];
   if (col.sortValue) {
     const sv = col.sortValue(row);
@@ -121,6 +142,24 @@ function cellText<T>(col: GridColumn<T>, row: T): string {
   if (v == null) return '';
   if (typeof v === 'number') return formatNum(v);
   return String(v);
+}
+
+/** القيمة الخام للتصدير (للطباعة/Excel). */
+export function gridExportRawPublic<T>(col: GridColumn<T>, row: T) {
+  return gridExportRaw(col, row);
+}
+
+/** نص التصدير (نسخ/CSV) — كما يراه المستخدم لا رمز الفرز. */
+export function gridExportText<T>(col: GridColumn<T>, row: T): string {
+  const v = gridExportRaw(col, row);
+  if (v == null) return '';
+  if (typeof v === 'number') return Number.isFinite(v) && Math.abs(v) < 1e15 ? formatNum(v, 2) : '';
+  return String(v);
+}
+
+/** خلية نصية بسطر واحد للنسخ (TSV). */
+function oneLine(text: string) {
+  return text.replace(/[\t\r\n]+/g, ' ').trim();
 }
 
 export function DataGrid<T>({
@@ -216,6 +255,8 @@ export function DataGrid<T>({
 
   // ── الفلترة السريعة ──
   const filtered = useMemo(() => {
+    // صف الفلاتر مخفي → لا فلترة خفية تُسقط صفوفاً دون أن يراها المستخدم
+    if (!filtersOn) return rows;
     const active = Object.entries(filterTexts).filter(([, v]) => v.trim());
     if (!active.length) return rows;
     return rows.filter(row =>
@@ -226,7 +267,7 @@ export function DataGrid<T>({
         return hay.toLowerCase().includes(needle.trim().toLowerCase());
       }),
     );
-  }, [rows, filterTexts, columns]);
+  }, [rows, filterTexts, columns, filtersOn]);
 
   // ── الفرز ──
   const sorted = useMemo(() => {
@@ -354,7 +395,7 @@ export function DataGrid<T>({
     () =>
       [
         exportColumns.map(c => c.header).join('\t'),
-        ...sorted.map(r => exportColumns.map(c => cellText(c, r)).join('\t')),
+        ...sorted.map(r => exportColumns.map(c => oneLine(gridExportText(c, r))).join('\t')),
       ].join('\n'),
     [exportColumns, sorted],
   );
@@ -368,8 +409,13 @@ export function DataGrid<T>({
   }
 
   function exportCsv() {
-    const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-    const csv = '\uFEFF' + tsv().split('\n').map(line => line.split('\t').map(esc).join(',')).join('\n');
+    const esc = (s: string) => (/[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+    // يُبنى من المصفوفة مباشرة — النصوص متعددة الأسطر لا تكسر الصفوف
+    const lines = [
+      exportColumns.map(c => esc(c.header)).join(','),
+      ...sorted.map(r => exportColumns.map(c => esc(gridExportText(c, r))).join(',')),
+    ];
+    const csv = '\uFEFF' + lines.join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -378,18 +424,39 @@ export function DataGrid<T>({
     URL.revokeObjectURL(a.href);
   }
 
+  function exportExcel() {
+    if (!sorted.length) return;
+    const headers = exportColumns.map(c => c.header);
+    const dataRows = sorted.map(r =>
+      exportColumns.map(c => {
+        // نفس قيمة النسخ/CSV — الأرقام تبقى أرقاماً قابلة للجمع في إكسل
+        const raw = gridExportRaw(c, r);
+        if (typeof raw === 'number') return Number.isFinite(raw) && Math.abs(raw) < 1e15 ? raw : '';
+        return raw == null ? '' : String(raw);
+      }),
+    );
+    downloadReportExcel(`${exportName}-${new Date().toISOString().slice(0, 10)}`, [{
+      name: 'البيانات',
+      title: exportName,
+      headers,
+      rows: dataRows,
+      columnWidths: exportColumns.map(c => Math.max(64, Math.min(220, (c.width ?? 96) * 0.9))),
+    }]);
+  }
+
   const hasPinned = pinnedSet.size > 0;
   const sheet = variant === 'sheet';
-  const pad = sheet ? 'px-1.5 py-1' : embedded ? 'px-2 py-1' : dense ? 'px-2.5 py-1.5' : 'px-3 py-2.5';
-  const headPad = sheet ? 'px-1.5 py-1' : embedded ? 'px-2 py-1.5' : dense ? 'px-2.5 py-2' : 'px-3 py-2.5';
-  const tableText = sheet ? 'text-[12px] leading-4' : embedded ? 'text-[11.5px]' : 'text-[12.5px]';
+  const pad = sheet ? 'px-2 py-1.5' : embedded ? 'px-2 py-1' : dense ? 'px-2.5 py-1.5' : 'px-3 py-2.5';
+  const headPad = sheet ? 'px-2 py-2' : embedded ? 'px-2 py-1.5' : dense ? 'px-2.5 py-2' : 'px-3 py-2.5';
+  const tableText = sheet ? 'text-[12.5px] leading-5' : embedded ? 'text-[11.5px]' : 'text-[12.5px]';
   const thBase = sheet
-    ? `sticky top-0 border border-[#b4b4b4] bg-[#ededed] ${headPad}`
-    : `sticky top-0 border-b border-slate-200 bg-slate-50 ${headPad}`;
-  const tdBase = sheet ? `border border-[#d0d0d0] ${pad}` : pad;
+    ? `sticky top-0 border-b border-l border-slate-200 bg-slate-100/95 backdrop-blur-sm text-[11.5px] ${headPad}`
+    : `sticky top-0 border-b border-slate-200 bg-slate-50/95 backdrop-blur-sm text-[11.5px] ${headPad}`;
+  // جدول الإكسل: خلايا بسطر واحد (لا التفاف يضخّم ارتفاع الصفوف)
+  const tdBase = sheet ? `whitespace-nowrap border-b border-l border-slate-100 ${pad}` : `border-b border-slate-100 ${pad}`;
   const tfBase = sheet
-    ? `sticky bottom-0 border border-[#b4b4b4] bg-[#e8e8e8] ${pad}`
-    : `sticky bottom-0 border-t-2 border-slate-300 bg-slate-100/95 ${pad}`;
+    ? `sticky bottom-0 border-t-2 border-l border-slate-200 bg-slate-50 ${pad}`
+    : `sticky bottom-0 border-t-2 border-slate-200 bg-slate-50/95 ${pad}`;
 
   // ── تحرير الخلية ──
   function startEdit(row: T, index: number, col: GridColumn<T>) {
@@ -410,23 +477,72 @@ export function DataGrid<T>({
     setEditing(null);
   }
 
+  // ── العرض التدريجي ──
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [renderLimit, setRenderLimit] = useState(RENDER_CHUNK);
+  useEffect(() => {
+    setRenderLimit(RENDER_CHUNK);
+  }, [rows, filterTexts, sort, filtersOn]);
+  // الصف المحدد خارج الدفعة المعروضة (تنقل بالأسهم/تمييز من رابط) → وسّع حتى يظهر
+  const selectedIndex = useMemo(
+    () => (selectedId === undefined ? -1 : sorted.findIndex((r, i) => String(getRowId(r, i)) === String(selectedId))),
+    [sorted, selectedId, getRowId],
+  );
+  useEffect(() => {
+    if (selectedIndex >= renderLimit) setRenderLimit(Math.ceil((selectedIndex + 1) / RENDER_CHUNK) * RENDER_CHUNK + RENDER_CHUNK);
+  }, [selectedIndex, renderLimit]);
+  const visibleRows = renderLimit >= sorted.length ? sorted : sorted.slice(0, renderLimit);
+  const hasMore = visibleRows.length < sorted.length;
+  function onScrollArea(e: React.UIEvent<HTMLDivElement>) {
+    if (!hasMore) return;
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight > el.scrollHeight - 600) setRenderLimit(l => l + RENDER_CHUNK);
+  }
+
   // ── لوحة المفاتيح: ↑↓ تحديد، Enter فتح ──
   function onTableKeyDown(e: React.KeyboardEvent) {
     if (editing || !onSelect || !sorted.length) return;
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
     const target = e.target as HTMLElement;
-    if (target.closest('input, textarea, select, button')) return;
+    if (target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
     e.preventDefault();
     const currentIdx = sorted.findIndex((r, i) => String(getRowId(r, i)) === String(selectedId));
     if (e.key === 'ArrowDown') {
-      const next = sorted[Math.min(sorted.length - 1, currentIdx + 1)];
-      if (next) onSelect(next, currentIdx + 1);
+      const ni = Math.min(sorted.length - 1, currentIdx + 1);
+      const next = sorted[ni];
+      if (next) {
+        onSelect(next, ni);
+        scrollRowIntoView(getRowId(next, ni));
+      }
     } else if (e.key === 'ArrowUp') {
-      const prev = sorted[Math.max(0, currentIdx - 1)];
-      if (prev) onSelect(prev, Math.max(0, currentIdx - 1));
+      const pi = Math.max(0, currentIdx - 1);
+      const prev = sorted[pi];
+      if (prev) {
+        onSelect(prev, pi);
+        scrollRowIntoView(getRowId(prev, pi));
+      }
     } else if (e.key === 'Enter' && currentIdx >= 0) {
       onEnter?.(sorted[currentIdx], currentIdx);
     }
+  }
+
+  function scrollRowIntoView(id: string | number) {
+    window.requestAnimationFrame(() => {
+      const row = scrollRef.current?.querySelector<HTMLElement>(`tr[data-row-id="${CSS.escape(String(id))}"]`);
+      row?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function printGrid() {
+    const headers = exportColumns.map(c => c.header);
+    const dataRows = sorted.map(r => exportColumns.map(c => {
+      const raw = gridExportRawPublic(c, r);
+      return typeof raw === 'number' ? raw : raw == null ? '' : String(raw);
+    }));
+    const footer = Object.keys(footerCells).length
+      ? exportColumns.map(c => { const v = footerCells[c.key]; return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; })
+      : undefined;
+    void printTable({ title: exportName, headers, rows: dataRows, footer });
   }
 
   const scrollClass = fillHeight ? 'min-h-0 flex-1 overflow-auto' : 'overflow-auto';
@@ -436,14 +552,14 @@ export function DataGrid<T>({
       className={
         embedded
           ? 'flex h-full min-h-0 flex-col overflow-hidden bg-white'
-          : 'overflow-hidden rounded-lg border border-slate-200 bg-white'
+          : 'card overflow-hidden'
       }
     >
       {/* ── شريط الأدوات ── */}
       <div
-        className={`flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-2 ${embedded ? 'py-1' : 'px-3 py-2'}`}
+        className={`flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-200 bg-white px-2 ${embedded ? 'py-1.5' : 'px-3 py-2'}`}
       >
-        <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 num">
           {loading ? '…' : formatNum(sorted.length)} {counterLabel}
         </span>
         {badge}
@@ -454,19 +570,35 @@ export function DataGrid<T>({
               type="button"
               onClick={copyTsv}
               title="نسخ الجدول — الصقه مباشرة في إكسل"
-              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition ${
-                copied ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+              className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition ${
+                copied ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
               {copied ? '✓ نُسخ للحافظة' : 'نسخ'}
             </button>
             <button
               type="button"
+              onClick={exportExcel}
+              title="تصدير Excel منسّق"
+              className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+            >
+              Excel
+            </button>
+            <button
+              type="button"
               onClick={exportCsv}
-              title="تصدير CSV (يدعم العربية في إكسل)"
-              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              title="تصدير CSV"
+              className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             >
               CSV
+            </button>
+            <button
+              type="button"
+              onClick={printGrid}
+              title="طباعة الجدول كما يظهر (A4)"
+              className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            >
+              طباعة
             </button>
           </>
         )}
@@ -474,8 +606,8 @@ export function DataGrid<T>({
           type="button"
           onClick={() => setFiltersOn(f => !f)}
           title="فلاتر سريعة"
-          className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition ${
-            filtersOn ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200' : 'text-slate-500 hover:bg-slate-100'
+          className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition ${
+            filtersOn ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
           }`}
         >
           فلترة
@@ -485,14 +617,14 @@ export function DataGrid<T>({
             type="button"
             onClick={() => setColumnsOpen(o => !o)}
             title="إظهار/إخفاء الأعمدة"
-            className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition ${
-              columnsOpen ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200' : 'text-slate-500 hover:bg-slate-100'
+            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition ${
+              columnsOpen ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             }`}
           >
             الأعمدة ▾
           </button>
           {columnsOpen && (
-            <div className="absolute end-0 top-full z-30 mt-1 max-h-64 w-52 overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lift">
+            <div className="absolute end-0 top-full z-30 mt-1 max-h-72 w-56 animate-pop-in overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-pop">
               <p className="px-2 py-1 text-[10.5px] font-bold text-slate-400">إظهار الأعمدة</p>
               {columns.map(c => (
                 <label
@@ -537,7 +669,7 @@ export function DataGrid<T>({
           type="button"
           onClick={() => setDensity(!dense)}
           title={dense ? 'عرض مريح' : 'عرض مدمج'}
-          className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-slate-100"
+          className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
         >
           {dense ? '↕ مريح' : '↕ مدمج'}
         </button>
@@ -545,7 +677,7 @@ export function DataGrid<T>({
       </div>
 
       {/* ── الجدول ── */}
-      <div className={scrollClass} style={fillHeight ? undefined : { maxHeight }}>
+      <div ref={scrollRef} onScroll={onScrollArea} className={scrollClass} style={fillHeight ? undefined : { maxHeight }}>
         <table ref={tableRef} tabIndex={onSelect ? 0 : undefined} onKeyDown={onTableKeyDown} className={`w-full border-separate border-spacing-0 ${tableText} ${onSelect ? 'outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20' : ''}`}>
           <thead>
             <tr>
@@ -613,7 +745,7 @@ export function DataGrid<T>({
             </tr>
             {filtersOn && (
               <tr>
-                {expansion && <th className={`${sheet ? 'border border-[#b4b4b4] bg-[#ededed]' : 'border-b border-slate-100 bg-slate-50/95'} sticky top-[34px] px-1 py-1`} />}
+                {expansion && <th className={`border-b border-slate-200 bg-slate-50/95 sticky top-[36px] px-1 py-1`} />}
                 {visibleColumns.map(c => (
                   <th
                     key={`f-${c.key}`}
@@ -625,12 +757,12 @@ export function DataGrid<T>({
                       width: widths[c.key] ?? c.width,
                       minWidth: widths[c.key] ?? c.width,
                     }}
-                    className={`sticky top-[34px] px-1 py-1 ${sheet ? 'border border-[#b4b4b4] bg-[#ededed]' : 'border-b border-slate-100 bg-slate-50/95'} ${pinnedSet.has(c.key) ? 'sticky' : ''}`}
+                    className={`sticky top-[36px] border-b border-slate-200 bg-slate-50/95 px-1 py-1 ${pinnedSet.has(c.key) ? 'sticky' : ''}`}
                   >
                     <input
                       value={filterTexts[c.key] ?? ''}
                       onChange={e => setFilterTexts(f => ({ ...f, [c.key]: e.target.value }))}
-                      placeholder="…"
+                      placeholder="تصفية…"
                       className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10"
                     />
                   </th>
@@ -645,7 +777,7 @@ export function DataGrid<T>({
               </tr>
             )}
             {!loading &&
-              sorted.flatMap((row, idx) => {
+              visibleRows.flatMap((row, idx) => {
                 const id = getRowId(row, idx);
                 const tone = rowTone?.(row);
                 const isOpen = expansion ? expansion.isExpanded(row, idx) : false;
@@ -658,19 +790,24 @@ export function DataGrid<T>({
                 const mainRow = (
                   <tr
                     key={id}
+                    data-row-id={String(id)}
                     onClick={e => {
+                      // نقرة على عنصر تفاعلي داخل الصف (زر/رابط/حقل) لا تحدد الصف ولا تفتحه
+                      if ((e.target as HTMLElement).closest(ROW_INTERACTIVE)) return;
                       onSelect?.(row, idx);
                       handleRowClick?.();
-                      void e;
                     }}
-                    onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(row, idx) : undefined}
-                    className={`${sheet ? '' : 'border-b border-slate-50'} ${idx % 2 ? (sheet ? 'bg-[#f7f7f7]' : 'bg-slate-50/40') : 'bg-white'} ${tone ?? ''} ${
-                      handleRowClick || onSelect ? (sheet ? 'cursor-pointer hover:bg-[#ddebf7]' : 'cursor-pointer hover:bg-brand-50/50') : 'hover:bg-slate-50'
-                    } ${isOpen ? (sheet ? '!bg-[#cfe2f3]' : '!bg-brand-50/70') : ''} ${isSelected ? (sheet ? '!bg-[#cfe2f3]' : '!bg-brand-100/80 outline outline-1 -outline-offset-1 outline-brand-300') : ''}`}
+                    onDoubleClick={onRowDoubleClick ? e => {
+                      if ((e.target as HTMLElement).closest(ROW_INTERACTIVE)) return;
+                      onRowDoubleClick(row, idx);
+                    } : undefined}
+                    className={`transition-colors ${idx % 2 ? 'bg-slate-50/50' : 'bg-white'} ${tone ?? ''} ${
+                      handleRowClick || onSelect ? 'cursor-pointer hover:bg-brand-50/60' : 'hover:bg-slate-50'
+                    } ${isOpen ? '!bg-brand-50/80' : ''} ${isSelected ? '!bg-brand-100/70 shadow-[inset_-3px_0_0_var(--color-brand-500)]' : ''}`}
                   >
                     {expansion && (
-                      <td className={`${tdBase} w-10 text-center text-[11px] text-slate-600`}>
-                        <span className={`inline-block transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+                      <td className={`${tdBase} w-10 text-center text-[11px] text-slate-400`}>
+                        <span className={`inline-flex h-5 w-5 items-center justify-center rounded-md transition-transform duration-200 ${isOpen ? 'rotate-180 bg-brand-100 text-brand-700' : 'bg-slate-100'}`}>▾</span>
                       </td>
                     )}
                     {visibleColumns.map(c => {
@@ -703,7 +840,7 @@ export function DataGrid<T>({
                           ) : c.render ? (
                             c.render(row, idx)
                           ) : (
-                            cellText(c, row)
+                            gridCellText(c, row)
                           )}
                         </td>
                       );
@@ -713,19 +850,42 @@ export function DataGrid<T>({
                 if (!expansion || !isOpen) return [mainRow];
                 return [
                   mainRow,
-                  <tr key={`${id}-exp`} className={sheet ? 'bg-white' : 'bg-slate-50/60'}>
-                    <td colSpan={visibleColumns.length + (expansion ? 1 : 0)} className={`${sheet ? 'border border-[#b4b4b4] bg-[#f3f3f3] p-2' : 'border-b border-slate-200 p-0'}`}>
-                      <div style={{ animation: 'fade-up 0.22s cubic-bezier(0.21,1.02,0.73,1) both' }}>
+                  <tr key={`${id}-exp`} className="bg-slate-50/60">
+                    <td colSpan={visibleColumns.length + (expansion ? 1 : 0)} className={`border-b border-slate-200 ${sheet ? 'bg-slate-50 p-2' : 'p-0'}`}>
+                      <div className="animate-slide-up">
                         {expansion.render(row, idx)}
                       </div>
                     </td>
                   </tr>,
                 ];
               })}
+            {!loading && hasMore && (
+              <tr>
+                <td colSpan={visibleColumns.length + (expansion ? 1 : 0)} className="border-b border-slate-100 bg-slate-50/60 px-3 py-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setRenderLimit(l => l + RENDER_CHUNK * 4)}
+                    className="rounded-md px-3 py-1 text-[12px] font-semibold text-brand-700 hover:bg-brand-50"
+                  >
+                    عرض المزيد — {formatNum(visibleRows.length)} من {formatNum(sorted.length)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRenderLimit(sorted.length)}
+                    className="ms-2 rounded-md px-3 py-1 text-[12px] font-semibold text-slate-500 hover:bg-slate-100"
+                  >
+                    عرض الكل
+                  </button>
+                </td>
+              </tr>
+            )}
             {!loading && sorted.length === 0 && (
               <tr>
-                <td colSpan={visibleColumns.length + (expansion ? 1 : 0)} className="p-10 text-center text-[12.5px] font-semibold text-slate-400">
-                  {emptyText}
+                <td colSpan={visibleColumns.length + (expansion ? 1 : 0)} className="px-6 py-14 text-center">
+                  <div className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+                  </div>
+                  <p className="text-[13px] font-semibold text-slate-500">{emptyText}</p>
                 </td>
               </tr>
             )}

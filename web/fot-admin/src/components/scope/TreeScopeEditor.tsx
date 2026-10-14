@@ -4,7 +4,7 @@ import { api, formatCurrency, formatNum } from '@/api/client';
 import type { TreeNodeDto } from '@/api/types';
 import { fixEdariName } from '@/lib/text';
 import { useToast } from '@/components/Toast';
-import { Btn, Input, Loading } from '@/components/ui';
+import { Btn, Input, Loading, useConfirm } from '@/components/ui';
 import {
   IconCheckCircle,
   IconChevronDown,
@@ -246,12 +246,12 @@ function CatalogBrowsePane({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <section className="card flex h-full min-h-0 flex-col overflow-hidden">
       <header className="shrink-0 space-y-2 border-b border-slate-100 bg-white px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-[13px] font-bold text-header">{title ?? 'إضافة شجرة أو منتج'}</h3>
           <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+            className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
               nodesQ.data?.source === 'edari' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'
             }`}
           >
@@ -259,7 +259,7 @@ function CatalogBrowsePane({
           </span>
         </div>
         <div className="relative">
-          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400">
+          <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-slate-400">
             <IconSearch size={14} />
           </span>
           <Input
@@ -269,7 +269,7 @@ function CatalogBrowsePane({
               if (e.key === 'Enter' && isBarcodeLike(search)) void lookupBarcode();
             }}
             placeholder="بحث بالاسم/الرقم — أو باركود ثم Enter"
-            className="py-1.5 pe-3 ps-8"
+            className="!ps-8"
           />
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -284,7 +284,7 @@ function CatalogBrowsePane({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {nodesQ.isLoading && <Loading />}
         {!nodesQ.isLoading && folders.length === 0 && products.length === 0 && (
-          <p className="p-8 text-center text-[12.5px] text-muted">لا نتائج — جرّب مصطلحاً أقصر</p>
+          <p className="p-8 text-center text-[12.5px] text-slate-400">لا نتائج — جرّب مصطلحاً أقصر</p>
         )}
         {folders.map(n => (
           <div key={n.seq} className="group flex items-center gap-2 border-b border-slate-50 px-3.5 py-2 transition hover:bg-brand-50/30">
@@ -292,7 +292,7 @@ function CatalogBrowsePane({
               <span className="icon-tile h-8 w-8 bg-amber-50 text-amber-600"><IconFolderClosed size={15} /></span>
               <span className="min-w-0">
                 <span className="block truncate text-[13px] font-semibold text-header">{fixEdariName(n.name) ?? n.num ?? `#${n.seq}`}</span>
-                <span className="block text-[10px] text-slate-400">شجرة — اضغط لإضافة كامل منتجاتها</span>
+                <span className="block text-[11px] text-slate-400">شجرة — اضغط لإضافة كامل منتجاتها</span>
               </span>
             </button>
             <Btn size="sm" loading={busy === `f-${n.seq}`} onClick={() => void addFolder(n)}>
@@ -305,7 +305,7 @@ function CatalogBrowsePane({
             <span className="icon-tile h-8 w-8 bg-slate-100 text-slate-500"><IconPackage size={14} /></span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-medium text-header">{fixEdariName(n.name) ?? n.barcode ?? `#${n.seq}`}</span>
-              {n.barcode && <span className="block font-mono text-[10px] text-slate-400">{n.barcode}</span>}
+              {n.barcode && <span className="block font-mono text-[11px] text-slate-400">{n.barcode}</span>}
             </span>
             {(n.price ?? 0) > 0 && (
               <span className="shrink-0 text-[12px] font-bold tabular-nums text-slate-700">{formatNum(n.price ?? 0)}</span>
@@ -353,11 +353,11 @@ function ScopeContentPane(props: {
   const totalItems = trees.reduce((n, t) => n + t.count, 0) + standalone.length;
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-brand-200/70 bg-white">
+    <section className="card flex h-full min-h-0 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 bg-white px-3 py-2.5">
         <h3 className="text-[13px] font-bold text-header">
           {scopeTitle}
-          <span className="ms-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-700">
+          <span className="ms-2 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-bold text-brand-700">
             {formatNum(totalItems)} صنف · {formatNum(trees.length)} شجرة
           </span>
         </h3>
@@ -402,7 +402,7 @@ function ScopeContentPane(props: {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-medium text-header">{item.name}</span>
                   {(item.barcode || item.meta) && (
-                    <span className="block truncate font-mono text-[10px] text-slate-400">{item.barcode ?? item.meta}</span>
+                    <span className="block truncate font-mono text-[11px] text-slate-400">{item.barcode ?? item.meta}</span>
                   )}
                 </span>
                 {(item.price ?? 0) > 0 && (
@@ -445,6 +445,7 @@ function TreeCard(props: {
 }) {
   const { tree, expanded, onToggleExpand, loadTreeProducts, loadTreeSize, onRemoveTree, onRefreshTree, onToggleExclude, offerMode, toast, renderExtra } = props;
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [products, setProducts] = useState<ScopeTreeProduct[] | null>(null);
   const [treeSize, setTreeSize] = useState<number | null>(null);
   const [busy, setBusy] = useState<'expand' | 'refresh' | 'remove' | 'discount' | null>(null);
@@ -486,7 +487,13 @@ function TreeCard(props: {
   }
 
   async function removeTree() {
-    if (!window.confirm(`إزالة شجرة «${tree.treeName}» وكل منتجاتها من هنا؟`)) return;
+    const ok = await confirm({
+      title: `إزالة شجرة «${tree.treeName}»؟`,
+      message: 'ستُزال الشجرة وكل منتجاتها من هذا النطاق فوراً.',
+      confirmLabel: 'إزالة الشجرة',
+      danger: true,
+    });
+    if (!ok) return;
     setBusy('remove');
     try {
       await onRemoveTree(tree.treeSeq);
@@ -563,9 +570,9 @@ function TreeCard(props: {
               type="button"
               onClick={() => void refresh()}
               title="منتجات جديدة في الإداري تحت هذه الشجرة — اضغط للمزامنة"
-              className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-200"
+              className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-200"
             >
-              +{formatNum(drift)} جديدة في الإداري ⟳
+              +{formatNum(drift)} جديدة في الإداري — مزامنة
             </button>
           )}
           {renderExtra?.(tree)}
@@ -615,7 +622,7 @@ function TreeCard(props: {
             </div>
           )}
           {products?.length === 0 && (
-            <p className="px-3 py-6 text-center text-[12px] text-muted">لا منتجات حالياً تحت هذه الشجرة</p>
+            <p className="px-3 py-6 text-center text-[12px] text-slate-400">لا منتجات حالياً تحت هذه الشجرة</p>
           )}
           {visibleProducts.rows.map(p => (
             <div
@@ -629,13 +636,13 @@ function TreeCard(props: {
                 <span className={`block truncate text-[12.5px] ${p.excluded ? 'line-through text-slate-400' : 'font-medium text-header'}`}>
                   {p.name}
                 </span>
-                <span className="block truncate font-mono text-[10px] text-slate-400">
+                <span className="block truncate font-mono text-[11px] text-slate-400">
                   {p.barcode ?? `Seq ${p.seq}`}
                 </span>
               </span>
               <span className="shrink-0 text-[11.5px] font-bold tabular-nums text-slate-600">{formatCurrency(p.price)}</span>
               {offerMode && p.discount != null && p.discount > 0 && !p.excluded && (
-                <span className="shrink-0 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                <span className="shrink-0 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-bold text-emerald-700">
                   {offerMode.getDiscountPreview(p.price, p.discount)}
                 </span>
               )}
@@ -646,7 +653,7 @@ function TreeCard(props: {
                 <button
                   type="button"
                   onClick={() => void toggleExclude(p)}
-                  className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold ${
+                  className={`shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold ${
                     p.excluded
                       ? 'bg-slate-200 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700'
                       : 'bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600'

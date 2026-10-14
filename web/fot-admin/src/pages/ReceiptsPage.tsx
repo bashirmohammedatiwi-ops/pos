@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   api,
-  formatCurrency,
+  daysAgoIso,
   formatNum,
   todayIso,
 } from '@/api/client';
@@ -13,16 +13,26 @@ import { DataGrid } from '@/components/grid/DataGrid';
 import { buildReceiptColumns } from '@/components/receipts/receiptColumns';
 import { ReceiptDetailSheet } from '@/components/receipts/ReceiptDetailSheet';
 import { ReceiptsSummaryFooter } from '@/components/receipts/ReceiptsSummaryFooter';
+import { useClassicFilters } from '@/components/classic/ClassicListLayout';
 import {
-  ClassicFilterActions,
-  ClassicListShell,
-  ClassicResultBadge,
-  FilterField,
-  useClassicFilters,
-} from '@/components/classic/ClassicListLayout';
-import { Btn, Checkbox, Input, Loading, Select } from '@/components/ui';
-import { FilterChip } from '@/components/workspace';
-import { IconReceipt, IconSearch } from '@/components/icons';
+  Alert,
+  Btn,
+  Checkbox,
+  EmptyState,
+  IconButton,
+  Input,
+  Kbd,
+  Select,
+  TableSkeleton,
+} from '@/components/ui';
+import {
+  IconCheckCircle,
+  IconClock,
+  IconReceipt,
+  IconRefresh,
+  IconSearch,
+  IconX,
+} from '@/components/icons';
 import { useBusinessPeriod } from '@/hooks/useBusinessPeriod';
 
 const RECEIPT_FILTERS_KEY = 'fot_admin_receipts_v3';
@@ -68,6 +78,58 @@ function isInvoiceSearch(text: string) {
   return raw.length > 0 && /^\d+$/.test(raw);
 }
 
+type SegItem = { id: string; label: string; count?: number; tone?: 'warn' | 'danger' };
+
+/** مبدّل مقسّم صغير مع عدّاد اختياري. */
+function Segmented({ items, value, onChange, label }: { items: SegItem[]; value: string; onChange: (id: string) => void; label: string }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+      {items.map(it => {
+        const on = it.id === value;
+        const activeText = it.tone === 'warn' ? 'text-amber-800' : it.tone === 'danger' ? 'text-red-700' : 'text-brand-800';
+        return (
+          <button
+            key={it.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(it.id)}
+            className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold transition ${
+              on
+                ? `bg-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200 ${activeText}`
+                : 'text-slate-500 hover:bg-white/70 hover:text-header'
+            }`}
+          >
+            {it.label}
+            {it.count != null && (
+              <span
+                className={`rounded-full px-1.5 text-[10.5px] font-bold num ${
+                  it.tone === 'warn' && it.count > 0
+                    ? 'bg-amber-100 text-amber-800'
+                    : on ? 'bg-brand-50 text-brand-700' : 'bg-slate-200/70 text-slate-600'
+                }`}
+              >
+                {formatNum(it.count)}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: ReactNode }) {
+  return (
+    <label className={`block min-w-0 ${value ? '[&_select]:border-brand-300 [&_select]:bg-brand-50/40 [&_select]:font-semibold' : ''}`}>
+      <span className="mb-1 block text-[11px] font-semibold text-slate-500">{label}</span>
+      <Select aria-label={label} value={value} onChange={e => onChange(e.target.value)}>
+        {children}
+      </Select>
+    </label>
+  );
+}
+
 export function ReceiptsPage() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -75,6 +137,7 @@ export function ReceiptsPage() {
   const saved = loadReceiptFilters();
   const today = todayIso();
   const { settings: periodSettings } = useBusinessPeriod();
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const [showCardInfo, setShowCardInfo] = useState(saved?.showCardInfo ?? false);
   const [holdTarget, setHoldTarget] = useState<HoldTarget | null>(null);
@@ -88,7 +151,7 @@ export function ReceiptsPage() {
     posId: params.get('posId') || saved?.posId || '',
     cashierId: params.get('cashierId') || saved?.cashierId || '',
     kind: params.get('kind') || saved?.kind || '',
-    synced: saved?.synced ?? '',
+    synced: params.get('synced') || (saved?.synced ?? ''),
     hold: params.get('hold') === '1' ? 'true' : (saved?.hold ?? ''),
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -118,7 +181,9 @@ export function ReceiptsPage() {
   });
 
   useEffect(() => {
-    sessionStorage.setItem(RECEIPT_FILTERS_KEY, JSON.stringify({ ...applied, showCardInfo }));
+    try {
+      sessionStorage.setItem(RECEIPT_FILTERS_KEY, JSON.stringify({ ...applied, showCardInfo }));
+    } catch { /* ignore */ }
     const next = new URLSearchParams();
     if (applied.search) next.set('search', applied.search);
     if (applied.from) next.set('from', applied.from);
@@ -139,6 +204,22 @@ export function ReceiptsPage() {
     if (highlight) setOpenDetailId(highlight);
   }, [highlight]);
 
+  // «/» يركّز مربع البحث من أي مكان في الصفحة
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      // نافذة مفتوحة (تفاصيل/تأكيد) — لا نسرق التركيز إلى بحث الصفحة خلفها
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   const applyFilters = useCallback((next?: Partial<AppliedFilters>) => {
     apply(next);
   }, [apply]);
@@ -147,11 +228,18 @@ export function ReceiptsPage() {
     clear(defaultFilters());
   }
 
+  /** عرض كل المعلّقة بغضّ النظر عن التاريخ. */
+  function showAllHolds(openId?: number) {
+    applyFilters({ hold: 'true', from: '', to: '', kind: '', synced: '', search: '' });
+    if (openId) setOpenDetailId(openId);
+  }
+
   const columns = useMemo(() => buildReceiptColumns(showCardInfo), [showCardInfo]);
   const summary = q.data?.summary;
-  const rows = q.data?.items ?? [];
+  const rows = useMemo(() => q.data?.items ?? [], [q.data]);
   const total = q.data?.total ?? 0;
   const truncated = total > rows.length;
+  const holds = holdsQ.data ?? [];
 
   const detailQ = useQuery({
     queryKey: ['receipt-detail', openDetailId],
@@ -159,215 +247,343 @@ export function ReceiptsPage() {
     enabled: openDetailId != null,
   });
 
-  const invoiceLookup = isInvoiceSearch(applied.search);
+  const invoiceLookup = isInvoiceSearch(draft.search);
+  const defaults = defaultFilters();
+  const isDefault = (Object.keys(defaults) as (keyof AppliedFilters)[]).every(k => applied[k] === defaults[k]);
+  const dirty = (['search', 'from', 'to'] as const).some(k => draft[k] !== applied[k]);
+
+  // عدّ الأنواع من النتائج المحمّلة — يصح فقط حين لا يوجد فلتر نوع ولا اقتطاع
+  const kindCounts = useMemo(() => {
+    const c = { all: rows.length, '0': 0, '1': 0, '2': 0 } as Record<string, number>;
+    for (const r of rows) c[String(r.kind)] = (c[String(r.kind)] ?? 0) + 1;
+    return c;
+  }, [rows]);
+  const countFor = (id: string) => {
+    if (!q.data || truncated) return undefined;
+    if (applied.kind === '') return id === '' ? kindCounts.all : kindCounts[id];
+    return id === applied.kind ? total : undefined;
+  };
+
+  const totalDiscount = summary
+    ? summary.totalOffersDiscount + summary.totalUserDiscount + summary.totalItemsDiscount
+    : 0;
+  const avg = summary && summary.receiptCount > 0 ? summary.netTotal / summary.receiptCount : 0; // الصافي بعد طرح المرتجعات
+
+  const stripCells: { label: string; value: string; hint?: string; tone?: 'brand' | 'warn' | 'danger' }[] = [
+    { label: 'عدد الفواتير', value: summary ? formatNum(summary.receiptCount) : '—', hint: summary && summary.receiptCount > 0 ? `متوسط ${formatNum(avg)}` : undefined, tone: 'brand' },
+    { label: 'الإجمالي', value: summary ? formatNum(summary.grossTotal) : '—' },
+    { label: 'الخصومات', value: summary ? formatNum(totalDiscount) : '—', hint: summary && totalDiscount > 0 ? `عروض ${formatNum(summary.totalOffersDiscount)} · يدوي ${formatNum(summary.totalUserDiscount)}` : undefined, tone: totalDiscount > 0 ? 'warn' : undefined },
+    { label: 'الصافي (بعد المرتجعات)', value: summary ? formatNum(summary.netTotal) : '—', tone: 'brand' },
+    { label: 'المدفوع', value: summary ? formatNum(summary.totalPayment) : '—' },
+    { label: 'الباقي للزبائن', value: summary ? formatNum(summary.totalCashBack) : '—' },
+  ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {q.isError && (
-        <div className="mb-2 flex shrink-0 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">
-          تعذّر تحميل الفواتير
-          <Btn size="sm" variant="secondary" onClick={() => q.refetch()}>إعادة</Btn>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {/* ── الفواتير المعلّقة ── */}
+      {holds.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-1.5">
+          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-amber-900">
+            <IconClock size={15} className="text-amber-600" />
+            {formatNum(holds.length)} فاتورة معلّقة
+          </span>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            {holds.slice(0, 8).map(h => (
+              <span key={h.id} className="inline-flex items-center gap-1 rounded-lg bg-white py-0.5 pe-0.5 ps-2 text-[12px] ring-1 ring-amber-200">
+                <button
+                  type="button"
+                  className="font-bold text-amber-900 hover:underline"
+                  title={`${h.cashierName ?? ''} — عرض التفاصيل`}
+                  onClick={() => showAllHolds(h.id)}
+                >
+                  #{h.id}
+                </button>
+                <span className="num text-slate-600">{formatNum(h.totalAmount)}</span>
+                <button
+                  type="button"
+                  className="rounded-md px-1.5 py-0.5 font-bold text-brand-700 hover:bg-brand-50"
+                  onClick={() => setHoldTarget(h)}
+                >
+                  إكمال
+                </button>
+              </span>
+            ))}
+          </div>
+          <Btn size="xs" variant="secondary" onClick={() => showAllHolds()}>
+            عرض كل المعلّقة
+          </Btn>
         </div>
       )}
 
-      <ClassicListShell
-        banner={
-          (holdsQ.data?.length ?? 0) > 0 ? (
-            <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-gradient-to-l from-amber-50 to-white px-3 py-2 text-[12px]">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 font-extrabold text-amber-900">
-                <IconReceipt size={14} />
-                معلّقة: {formatNum(holdsQ.data!.length)}
-              </span>
-              {holdsQ.data!.slice(0, 5).map(h => (
-                <span key={h.id} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2 py-1 ring-1 ring-amber-100">
-                  <Link to={`/receipts?highlight=${h.id}`} className="font-bold text-amber-900 hover:underline">#{h.id}</Link>
-                  <span className="num text-slate-600">{formatCurrency(h.totalAmount)}</span>
-                  <button type="button" className="font-bold text-brand-700 hover:underline" onClick={() => setHoldTarget(h)}>إكمال</button>
-                </span>
-              ))}
-              <Btn size="sm" variant="secondary" onClick={() => applyFilters({ hold: 'true' })}>عرض الكل</Btn>
-            </div>
-          ) : undefined
-        }
-        filters={
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="mb-1 text-[11px] font-semibold text-slate-500">فترة سريعة</p>
-                <DatePresets
-                  periodSettings={periodSettings}
-                  onPick={(from, to) => {
-                    patchDraft({ from, to });
-                    apply({ from, to });
+      <section className="card flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* ── الفلاتر ── */}
+        <form
+          className="shrink-0 border-b border-slate-200 bg-slate-50/70 px-3 pb-2.5 pt-2"
+          onSubmit={e => {
+            e.preventDefault();
+            applyFilters();
+          }}
+        >
+          <div className="grid items-end gap-2 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.6fr)_minmax(330px,auto)_repeat(3,minmax(130px,1fr))_auto]">
+            <label className="block min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-500">بحث برقم الفاتورة أو البائع</span>
+              <div className="relative">
+                <IconSearch size={16} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Input
+                  ref={searchRef}
+                  value={draft.search}
+                  onChange={e => patchDraft({ search: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape' && draft.search) {
+                      e.preventDefault();
+                      patchDraft({ search: '' });
+                    }
                   }}
+                  placeholder="رقم الفاتورة — Enter للبحث"
+                  className="!ps-9 !pe-9 font-bold"
+                />
+                {draft.search ? (
+                  <button
+                    type="button"
+                    aria-label="مسح البحث"
+                    onClick={() => {
+                      patchDraft({ search: '' });
+                      if (applied.search) applyFilters({ search: '' });
+                    }}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <IconX size={14} />
+                  </button>
+                ) : (
+                  <span className="pointer-events-none absolute end-2.5 top-1/2 hidden -translate-y-1/2 sm:block"><Kbd>/</Kbd></span>
+                )}
+              </div>
+            </label>
+
+            <div className="min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-500">الفترة</span>
+              <div className="flex items-center gap-1.5">
+                <DatePresets
+                  variant="menu"
+                  periodSettings={periodSettings}
+                  from={applied.from}
+                  to={applied.to}
+                  onPick={(from, to) => applyFilters({ from, to })}
+                />
+                <Input
+                  type="date"
+                  aria-label="من تاريخ"
+                  title="من تاريخ"
+                  value={draft.from}
+                  onChange={e => patchDraft({ from: e.target.value })}
+                  className="min-w-0 text-[12.5px]"
+                />
+                <span className="text-slate-400">—</span>
+                <Input
+                  type="date"
+                  aria-label="إلى تاريخ"
+                  title="إلى تاريخ"
+                  value={draft.to}
+                  onChange={e => patchDraft({ to: e.target.value })}
+                  className="min-w-0 text-[12.5px]"
                 />
               </div>
-              <PeriodBanner from={applied.from} to={applied.to} periodSettings={periodSettings} />
             </div>
 
-            <div className="grid gap-2 lg:grid-cols-[minmax(220px,1.4fr)_repeat(6,minmax(0,1fr))] lg:items-end">
-              <FilterField label="بحث برقم الفاتورة أو البائع">
-                <div className="relative">
-                  <IconSearch size={16} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    value={draft.search}
-                    onChange={e => patchDraft({ search: e.target.value })}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') applyFilters();
-                    }}
-                    placeholder="رقم الفاتورة — Enter للبحث"
-                    className="!py-2.5 !ps-9 !text-[14px] font-bold"
-                  />
-                </div>
-                {invoiceLookup && (
-                  <p className="mt-1 text-[10.5px] font-semibold text-brand-700">
-                    البحث برقم — يتجاهل تاريخ الفترة ويجلب الفاتورة من أي يوم
-                  </p>
-                )}
-              </FilterField>
-              <FilterField label="من">
-                <Input type="date" value={draft.from} onChange={e => patchDraft({ from: e.target.value })} />
-              </FilterField>
-              <FilterField label="إلى">
-                <Input type="date" value={draft.to} onChange={e => patchDraft({ to: e.target.value })} />
-              </FilterField>
-              <FilterField label="القسم">
-                <Select value={draft.sectionId} onChange={e => patchDraft({ sectionId: e.target.value })} className="w-full">
-                  <option value="">الكل</option>
-                  {(sectionsQ.data ?? []).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </Select>
-              </FilterField>
-              <FilterField label="نقطة البيع">
-                <Select value={draft.posId} onChange={e => patchDraft({ posId: e.target.value })} className="w-full">
-                  <option value="">الكل</option>
-                  {(terminalsQ.data ?? []).map(t => (
-                    <option key={t.id} value={t.id}>{t.name ?? t.id}</option>
-                  ))}
-                </Select>
-              </FilterField>
-              <FilterField label="الكاشير">
-                <Select value={draft.cashierId} onChange={e => patchDraft({ cashierId: e.target.value })} className="w-full">
-                  <option value="">الكل</option>
-                  {(cashiersQ.data?.items ?? []).map(c => (
-                    <option key={c.id} value={c.id}>{c.username}</option>
-                  ))}
-                </Select>
-              </FilterField>
-              <ClassicFilterActions
-                onApply={() => applyFilters()}
-                onClear={clearFilters}
-                extra={<ClassicResultBadge>{q.data ? formatNum(total) : '—'}</ClassicResultBadge>}
-              />
-            </div>
+            <FilterSelect label="القسم" value={draft.sectionId} onChange={v => applyFilters({ sectionId: v })}>
+              <option value="">كل الأقسام</option>
+              {(sectionsQ.data ?? []).map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </FilterSelect>
+            <FilterSelect label="نقطة البيع" value={draft.posId} onChange={v => applyFilters({ posId: v })}>
+              <option value="">كل نقاط البيع</option>
+              {(terminalsQ.data ?? []).map(t => (
+                <option key={t.id} value={t.id}>{t.name ?? t.id}</option>
+              ))}
+            </FilterSelect>
+            <FilterSelect label="الكاشير" value={draft.cashierId} onChange={v => applyFilters({ cashierId: v })}>
+              <option value="">كل الكاشير</option>
+              {(cashiersQ.data?.items ?? []).map(c => (
+                <option key={c.id} value={c.id}>{c.username}</option>
+              ))}
+            </FilterSelect>
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-slate-200/80 pt-2">
-              <FilterChip compact active={draft.kind === ''} onClick={() => { patchDraft({ kind: '' }); applyFilters({ kind: '' }); }}>الكل</FilterChip>
-              <FilterChip compact active={draft.kind === '0'} onClick={() => { patchDraft({ kind: '0' }); applyFilters({ kind: '0' }); }}>مبيعات</FilterChip>
-              <FilterChip compact active={draft.kind === '1'} onClick={() => { patchDraft({ kind: '1' }); applyFilters({ kind: '1' }); }}>مرتجع</FilterChip>
-              <FilterChip compact active={draft.kind === '2'} onClick={() => { patchDraft({ kind: '2' }); applyFilters({ kind: '2' }); }}>هدية</FilterChip>
-              <span className="mx-1 h-4 w-px bg-slate-200" />
-              <FilterChip compact active={draft.hold === ''} onClick={() => { patchDraft({ hold: '' }); applyFilters({ hold: '' }); }}>مكتملة</FilterChip>
-              <FilterChip compact active={draft.hold === 'true'} onClick={() => { patchDraft({ hold: 'true' }); applyFilters({ hold: 'true' }); }}>معلّقة</FilterChip>
-              <span className="mx-1 h-4 w-px bg-slate-200" />
-              <FilterChip compact active={draft.synced === ''} onClick={() => patchDraft({ synced: '' })}>كل المزامنة</FilterChip>
-              <FilterChip compact active={draft.synced === 'true'} onClick={() => patchDraft({ synced: 'true' })}>متزامنة</FilterChip>
-              <FilterChip compact active={draft.synced === 'false'} onClick={() => patchDraft({ synced: 'false' })}>غير متزامنة</FilterChip>
-              <span className="mx-1 h-4 w-px bg-slate-200" />
-              <Checkbox label="أعمدة الكارت" checked={showCardInfo} onChange={setShowCardInfo} />
+            <div className="flex items-center gap-1.5">
+              <Btn type="submit" icon={<IconSearch size={15} />} className={dirty ? 'ring-2 ring-brand-300 ring-offset-1' : ''}>
+                استعراض
+              </Btn>
+              {!isDefault && (
+                <Btn variant="secondary" onClick={clearFilters} title="إرجاع الفلاتر لفواتير اليوم">
+                  مسح
+                </Btn>
+              )}
             </div>
           </div>
-        }
-        header={{
-          title: 'الفواتير',
-          hint: truncated
-            ? `يُعرض ${formatNum(rows.length)} من ${formatNum(total)} — ضيّق الفترة لعرض الكل`
-            : 'كل الفواتير ضمن الفلتر في صفحة واحدة — انقر الصف لعرض الأصناف',
-        }}
-        onRefresh={() => q.refetch()}
-        refreshing={q.isFetching}
-        footer={
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Segmented
+              label="نوع الفاتورة"
+              value={applied.kind}
+              onChange={id => applyFilters({ kind: id })}
+              items={[
+                { id: '', label: 'الكل', count: countFor('') },
+                { id: '0', label: 'مبيعات', count: countFor('0') },
+                { id: '1', label: 'مرتجع', count: countFor('1'), tone: 'danger' },
+                { id: '2', label: 'هدية', count: countFor('2') },
+              ]}
+            />
+            <Segmented
+              label="حالة الفاتورة"
+              value={applied.hold === 'true' ? 'true' : ''}
+              onChange={id => applyFilters({ hold: id })}
+              items={[
+                { id: '', label: 'مكتملة' },
+                { id: 'true', label: 'معلّقة', count: holdsQ.data ? holds.length : undefined, tone: 'warn' },
+              ]}
+            />
+            <Segmented
+              label="الترحيل للإداري"
+              value={applied.synced}
+              onChange={id => applyFilters({ synced: id })}
+              items={[
+                { id: '', label: 'كل الترحيل' },
+                { id: 'true', label: 'مرحّلة' },
+                { id: 'false', label: 'غير مرحّلة' },
+              ]}
+            />
+            {invoiceLookup && (
+              <span className="text-[11.5px] font-semibold text-brand-700">البحث برقم فاتورة يتجاهل الفترة — اضغط Enter</span>
+            )}
+            <div className="ms-auto flex min-w-0 flex-wrap items-center gap-3">
+              <PeriodBanner from={applied.from} to={applied.to} periodSettings={periodSettings} />
+            </div>
+          </div>
+        </form>
+
+        {/* ── شريط المجاميع ── */}
+        <div className="grid shrink-0 grid-cols-3 divide-x divide-x-reverse divide-slate-100 border-b border-slate-200 bg-white lg:grid-cols-6">
+          {stripCells.map(c => (
+            <div key={c.label} className="min-w-0 px-3 py-1.5">
+              <p className="truncate text-[10.5px] font-semibold text-slate-500">{c.label}</p>
+              {q.isLoading ? (
+                <div className="skeleton mt-1 h-4 w-20" />
+              ) : (
+                <p className={`truncate text-[15px] font-bold leading-6 num ${c.tone === 'brand' ? 'text-brand-800' : c.tone === 'warn' ? 'text-amber-700' : 'text-header'}`}>
+                  {c.value}
+                </p>
+              )}
+              {c.hint && !q.isLoading && <p className="hidden truncate text-[10.5px] text-slate-400 num [@media(min-height:840px)]:block">{c.hint}</p>}
+            </div>
+          ))}
+        </div>
+
+        {q.isError && (
+          <div className="shrink-0 p-2">
+            <Alert title="تعذّر تحميل الفواتير">
+              <div className="flex flex-wrap items-center gap-2">
+                {q.error instanceof Error ? q.error.message : 'خطأ غير معروف'}
+                <Btn size="xs" variant="secondary" icon={<IconRefresh size={13} />} onClick={() => q.refetch()}>إعادة المحاولة</Btn>
+              </div>
+            </Alert>
+          </div>
+        )}
+
+        {/* ── الجدول ── */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {q.isLoading ? (
+            <div className="p-3"><TableSkeleton rows={10} cols={9} /></div>
+          ) : q.isError && rows.length === 0 ? null : rows.length === 0 ? (
+            <EmptyState
+              icon={applied.hold === 'true' ? <IconCheckCircle size={24} /> : <IconReceipt size={24} />}
+              title={applied.search
+                ? `لا فاتورة تطابق «${applied.search}»`
+                : applied.hold === 'true' ? 'لا فواتير معلّقة' : 'لا فواتير في هذه الفترة'}
+              description={applied.search
+                ? 'جرّب رقم الفاتورة فقط، أو وسّع الفترة.'
+                : 'غيّر الفترة أو الفلاتر لعرض فواتير أخرى.'}
+              action={
+                <div className="flex flex-wrap justify-center gap-2">
+                  {applied.from && (
+                    <Btn size="sm" variant="secondary" onClick={() => applyFilters({ from: daysAgoIso(30), to: todayIso() })}>
+                      آخر 30 يوماً
+                    </Btn>
+                  )}
+                  {!isDefault && <Btn size="sm" variant="ghost" onClick={clearFilters}>مسح الفلاتر</Btn>}
+                </div>
+              }
+            />
+          ) : (
+            <DataGrid
+              variant="sheet"
+              embedded
+              fillHeight
+              filters
+              columns={columns}
+              rows={rows}
+              getRowId={r => r.id}
+              exportName={`الفواتير-${applied.from || 'الكل'}_${applied.to || 'الكل'}`}
+              counterLabel="فاتورة"
+              badge={truncated ? (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+                  من أصل {formatNum(total)} — ضيّق الفترة لعرض الكل
+                </span>
+              ) : (
+                <span className="hidden text-[11px] text-slate-400 md:inline">انقر الصف لعرض الأصناف · ↑↓ للتنقل · Enter للفتح</span>
+              )}
+              toolbar={
+                <div className="flex items-center gap-2">
+                  <Checkbox label="أعمدة البطاقة" checked={showCardInfo} onChange={setShowCardInfo} />
+                  <IconButton label="تحديث" onClick={() => { void q.refetch(); void holdsQ.refetch(); }}>
+                    <IconRefresh size={15} className={q.isFetching ? 'animate-spin' : ''} />
+                  </IconButton>
+                </div>
+              }
+              emptyText="لا فواتير تطابق فلتر الأعمدة"
+              rowTone={r => (r.number === 0 ? 'bg-amber-50/70' : r.kind === 1 ? 'bg-red-50/60' : undefined)}
+              storageKey={`receipts${showCardInfo ? '-card' : ''}`}
+              dense
+              selectedId={openDetailId ?? undefined}
+              onSelect={r => setOpenDetailId(r.id)}
+              onEnter={r => setOpenDetailId(r.id)}
+              expansion={{
+                isExpanded: r => openDetailId === r.id,
+                onToggle: r => setOpenDetailId(openDetailId === r.id ? null : r.id),
+                render: r => (
+                  <ReceiptDetailSheet
+                    receipt={r}
+                    detail={openDetailId === r.id ? detailQ.data : undefined}
+                    loadingDetail={openDetailId === r.id && detailQ.isLoading}
+                    onChanged={() => {
+                      void queryClient.invalidateQueries({ queryKey: ['receipts'] });
+                      void queryClient.invalidateQueries({ queryKey: ['receipt-detail', r.id] });
+                    }}
+                    onComplete={
+                      r.number === 0
+                        ? () => setHoldTarget({
+                            id: r.id,
+                            totalAmount: r.totalAmount,
+                            cashierName: r.cashierName,
+                            salesmanName: r.salesmanName,
+                            itemCount: r.itemCount,
+                          })
+                        : undefined
+                    }
+                  />
+                ),
+              }}
+            />
+          )}
+        </div>
+        {(q.isLoading || rows.length > 0) && (
           <ReceiptsSummaryFooter
             summary={summary}
             total={rows.length}
             loading={q.isLoading}
             truncated={truncated}
           />
-        }
-      >
-        {!q.isLoading && summary && (
-          <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-slate-100 bg-gradient-to-l from-slate-50 to-white px-3 py-2 sm:grid-cols-4">
-            {[
-              { label: 'عدد الفواتير', value: formatNum(summary.receiptCount), accent: true },
-              { label: 'الإجمالي', value: formatCurrency(summary.grossTotal) },
-              { label: 'الصافي', value: formatCurrency(summary.netTotal), accent: true },
-              { label: 'المدفوع', value: formatCurrency(summary.totalPayment) },
-            ].map(cell => (
-              <div
-                key={cell.label}
-                className={`rounded-xl border px-3 py-2 ${cell.accent ? 'border-brand-200 bg-brand-50/70' : 'border-slate-200 bg-white'}`}
-              >
-                <p className="text-[10px] font-semibold text-slate-500">{cell.label}</p>
-                <p className={`mt-0.5 text-[15px] font-extrabold tabular-nums ${cell.accent ? 'text-brand-800' : 'text-header'}`}>
-                  {cell.value}
-                </p>
-              </div>
-            ))}
-          </div>
         )}
-
-        {q.isLoading ? (
-          <Loading />
-        ) : (
-          <DataGrid
-            variant="sheet"
-            embedded
-            fillHeight
-            filters
-            columns={columns}
-            rows={rows}
-            getRowId={r => r.id}
-            exportName={`الفواتير-${applied.from}_${applied.to}`}
-            counterLabel="فاتورة"
-            emptyText={applied.search
-              ? `لا فاتورة لـ «${applied.search}» — جرّب رقم الفاتورة فقط أو وسّع الفترة`
-              : 'لا فواتير — غيّر الفلاتر ثم اضغط «استعراض»'}
-            rowTone={r => (r.kind === 1 ? 'bg-[#fde9e9]' : r.number === 0 ? 'bg-[#fff8e6]' : undefined)}
-            storageKey={`receipts${showCardInfo ? '-card' : ''}`}
-            dense
-            selectedId={openDetailId ?? undefined}
-            onSelect={r => setOpenDetailId(r.id)}
-            onEnter={r => setOpenDetailId(r.id)}
-            expansion={{
-              isExpanded: r => openDetailId === r.id,
-              onToggle: r => setOpenDetailId(openDetailId === r.id ? null : r.id),
-              render: r => (
-                <ReceiptDetailSheet
-                  receipt={r}
-                  detail={openDetailId === r.id ? detailQ.data : undefined}
-                  loadingDetail={openDetailId === r.id && detailQ.isLoading}
-                  onChanged={() => {
-                    void queryClient.invalidateQueries({ queryKey: ['receipts'] });
-                    void queryClient.invalidateQueries({ queryKey: ['receipt-detail', r.id] });
-                  }}
-                  onComplete={
-                    r.number === 0
-                      ? () => setHoldTarget({
-                          id: r.id,
-                          totalAmount: r.totalAmount,
-                          cashierName: r.cashierName,
-                          salesmanName: r.salesmanName,
-                          itemCount: r.itemCount,
-                        })
-                      : undefined
-                  }
-                />
-              ),
-            }}
-          />
-        )}
-      </ClassicListShell>
+      </section>
 
       <CompleteHoldDialog hold={holdTarget} onClose={() => setHoldTarget(null)} />
     </div>

@@ -2,7 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api, daysAgoIso, todayIso } from '@/api/client';
 import type { PosTerminalMonitorDto } from '@/api/types';
-import { fillDaily, bestDay, weekProgress, healthScore, salesPace, healthBreakdown, mergeSalesmenWithSales } from '@/components/dashboard/dashboardUtils';
+import {
+  fillDaily,
+  bestDay,
+  weekProgress,
+  healthScore,
+  salesPace,
+  healthBreakdown,
+  mergeSalesmenWithSales,
+  shiftMonthIso,
+} from '@/components/dashboard/dashboardUtils';
 import { fixEdariName } from '@/lib/text';
 import { useBusinessPeriod } from '@/hooks/useBusinessPeriod';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
@@ -61,6 +70,15 @@ export function useDashboardData() {
     queryFn: () => api.dailySales(prevWeekPeriod.from, weekPeriod.to),
     staleTime: 60_000,
     refetchInterval: poll(60_000),
+  });
+
+  const prevMonthFrom = shiftMonthIso(monthPeriod.from, -1);
+  const prevMonthTo = shiftMonthIso(monthPeriod.to, -1);
+  const monthQ = useQuery({
+    queryKey: ['daily-sales-month', prevMonthFrom, monthPeriod.to],
+    queryFn: () => api.dailySales(prevMonthFrom, monthPeriod.to),
+    staleTime: 120_000,
+    refetchInterval: poll(180_000),
   });
 
   const recentQ = useQuery({
@@ -171,6 +189,9 @@ export function useDashboardData() {
   const average = cashQ.data?.averageTicket ?? 0;
   const paid = cashQ.data?.totalPayment ?? 0;
   const cashBack = cashQ.data?.totalCashBack ?? 0;
+  // خادم أقدم لا يرسل المرتجعات → null (تُعرض «—»)
+  const returnsTotal = cashQ.data?.returnsTotal ?? null;
+  const returnsCount = cashQ.data?.returnsCount ?? 0;
   const ySales = yesterdayQ.data?.totalSales ?? 0;
   const yReceipts = yesterdayQ.data?.receiptCount ?? 0;
 
@@ -187,7 +208,23 @@ export function useDashboardData() {
   const weekReceipts = weekDays.reduce((n, d) => n + (d.receiptCount ?? 0), 0);
   const weekProgressInfo = weekProgress(weekPeriod.from, weekPeriod.to, today);
   const bestWeekDay = bestDay(weekDays);
-  const returnRate = sales > 0 ? (cashBack / sales) * 100 : 0;
+  const monthDays = useMemo(
+    () => fillDaily(monthQ.data, monthPeriod.from, monthPeriod.to),
+    [monthQ.data, monthPeriod.from, monthPeriod.to],
+  );
+  const monthProgressInfo = weekProgress(monthPeriod.from, monthPeriod.to, today);
+  const monthTotal = monthDays.reduce((n, d) => n + d.total, 0);
+  const monthReceipts = monthDays.reduce((n, d) => n + (d.receiptCount ?? 0), 0);
+  // الشهر السابق حتى نفس اليوم — مقارنة عادلة لشهر لم يكتمل
+  const prevMonthToDate = useMemo(() => {
+    const cut = shiftMonthIso(today, -1);
+    return fillDaily(monthQ.data, prevMonthFrom, prevMonthTo)
+      .filter(d => d.date.slice(0, 10) <= cut)
+      .reduce((n, d) => n + d.total, 0);
+  }, [monthQ.data, prevMonthFrom, prevMonthTo, today]);
+
+  const grossSales = sales + (returnsTotal ?? 0);
+  const returnRate = returnsTotal != null && grossSales > 0 ? (returnsTotal / grossSales) * 100 : 0;
 
   const terminals = useMemo(() => {
     const list: PosTerminalMonitorDto[] = [];
@@ -312,6 +349,7 @@ export function useDashboardData() {
       cashQ.refetch(),
       yesterdayQ.refetch(),
       weekQ.refetch(),
+      monthQ.refetch(),
       recentQ.refetch(),
       terminalsQ.refetch(),
       holdsQ.refetch(),
@@ -348,6 +386,8 @@ export function useDashboardData() {
     average,
     paid,
     cashBack,
+    returnsTotal,
+    returnsCount,
     ySales,
     yReceipts,
     weekDays,
@@ -357,6 +397,16 @@ export function useDashboardData() {
     weekReceipts,
     weekProgressInfo,
     bestWeekDay,
+    monthDays,
+    monthTotal,
+    monthReceipts,
+    monthProgressInfo,
+    prevMonthToDate,
+    monthLoading: monthQ.isLoading && !monthQ.data,
+    targetsLoading: targetsQ.isLoading && !targetsQ.data,
+    commLoading: commWeekQ.isLoading && !commWeekQ.data,
+    totalOffers,
+    holds: holdsQ.isError ? [] : (holdsQ.data ?? []),
     returnRate,
     pace,
     health,

@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api } from '@/api/client';
 import type { AccountSummaryDto, SectionCashBoxAssignment, SectionCashBoxDto } from '@/api/types';
-import { Btn, Field, Input } from '@/components/ui';
+import { Badge, Btn, Field } from '@/components/ui';
+import { IconCheckCircle, IconRefresh, IconSearch, IconWallet } from '@/components/icons';
+import { SearchBox } from '@/components/system/systemUi';
 
 function formatAccount(a: AccountSummaryDto) {
   return a.num ? `${a.num} — ${a.name ?? ''}` : `${a.name ?? ''} (#${a.id})`;
@@ -60,16 +62,17 @@ export function CashBoxPicker({ label, hint, value, displayName, displayNum, emp
 
   return (
     <Field label={label}>
-      {hint && <p className="mb-2 text-sm text-slate-500">{hint}</p>}
+      {hint && <p className="mb-2 text-[12px] leading-5 text-slate-500">{hint}</p>}
       {selectedLabel ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-slate-50 px-3 py-2">
-          <span className="text-sm font-medium text-slate-800">{selectedLabel}</span>
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
+          <span className="text-emerald-600"><IconCheckCircle size={16} /></span>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-800">{selectedLabel}</span>
           <Btn size="sm" variant="ghost" onClick={() => onChange(null)}>
             إزالة
           </Btn>
         </div>
       ) : (
-        <p className="mb-3 text-sm text-slate-500">{emptyHint ?? 'لم يُحدد صندوق بعد.'}</p>
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">{emptyHint ?? 'لم يُحدد صندوق بعد.'}</p>
       )}
 
       <CashBoxSearchResults
@@ -167,18 +170,16 @@ export function AssignedCashBoxesEditor({
                 <p className="text-[13px] font-semibold text-header">
                   {b.num ? `${b.num} — ${b.name ?? ''}` : b.name || `#${b.masterAccount}`}
                 </p>
-                <p className="text-[11px] text-slate-400">Seq {b.masterAccount}</p>
+                <p className="text-[11px] text-slate-400 num">Seq {b.masterAccount}</p>
               </div>
-              <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-slate-600">
-                <input
-                  type="radio"
-                  name="section-default-cashbox"
-                  checked={b.isDefault}
-                  onChange={() => setDefault(b.masterAccount)}
-                />
-                افتراضي
-              </label>
-              <Btn size="sm" variant="ghost" onClick={() => remove(b.masterAccount)}>
+              {b.isDefault ? (
+                <Badge tone="ok">افتراضي</Badge>
+              ) : (
+                <Btn size="xs" variant="ghost" onClick={() => setDefault(b.masterAccount)}>
+                  جعله افتراضياً
+                </Btn>
+              )}
+              <Btn size="xs" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => remove(b.masterAccount)}>
                 إزالة
               </Btn>
             </li>
@@ -218,48 +219,68 @@ function CashBoxSearchResults({
   return (
     <>
       <div className="flex items-center gap-2">
-        <Input
+        <SearchBox
           value={search}
-          onChange={e => onSearch(e.target.value)}
+          onChange={onSearch}
           placeholder="ابحث برقم أو اسم الصندوق…"
-          className="flex-1"
+          icon={<IconSearch size={15} />}
+          className="min-w-0 flex-1"
         />
         <Btn
           size="sm"
           variant="secondary"
           onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-          title="اجلب الحسابات من الإداري الآن"
+          loading={refresh.isPending}
+          icon={<IconRefresh size={13} />}
+          title="اجلب الحسابات من الأداري الآن"
         >
-          {refresh.isPending ? '…' : '↻ جلب من الإداري'}
+          جلب من الأداري
         </Btn>
       </div>
-      <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-white">
-        {loading && <p className="p-3 text-sm text-slate-500">جاري التحميل…</p>}
+      <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+        {!loading && results.length > 0 && (
+          <div className="sticky top-0 z-[1] grid grid-cols-[88px_minmax(0,1fr)_minmax(0,0.7fr)_56px] gap-2 border-b border-slate-200 bg-slate-100/95 px-3 py-1.5 text-[11px] font-bold text-slate-600">
+            <span>الرقم</span>
+            <span>الحساب</span>
+            <span>المجموعة</span>
+            <span />
+          </div>
+        )}
+        {loading && (
+          <div className="space-y-1.5 p-2">
+            {Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton h-8" />)}
+          </div>
+        )}
         {!loading && results.length === 0 && (
-          <p className="p-3 text-sm text-slate-500">
+          <p className="p-3 text-center text-[12.5px] text-slate-500">
             {search
-              ? 'لا صندوق بهذا الاسم أو الرقم — اضغط «جلب من الإداري»'
-              : 'لا صناديق بعد — اضغط «جلب من الإداري»'}
+              ? 'لا صندوق بهذا الاسم أو الرقم — اضغط «جلب من الأداري»'
+              : 'لا صناديق بعد — اضغط «جلب من الأداري»'}
           </p>
         )}
-        {results.map(a => (
+        {results.map((a, i) => (
           <button
             key={a.id}
             type="button"
-            className="block w-full border-t border-border px-3 py-2 text-right hover:bg-slate-50 first:border-t-0"
+            title={formatAccount(a)}
+            className={`grid w-full grid-cols-[88px_minmax(0,1fr)_minmax(0,0.7fr)_56px] items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-right text-[12.5px] transition last:border-b-0 hover:bg-brand-50/60 ${i % 2 ? 'bg-slate-50/50' : 'bg-white'}`}
             onClick={() => onPick(a)}
           >
-            <span className="block text-sm text-slate-800">{formatAccount(a)}</span>
-            {a.group && <span className="block text-[11px] text-slate-400">{a.group}</span>}
+            <span className="inline-flex min-w-0 items-center gap-1.5 font-semibold text-slate-700 num">
+              <IconWallet size={13} className="shrink-0 text-slate-400" />
+              <span className="truncate">{a.num || `#${a.id}`}</span>
+            </span>
+            <span className="truncate text-slate-800">{a.name ?? '—'}</span>
+            <span className="truncate text-[11.5px] text-slate-400">{a.group ?? ''}</span>
+            <span className="text-end text-[11.5px] font-semibold text-brand-700">اختيار</span>
           </button>
         ))}
       </div>
       {!loading && results.length > 0 && (
-        <p className="mt-1 text-[11px] text-slate-400">{results.length} صندوق متاح</p>
+        <p className="mt-1 text-[11px] text-slate-400 num">{results.length} صندوق متاح</p>
       )}
       {refresh.data && (
-        <p className="mt-1 text-[11px] text-teal-700">{refresh.data.message}</p>
+        <p className="mt-1 text-[11.5px] text-emerald-700">{refresh.data.message}</p>
       )}
     </>
   );

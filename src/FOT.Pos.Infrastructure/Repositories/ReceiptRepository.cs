@@ -159,14 +159,15 @@ public sealed class ReceiptRepository(
             LEFT JOIN sections sec ON sec.id = COALESCE(NULLIF(pos.section_id, 0), c.section_id)
             {where};
             SELECT COUNT(*) AS ReceiptCount,
-                   CAST(COALESCE(SUM(r.total_amount + r.offers_discount + r.user_discount + r.items_discount),0) AS DECIMAL(18,2)) AS GrossTotal,
-                   CAST(COALESCE(SUM(r.total_amount),0) AS DECIMAL(18,2)) AS NetTotal,
-                   CAST(COALESCE(SUM(r.payment),0) AS DECIMAL(18,2)) AS TotalPayment,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -1 ELSE 1 END * (r.total_amount + COALESCE(r.offers_discount, 0) + COALESCE(r.user_discount, 0) + COALESCE(r.items_discount, 0))),0) AS DECIMAL(18,2)) AS GrossTotal,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END),0) AS DECIMAL(18,2)) AS NetTotal,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.payment ELSE r.payment END),0) AS DECIMAL(18,2)) AS TotalPayment,
                    CAST(COALESCE(SUM(r.cash_back),0) AS DECIMAL(18,2)) AS TotalCashBack,
-                   CAST(COALESCE(SUM(r.offers_discount),0) AS DECIMAL(18,2)) AS TotalOffersDiscount,
-                   CAST(COALESCE(SUM(r.user_discount),0) AS DECIMAL(18,2)) AS TotalUserDiscount,
-                   CAST(COALESCE(SUM(r.items_discount),0) AS DECIMAL(18,2)) AS TotalItemsDiscount
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.offers_discount ELSE r.offers_discount END),0) AS DECIMAL(18,2)) AS TotalOffersDiscount,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.user_discount ELSE r.user_discount END),0) AS DECIMAL(18,2)) AS TotalUserDiscount,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.items_discount ELSE r.items_discount END),0) AS DECIMAL(18,2)) AS TotalItemsDiscount
             FROM reciepts r
+            LEFT JOIN salesmen sm ON sm.id = r.salesman
             LEFT JOIN cashiers c ON c.id = r.cashier_id
             LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
             LEFT JOIN sections sec ON sec.id = COALESCE(NULLIF(pos.section_id, 0), c.section_id)

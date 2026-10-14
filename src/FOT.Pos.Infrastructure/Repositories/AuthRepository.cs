@@ -24,6 +24,20 @@ public sealed class AuthRepository(ISqlConnectionFactory db)
         return new UserDto(user.Id, user.Username, displayName, user.Role);
     }
 
+    /// <summary>مستخدم إدارة فعّال بالمعرّف — لتجديد الجلسة دون كلمة المرور.</summary>
+    public async Task<UserDto?> GetActiveAsync(long id, CancellationToken ct)
+    {
+        const string sql = """
+            SELECT id AS Id, username AS Username, password_hash AS PasswordHash,
+                   display_name AS DisplayName, role AS Role
+            FROM ext_users WHERE id = @id AND is_active = 1
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var user = await conn.QuerySingleOrDefaultAsync<UserRow>(new CommandDefinition(sql, new { id }, cancellationToken: ct));
+        if (user is null) return null;
+        return new UserDto(user.Id, user.Username, TextEncodingHelper.UserDisplayLabel(user.Username, user.DisplayName), user.Role);
+    }
+
     public async Task EnsureAdminSeededAsync(CancellationToken ct)
     {
         const string check = "SELECT COUNT(*) FROM ext_users WHERE username = 'admin'";

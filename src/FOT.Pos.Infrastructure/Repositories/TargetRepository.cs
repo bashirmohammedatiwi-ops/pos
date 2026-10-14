@@ -53,7 +53,8 @@ public sealed class TargetRepository(
         var list = new List<TargetProgressDto>();
         foreach (var rule in rules.Where(r => r.IsActive))
         {
-            var breakdown = await GetBreakdownAsync(rule.Id, start, end, ct);
+            // end حدّ حصري — GetBreakdownAsync يضيف اليوم بنفسه، فنمرّر آخر يوم شامل
+            var breakdown = await GetBreakdownAsync(rule.Id, start, end.AddDays(-1), ct);
             list.Add(new TargetProgressDto(rule.Id, rule.Name, breakdown.TotalQuantity, start, end));
         }
         return list;
@@ -68,7 +69,7 @@ public sealed class TargetRepository(
         var rules = await ListRulesAsync(ct);
         var list = new List<TargetBreakdownDto>();
         foreach (var rule in rules.Where(r => r.IsActive))
-            list.Add(await GetBreakdownAsync(rule.Id, start, end, ct));
+            list.Add(await GetBreakdownAsync(rule.Id, start, end.AddDays(-1), ct));
         return list;
     }
 

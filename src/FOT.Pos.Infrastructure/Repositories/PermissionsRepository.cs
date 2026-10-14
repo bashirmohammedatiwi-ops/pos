@@ -27,6 +27,8 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
                    CAST(allow_product_discount AS bit) AS AllowProductDiscount,
                    CAST(hide_salesman_groups AS bit) AS HideSalesmanGroups,
                    CAST(invoice_bound_return AS bit) AS InvoiceBoundReturn,
+                   CAST(print_salesman_on_receipt AS bit) AS PrintSalesmanOnReceipt,
+                   CAST(gift_via_discount_qr AS bit) AS GiftViaDiscountQr,
                    CAST(item_discount_limit AS DECIMAL(18,2)) AS ItemDiscountLimit,
                    CAST(user_discount_limit AS DECIMAL(18,2)) AS UserDiscountLimit,
                    number_of_hold_reciepts AS NumberOfHoldReceipts
@@ -45,6 +47,7 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
                 offline_login, discard_receipt, allow_credit_recipt, allow_sales_return_reciept,
                 allow_gift_reciept, allow_price_change, allow_search_articles, allow_edit_reciept,
                 manual_transfer, allow_product_discount, hide_salesman_groups, invoice_bound_return,
+                print_salesman_on_receipt, gift_via_discount_qr,
                 item_discount_limit, user_discount_limit, number_of_hold_reciepts)
             OUTPUT INSERTED.id
             VALUES (
@@ -52,6 +55,7 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
                 @OfflineLogin, @DiscardReceipt, @AllowCreditReceipt, @AllowSalesReturn,
                 @AllowGiftReceipt, @AllowPriceChange, @AllowSearchArticles, @AllowEditReceipt,
                 @ManualTransfer, @AllowProductDiscount, @HideSalesmanGroups, @InvoiceBoundReturn,
+                @PrintSalesmanOnReceipt, @GiftViaDiscountQr,
                 @ItemDiscountLimit, @UserDiscountLimit, @NumberOfHoldReceipts)
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
@@ -71,6 +75,8 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
                 manual_transfer=@ManualTransfer, allow_product_discount=@AllowProductDiscount,
                 hide_salesman_groups=@HideSalesmanGroups,
                 invoice_bound_return=@InvoiceBoundReturn,
+                print_salesman_on_receipt=@PrintSalesmanOnReceipt,
+                gift_via_discount_qr=@GiftViaDiscountQr,
                 item_discount_limit=@ItemDiscountLimit, user_discount_limit=@UserDiscountLimit,
                 number_of_hold_reciepts=@NumberOfHoldReceipts
             WHERE id=@id
@@ -80,7 +86,7 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
             req.CashReport, req.DeleteItem, req.DuplicateItem, req.OfflineLogin, req.DiscardReceipt,
             req.AllowCreditReceipt, req.AllowSalesReturn, req.AllowGiftReceipt, req.AllowPriceChange,
             req.AllowSearchArticles, req.AllowEditReceipt, req.ManualTransfer, req.AllowProductDiscount,
-            req.HideSalesmanGroups, req.InvoiceBoundReturn,
+            req.HideSalesmanGroups, req.InvoiceBoundReturn, req.PrintSalesmanOnReceipt, req.GiftViaDiscountQr,
             req.ItemDiscountLimit, req.UserDiscountLimit, req.NumberOfHoldReceipts }, cancellationToken: ct));
     }
 
@@ -105,6 +111,8 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
                    CAST(allow_product_discount AS bit) AS AllowProductDiscount,
                    CAST(hide_salesman_groups AS bit) AS HideSalesmanGroups,
                    CAST(invoice_bound_return AS bit) AS InvoiceBoundReturn,
+                   CAST(print_salesman_on_receipt AS bit) AS PrintSalesmanOnReceipt,
+                   CAST(gift_via_discount_qr AS bit) AS GiftViaDiscountQr,
                    CAST(item_discount_limit AS DECIMAL(18,2)) AS ItemDiscountLimit,
                    CAST(user_discount_limit AS DECIMAL(18,2)) AS UserDiscountLimit,
                    number_of_hold_reciepts AS NumberOfHoldReceipts
@@ -134,6 +142,8 @@ public sealed class PermissionsRepository(ISqlConnectionFactory db)
         req.AllowProductDiscount,
         req.HideSalesmanGroups,
         req.InvoiceBoundReturn,
+        req.PrintSalesmanOnReceipt,
+        req.GiftViaDiscountQr,
         req.ItemDiscountLimit,
         req.UserDiscountLimit,
         req.NumberOfHoldReceipts

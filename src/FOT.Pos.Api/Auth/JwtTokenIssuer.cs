@@ -6,9 +6,16 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace FOT.Pos.Api.Auth;
 
+/// <summary>علامة رموز لوحة التحكم — /auth/refresh يجدد هذه الرموز فقط (لا رموز بوابات الويب).</summary>
+public static class AdminTokenType
+{
+    public const string Claim = "tt";
+    public const string Admin = "admin";
+}
+
 public static class JwtTokenIssuer
 {
-    public static string Issue(IConfiguration config, long id, string username, string displayName, string role)
+    public static string Issue(IConfiguration config, long id, string username, string displayName, string role, string? tokenType = null)
     {
         var idText = id.ToString();
         var claims = new[]
@@ -20,6 +27,8 @@ public static class JwtTokenIssuer
             new Claim("role", role),
             new Claim("display_name", displayName)
         };
+        if (!string.IsNullOrEmpty(tokenType))
+            claims = [.. claims, new Claim(AdminTokenType.Claim, tokenType)];
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var hours = ExpiresHours(config, role);

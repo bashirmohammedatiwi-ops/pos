@@ -7,7 +7,11 @@ using FOT.Pos.Infrastructure.Services;
 
 namespace FOT.Pos.Infrastructure.Repositories;
 
-public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeRepository treeRepo, EdariNexusClient edari)
+public sealed class OfferRepository(
+    ISqlConnectionFactory db,
+    ArticleTreeRepository treeRepo,
+    EdariNexusClient edari,
+    OfferSalesReportRepository offerSalesReports)
 {
     /// <summary>Lightweight counts for dashboards — avoids loading a full page of offers just for badges.</summary>
     public async Task<OfferStatsDto> GetStatsAsync(CancellationToken ct)
@@ -73,6 +77,7 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
                 SELECT od.item_id FROM dbo.offer_details od
                 WHERE od.offer_id IN @ids AND od.item_id IS NOT NULL)
             """, new { ids }, cancellationToken: ct));
+        await offerSalesReports.EnsureRecordedForOffersAsync(ids, ct);
         return ids.Count;
     }
 
@@ -88,8 +93,20 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
                    (SELECT COUNT(DISTINCT od.item_id) FROM offer_details od
                     INNER JOIN articles a ON a.Seq = od.item_id
                     WHERE od.offer_id = o.id AND od.discount > 0
-                      AND NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N'') IS NOT NULL) AS ActiveProductCount
+                      AND NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N'') IS NOT NULL) AS ActiveProductCount,
+                   o.folder_id AS FolderId,
+                   LTRIM(RTRIM(CONVERT(NVARCHAR(200), f.name))) AS FolderName,
+                   CAST(COALESCE(dr.Unlimited, 1) AS BIT) AS Unlimited,
+                   dr.from_date AS FromDate,
+                   dr.to_date AS ToDate
             FROM offers o
+            LEFT JOIN ext_offer_folders f ON f.id = o.folder_id
+            OUTER APPLY (
+                SELECT TOP 1 od.Unlimited, od.from_date, od.to_date
+                FROM offer_details od
+                WHERE od.offer_id = o.id AND od.detail_role = 0
+                ORDER BY od.id
+            ) dr
             ORDER BY o.priority DESC, o.id DESC
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
             SELECT COUNT(*) FROM offers;
@@ -309,9 +326,9 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
     public async Task<long> CreateAsync(CreateOfferRequest req, CancellationToken ct)
     {
         const string sql = """
-            INSERT INTO offers (name, priority, enabled, type, master_account, remarks)
+            INSERT INTO offers (name, priority, enabled, type, master_account, remarks, folder_id)
             OUTPUT INSERTED.id
-            VALUES (@name, @priority, @enabled, @type, 0, N'');
+            VALUES (@name, @priority, @enabled, @type, 0, N'', @folderId);
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         // Constr_priority: الأولوية فريدة على مستوى الجدول — عند التصادم نمنح أولوية جديدة تلقائياً
@@ -322,8 +339,17 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
             priority = await conn.ExecuteScalarAsync<int>(
                 new CommandDefinition("SELECT ISNULL(MAX(priority), 0) + 1 FROM offers", cancellationToken: ct));
         }
+        long? folderId = req.FolderId is > 0 ? req.FolderId : null;
+        if (folderId is > 0)
+        {
+            var ok = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(
+                "SELECT TOP 1 1 FROM ext_offer_folders WHERE id = @folderId",
+                new { folderId }, cancellationToken: ct));
+            if (ok is null) folderId = null;
+        }
+
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            sql, new { name = req.Name, priority, enabled = req.Enabled, type = req.Type }, cancellationToken: ct));
+            sql, new { name = req.Name, priority, enabled = req.Enabled, type = req.Type, folderId }, cancellationToken: ct));
     }
 
     public async Task SetEnabledAsync(long id, bool enabled, CancellationToken ct)
@@ -637,6 +663,9 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM offer_details WHERE offer_id = @offerId", new { offerId }, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(
+            "IF OBJECT_ID('ext_offer_bundle_conditions') IS NOT NULL DELETE FROM ext_offer_bundle_conditions WHERE offer_id = @offerId",
+            new { offerId }, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM offers WHERE id = @offerId", new { offerId }, cancellationToken: ct));
     }
 
@@ -763,5 +792,125 @@ public sealed class OfferRepository(ISqlConnectionFactory db, ArticleTreeReposit
         public long? DetailId { get; set; }
         public decimal? Discount { get; set; }
         public bool Excluded { get; set; }
+    }
+
+    private const string OfferDetailDateActiveSql = """
+        (od.Unlimited = 1 OR (od.from_date IS NULL AND od.to_date IS NULL)
+        OR (od.from_date IS NULL AND od.to_date IS NOT NULL AND CAST(GETDATE() AS date) <= od.to_date)
+        OR (od.to_date IS NULL AND od.from_date IS NOT NULL AND CAST(GETDATE() AS date) >= od.from_date)
+        OR (od.from_date IS NOT NULL AND od.to_date IS NOT NULL AND CAST(GETDATE() AS date) BETWEEN od.from_date AND od.to_date))
+        """;
+
+    /// <summary>Active type-1 (bundle) offers for POS conditional pricing.</summary>
+    public async Task<IReadOnlyList<PosBundleOfferDto>> GetPosBundleOffersAsync(CancellationToken ct)
+    {
+        await ExpireElapsedAsync(ct);
+        const string sql = $"""
+            SELECT o.id AS Id, LTRIM(RTRIM(CONVERT(NVARCHAR(4000), o.name))) AS Name, o.priority AS Priority
+            FROM offers o
+            WHERE o.enabled = 1 AND o.type = 1
+              AND EXISTS (
+                  SELECT 1 FROM offer_details od
+                  WHERE od.offer_id = o.id AND od.detail_role = 1 AND od.item_id IS NOT NULL
+                    AND COALESCE(od.excluded, 0) = 0 AND {OfferDetailDateActiveSql})
+              AND (EXISTS (
+                  SELECT 1 FROM offer_details od
+                  WHERE od.offer_id = o.id AND od.detail_role = 0 AND od.item_id IS NOT NULL
+                    AND COALESCE(od.excluded, 0) = 0 AND (od.discount > 0 OR od.discount_type = 2)
+                    AND {OfferDetailDateActiveSql})
+                OR EXISTS (
+                  SELECT 1 FROM ext_offer_bundle_conditions c
+                  WHERE c.offer_id = o.id AND c.required_discount > 0))
+            ORDER BY o.priority DESC, o.id DESC;
+
+            SELECT od.offer_id AS OfferId, od.item_id AS ItemSeq,
+                   CAST(od.discount AS DECIMAL(18,2)) AS Discount,
+                   od.discount_type AS DiscountType, od.detail_role AS DetailRole
+            FROM offer_details od
+            INNER JOIN offers o ON o.id = od.offer_id AND o.enabled = 1 AND o.type = 1
+            WHERE od.item_id IS NOT NULL AND COALESCE(od.excluded, 0) = 0 AND {OfferDetailDateActiveSql}
+              AND (od.detail_role = 1 OR od.discount > 0 OR od.discount_type = 2);
+
+            SELECT c.offer_id AS OfferId, c.match_mode AS MatchMode, c.min_count AS MinCount,
+                   c.count_basis AS CountBasis, c.min_qty_each AS MinQtyEach,
+                   c.min_required_amount AS MinRequiredAmount, c.required_discount AS RequiredDiscount
+            FROM ext_offer_bundle_conditions c
+            INNER JOIN offers o ON o.id = c.offer_id AND o.enabled = 1 AND o.type = 1;
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        using var multi = await conn.QueryMultipleAsync(new CommandDefinition(sql, cancellationToken: ct));
+        var headers = (await multi.ReadAsync<(long Id, string Name, int Priority)>()).ToList();
+        var lines = (await multi.ReadAsync<(long OfferId, long ItemSeq, decimal Discount, int DiscountType, int DetailRole)>()).ToList();
+        var conditions = (await multi.ReadAsync<BundleConditionRow>()).ToDictionary(c => c.OfferId, c => c.ToDto());
+        var byOffer = lines.GroupBy(l => l.OfferId).ToDictionary(g => g.Key, g => g.ToList());
+        var result = new List<PosBundleOfferDto>();
+        foreach (var h in headers)
+        {
+            if (!byOffer.TryGetValue(h.Id, out var offerLines)) continue;
+            conditions.TryGetValue(h.Id, out var cond);
+            var required = offerLines.Where(l => l.DetailRole == 1).Select(l => l.ItemSeq).Distinct().ToList();
+            var discounted = offerLines
+                .Where(l => l.DetailRole == 0)
+                .Select(l => new PosBundleOfferLineDto(l.ItemSeq, l.Discount, l.DiscountType, l.DetailRole))
+                .ToList();
+            // بلا أصناف مخفّضة يكفي خصم على المواد المشروطة نفسها
+            if (required.Count == 0 || (discounted.Count == 0 && (cond?.RequiredDiscount ?? 0) <= 0)) continue;
+            result.Add(new PosBundleOfferDto(h.Id, h.Name, h.Priority, required, discounted, cond));
+        }
+        return result;
+    }
+
+    /// <summary>شروط تفعيل العرض المشروط — الافتراضي (بلا صف) يعني «كل المواد المشروطة».</summary>
+    public async Task<OfferBundleConditionsDto> GetBundleConditionsAsync(long offerId, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var row = await conn.QuerySingleOrDefaultAsync<BundleConditionRow>(new CommandDefinition("""
+            SELECT offer_id AS OfferId, match_mode AS MatchMode, min_count AS MinCount,
+                   count_basis AS CountBasis, min_qty_each AS MinQtyEach,
+                   min_required_amount AS MinRequiredAmount, required_discount AS RequiredDiscount
+            FROM ext_offer_bundle_conditions WHERE offer_id = @offerId
+            """, new { offerId }, cancellationToken: ct));
+        return row?.ToDto() ?? new OfferBundleConditionsDto();
+    }
+
+    public async Task SaveBundleConditionsAsync(long offerId, OfferBundleConditionsDto req, CancellationToken ct)
+    {
+        var matchMode = req.MatchMode == 1 ? 1 : 0;
+        var countBasis = req.CountBasis == 1 ? 1 : 0;
+        var minCount = Math.Max(0, req.MinCount);
+        if (matchMode == 1 && minCount < 1)
+            throw new InvalidOperationException("حدّد العدد المطلوب من المواد المشروطة (1 على الأقل).");
+        var minQtyEach = req.MinQtyEach <= 0 ? 1 : Math.Round(req.MinQtyEach, 3);
+        var minAmount = Math.Max(0, Math.Round(req.MinRequiredAmount, 2));
+        var requiredDiscount = Math.Round(req.RequiredDiscount, 2);
+        if (requiredDiscount < 0 || requiredDiscount > 100)
+            throw new InvalidOperationException("خصم المواد المشروطة يجب أن يكون بين 0 و 100٪.");
+
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            MERGE ext_offer_bundle_conditions AS t
+            USING (SELECT @offerId AS offer_id) AS s ON t.offer_id = s.offer_id
+            WHEN MATCHED THEN UPDATE SET
+                match_mode = @matchMode, min_count = @minCount, count_basis = @countBasis,
+                min_qty_each = @minQtyEach, min_required_amount = @minAmount,
+                required_discount = @requiredDiscount, updated_at = GETDATE()
+            WHEN NOT MATCHED THEN INSERT
+                (offer_id, match_mode, min_count, count_basis, min_qty_each, min_required_amount, required_discount)
+                VALUES (@offerId, @matchMode, @minCount, @countBasis, @minQtyEach, @minAmount, @requiredDiscount);
+            """, new { offerId, matchMode, minCount, countBasis, minQtyEach, minAmount, requiredDiscount }, cancellationToken: ct));
+    }
+
+    private sealed class BundleConditionRow
+    {
+        public long OfferId { get; set; }
+        public byte MatchMode { get; set; }
+        public int MinCount { get; set; }
+        public byte CountBasis { get; set; }
+        public decimal MinQtyEach { get; set; }
+        public decimal MinRequiredAmount { get; set; }
+        public decimal RequiredDiscount { get; set; }
+
+        public OfferBundleConditionsDto ToDto() =>
+            new(MatchMode, MinCount, CountBasis, MinQtyEach, MinRequiredAmount, RequiredDiscount);
     }
 }

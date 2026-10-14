@@ -109,7 +109,7 @@ public sealed class ManagerPortalRepository(
         var sql = $"""
             SELECT
                 COALESCE((
-                    SELECT SUM(CAST(r.total_amount AS DECIMAL(18,2)))
+                    SELECT SUM(CAST(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END AS DECIMAL(18,2)))
                     FROM reciepts r
                     WHERE {ReceiptWhere}
                 ), 0) AS SalesAmount,
@@ -121,12 +121,12 @@ public sealed class ManagerPortalRepository(
                       AND COALESCE(r.creation_date, c.calculated_at) < DATEADD(day, 1, CAST(@end AS DATE))
                 ), 0) AS CommissionAmount,
                 COALESCE((
-                    SELECT COUNT(*)
+                    SELECT SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END)
                     FROM reciepts r
                     WHERE {ReceiptWhere}
                 ), 0) AS ReceiptCount,
                 COALESCE((
-                    SELECT SUM(ri.quantity)
+                    SELECT SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END)
                     FROM reciept_items ri
                     INNER JOIN reciepts r ON r.id = ri.reciept_id
                     WHERE {ReceiptWhere}
@@ -167,9 +167,9 @@ public sealed class ManagerPortalRepository(
             LEFT JOIN (
                 SELECT
                     COALESCE(NULLIF(ri.salesman_id, 0), r.salesman, 0) AS SalesmanId,
-                    SUM(CAST(ri.quantity * ri.price AS DECIMAL(18,2))) AS SalesAmount,
+                    SUM(CAST(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END AS DECIMAL(18,2))) AS SalesAmount,
                     COUNT(DISTINCT r.id) AS ReceiptCount,
-                    SUM(ri.quantity) AS PieceCount
+                    SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END) AS PieceCount
                 FROM reciept_items ri
                 INNER JOIN reciepts r ON r.id = ri.reciept_id
                 WHERE {ReceiptWhere}
@@ -202,9 +202,9 @@ public sealed class ManagerPortalRepository(
                 CAST(r.creation_date AS date) AS Day,
                 COALESCE(cash.id, 0) AS CashierId,
                 COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), N'كاشير') AS Name,
-                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
-                COUNT(*) AS ReceiptCount,
-                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END) AS ReceiptCount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -p.qty ELSE p.qty END), 0) AS DECIMAL(18,2)) AS PieceCount
             FROM reciepts r
             LEFT JOIN cashiers cash ON cash.id = r.cashier_id
             LEFT JOIN (
@@ -214,7 +214,7 @@ public sealed class ManagerPortalRepository(
             ) p ON p.reciept_id = r.id
             WHERE {ReceiptWhere}
             GROUP BY CAST(r.creation_date AS date), cash.id, cash.account_name, cash.username
-            ORDER BY Day, SUM(r.total_amount) DESC
+            ORDER BY Day, SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerCashierDayDto>(new CommandDefinition(sql, new
@@ -231,10 +231,10 @@ public sealed class ManagerPortalRepository(
             SELECT
                 COALESCE(cash.id, 0) AS CashierId,
                 COALESCE(NULLIF(LTRIM(RTRIM(cash.account_name)), N''), NULLIF(LTRIM(RTRIM(cash.username)), N''), N'كاشير') AS Name,
-                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END), 0) AS DECIMAL(18,2)) AS SalesAmount,
                 CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
-                COUNT(*) AS ReceiptCount,
-                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+                SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END) AS ReceiptCount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -p.qty ELSE p.qty END), 0) AS DECIMAL(18,2)) AS PieceCount
             FROM reciepts r
             LEFT JOIN cashiers cash ON cash.id = r.cashier_id
             LEFT JOIN (
@@ -244,7 +244,7 @@ public sealed class ManagerPortalRepository(
             ) p ON p.reciept_id = r.id
             WHERE {ReceiptWhere}
             GROUP BY cash.id, cash.account_name, cash.username
-            ORDER BY SUM(r.total_amount) DESC
+            ORDER BY SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerCashierRowDto>(new CommandDefinition(sql, new
@@ -262,10 +262,10 @@ public sealed class ManagerPortalRepository(
                 COALESCE(sec.id, 0) AS SectionId,
                 COALESCE(NULLIF(LTRIM(RTRIM(sec.name)), N''), N'بدون مول') AS SectionName,
                 NULLIF(LTRIM(RTRIM(br.name)), N'') AS BranchName,
-                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END), 0) AS DECIMAL(18,2)) AS SalesAmount,
                 CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
-                COUNT(*) AS ReceiptCount,
-                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+                SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END) AS ReceiptCount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -p.qty ELSE p.qty END), 0) AS DECIMAL(18,2)) AS PieceCount
             FROM reciepts r
             LEFT JOIN cashiers cash ON cash.id = r.cashier_id
             LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
@@ -278,7 +278,7 @@ public sealed class ManagerPortalRepository(
             ) p ON p.reciept_id = r.id
             WHERE {ReceiptWhere}
             GROUP BY sec.id, sec.name, br.name
-            ORDER BY SUM(r.total_amount) DESC
+            ORDER BY SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerMallRowDto>(new CommandDefinition(sql, new
@@ -294,9 +294,9 @@ public sealed class ManagerPortalRepository(
         var sql = $"""
             SELECT
                 CAST(r.creation_date AS date) AS Day,
-                CAST(COALESCE(SUM(r.total_amount), 0) AS DECIMAL(18,2)) AS SalesAmount,
-                COUNT(*) AS ReceiptCount,
-                CAST(COALESCE(SUM(p.qty), 0) AS DECIMAL(18,2)) AS PieceCount
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -r.total_amount ELSE r.total_amount END), 0) AS DECIMAL(18,2)) AS SalesAmount,
+                SUM(CASE WHEN r.kind = 1 THEN 0 ELSE 1 END) AS ReceiptCount,
+                CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -p.qty ELSE p.qty END), 0) AS DECIMAL(18,2)) AS PieceCount
             FROM reciepts r
             LEFT JOIN (
                 SELECT reciept_id, SUM(quantity) AS qty
@@ -331,8 +331,8 @@ public sealed class ManagerPortalRepository(
                     N'منتج'
                 ) AS ProductName,
                 CAST(NULL AS NVARCHAR(200)) AS GroupName,
-                ri.quantity AS Quantity,
-                CAST(ri.quantity * ri.price AS DECIMAL(18,2)) AS SalesAmount,
+                CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END AS Quantity,
+                CAST(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END AS DECIMAL(18,2)) AS SalesAmount,
                 CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
                 r.number AS ReceiptNumber,
                 r.creation_date AS OccurredAt,
@@ -368,8 +368,8 @@ public sealed class ManagerPortalRepository(
                     NULLIF(LTRIM(RTRIM(ri.barcode)), N''),
                     N'منتج'
                 ) AS Name,
-                COALESCE(SUM(ri.quantity), 0) AS Quantity,
-                COALESCE(SUM(CAST(ri.quantity * ri.price AS DECIMAL(18,2))), 0) AS SalesAmount,
+                COALESCE(SUM(CASE WHEN r.kind = 1 THEN -ri.quantity ELSE ri.quantity END), 0) AS Quantity,
+                COALESCE(SUM(CAST(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END AS DECIMAL(18,2))), 0) AS SalesAmount,
                 CAST(0 AS DECIMAL(18,2)) AS CommissionAmount,
                 COUNT(*) AS Count
             FROM reciept_items ri
@@ -384,7 +384,7 @@ public sealed class ManagerPortalRepository(
                     NULLIF(LTRIM(RTRIM(ri.barcode)), N''),
                     N'منتج'
                 )
-            ORDER BY SUM(CAST(ri.quantity * ri.price AS DECIMAL(18,2))) DESC
+            ORDER BY SUM(CAST(CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price ELSE ri.quantity * ri.price END AS DECIMAL(18,2))) DESC
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return (await conn.QueryAsync<ManagerProductRowDto>(new CommandDefinition(sql, new

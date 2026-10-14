@@ -183,6 +183,15 @@ export function DeferredEditor({
   const rounding = totalRoundingDiscount(rawTotal, roundStep);
   const total = Math.max(0, rawTotal - rounding);
 
+  // Removing lines / lowering quantities must pull the invoice discount down with the
+  // subtotal (it was only capped when typed). Never raises it back on its own.
+  useEffect(() => {
+    setUserDiscount(prev => {
+      const capped = capUserDiscount(prev, 0, subtotal);
+      return capped < prev ? capped : prev;
+    });
+  }, [subtotal]);
+
   function minUnitPrice(item: EditorItem) {
     return px.itemDiscountLimit > 0
       ? Math.max(0, item.originalPrice - px.itemDiscountLimit)

@@ -5,7 +5,7 @@ const os = require('os');
 const { createCatalogStore } = require('./catalogStore.cjs');
 const { getMachineHwId } = require('./hwid.cjs');
 const { readPrintConfig, writePrintConfig } = require('./printConfig.cjs');
-const { printHtml } = require('./printHtml.cjs');
+const { printHtml, printRaster } = require('./printHtml.cjs');
 const { readWindowConfig, writeWindowConfig } = require('./windowConfig.cjs');
 const {
   configure,
@@ -612,10 +612,28 @@ ipcMain.handle('window:fullscreen:toggle', event => {
   return next;
 });
 
-ipcMain.handle('print:html', async (_event, html, copies = 1, deviceName, options) => {
+ipcMain.handle('print:html', async (event, html, copies = 1, deviceName, options) => {
   const config = readPrintConfig(app.getPath('userData'));
   const named = deviceName || config.printerName || undefined;
-  return printHtml(html, copies, named, options);
+  try {
+    return await printHtml(html, copies, named, options);
+  } finally {
+    // نافذة الطباعة المخفية قد تأخذ التركيز — نعيده لنافذة الطلب كي تبقى الحقول قابلة للكتابة
+    const src = BrowserWindow.fromWebContents(event.sender);
+    if (src && !src.isDestroyed() && src.isVisible() && !src.isMinimized()) healWindowInput(src);
+  }
+});
+
+ipcMain.handle('print:raster', async (event, pages, opts) => {
+  const config = readPrintConfig(app.getPath('userData'));
+  const o = { ...(opts || {}) };
+  if (!o.printerName) o.printerName = config.labelPrinterName || config.printerName || undefined;
+  try {
+    return await printRaster(pages, o);
+  } finally {
+    const src = BrowserWindow.fromWebContents(event.sender);
+    if (src && !src.isDestroyed() && src.isVisible() && !src.isMinimized()) healWindowInput(src);
+  }
 });
 
 ipcMain.handle('tts:speak', (_event, name) => ttsSpeak(name));

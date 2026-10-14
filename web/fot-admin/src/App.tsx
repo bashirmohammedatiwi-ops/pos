@@ -16,7 +16,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 
 import { NotFoundPage } from '@/pages/NotFoundPage';
 
-import { PageSkeleton } from '@/components/ui';
+import { ConfirmProvider, PageSkeleton } from '@/components/ui';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -123,6 +123,8 @@ export function App() {
 
         <ToastProvider>
 
+          <ConfirmProvider>
+
           <AuthProvider>
 
             <Router>
@@ -200,6 +202,8 @@ export function App() {
             </Router>
 
           </AuthProvider>
+
+          </ConfirmProvider>
 
         </ToastProvider>
 

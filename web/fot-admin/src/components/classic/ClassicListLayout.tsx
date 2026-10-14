@@ -7,7 +7,7 @@ import { IconRefresh } from '@/components/icons';
 export function FilterField({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
     <label className={`block min-w-0 ${className ?? ''}`.trim()}>
-      <span className="mb-1 block text-[11px] font-semibold text-slate-600">{label}</span>
+      <span className="mb-1 block text-[11.5px] font-semibold text-slate-600">{label}</span>
       {children}
     </label>
   );
@@ -15,7 +15,7 @@ export function FilterField({ label, children, className }: { label: string; chi
 
 export function ClassicResultBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-md border border-slate-200 bg-white px-2.5 py-2 text-center text-[12px] font-bold text-header">
+    <span className="inline-flex h-9 items-center justify-center rounded-lg border border-brand-200 bg-brand-50 px-3 text-center text-[12.5px] font-bold text-brand-800 num">
       {children}
     </span>
   );
@@ -31,7 +31,7 @@ export function ClassicGridHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
       <div>
         <h2 className="text-[14px] font-bold text-header">{title}</h2>
         {hint && <p className="text-[11px] text-slate-500">{hint}</p>}
@@ -56,20 +56,25 @@ export function ClassicSummaryFooter({
 }) {
   const dash = loading ? '…' : '—';
   return (
-    <div className="shrink-0 border-t border-slate-700 bg-slate-800 px-3 py-2.5 text-white">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-2">
-        <p className="text-[11px] font-semibold text-slate-300">{title}</p>
-        {total != null && (
-          <p className="text-[11px] text-slate-400">
-            {totalLabel}: <span className="font-bold text-white num">{formatNum(total)}</span>
-          </p>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+    <div className="shrink-0 border-t border-slate-200 bg-gradient-to-b from-slate-50 to-white px-3 py-2">
+      <div className="flex flex-wrap items-stretch gap-2">
+        <div className="flex min-w-[110px] flex-col justify-center rounded-lg bg-slate-900 px-3 py-1.5 text-white">
+          <p className="text-[10.5px] font-medium text-slate-400">{title}</p>
+          {total != null ? (
+            <p className="text-[15px] font-bold leading-6 num" title={totalLabel}>
+              {formatNum(total)} <span className="text-[10.5px] font-medium text-slate-400">سجل</span>
+            </p>
+          ) : (
+            <p className="text-[12px] font-semibold text-slate-200">—</p>
+          )}
+        </div>
         {items.map(item => (
-          <div key={item.label} className="min-w-0">
-            <p className="text-[10px] font-medium text-slate-400">{item.label}</p>
-            <p className={`mt-0.5 truncate text-[14px] font-bold tabular-nums ${item.accent ? 'text-brand-300' : 'text-white'}`}>
+          <div
+            key={item.label}
+            className={`min-w-[110px] flex-1 rounded-lg border px-3 py-1.5 ${item.accent ? 'border-brand-200 bg-brand-50/70' : 'border-slate-200 bg-white'}`}
+          >
+            <p className="truncate text-[10.5px] font-medium text-slate-500">{item.label}</p>
+            <p className={`truncate text-[14.5px] font-bold leading-6 num ${item.accent ? 'text-brand-800' : 'text-header'}`}>
               {item.value || dash}
             </p>
           </div>
@@ -138,9 +143,9 @@ export function ClassicListShell({
   refreshing?: boolean;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
       {banner}
-      <div className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-3 py-3">{filters}</div>
+      <div className="shrink-0 border-b border-slate-200 bg-slate-50/60 px-3 py-3">{filters}</div>
       {tabs}
       {header && (
         <ClassicGridHeader title={header.title} hint={header.hint} actions={
@@ -158,7 +163,7 @@ export function ClassicListShell({
       {(pagination || footer) && (
         <div className="shrink-0">
           {pagination && (
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-2 py-1">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-2 py-1.5">
               {pagination}
             </div>
           )}

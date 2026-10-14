@@ -66,7 +66,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/terminals', label: 'نقاط البيع', icon: '◇', iconKey: 'terminals', hint: 'الأجهزة والاتصال' },
       { path: '/price-checker', label: 'كاشف السعر', icon: '▣', iconKey: 'price', hint: 'أجهزة أندرويد ورمز الإعدادات' },
       { path: '/sections', label: 'الأقسام', icon: '▣', iconKey: 'sections', hint: 'الربط مع الإداري' },
-      { path: '/edari', label: 'Edari', icon: '☁', iconKey: 'edari', hint: 'الجلب والترحيل' },
+      { path: '/edari', label: 'الأداري', icon: '☁', iconKey: 'edari', hint: 'الجلب والترحيل' },
       { path: '/system', label: 'صحة النظام', icon: '❤', iconKey: 'shield', hint: 'تشخيص وأخطاء' },
       { path: '/settings', label: 'الإعدادات', icon: '✉', iconKey: 'settings', hint: 'الطباعة والشبكة' },
     ],
@@ -79,7 +79,7 @@ export const PAGE_META: Record<
 > = {
   '/': { title: 'لوحة التحكم', subtitle: 'مبيعات اليوم · المتابعة · الفريق والنظام', iconKey: 'dashboard' },
   '/products': { title: 'المنتجات', subtitle: 'الكتالوج · العروض · المخزون', iconKey: 'products' },
-  '/barcode-labels': { title: 'طباعة الباركود', subtitle: 'مسح المادة · صف بثلاثة أعمدة · طباعة بالعدد', iconKey: 'barcode' },
+  '/barcode-labels': { title: 'طباعة الباركود', subtitle: 'امسح · حدّد العدد · اطبع بدقة الطابعة', iconKey: 'barcode' },
   '/offers': { title: 'العروض', subtitle: 'إدارة الخصومات والمجموعات ورفعها لنقاط البيع', iconKey: 'offers' },
   '/groups': { title: 'مجموعات الأزرار', subtitle: 'إنشاء المجاميع وإضافة المنتجات لنافذة نقطة البيع', iconKey: 'groups' },
   '/accounts': { title: 'حسابات آجلة', subtitle: 'حسابات Edari الظاهرة في بيع الآجل', iconKey: 'accounts' },
@@ -96,14 +96,14 @@ export const PAGE_META: Record<
   '/terminals': { title: 'نقاط البيع', subtitle: 'الأجهزة والاتصال والمبيعات', iconKey: 'terminals' },
   '/price-checker': { title: 'كاشف السعر', subtitle: 'تطبيق الأندرويد · رمز إعدادات الأجهزة', iconKey: 'price' },
   '/settings': { title: 'الإعدادات', subtitle: 'نماذج الفاتورة · الشعار · الصناديق', iconKey: 'settings' },
-  '/edari': { title: 'Edari', subtitle: 'الارتباط الحي · الجلب · الترحيل', iconKey: 'edari' },
+  '/edari': { title: 'الأداري', subtitle: 'الارتباط الحي · الجلب · الترحيل', iconKey: 'edari' },
   '/system': { title: 'صحة النظام', subtitle: 'التشخيص · نقاط البيع · أخطاء الواجهات', iconKey: 'shield' },
 };
 
 /** صفحات القوائم — تخطيط مدمج: فلاتر أعلى · جدول كامل · إحصاءات أسفل */
 export const DENSE_LIST_PATHS = new Set([
-  '/settings',
   '/receipts',
+  '/settings',
   '/activity',
   '/products',
   '/barcode-labels',
@@ -116,9 +116,11 @@ export const DENSE_LIST_PATHS = new Set([
   '/edari',
   '/salesmen',
   '/portal-accounts',
-  '/offers',
   '/groups',
   '/system',
+  '/offers',
+  '/commissions',
+  '/targets',
 ]);
 
 export function isDenseListPage(pathname: string) {

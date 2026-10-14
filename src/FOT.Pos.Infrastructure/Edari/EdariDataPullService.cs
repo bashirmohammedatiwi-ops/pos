@@ -192,7 +192,9 @@ public sealed class EdariDataPullService(
                 }
             }
 
-            await notifier.NotifyEdariAsync(msg, includeArticles && dataChanged, ct);
+            // تغيّر أسماء البائعين في الأداري يصل لنقاط البيع فوراً حتى في جلب الأسماء الدوري (كل 45 ث)
+            var salesmenChanged = salesmen.Added + salesmen.Updated > 0;
+            await notifier.NotifyEdariAsync(msg, (includeArticles && dataChanged) || salesmenChanged, ct);
         }
 
         return new EdariDataPullResult(

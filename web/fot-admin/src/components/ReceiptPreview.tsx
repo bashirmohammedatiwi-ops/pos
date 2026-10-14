@@ -52,8 +52,8 @@ export function ReceiptPreviewPanel({ settings, apiBase = '' }: { settings: Prin
 
   return (
     <div>
-      <div className="mx-auto overflow-hidden rounded-lg bg-[#f4efe6] p-3 shadow-inner ring-1 ring-slate-200" style={{ width: width + 24, maxWidth: '100%' }}>
-        <div className="mx-auto overflow-hidden bg-white shadow-sm" style={{ width, height: 680 }}>
+      <div className="mx-auto overflow-hidden rounded-xl border border-slate-200 bg-slate-100 p-3 shadow-inner" style={{ width: width + 24, maxWidth: '100%' }}>
+        <div className="mx-auto overflow-hidden rounded-sm bg-white shadow-[0_2px_8px_rgba(15,23,42,0.12)]" style={{ width, height: 680 }}>
           <iframe
             title="معاينة الإيصال"
             srcDoc={previewHtml}
@@ -67,7 +67,7 @@ export function ReceiptPreviewPanel({ settings, apiBase = '' }: { settings: Prin
           />
         </div>
       </div>
-      <p className="mt-3 text-center text-xs text-muted">
+      <p className="mt-2.5 text-center text-[11.5px] text-slate-500">
         معاينة مباشرة — نفس طباعة الكاشير · {settings.paperWidthMm}مم ·{' '}
         {RECEIPT_TEMPLATES.find(t => t.id === normalizeReceiptTemplate(settings.receiptTemplate))?.title}
       </p>

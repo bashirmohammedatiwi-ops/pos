@@ -18,6 +18,7 @@ import type {
   CreateCashierRequest,
   UpdateCashierRequest,
   CashReportDto,
+  DayBreakdownDto,
   CommissionCalculationDto,
   CommissionDailyReportRow,
   CommissionGroupReportRow,
@@ -66,8 +67,16 @@ import type {
   ClientErrorDto,
   LoginResponse,
   MovementRowDto,
+  SlowMoverReportDto,
+  ReorderReportDto,
+  HeatmapReportDto,
+  CashierPerformanceRowDto,
+  OfferSalesClosureDto,
+  OfferSalesReportDto,
+  OfferBundleConditionsDto,
   OfferDetailDto,
   OfferDto,
+  OfferFolderDto,
   OfferScopeDto,
   OfferStatsDto,
   ProductOfferLookupDto,
@@ -160,7 +169,74 @@ function readApiError(text: string) {
   return raw;
 }
 
-async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+/** وقت انتهاء الرمز (ms) من حقل exp في JWT — null إن تعذرت القراءة. */
+function tokenExpiry(token: string | null): number | null {
+  if (!token) return null;
+  try {
+    const part = token.split('.')[1];
+    const json = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+let refreshing: Promise<boolean> | null = null;
+
+/**
+ * تجديد جلسة الإدارة برمز جديد (يقبل الخادم رمزاً منتهياً منذ أقل من 14 يوماً لمستخدم فعّال).
+ * طلب واحد مشترك مهما تعددت الطلبات المرفوضة في نفس اللحظة.
+ */
+export function refreshSession(): Promise<boolean> {
+  const token = getToken();
+  if (!token) return Promise.resolve(false);
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try {
+      const res = await fetchLan(`${getApiBase()}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+        timeoutMs: 15_000,
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as LoginResponse;
+      if (!data?.token) return false;
+      setToken(data.token);
+      try {
+        if (data.user) localStorage.setItem('fot_admin_user', JSON.stringify(data.user));
+      } catch {
+        /* تجاهل */
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setTimeout(() => {
+        refreshing = null;
+      }, 0);
+    }
+  })();
+  return refreshing;
+}
+
+let lastProactiveRefresh = 0;
+
+/**
+ * يجدد الرمز مسبقاً إذا بقي على انتهائه أقل من 8 ساعات — يُستدعى عند الفتح ودورياً.
+ * مرة كل 10 دقائق كحد أقصى: ساعة جهاز خاطئة لا تسبب حلقة تجديد لا تنتهي.
+ */
+export async function keepSessionFresh() {
+  const exp = tokenExpiry(getToken());
+  if (exp == null) return;
+  if (exp - Date.now() >= 8 * 3600_000) return;
+  if (Date.now() - lastProactiveRefresh < 10 * 60_000) return;
+  lastProactiveRefresh = Date.now();
+  await refreshSession();
+}
+
+async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number; _retried?: boolean }): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -174,6 +250,7 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
   const timeoutMs = init?.timeoutMs ?? (init?.method && init.method !== 'GET' ? 120_000 : 30_000);
   const rest = { ...(init ?? {}) };
   delete rest.timeoutMs;
+  delete rest._retried;
   let res: Response;
   try {
     res = await fetchLan(`${getApiBase()}${path}`, {
@@ -187,6 +264,10 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
       throw new Error('انتهت مهلة الاتصال بالخادم');
     }
     throw new Error(e instanceof Error ? e.message : 'تعذر الاتصال بالخادم');
+  }
+  if (res.status === 401 && token && !init?._retried && !path.startsWith('/auth/')) {
+    // الرمز انتهى — نجدده بصمت ونعيد نفس الطلب مرة واحدة قبل إرسال المستخدم لشاشة الدخول
+    if (await refreshSession()) return request<T>(path, { ...(init ?? {}), _retried: true });
   }
   if (res.status === 401) {
     setToken(null);
@@ -241,11 +322,25 @@ export const api = {
     request<void>(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify(req) }),
 
   // Offers
-  offers: (page = 1) => request<PagedResult<OfferDto>>(`/api/offers${qs({ page, pageSize: 100 })}`).then(withPages),
+  offers: (page = 1) => request<PagedResult<OfferDto>>(`/api/offers${qs({ page, pageSize: 500 })}`).then(withPages),
   offersStats: () => request<OfferStatsDto>('/api/offers/stats'),
+  offerFolders: () => request<OfferFolderDto[]>('/api/offers/folders'),
+  createOfferFolder: (name: string) =>
+    request<{ id: number }>('/api/offers/folders', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameOfferFolder: (id: number, name: string) =>
+    request<void>(`/api/offers/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteOfferFolder: (id: number) => request<void>(`/api/offers/folders/${id}`, { method: 'DELETE' }),
+  moveOfferToFolder: (offerId: number, folderId: number | null) =>
+    request<void>(`/api/offers/${offerId}/folder`, {
+      method: 'PATCH',
+      body: JSON.stringify({ folderId }),
+    }),
   offerDetails: (id: number, role?: number) =>
     request<OfferDetailDto[]>(`/api/offers/${id}/details${role != null ? qs({ role }) : ''}`),
   offerScope: (id: number) => request<OfferScopeDto>(`/api/offers/${id}/scope`),
+  offerBundleConditions: (id: number) => request<OfferBundleConditionsDto>(`/api/offers/${id}/bundle-conditions`),
+  saveOfferBundleConditions: (id: number, body: OfferBundleConditionsDto) =>
+    request<void>(`/api/offers/${id}/bundle-conditions`, { method: 'PUT', body: JSON.stringify(body) }),
   lookupProductOffers: (q: string, limit = 20) =>
     request<ProductOfferLookupDto[]>(`/api/offers/lookup${qs({ q, limit })}`),
   lookupProductCommissions: (q: string, limit = 20) =>
@@ -401,13 +496,24 @@ export const api = {
   dailySales: (from: string, to: string) => request<DailySalesRowDto[]>(`/api/reports/daily-sales${qs({ from, to })}`),
   salesBySalesman: (from: string, to: string) =>
     request<SalesmanSalesRowDto[]>(`/api/reports/sales-by-salesman${qs({ from, to })}`),
+  salesHeatmap: (from: string, to: string) => request<HeatmapReportDto>(`/api/reports/heatmap${qs({ from, to })}`),
+  cashierPerformance: (from: string, to: string) =>
+    request<CashierPerformanceRowDto[]>(`/api/reports/cashier-performance${qs({ from, to })}`),
+  reorder: (days: number, coverDays: number, search?: string) =>
+    request<ReorderReportDto>(`/api/reports/reorder${qs({ days, coverDays, search })}`),
+  slowMovers: (days: number, minStock: number, search?: string, neverSold?: boolean) =>
+    request<SlowMoverReportDto>(`/api/reports/slow-movers${qs({ days, minStock, search, neverSold: neverSold || undefined })}`),
   movement: (from: string, to: string, search?: string) =>
     request<MovementRowDto[]>(`/api/reports/movement${qs({ from, to, search })}`),
   cashReport: (from: string, to: string) => request<CashReportDto>(`/api/reports/cash${qs({ from, to })}`),
+  dayBreakdown: (date: string) => request<DayBreakdownDto>(`/api/reports/day-breakdown${qs({ date })}`),
   cashierVoids: (from: string, to: string) =>
     request<CashierVoidReportDto>(`/api/reports/cashier-voids${qs({ from, to })}`),
   cashierVoidDetail: (cashierId: number, from: string, to: string) =>
     request<CashierVoidEventDto[]>(`/api/reports/cashier-voids/${cashierId}${qs({ from, to })}`),
+  offerSalesClosures: () => request<OfferSalesClosureDto[]>('/api/reports/offer-sales/closures'),
+  offerSalesReport: (offerId: number) =>
+    request<OfferSalesReportDto>(`/api/reports/offer-sales/${offerId}`),
 
   // Staff
   salesmen: (includeAll = false) =>

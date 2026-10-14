@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('fotDesktop', {
   hwId: () => ipcRenderer.invoke('hwid:get'),
   printHtml: (html, copies, deviceName, options) =>
     ipcRenderer.invoke('print:html', html, copies, deviceName, options),
+  printRaster: (pages, opts) => ipcRenderer.invoke('print:raster', pages, opts),
   listPrinters: () => ipcRenderer.invoke('print:list'),
   getPrintConfig: () => ipcRenderer.invoke('print:config:get'),
   setPrintConfig: config => ipcRenderer.invoke('print:config:set', config),

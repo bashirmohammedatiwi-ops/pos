@@ -11,18 +11,24 @@ export type CartGroupState = {
 export type CartLine = {
   key: string;
   articleId: number;
+  /** Edari article Seq — used for conditional bundle offers. */
+  articleSeq?: number;
   num: string | null;
   barcode: string | null;
   name: string;
   quantity: number;
   price: number;
   originalPrice: number;
+  /** Unit price from catalog (percent offer / stored discount) before conditional bundle adjustments. */
+  catalogUnitPrice?: number;
   discount: number;
   salesmanId: number;
   salesmanName: string;
   groupKey: number;
   groupLabel: string;
   sourceItemId?: number;
+  /** Price was set by hand on this line — conditional bundle re-pricing must not overwrite it. */
+  manualPrice?: boolean;
   commissionAmount?: number;
   commissionType?: string;
   commissionValue?: number;

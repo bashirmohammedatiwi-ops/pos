@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<StoreCatalogRepository>();
         services.AddScoped<ArticleTreeRepository>();
         services.AddScoped<OfferRepository>();
+        services.AddScoped<OfferFolderRepository>();
         services.AddSingleton<ReceiptSchemaService>();
         services.AddSingleton<ReceiptSideEffectsDispatcher>();
         services.AddScoped<ReceiptNumberAllocator>();
@@ -66,6 +67,7 @@ public static class DependencyInjection
         services.AddScoped<TerminalRepository>();
         services.AddScoped<SectionRepository>();
         services.AddScoped<ReportRepository>();
+        services.AddScoped<OfferSalesReportRepository>();
         services.AddScoped<ProductInquiryRepository>();
         services.AddScoped<PrintRepository>();
         services.AddScoped<PosCashBoxSettingsRepository>();

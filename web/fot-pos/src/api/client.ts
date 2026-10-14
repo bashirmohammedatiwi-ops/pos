@@ -377,6 +377,11 @@ export const api = {
 
   catalogInfo: () => request<CatalogInfoDto>('/api/catalog/info'),
 
+  bundleOffers: () =>
+    request<import('@/lib/bundleOffers').PosBundleOfferDto[]>('/api/catalog/bundle-offers', {
+      timeoutMs: CATALOG_TIMEOUT_MS,
+    }),
+
   catalogSync: (sinceSeq: number, hwId?: string) =>
     request<ProductDto[]>(
       `/api/catalog/sync?sinceSeq=${sinceSeq}&pageSize=2000${hwId ? `&hwId=${encodeURIComponent(hwId)}` : ''}`,

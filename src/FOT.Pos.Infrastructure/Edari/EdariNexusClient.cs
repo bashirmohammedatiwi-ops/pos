@@ -214,6 +214,21 @@ public sealed partial class EdariNexusClient(
 
     public async Task<IReadOnlyList<EdariSellerRow>> GetSalesmenAsync(CancellationToken ct)
     {
+        // شاشة «أسماء البائعين» في الأداري 2026 تكتب في FileCrMst (Type = 3):
+        // Num = رقم البائع الذي تستخدمه نقاط البيع (FilePOS5.SaleMan) · Name = الاسم كما في الأداري.
+        // تُقرأ عبر القناة النصية لأن مزود ADO يتلف العربية.
+        var edariNames = MapCrMstSellers(await textQuery.QueryAsync(
+            "SELECT Num, Name FROM FileCrMst WHERE Type = 3 ORDER BY Num", ct));
+        if (edariNames.Count > 0)
+        {
+            // نحافظ على نفس مجموعة الأرقام (1..250) كي لا يختفي بائعون من نقاط البيع،
+            // واسم الأداري يتقدم دائماً؛ السجل القديم يملأ فقط الأرقام غير المسماة في الأداري.
+            var legacy = await hayatNames.GetEdariSalesmenAsync(ct);
+            var merged = legacy.ToDictionary(r => r.Seq, r => r);
+            foreach (var row in edariNames) merged[row.Seq] = row;
+            return merged.Values.OrderBy(r => r.Seq).ToList();
+        }
+
         foreach (var sql in new[]
         {
             "SELECT Seq, Name1, Num FROM SaleMan ORDER BY Seq",
@@ -238,23 +253,16 @@ public sealed partial class EdariNexusClient(
     {
         await using var conn = await connections.CreateOpenConnectionAsync(ct);
 
-        // Single round-trip: this runs every detect cycle against the production
-        // accounting DB, so ~10 separate aggregate queries became one statement.
+        // NexusDB لا يقبل SELECT بلا FROM (استعلامات فرعية كأعمدة) ولا يعرف LEN —
+        // الصيغة القديمة كانت تفشل في كل دورة فلا يُجلب الكتالوج تلقائياً أبداً.
+        // تجميع واحد لكل جدول (مُختبر على قاعدة Edari 2026).
         long materials = 0, maxSeq = 0, priceKey = 0, qtyKey = 0, nameLen = 0;
         long branches = 0, branchMax = 0;
         string? nameBound = null;
         await using (var cmd = conn.CreateEdariCommand())
         {
-            cmd.CommandText = """
-                SELECT
-                  (SELECT COUNT(*) FROM File13n),
-                  (SELECT COALESCE(MAX(Seq), 0) FROM File13n),
-                  (SELECT COALESCE(SUM(SellPr4), 0) FROM File13n),
-                  (SELECT COALESCE(SUM(CurTot1), 0) FROM File13n),
-                  (SELECT COALESCE(SUM(LEN(Name1)), 0) FROM File13n),
-                  (SELECT COUNT(*) FROM FileBrch),
-                  (SELECT COALESCE(MAX(Seq), 0) FROM FileBrch)
-                """;
+            cmd.CommandText =
+                "SELECT COUNT(*), COALESCE(MAX(Seq), 0), COALESCE(SUM(SellPr4), 0), COALESCE(SUM(CurTot1), 0) FROM File13n";
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             if (await reader.ReadAsync(ct))
             {
@@ -262,10 +270,35 @@ public sealed partial class EdariNexusClient(
                 maxSeq = ToLong(reader.GetValue(1));
                 priceKey = ToLong(reader.GetValue(2));
                 qtyKey = ToLong(reader.GetValue(3));
-                nameLen = ToLong(reader.GetValue(4));
-                branches = ToLong(reader.GetValue(5));
-                branchMax = ToLong(reader.GetValue(6));
             }
+        }
+
+        try
+        {
+            await using var lenCmd = conn.CreateEdariCommand();
+            lenCmd.CommandText = "SELECT COALESCE(SUM(CHAR_LENGTH(Name1)), 0) FROM File13n";
+            await using var lenReader = await lenCmd.ExecuteReaderAsync(ct);
+            if (await lenReader.ReadAsync(ct)) nameLen = ToLong(lenReader.GetValue(0));
+        }
+        catch
+        {
+            /* طول الأسماء تحسين فقط — العدد والأسعار والكميات تكفي لاكتشاف أغلب التغييرات */
+        }
+
+        try
+        {
+            await using var brCmd = conn.CreateEdariCommand();
+            brCmd.CommandText = "SELECT COUNT(*), COALESCE(MAX(Seq), 0) FROM FileBrch";
+            await using var brReader = await brCmd.ExecuteReaderAsync(ct);
+            if (await brReader.ReadAsync(ct))
+            {
+                branches = ToLong(brReader.GetValue(0));
+                branchMax = ToLong(brReader.GetValue(1));
+            }
+        }
+        catch
+        {
+            /* الفروع جدول صغير — فشلها لا يوقف اكتشاف تغيّر المواد */
         }
 
         try
@@ -431,6 +464,23 @@ public sealed partial class EdariNexusClient(
             /* Arabic channel unavailable — caller keeps the ADO name */
         }
         return map;
+    }
+
+    /// <summary>صفوف FileCrMst (Num, Name) — يتجاهل الأسماء الفارغة مثل «14-».</summary>
+    private static List<EdariSellerRow> MapCrMstSellers(IReadOnlyList<string?[]> rows)
+    {
+        var list = new List<EdariSellerRow>();
+        foreach (var row in rows)
+        {
+            if (row.Length < 2 || !long.TryParse(row[0]?.Trim(), out var num) || num <= 0) continue;
+            var name = EdariStringHelper.Normalize(row[1]);
+            if (!EdariStringHelper.IsReadableName(name)) continue;
+            // «14-» أو «البائع 27» بلا اسم حقيقي بعد الرقم — يبقى الاسم القديم إن وُجد
+            var bare = System.Text.RegularExpressions.Regex.Replace(name!, @"^[\s\d٠-٩\-–—.:،]+", "").Trim();
+            if (bare.Length < 2) continue;
+            list.Add(new EdariSellerRow { Seq = num, Name = name, Num = num.ToString() });
+        }
+        return list;
     }
 
     private static List<EdariSellerRow> MapSellerRows(IReadOnlyList<string?[]> rows)

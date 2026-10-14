@@ -17,7 +17,7 @@ export const DISCOUNT_TYPE = {
 } as const;
 
 export function offerTypeLabel(type: number) {
-  if (type === OFFER_TYPE.bundle) return 'مجموعة مطلوبة';
+  if (type === OFFER_TYPE.bundle) return 'عرض مشروط';
   if (type === OFFER_TYPE.pricedGroup) return 'أسعار فردية';
   return 'خصم نسبة';
 }

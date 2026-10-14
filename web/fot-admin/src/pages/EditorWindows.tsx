@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { Loading } from '@/components/ui';
+import { Btn, Loading } from '@/components/ui';
 import { EmptyWorkspace } from '@/components/workspace';
 import { OfferEditorModal } from '@/pages/OffersPage';
 import { GroupEditorModal } from '@/components/CommissionGroupsPanel';
@@ -42,9 +42,9 @@ export function OfferEditorWindow() {
   if (offersQ.isLoading) return <WindowLoading label="تحميل العرض…" icon={<IconPercent size={22} />} />;
   if (!offer) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-slate-100">
-        <EmptyWorkspace title="العرض غير موجود" hint="ربما حُذف — أغلق النافذة." icon={<IconPercent size={24} />} />
-        <button type="button" onClick={() => window.close()} className="ms-3 rounded-xl bg-header px-4 py-2 text-white">إغلاق</button>
+      <div className="flex h-dvh flex-wrap items-center justify-center gap-3 bg-slate-50 p-4">
+        <EmptyWorkspace title="العرض غير موجود" hint="ربما حُذف من قائمة العروض." icon={<IconPercent size={24} />} />
+        <Btn variant="secondary" className="ms-3" onClick={closeEditorWindow}>رجوع</Btn>
       </div>
     );
   }
@@ -83,9 +83,9 @@ export function GroupEditorWindow() {
   }
   if (!detailQ.data) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-slate-100">
-        <EmptyWorkspace title="المجموعة غير موجودة" hint="ربما حُذفت — أغلق النافذة." icon={<IconCoins size={24} />} />
-        <button type="button" onClick={() => window.close()} className="ms-3 rounded-xl bg-header px-4 py-2 text-white">إغلاق</button>
+      <div className="flex h-dvh flex-wrap items-center justify-center gap-3 bg-slate-50 p-4">
+        <EmptyWorkspace title="المجموعة غير موجودة" hint="ربما حُذفت من القائمة." icon={<IconCoins size={24} />} />
+        <Btn variant="secondary" className="ms-3" onClick={closeEditorWindow}>رجوع</Btn>
       </div>
     );
   }
@@ -117,7 +117,7 @@ export function TargetEditorWindow() {
 
   if (id != null && !isNew && ruleId == null) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-slate-100">
+      <div className="flex h-dvh flex-wrap items-center justify-center gap-3 bg-slate-50 p-4">
         <EmptyWorkspace title="معرّف هدف غير صالح" hint="أغلق النافذة وافتح الهدف من القائمة." icon={<IconTarget size={24} />} />
       </div>
     );
@@ -128,7 +128,7 @@ export function TargetEditorWindow() {
 
 function WindowLoading({ label, icon }: { label: string; icon: React.ReactNode }) {
   return (
-    <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-slate-100">
+    <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-slate-50">
       <span className="icon-tile h-12 w-12 bg-white text-brand-600 shadow-card">{icon}</span>
       <Loading />
       <p className="text-[13px] font-semibold text-slate-500">{label}</p>

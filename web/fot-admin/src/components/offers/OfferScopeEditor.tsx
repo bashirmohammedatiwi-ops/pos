@@ -276,19 +276,19 @@ export function OfferScopeEditor({
     addProducts.size;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <div className="card flex h-full min-h-0 flex-col overflow-hidden">
       {/* بحث موحّد */}
-      <header className="shrink-0 space-y-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2">
+      <header className="shrink-0 space-y-1.5 border-b border-slate-100 px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[220px] flex-1">
-            <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-slate-400">
+            <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-slate-400">
               <IconSearch size={14} />
             </span>
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="بحث منتج / شجرة / باركود — يقسّم النتائج تلقائياً"
-              className="!py-1.5 pe-2 ps-8 text-[12px]"
+              className="!ps-8"
             />
           </div>
           {!debounced && (
@@ -306,17 +306,17 @@ export function OfferScopeEditor({
               </span>
             </>
           )}
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${nodesQ.data?.source === 'edari' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>
-            {nodesQ.data?.source === 'edari' ? 'Edari' : 'محلي'}
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${nodesQ.data?.source === 'edari' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>
+            {nodesQ.data?.source === 'edari' ? 'الإداري' : 'محلي'}
           </span>
           {stagedCount > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 ring-1 ring-amber-300">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-amber-300">
               {formatNum(stagedCount)} تعديل — بانتظار الحفظ
             </span>
           )}
         </div>
         {debounced && (
-          <p className="text-[10.5px] text-slate-500">
+          <p className="text-[11.5px] text-slate-500">
             نتائج «{debounced}»: يمين = مضاف للعرض · يسار = غير مضاف — اضغط الزر للإضافة أو الإزالة
           </p>
         )}
@@ -325,8 +325,8 @@ export function OfferScopeEditor({
       <div className="grid min-h-0 flex-1 lg:grid-cols-2">
         {/* يسار: غير مضاف / كتالوج */}
         <section className="flex min-h-0 flex-col border-e border-slate-100">
-          <div className="shrink-0 border-b border-slate-100 bg-emerald-50/50 px-3 py-1.5">
-            <h3 className="text-[12px] font-bold text-emerald-800">
+          <div className="shrink-0 border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+            <h3 className="text-[12.5px] font-bold text-header">
               {debounced ? `غير مضاف (${formatNum(searchSplit?.notAdded.length ?? 0)})` : 'إضافة من الكتالوج'}
             </h3>
           </div>
@@ -379,7 +379,7 @@ export function OfferScopeEditor({
                   />
                 ))}
                 {!nodesQ.isLoading && folders.length === 0 && products.length === 0 && (
-                  <p className="p-8 text-center text-[12px] text-muted">لا عناصر — جرّب البحث أو ارجع للجذر</p>
+                  <p className="p-8 text-center text-[12px] text-slate-400">لا عناصر — جرّب البحث أو ارجع للجذر</p>
                 )}
               </>
             )}
@@ -387,9 +387,9 @@ export function OfferScopeEditor({
         </section>
 
         {/* يمين: مضاف للعرض */}
-        <section className="flex min-h-0 flex-col bg-brand-50/20">
-          <div className="shrink-0 border-b border-slate-100 bg-brand-50/60 px-3 py-1.5">
-            <h3 className="text-[12px] font-bold text-brand-800">
+        <section className="flex min-h-0 flex-col">
+          <div className="shrink-0 border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+            <h3 className="text-[12.5px] font-bold text-header">
               {debounced ? `مضاف للعرض (${formatNum(searchSplit?.added.length ?? 0)})` : `محتوى العرض (${formatNum(totalInScope)} صنف · ${formatNum(effectiveTrees.length)} شجرة)`}
             </h3>
           </div>
@@ -446,7 +446,7 @@ export function OfferScopeEditor({
                     <div key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
                       <IconPackage size={14} className="shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-header">{item.name}</span>
-                      {item.meta && <span className="text-[10px] text-slate-400">{item.meta}</span>}
+                      {item.meta && <span className="text-[11px] text-slate-400">{item.meta}</span>}
                       <Btn size="sm" variant="ghost" className="!text-red-500" onClick={() => toggleStandalone(item)}>
                         <IconX size={12} /> إزالة
                       </Btn>
@@ -455,7 +455,7 @@ export function OfferScopeEditor({
 
                 {addProducts.size > 0 && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50/80">
-                    <p className="border-b border-amber-200 px-2.5 py-1 text-[10px] font-bold text-amber-800">سيُضاف — منتجات</p>
+                    <p className="border-b border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800">سيُضاف — منتجات</p>
                     {[...addProducts.values()].map(p => (
                       <div key={p.seq} className="flex items-center gap-2 px-2.5 py-1">
                         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-amber-900">{p.name}</span>
@@ -522,14 +522,14 @@ function CatalogRow({
               <span className="shrink-0 text-[11.5px] font-bold tabular-nums text-slate-700">{formatNum(n.price ?? 0)}</span>
             )}
           </div>
-          {n.barcode && <p className="ps-6 font-mono text-[10px] text-slate-400">{n.barcode}</p>}
+          {n.barcode && <p className="ps-6 font-mono text-[11px] text-slate-400">{n.barcode}</p>}
           <div className="ps-6">
             <OfferMembershipPills offers={offers} currentOfferId={currentOfferId} mode="others" />
           </div>
         </div>
       )}
-      {pendingAdd && <span className="mt-0.5 text-[9px] font-bold text-amber-700">مؤقّت</span>}
-      {pendingRemove && <span className="mt-0.5 text-[9px] font-bold text-red-600">سيُزال</span>}
+      {pendingAdd && <span className="mt-0.5 text-[10.5px] font-bold text-amber-700">مؤقّت</span>}
+      {pendingRemove && <span className="mt-0.5 text-[10.5px] font-bold text-red-600">سيُزال</span>}
       {inScope && side === 'add' && <IconCheckCircle size={13} className="mt-0.5 text-brand-600" />}
       <Btn
         size="sm"
@@ -608,23 +608,24 @@ function ScopeTreeCardView({
   }, [expanded, offerId, tree.treeSeq, isPendingAdd, products]);
 
   return (
-    <article className={`overflow-hidden rounded-lg border ${isPendingRemove ? 'border-red-300 bg-red-50/50' : isPendingAdd ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200 bg-white'}`}>
+    <article className={`overflow-hidden rounded-xl border ${isPendingRemove ? 'border-red-300 bg-red-50/50' : isPendingAdd ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200 bg-white'}`}>
       <div className="flex flex-wrap items-center gap-2 px-2.5 py-2">
         <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-right">
           <IconChevronDown size={14} className={`shrink-0 text-brand-600 transition ${expanded ? '' : '-rotate-90'}`} />
           <IconFolderClosed size={14} className="text-amber-600" />
           <span className={`truncate text-[12px] font-bold ${isPendingRemove ? 'line-through text-red-500' : 'text-header'}`}>{tree.treeName}</span>
-          <span className="text-[10px] text-slate-500">{formatNum(tree.count)} صنف</span>
+          <span className="text-[11px] text-slate-500">{formatNum(tree.count)} صنف</span>
         </button>
-        <label className="flex items-center gap-1 text-[10px] text-slate-500">
+        <label className="flex items-center gap-1 text-[11px] text-slate-500">
           خصم %
           <input
             type="number"
             min={0}
             max={100}
-            value={discount}
+            value={discount || ''}
+            placeholder="0"
             onChange={e => onDiscountChange(Number(e.target.value) || 0)}
-            className="w-12 rounded border border-slate-200 px-1 py-0.5 text-center text-[11px] font-bold"
+            className="num w-14 rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[12px] font-bold outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
           />
         </label>
         {isPendingRemove ? (
@@ -634,7 +635,7 @@ function ScopeTreeCardView({
             <IconX size={12} />
           </Btn>
         )}
-        {isPendingAdd && <span className="text-[10px] font-bold text-amber-700">شجرة جديدة</span>}
+        {isPendingAdd && <span className="text-[11px] font-bold text-amber-700">شجرة جديدة</span>}
       </div>
       {expanded && !isPendingAdd && (
         <div className="max-h-[200px] overflow-y-auto border-t border-slate-100">
@@ -655,7 +656,7 @@ function ScopeTreeCardView({
                     if (detailId != null) onToggleExclude(detailId, !excluded);
                     else onToggleExcludeSeq(p.seq, !excluded);
                   }}
-                  className="rounded px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:bg-slate-100"
+                  className="rounded px-1.5 py-0.5 text-[10.5px] font-bold text-slate-500 hover:bg-slate-100"
                 >
                   {excluded ? 'إرجاع' : 'استبعاد'}
                 </button>

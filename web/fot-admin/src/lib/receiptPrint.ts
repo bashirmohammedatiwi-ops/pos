@@ -1,4 +1,4 @@
-import { printHtmlDoc } from '@/lib/print';
+import { printDocument } from '@/lib/print';
 import { formatNum } from '@/api/client';
 import type { ReceiptDetailDto, ReceiptSummary } from '@/api/types';
 import { receiptDisplayNumber } from '@/api/client';
@@ -94,5 +94,5 @@ export async function printReceiptA4(receipt: ReceiptSummary, d: ReceiptDetailDt
   <table class="totals">${summaryRows}</table>
   <div class="foot">شكراً لتعاملكم معنا — ${new Date().toLocaleString('ar-IQ')}</div>
 </div></body></html>`;
-  await printHtmlDoc(html);
+  await printDocument(html);
 }

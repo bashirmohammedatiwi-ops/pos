@@ -19,8 +19,22 @@ import {
   type ReceiptAlign,
   type ResolvedClassicStyle,
 } from '@fot/shared';
-import { Btn, Checkbox, Field, Input, Select } from '@/components/ui';
-import { FormSection } from '@/components/workspace';
+import type { ReactNode } from 'react';
+import { Btn, Checkbox, Field, Input, Select, useConfirm } from '@/components/ui';
+import { IconArrowDown, IconArrowUp, IconRefresh } from '@/components/icons';
+
+/** قسم في مصمّم الفاتورة: عنوان ووصف ومحتوى. */
+function DesignerSection({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <header className="border-b border-slate-100 px-3 py-2.5">
+        <h4 className="text-[13px] font-bold text-header">{title}</h4>
+        {hint && <p className="mt-0.5 text-[11.5px] leading-5 text-slate-500">{hint}</p>}
+      </header>
+      <div className="p-3">{children}</div>
+    </section>
+  );
+}
 
 const SIZES = Array.from({ length: 15 }, (_, i) => i + 8);
 const TABLE_SIZES = Array.from({ length: TABLE_SIZE_MAX - TABLE_SIZE_MIN + 1 }, (_, i) => i + TABLE_SIZE_MIN);
@@ -56,6 +70,7 @@ export function ClassicReceiptDesigner({
   settings: Pick<PrintSettingsDto, 'fontSize' | 'fontWeight' | 'classicStyle'>;
   onChange: (next: ClassicStyleDto | null) => void;
 }) {
+  const confirm = useConfirm();
   let style: ResolvedClassicStyle;
   try {
     style = resolveClassicStyle(settings);
@@ -93,9 +108,8 @@ export function ClassicReceiptDesigner({
   }
 
   return (
-    <div className="space-y-3">
-      <FormSection
-        compact
+    <div className="grid items-start gap-3 min-[1920px]:grid-cols-2">
+      <DesignerSection
         title="ترتيب أجزاء النموذج الجدولي"
         hint="حرّك أي جزء لأعلى أو أسفل، أو أخفه — المعاينة تتحدث فوراً"
       >
@@ -114,19 +128,21 @@ export function ClassicReceiptDesigner({
                     type="button"
                     disabled={index === 0}
                     onClick={() => commit({ ...style, order: moveClassicItem(style.order, index, -1) })}
-                    className="h-5 w-6 rounded text-[10px] font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                    className="flex h-5 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30"
                     aria-label="أعلى"
+                    title="تحريك لأعلى"
                   >
-                    ▲
+                    <IconArrowUp size={12} />
                   </button>
                   <button
                     type="button"
                     disabled={index === style.order.length - 1}
                     onClick={() => commit({ ...style, order: moveClassicItem(style.order, index, 1) })}
-                    className="h-5 w-6 rounded text-[10px] font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                    className="flex h-5 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30"
                     aria-label="أسفل"
+                    title="تحريك لأسفل"
                   >
-                    ▼
+                    <IconArrowDown size={12} />
                   </button>
                 </div>
                 <div className="min-w-0 flex-1 text-[12.5px] font-semibold text-header">
@@ -141,15 +157,14 @@ export function ClassicReceiptDesigner({
             );
           })}
         </div>
-      </FormSection>
+      </DesignerSection>
 
-      <FormSection
-        compact
+      <DesignerSection
         title="حجم وسماكة ومحاذاة كل جزء"
         hint="كل سطر مستقل عن حجم الخط العام — غيّر العنوان أو التاريخ أو الذيل دون الباقي"
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-[12px]">
+          <table className="w-full min-w-[440px] text-[12px]">
             <thead>
               <tr className="text-[11px] text-slate-500">
                 <th className="pb-1.5 text-right font-semibold">الجزء</th>
@@ -192,9 +207,9 @@ export function ClassicReceiptDesigner({
             </tbody>
           </table>
         </div>
-      </FormSection>
+      </DesignerSection>
 
-      <FormSection compact title="التاريخ والوقت والعناوين" hint="صيغة التاريخ وتسميات البائع والصندوق والكاشير">
+      <DesignerSection title="التاريخ والوقت والعناوين" hint="صيغة التاريخ وتسميات البائع والصندوق والكاشير">
         <div className="grid gap-2 sm:grid-cols-2">
           <Field label="شكل التاريخ والوقت">
             <Select
@@ -216,9 +231,9 @@ export function ClassicReceiptDesigner({
             <Input value={style.cashboxLabel} onChange={e => commit({ ...style, cashboxLabel: e.target.value })} />
           </Field>
         </div>
-      </FormSection>
+      </DesignerSection>
 
-      <FormSection compact title="جدول الأصناف" hint="خطوط الجدول مستقلة عن حجم الخط العام — من 5 إلى 16">
+      <DesignerSection title="جدول الأصناف" hint="خطوط الجدول مستقلة عن حجم الخط العام — من 5 إلى 16">
         <ClassicTableFontFields style={style} onPatchPart={patchPart} onMasterSize={n => {
           const size = Math.min(TABLE_SIZE_MAX, Math.max(TABLE_SIZE_MIN, n));
           commit({
@@ -262,10 +277,23 @@ export function ClassicReceiptDesigner({
             );
           })}
         </div>
-      </FormSection>
+      </DesignerSection>
 
-      <div className="flex justify-end">
-        <Btn variant="ghost" onClick={() => onChange(null)}>
+      <div className="flex justify-end min-[1920px]:col-span-2">
+        <Btn
+          variant="ghost"
+          size="sm"
+          icon={<IconRefresh size={13} />}
+          onClick={async () => {
+            const ok = await confirm({
+              title: 'إعادة النموذج الجدولي للافتراضي؟',
+              message: 'ستُلغى كل تعديلات الترتيب والخطوط وعرض الأعمدة. يمكنك التراجع بعدم الحفظ.',
+              confirmLabel: 'إعادة للافتراضي',
+              danger: true,
+            });
+            if (ok) onChange(null);
+          }}
+        >
           إعادة تصميم النموذج للافتراضي
         </Btn>
       </div>
