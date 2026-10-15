@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { formatNum } from '@/api/client';
-import type { HoldReceiptDto, PosTerminalMonitorDto, SalesmanCommissionSummaryDto } from '@/api/types';
+import type {
+  CashierActivityDto,
+  CashierVoidReportDto,
+  HoldReceiptDto,
+  PosTerminalMonitorDto,
+  ReorderReportDto,
+  SalesmanCommissionSummaryDto,
+} from '@/api/types';
 import { Btn, EmptyState, Skeleton } from '@/components/ui';
 import { IconCheckCircle, IconChevronDown } from '@/components/icons';
 import { fixEdariName } from '@/lib/text';
@@ -271,6 +278,8 @@ function rank(t: AttentionItem['tone']) {
 }
 
 /* ── شريط التنقل بين الأقسام ── */
+const COLLAPSE_EVENT = 'fot:dashboard-collapse';
+
 export function SectionNav({ sections }: { sections: { id: string; label: string; badge?: number }[] }) {
   const [active, setActive] = useState(sections[0]?.id);
 
@@ -288,29 +297,55 @@ export function SectionNav({ sections }: { sections: { id: string; label: string
     return () => io.disconnect();
   }, [sections]);
 
+  function setAllCollapsed(collapsed: boolean) {
+    const next: Record<string, boolean> = {};
+    for (const s of sections) next[s.id] = collapsed;
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent(COLLAPSE_EVENT, { detail: collapsed }));
+  }
+
   return (
     <nav className="sticky top-0 z-[var(--z-sticky)] -mx-1 overflow-x-auto px-1 py-1.5 bg-[#f3f5f8]/85 backdrop-blur">
-      <div className="inline-flex min-w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-[var(--shadow-soft)]">
-        {sections.map(s => (
+      <div className="inline-flex min-w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-1 shadow-[var(--shadow-soft)]">
+        <div className="inline-flex items-center gap-1">
+          {sections.map(s => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => {
+                setActive(s.id);
+                document.getElementById(`dash-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
+                active === s.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              {s.label}
+              {s.badge ? (
+                <span className={`rounded-full px-1.5 text-[10px] font-bold num ${active === s.id ? 'bg-white/20' : 'bg-red-100 text-red-700'}`}>
+                  {s.badge}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+        <div className="hidden shrink-0 items-center gap-1 pe-1 sm:inline-flex">
           <button
-            key={s.id}
             type="button"
-            onClick={() => {
-              setActive(s.id);
-              document.getElementById(`dash-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
-              active === s.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
+            onClick={() => setAllCollapsed(false)}
+            className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
           >
-            {s.label}
-            {s.badge ? (
-              <span className={`rounded-full px-1.5 text-[10px] font-bold num ${active === s.id ? 'bg-white/20' : 'bg-red-100 text-red-700'}`}>
-                {s.badge}
-              </span>
-            ) : null}
+            فتح الكل
           </button>
-        ))}
+          <span className="text-slate-200">|</span>
+          <button
+            type="button"
+            onClick={() => setAllCollapsed(true)}
+            className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+          >
+            طي الكل
+          </button>
+        </div>
       </div>
     </nav>
   );
@@ -343,6 +378,15 @@ export function DashSection({
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(() => Boolean(readCollapsed()[id]));
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const next = Boolean((e as CustomEvent<boolean>).detail);
+      setCollapsed(next);
+    };
+    window.addEventListener(COLLAPSE_EVENT, handler);
+    return () => window.removeEventListener(COLLAPSE_EVENT, handler);
+  }, []);
 
   function toggle() {
     const next = !collapsed;
@@ -733,12 +777,18 @@ export function CommissionDueList({
 }
 
 /* ── الفواتير المعلّقة ── */
-export function HoldsList({ rows }: { rows: HoldReceiptDto[] }) {
+export function HoldsList({
+  rows,
+  onComplete,
+}: {
+  rows: HoldReceiptDto[];
+  onComplete?: (h: HoldReceiptDto) => void;
+}) {
   if (!rows.length) return <EmptyState compact icon={<IconCheckCircle size={18} />} title="لا فواتير معلّقة" />;
   return (
     <ul className="max-h-[260px] divide-y divide-slate-100 overflow-y-auto px-4 pb-3">
       {rows.slice(0, 8).map(h => (
-        <li key={h.id} className="flex items-center gap-3 py-2">
+        <li key={h.id} className="flex items-center gap-2.5 py-2">
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[12.5px] font-semibold text-slate-800">
               {fixEdariName(h.salesmanName) || h.cashierName || `معلّقة #${h.id}`}
@@ -748,6 +798,220 @@ export function HoldsList({ rows }: { rows: HoldReceiptDto[] }) {
             </span>
           </span>
           <span className="shrink-0 text-[12.5px] font-bold text-header num">{formatNum(h.totalAmount)}</span>
+          {onComplete && (
+            <Btn size="xs" variant="soft" onClick={() => onComplete(h)} className="shrink-0">
+              إكمال
+            </Btn>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* ── شريط نبض المتجر الحي ── */
+export function StorePulseStrip({
+  peakHour,
+  unitsSold,
+  uniqueSold,
+  largestReceipt,
+  discountsRecent,
+  activeOffers,
+}: {
+  peakHour: { hour: number; total: number; count: number } | null;
+  unitsSold: number;
+  uniqueSold: number;
+  largestReceipt: { number: string; amount: number } | null;
+  discountsRecent: number;
+  activeOffers: number;
+}) {
+  const pills = [
+    {
+      label: 'ساعة الذروة اليوم',
+      value: peakHour && peakHour.total > 0 ? `${String(peakHour.hour).padStart(2, '0')}:00 (${compact(peakHour.total)})` : '—',
+      sub: peakHour && peakHour.total > 0 ? `${formatNum(peakHour.count)} فاتورة` : 'لم تتحدد بعد',
+      to: '/reports?app=peak-hours',
+    },
+    {
+      label: 'القطع المباعة اليوم',
+      value: `${formatNum(unitsSold)} قطعة`,
+      sub: `${formatNum(uniqueSold)} صنف مختلف`,
+      to: '/reports?app=sales',
+    },
+    {
+      label: 'أكبر فاتورة حديثة',
+      value: largestReceipt ? `${formatNum(largestReceipt.amount)} IQD` : '—',
+      sub: largestReceipt ? `فاتورة #${largestReceipt.number}` : 'لا فواتير',
+      to: largestReceipt ? `/receipts?search=${encodeURIComponent(largestReceipt.number)}` : '/receipts',
+    },
+    {
+      label: 'العروض والخصومات',
+      value: `${formatNum(activeOffers)} عرض مفعّل`,
+      sub: discountsRecent > 0 ? `خصم حديث ${compact(discountsRecent)} IQD` : 'خصومات تلقائية على الكاشير',
+      to: '/offers',
+    },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      {pills.map(p => (
+        <Link
+          key={p.label}
+          to={p.to}
+          className="group flex items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 transition hover:border-brand-300 hover:shadow-[var(--shadow-lift)]"
+        >
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-medium text-slate-400">{p.label}</p>
+            <p className="mt-0.5 truncate text-[14px] font-bold text-header num group-hover:text-brand-700">{p.value}</p>
+            <p className="truncate text-[10.5px] text-slate-500">{p.sub}</p>
+          </div>
+          <span className="shrink-0 text-[11px] font-semibold text-slate-300 transition group-hover:text-brand-600">←</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/* ── رادار المخزون والنواقص ── */
+export function InventoryRadarCard({
+  reorder,
+  loading,
+}: {
+  reorder: ReorderReportDto | null;
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2.5 px-4 pb-4">
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+      </div>
+    );
+  }
+  if (!reorder) {
+    return <EmptyState compact title="لا بيانات مخزون حالياً" />;
+  }
+  const critical = (reorder.rows ?? []).slice(0, 5);
+  return (
+    <div className="px-4 pb-4">
+      <div className="grid grid-cols-3 gap-2">
+        <Link to="/reports?app=reorder" className="rounded-lg bg-red-50 px-3 py-2 transition hover:bg-red-100/70">
+          <p className="text-[11px] text-red-800/80">نافد تماماً</p>
+          <p className="text-[17px] font-bold text-red-700 num">{formatNum(reorder.outOfStock)}</p>
+        </Link>
+        <Link to="/reports?app=reorder" className="rounded-lg bg-amber-50 px-3 py-2 transition hover:bg-amber-100/70">
+          <p className="text-[11px] text-amber-800/80">يكفي أقل من أسبوع</p>
+          <p className="text-[17px] font-bold text-amber-800 num">{formatNum(reorder.underWeek)}</p>
+        </Link>
+        <Link to="/reports?app=slow-movers" className="rounded-lg bg-slate-50 px-3 py-2 transition hover:bg-slate-100">
+          <p className="text-[11px] text-slate-500">إجمالي الحرج</p>
+          <p className="text-[17px] font-bold text-header num">{formatNum(reorder.total)}</p>
+        </Link>
+      </div>
+      {critical.length > 0 ? (
+        <ul className="mt-3 divide-y divide-slate-100">
+          {critical.map(r => {
+            const out = r.stock <= 0;
+            return (
+              <li key={r.articleId} className="flex items-center justify-between gap-2 py-1.5 text-[12px]">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-800" title={r.name ?? ''}>{r.name || r.barcode || `#${r.articleId}`}</p>
+                  <p className="text-[10.5px] text-slate-400 num">
+                    معدل السحب {formatNum(r.dailyRate, 1)}/يوم · مباع {formatNum(r.soldQty)}
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold num ${out ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
+                  {out ? `رصيد ${formatNum(r.stock)}` : `يكفي ${formatNum(r.coverDays, 0)} يوم`}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-3 text-center text-[11.5px] text-emerald-700">✓ كل الأصناف السريعة متوفرة بمخزون كافٍ</p>
+      )}
+    </div>
+  );
+}
+
+/* ── رقابة الحذف والإلغاء اليوم ── */
+export function CashierVoidsCard({
+  voids,
+  loading,
+}: {
+  voids: CashierVoidReportDto | null;
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2.5 px-4 pb-4">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+      </div>
+    );
+  }
+  const deletedLines = voids?.deletedLines ?? 0;
+  const cancelledInvoices = voids?.cancelledInvoices ?? 0;
+  const deletedAmount = voids?.deletedAmount ?? 0;
+  const cancelledAmount = voids?.cancelledAmount ?? 0;
+  const cashiers = (voids?.cashiers ?? []).filter(c => c.deletedLines > 0 || c.cancelledInvoices > 0).slice(0, 4);
+
+  return (
+    <div className="px-4 pb-4">
+      <div className="grid grid-cols-2 gap-2">
+        <div className={`rounded-lg px-3 py-2 ${deletedLines > 0 ? 'bg-amber-50' : 'bg-slate-50'}`}>
+          <p className="text-[11px] text-slate-500">بنود محذوفة اليوم</p>
+          <p className="text-[16px] font-bold text-header num">{formatNum(deletedLines)}</p>
+          <p className="text-[10.5px] text-slate-500 num">{formatNum(deletedAmount)} IQD</p>
+        </div>
+        <div className={`rounded-lg px-3 py-2 ${cancelledInvoices > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+          <p className="text-[11px] text-slate-500">فواتير ملغاة اليوم</p>
+          <p className={`text-[16px] font-bold num ${cancelledInvoices > 0 ? 'text-red-700' : 'text-header'}`}>{formatNum(cancelledInvoices)}</p>
+          <p className="text-[10.5px] text-slate-500 num">{formatNum(cancelledAmount)} IQD</p>
+        </div>
+      </div>
+      {cashiers.length > 0 ? (
+        <ul className="mt-3 divide-y divide-slate-100">
+          {cashiers.map(c => (
+            <li key={c.cashierId} className="flex items-center justify-between gap-2 py-1.5 text-[12px]">
+              <span className="truncate font-semibold text-slate-700">{c.cashierName || `كاشير #${c.cashierId}`}</span>
+              <span className="shrink-0 text-[11px] text-slate-500 num">
+                حذف <b className="text-amber-800">{formatNum(c.deletedLines)}</b> · إلغاء <b className="text-red-700">{formatNum(c.cancelledInvoices)}</b>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-center text-[11.5px] text-emerald-700">✓ لا عمليات حذف أو إلغاء مسجّلة اليوم</p>
+      )}
+    </div>
+  );
+}
+
+/* ── سجل حركات الكاشير الحية ── */
+export function CashierActivityFeed({
+  rows,
+  loading,
+}: {
+  rows: CashierActivityDto[];
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2.5 px-4 pb-4">
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-7 w-full" />)}
+      </div>
+    );
+  }
+  if (!rows.length) return <EmptyState compact title="لا حركات مسجّلة اليوم بعد" />;
+  return (
+    <ul className="max-h-[220px] divide-y divide-slate-100 overflow-y-auto px-4 pb-3">
+      {rows.map(a => (
+        <li key={a.id} className="flex items-center justify-between gap-2 py-1.5 text-[12px]">
+          <div className="min-w-0 flex-1">
+            <span className="font-semibold text-slate-800">{a.cashierName || 'كاشير'}</span>
+            <span className="mx-1.5 text-slate-300">·</span>
+            <span className="text-slate-600">{a.eventLabel || a.eventType}</span>
+            {a.posPath && <span className="ms-1.5 text-[11px] text-slate-400">({prettyPos(a.posPath)})</span>}
+          </div>
+          <span className="shrink-0 text-[11px] text-slate-400">{timeAgo(a.createdAt)}</span>
         </li>
       ))}
     </ul>

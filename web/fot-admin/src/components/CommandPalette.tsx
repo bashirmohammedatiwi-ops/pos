@@ -124,6 +124,8 @@ export function CommandPalette({
       { key: 'w-edari', iconKey: 'edari', label: 'ترحيل Edari', group: WORK_GROUP, path: '/edari' },
       { key: 'w-activity', iconKey: 'activity', label: 'حركات الكاشير', group: WORK_GROUP, path: '/activity' },
       { key: 'w-reports', iconKey: 'reports', label: 'التقارير', group: WORK_GROUP, path: '/reports' },
+      { key: 'w-sales-report', iconKey: 'reports', label: 'تقرير المبيعات', group: WORK_GROUP, path: '/reports?app=sales' },
+      { key: 'w-offer-sales', iconKey: 'offers', label: 'تقرير مبيعات العروض', group: WORK_GROUP, path: '/reports?app=offer-sales' },
       { key: 'w-comm-report', iconKey: 'commissions', label: 'تقرير العمولات', group: WORK_GROUP, path: '/reports?app=commissions' },
       { key: 'w-target-report', iconKey: 'targets', label: 'تقرير الأهداف', group: WORK_GROUP, path: '/reports?app=targets' },
       { key: 'w-product-inquiry', iconKey: 'products', label: 'استعلام مادة', group: WORK_GROUP, path: '/reports?app=product-inquiry' },

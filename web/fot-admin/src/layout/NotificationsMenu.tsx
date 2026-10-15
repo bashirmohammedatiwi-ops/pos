@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, formatNum } from '@/api/client';
+import { api, formatNum, todayIso } from '@/api/client';
 import { useNavBadges } from '@/hooks/useNavBadges';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
-import { IconAlert, IconBell, IconCheckCircle, IconCloud, IconCoins, IconMonitor, IconReceipt, IconTarget } from '@/components/icons';
+import { IconActivity, IconAlert, IconBell, IconCheckCircle, IconCloud, IconCoins, IconMonitor, IconPackage, IconReceipt, IconTarget } from '@/components/icons';
 
 type Notice = { key: string; to: string; title: string; detail: string; tone: 'danger' | 'warn' | 'info'; icon: ReactNode };
 
@@ -26,6 +26,21 @@ export function NotificationsMenu() {
     queryFn: api.terminalMonitor,
     staleTime: 30_000,
     refetchInterval: hubConnected ? 120_000 : 30_000,
+  });
+
+  const today = todayIso();
+  const reorderQ = useQuery({
+    queryKey: ['dashboard-reorder'],
+    queryFn: () => api.reorder(30, 7),
+    staleTime: 180_000,
+    retry: 0,
+  });
+
+  const voidsQ = useQuery({
+    queryKey: ['dashboard-voids', today],
+    queryFn: () => api.cashierVoids(today, today),
+    staleTime: 60_000,
+    retry: 0,
   });
 
   useEffect(() => {
@@ -63,6 +78,12 @@ export function NotificationsMenu() {
     notices.push({ key: 'targets', to: '/targets', title: `${formatNum(atRiskCount)} بائع متأخر عن الهدف`, detail: 'أقل من 70% من الهدف اليومي', tone: 'info', icon: <IconTarget size={15} /> });
   if (commDue.count > 0)
     notices.push({ key: 'comm', to: '/commissions', title: `عمولات مستحقة لـ ${formatNum(commDue.count)} بائع`, detail: `المجموع ${formatNum(commDue.total)} IQD`, tone: 'info', icon: <IconCoins size={15} /> });
+  const outOfStock = reorderQ.data?.outOfStock ?? 0;
+  if (outOfStock > 0)
+    notices.push({ key: 'reorder', to: '/reports?app=reorder', title: `${formatNum(outOfStock)} صنف سريع البيع نافد`, detail: `${formatNum(reorderQ.data?.underWeek ?? 0)} صنف آخر يكفي أقل من أسبوع`, tone: 'warn', icon: <IconPackage size={15} /> });
+  const cancelledInvoices = voidsQ.data?.cancelledInvoices ?? 0;
+  if (cancelledInvoices > 0)
+    notices.push({ key: 'voids', to: '/reports?app=cashier-voids', title: `${formatNum(cancelledInvoices)} فاتورة ملغاة اليوم`, detail: `بقيمة ${formatNum(voidsQ.data?.cancelledAmount ?? 0)} IQD`, tone: 'warn', icon: <IconActivity size={15} /> });
 
   const urgent = notices.filter(n => n.tone !== 'info').length;
 

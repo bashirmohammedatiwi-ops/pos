@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api, formatNum } from '@/api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, formatNum, receiptDisplayNumber } from '@/api/client';
+import type { ReceiptSummary } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
-import { StatCard } from '@/components/ui';
+import { Modal, StatCard } from '@/components/ui';
 import { useLanConnection } from '@/hooks/useLanConnection';
 import { useHomeStatus } from '@/hooks/useHomeStatus';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { ProductOfferSearch } from '@/components/offers/ProductOfferSearch';
+import { CompleteHoldDialog, type HoldTarget } from '@/components/CompleteHoldDialog';
+import { ReceiptDetailSheet } from '@/components/receipts/ReceiptDetailSheet';
 import {
   forecastDay,
   forecastPeriod,
@@ -31,20 +34,25 @@ import {
 } from '@/components/dashboard/HomeWidgets';
 import {
   AttentionCenter,
+  CashierActivityFeed,
+  CashierVoidsCard,
   CommissionDueList,
   DashboardHero,
   DashSection,
   HoldsList,
+  InventoryRadarCard,
   MonthDailyBars,
   PaymentMix,
   PeriodProgress,
   SectionNav,
+  StorePulseStrip,
   SyncTile,
   TargetRiskList,
   TerminalGrid,
   type AttentionItem,
 } from '@/components/dashboard/DashboardPanels';
 import {
+  IconActivity,
   IconAlert,
   IconBanknote,
   IconBarcode,
@@ -60,6 +68,7 @@ import {
   IconReceipt,
   IconReturn,
   IconSend,
+  IconShield,
   IconTarget,
   IconTrendUp,
   IconUpload,
@@ -90,12 +99,15 @@ const QUICK_ACTIONS = [
 
 type BreakdownTab = 'section' | 'pos' | 'cashier';
 type SellersRange = 'today' | 'week';
+type ProductsRange = 'today' | 'week';
+type ProductsMetric = 'amount' | 'qty';
 
 /**
  * الرئيسية مرتبة في أقسام قابلة للطي:
- * الرأس (صافي اليوم والتوقع) · يحتاج انتباهك · اليوم · الأسبوع والشهر · الفريق · الأجهزة والمزامنة · الفواتير.
+ * الرأس · نبض المتجر · يحتاج انتباهك · اليوم · الأسبوع والشهر · الفريق · المخزون والرقابة · الأجهزة والمزامنة · الفواتير.
  */
 export function DashboardPage() {
+  const qc = useQueryClient();
   const { user } = useAuth();
   const { online } = useLanConnection();
   const d = useDashboardData();
@@ -104,6 +116,10 @@ export function DashboardPage() {
   const [serverHost, setServerHost] = useState(false);
   const [breakdownTab, setBreakdownTab] = useState<BreakdownTab>('section');
   const [sellersRange, setSellersRange] = useState<SellersRange>('today');
+  const [productsRange, setProductsRange] = useState<ProductsRange>('today');
+  const [productsMetric, setProductsMetric] = useState<ProductsMetric>('amount');
+  const [holdTarget, setHoldTarget] = useState<HoldTarget | null>(null);
+  const [previewReceipt, setPreviewReceipt] = useState<ReceiptSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +144,13 @@ export function DashboardPage() {
   const edariSettingsQ = useQuery({ queryKey: ['edari-settings'], queryFn: api.edariSettings, staleTime: 60_000 });
   const pullMinutes = Math.max(1, Math.round((edariSettingsQ.data?.dataPullIntervalSeconds || 240) / 60));
   const hasDay = Boolean(day);
+
+  const previewDetailQ = useQuery({
+    queryKey: ['receipt-detail', previewReceipt?.id],
+    queryFn: () => api.receiptDetail(previewReceipt!.id),
+    enabled: previewReceipt != null,
+    staleTime: 30_000,
+  });
 
   const name = userDisplayLabel(user);
   const edari = edariQ.data ?? null;
@@ -158,6 +181,43 @@ export function DashboardPage() {
   const pendingOnTerminals = d.terminals.reduce((n, t) => n + (t.pendingOffline ?? 0), 0);
   const deadOnTerminals = d.terminals.reduce((n, t) => n + (t.deadOffline ?? 0), 0);
 
+  const peakHourToday = useMemo(() => {
+    const hrs = day?.hourly ?? [];
+    if (!hrs.length) return null;
+    return hrs.reduce((best, h) => (h.total > best.total ? h : best), hrs[0]);
+  }, [day?.hourly]);
+
+  const largestRecent = useMemo(() => {
+    const salesOnly = (d.recentQ.data ?? []).filter(r => (r.kind ?? 0) === 0 && r.totalAmount > 0);
+    if (!salesOnly.length) return null;
+    const best = salesOnly.reduce((b, r) => (r.totalAmount > b.totalAmount ? r : b), salesOnly[0]);
+    return { number: receiptDisplayNumber(best), amount: best.totalAmount };
+  }, [d.recentQ.data]);
+
+  const discountsRecent = useMemo(
+    () =>
+      (d.recentQ.data ?? []).reduce(
+        (n, r) => n + Math.max(0, (r.offersDiscount ?? 0) + (r.userDiscount ?? 0) + (r.itemsDiscount ?? 0)),
+        0,
+      ),
+    [d.recentQ.data],
+  );
+
+  const productRows = useMemo(() => {
+    const src = productsRange === 'today' ? d.todayMovement : d.weekMovement;
+    return [...src]
+      .filter(p => (productsMetric === 'amount' ? p.soldAmount > 0 : p.soldQty > 0))
+      .sort((a, b) => (productsMetric === 'amount' ? b.soldAmount - a.soldAmount : b.soldQty - a.soldQty))
+      .slice(0, 6)
+      .map(p => ({
+        key: p.articleId,
+        label: p.name || p.barcode || `#${p.articleId}`,
+        value: productsMetric === 'amount' ? p.soldAmount : p.soldQty,
+        sub: productsMetric === 'amount' ? `${formatNum(p.soldQty)} قطعة` : `${formatNum(p.soldAmount)} IQD`,
+        to: `/reports?app=product-inquiry`,
+      }));
+  }, [productsRange, productsMetric, d.todayMovement, d.weekMovement]);
+
   const sellerRows = useMemo(() => {
     const src = sellersRange === 'today' ? d.topSalesmen : d.weekTopSalesmen;
     return [...src]
@@ -171,6 +231,10 @@ export function DashboardPage() {
         sub: `${formatNum(s.count ?? 0)} فاتورة`,
       }));
   }, [sellersRange, d.topSalesmen, d.weekTopSalesmen]);
+
+  const outOfStockCount = d.reorder?.outOfStock ?? 0;
+  const cancelledTodayCount = d.voids?.cancelledInvoices ?? 0;
+  const deletedTodayCount = d.voids?.deletedLines ?? 0;
 
   const attention = useMemo(() => {
     const items: AttentionItem[] = [];
@@ -262,20 +326,44 @@ export function DashboardPage() {
         action: 'التقرير',
       });
     }
+    if (outOfStockCount > 0) {
+      items.push({
+        id: 'reorder',
+        tone: 'warn',
+        icon: <IconPackage size={17} />,
+        title: `${formatNum(outOfStockCount)} صنف سريع البيع نافد`,
+        detail: `${formatNum(d.reorder?.underWeek ?? 0)} صنف آخر يكفي أقل من أسبوع`,
+        to: '/reports?app=reorder',
+        action: 'النواقص',
+      });
+    }
+    if (cancelledTodayCount > 0 || deletedTodayCount >= 5) {
+      items.push({
+        id: 'voids',
+        tone: cancelledTodayCount > 0 ? 'warn' : 'info',
+        icon: <IconActivity size={17} />,
+        title: cancelledTodayCount > 0 ? `${formatNum(cancelledTodayCount)} فاتورة ملغاة اليوم` : `${formatNum(deletedTodayCount)} بند محذوف اليوم`,
+        detail: `بقيمة ${formatNum((d.voids?.cancelledAmount ?? 0) + (d.voids?.deletedAmount ?? 0))} IQD`,
+        to: '/reports?app=cashier-voids',
+        action: 'الرقابة',
+      });
+    }
     return items;
-  }, [edari, edariOk, lastPull, d.failed, dead, d.failedLogs, deadOnTerminals, d.holdCount, d.holds, d.unsynced, pendingOnTerminals, d.terminals.length, offlineTerminals, d.atRiskCount, d.atRiskTargets]);
+  }, [edari, edariOk, lastPull, d.failed, dead, d.failedLogs, deadOnTerminals, d.holdCount, d.holds, d.unsynced, pendingOnTerminals, d.terminals.length, offlineTerminals, d.atRiskCount, d.atRiskTargets, outOfStockCount, d.reorder?.underWeek, cancelledTodayCount, deletedTodayCount, d.voids?.cancelledAmount, d.voids?.deletedAmount]);
 
   const systemIssues = attention.filter(a => ['edari', 'failed', 'dead-pos', 'offline', 'pending-pos', 'unsynced'].includes(a.id)).length;
+  const auditIssues = (outOfStockCount > 0 ? 1 : 0) + (cancelledTodayCount > 0 ? 1 : 0);
 
   const sections = useMemo(
     () => [
       { id: 'today', label: 'اليوم' },
       { id: 'period', label: 'الأسبوع والشهر' },
       { id: 'team', label: 'الفريق', badge: d.atRiskCount || undefined },
+      { id: 'inventory', label: 'المخزون والرقابة', badge: auditIssues || undefined },
       { id: 'system', label: 'الأجهزة والمزامنة', badge: systemIssues || undefined },
       { id: 'receipts', label: 'الفواتير', badge: d.holdCount || undefined },
     ],
-    [d.atRiskCount, systemIssues, d.holdCount],
+    [d.atRiskCount, auditIssues, systemIssues, d.holdCount],
   );
 
   function refreshAll() {
@@ -303,6 +391,15 @@ export function DashboardPage() {
         loading={cashLoading}
         refreshing={d.isRefreshing || dayQ.isFetching}
         onRefresh={refreshAll}
+      />
+
+      <StorePulseStrip
+        peakHour={peakHourToday}
+        unitsSold={d.totalUnitsSoldToday}
+        uniqueSold={d.uniqueSoldToday}
+        largestReceipt={largestRecent}
+        discountsRecent={discountsRecent}
+        activeOffers={d.activeOffers}
       />
 
       <AttentionCenter items={attention} loading={cashLoading} />
@@ -388,17 +485,43 @@ export function DashboardPage() {
               />
             </HomeCard>
           )}
-          <HomeCard title="الأكثر مبيعاً اليوم" subtitle="حسب قيمة المبيعات" action={<CardLink to="/reports?app=sales">حركة المواد</CardLink>}>
+          <HomeCard
+            title="الأكثر مبيعاً"
+            subtitle={productsMetric === 'amount' ? 'حسب قيمة المبيعات' : 'حسب عدد القطع المباعة'}
+            action={
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                  {([['today', 'اليوم'], ['week', 'الأسبوع']] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setProductsRange(id)}
+                      className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${productsRange === id ? 'bg-white text-brand-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                  {([['amount', 'القيمة'], ['qty', 'الكمية']] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setProductsMetric(id)}
+                      className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${productsMetric === id ? 'bg-white text-brand-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            }
+          >
             <RankList
-              loading={cashLoading}
-              empty="لا توجد مبيعات اليوم بعد"
-              unit="IQD"
-              rows={d.topProducts.map(p => ({
-                key: p.articleId,
-                label: p.name || p.barcode || `#${p.articleId}`,
-                value: p.soldAmount,
-                sub: `${formatNum(p.soldQty)} قطعة`,
-              }))}
+              loading={productsRange === 'today' ? cashLoading : d.weekMovementLoading}
+              empty={productsRange === 'today' ? 'لا توجد مبيعات اليوم بعد' : 'لا مبيعات مواد هذا الأسبوع'}
+              unit={productsMetric === 'amount' ? 'IQD' : 'قطعة'}
+              rows={productRows}
             />
           </HomeCard>
         </div>
@@ -516,6 +639,40 @@ export function DashboardPage() {
         </div>
       </DashSection>
 
+      {/* ═══ المخزون والرقابة ═══ */}
+      <DashSection
+        id="inventory"
+        title="المخزون والرقابة"
+        subtitle="الأصناف الحرجة · حذف وإلغاء الكاشير · حركات الصندوق"
+        icon={<IconShield size={16} />}
+        action={<CardLink to="/reports?app=reorder">تقرير النواقص</CardLink>}
+      >
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <HomeCard
+            title="رادار المخزون"
+            subtitle="معدل السحب في آخر 30 يوماً مقابل الرصيد"
+            action={<CardLink to="/reports?app=reorder">كل النواقص</CardLink>}
+          >
+            <InventoryRadarCard reorder={d.reorder} loading={d.reorderLoading} />
+          </HomeCard>
+          <HomeCard
+            title="رقابة الحذف والإلغاء"
+            subtitle="عمليات اليوم على نقاط البيع"
+            action={<CardLink to="/reports?app=cashier-voids">التفاصيل</CardLink>}
+          >
+            <CashierVoidsCard voids={d.voids} loading={d.voidsLoading} />
+          </HomeCard>
+          <HomeCard
+            title="حركات الكاشير اليوم"
+            subtitle="الفتح والإغلاق والدخول"
+            className="lg:col-span-2 xl:col-span-1"
+            action={<CardLink to="/activity">كل الحركات</CardLink>}
+          >
+            <CashierActivityFeed rows={d.cashierActivity} loading={d.activityLoading} />
+          </HomeCard>
+        </div>
+      </DashSection>
+
       {/* ═══ الأجهزة والمزامنة ═══ */}
       <DashSection
         id="system"
@@ -621,20 +778,35 @@ export function DashboardPage() {
       <DashSection
         id="receipts"
         title="الفواتير والأدوات"
-        subtitle={`بيع ${formatNum(d.kindCounts.sale)} · مرتجع ${formatNum(d.kindCounts.return)} · هدية ${formatNum(d.kindCounts.gift)} في آخر الفواتير`}
+        subtitle={`بيع ${formatNum(d.kindCounts.sale)} · مرتجع ${formatNum(d.kindCounts.return)} · هدية ${formatNum(d.kindCounts.gift)} · انقر أي فاتورة للمعاينة والطباعة`}
         icon={<IconReceipt size={16} />}
         action={<CardLink to="/receipts">كل الفواتير</CardLink>}
       >
         <div className="grid gap-4 xl:grid-cols-3">
           <HomeCard className="xl:col-span-2" title="آخر الفواتير" action={<CardLink to="/receipts">بحث متقدم</CardLink>}>
-            <RecentReceiptsList rows={d.recentQ.data ?? []} loading={d.recentQ.isLoading} />
+            <RecentReceiptsList
+              rows={d.recentQ.data ?? []}
+              loading={d.recentQ.isLoading}
+              onSelect={r => setPreviewReceipt(r)}
+            />
           </HomeCard>
           <HomeCard
             title="الفواتير المعلّقة"
             subtitle={d.holdCount ? `${formatNum(d.holdCount)} بانتظار الإكمال` : 'لا شيء معلّق'}
-            action={d.holdCount ? <CardLink to="/receipts?hold=1">إكمال</CardLink> : undefined}
+            action={d.holdCount ? <CardLink to="/receipts?hold=1">صفحة المعلّقة</CardLink> : undefined}
           >
-            <HoldsList rows={d.holds} />
+            <HoldsList
+              rows={d.holds}
+              onComplete={h =>
+                setHoldTarget({
+                  id: h.id,
+                  totalAmount: h.totalAmount,
+                  cashierName: h.cashierName,
+                  salesmanName: h.salesmanName,
+                  itemCount: h.itemCount,
+                })
+              }
+            />
           </HomeCard>
         </div>
         <div className="grid gap-4 xl:grid-cols-3">
@@ -660,6 +832,44 @@ export function DashboardPage() {
           <IconInfo size={12} /> اضغط عنوان أي قسم لطيّه — يُحفظ ترتيبك على هذا الجهاز
         </p>
       </DashSection>
+
+      <CompleteHoldDialog hold={holdTarget} onClose={() => setHoldTarget(null)} />
+
+      <Modal
+        open={previewReceipt != null}
+        title={previewReceipt ? `تفاصيل الفاتورة #${receiptDisplayNumber(previewReceipt)}` : 'تفاصيل الفاتورة'}
+        subtitle={previewReceipt?.creationDate ? fmtTime(previewReceipt.creationDate) ?? undefined : undefined}
+        icon={<IconReceipt size={18} />}
+        size="xl"
+        onClose={() => setPreviewReceipt(null)}
+      >
+        {previewReceipt && (
+          <ReceiptDetailSheet
+            receipt={previewReceipt}
+            detail={previewDetailQ.data}
+            loadingDetail={previewDetailQ.isLoading}
+            onChanged={() => {
+              void qc.invalidateQueries({ queryKey: ['recent-receipts'] });
+              void qc.invalidateQueries({ queryKey: ['receipt-detail', previewReceipt.id] });
+            }}
+            onComplete={
+              previewReceipt.number === 0
+                ? () => {
+                    const r = previewReceipt;
+                    setPreviewReceipt(null);
+                    setHoldTarget({
+                      id: r.id,
+                      totalAmount: r.totalAmount,
+                      cashierName: r.cashierName,
+                      salesmanName: r.salesmanName,
+                      itemCount: r.itemCount,
+                    });
+                  }
+                : undefined
+            }
+          />
+        )}
+      </Modal>
     </div>
   );
 }

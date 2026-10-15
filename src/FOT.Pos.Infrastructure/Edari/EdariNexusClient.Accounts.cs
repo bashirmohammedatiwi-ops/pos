@@ -172,7 +172,7 @@ public sealed partial class EdariNexusClient
 
             if (searching)
             {
-                var term = search.Trim();
+                var term = search!.Trim();
                 var rows = new List<EdariCreditAccountRow>();
 
                 // 1) Exact account number first — "301" → QiCard, "3133" → هدايا.

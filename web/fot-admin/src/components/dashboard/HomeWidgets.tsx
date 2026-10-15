@@ -148,7 +148,7 @@ export function RankList({
   empty,
   unit,
 }: {
-  rows: { key: string | number; label: string; value: number; sub?: string }[];
+  rows: { key: string | number; label: string; value: number; sub?: string; to?: string }[];
   loading?: boolean;
   empty: string;
   unit?: string;
@@ -164,32 +164,45 @@ export function RankList({
   const max = Math.max(1, ...rows.map(r => r.value));
   return (
     <ol className="space-y-2.5 px-4 pb-4">
-      {rows.map((r, i) => (
-        <li key={r.key} className="flex items-center gap-3">
-          <span
-            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold num ${
-              i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-slate-200 text-slate-700' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
-            }`}
-          >
-            {i + 1}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="truncate text-[12.5px] font-semibold text-slate-800" title={r.label}>{r.label}</p>
-              <p className="shrink-0 text-[12.5px] font-bold text-header num">
-                {formatNum(r.value)}
-                {unit && <span className="ms-1 text-[10px] font-medium text-slate-400">{unit}</span>}
-              </p>
-            </div>
-            <div className="mt-1 flex items-center gap-2">
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-brand-500 transition-[width] duration-700" style={{ width: `${(r.value / max) * 100}%` }} />
+      {rows.map((r, i) => {
+        const inner = (
+          <>
+            <span
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold num ${
+                i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-slate-200 text-slate-700' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="truncate text-[12.5px] font-semibold text-slate-800 group-hover:text-brand-700" title={r.label}>{r.label}</p>
+                <p className="shrink-0 text-[12.5px] font-bold text-header num">
+                  {formatNum(r.value)}
+                  {unit && <span className="ms-1 text-[10px] font-medium text-slate-400">{unit}</span>}
+                </p>
               </div>
-              {r.sub && <span className="shrink-0 text-[10.5px] text-slate-400 num">{r.sub}</span>}
+              <div className="mt-1 flex items-center gap-2">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-brand-500 transition-[width] duration-700" style={{ width: `${(r.value / max) * 100}%` }} />
+                </div>
+                {r.sub && <span className="shrink-0 text-[10.5px] text-slate-400 num">{r.sub}</span>}
+              </div>
             </div>
-          </div>
-        </li>
-      ))}
+          </>
+        );
+        return (
+          <li key={r.key}>
+            {r.to ? (
+              <Link to={r.to} className="group -mx-1.5 flex items-center gap-3 rounded-lg px-1.5 py-0.5 transition hover:bg-slate-50">
+                {inner}
+              </Link>
+            ) : (
+              <div className="flex items-center gap-3">{inner}</div>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -208,7 +221,31 @@ const KIND: Record<number, { label: string; cls: string }> = {
   2: { label: 'هدية', cls: 'bg-violet-50 text-violet-700' },
 };
 
-export function RecentReceiptsList({ rows, loading }: { rows: ReceiptSummary[]; loading?: boolean }) {
+export function RecentReceiptsList({
+  rows,
+  loading,
+  onSelect,
+}: {
+  rows: ReceiptSummary[];
+  loading?: boolean;
+  onSelect?: (r: ReceiptSummary) => void;
+}) {
+  const [kindFilter, setKindFilter] = useState<'all' | 0 | 1 | 2>('all');
+  const [q, setQ] = useState('');
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return rows.filter(r => {
+      if (kindFilter !== 'all' && (r.kind ?? 0) !== kindFilter) return false;
+      if (!term) return true;
+      const num = receiptDisplayNumber(r).toLowerCase();
+      const cashier = (r.cashierName ?? '').toLowerCase();
+      const seller = fixEdariName(r.salesmanName ?? '').toLowerCase();
+      const pos = prettyPos(r.posName, r.sectionName).toLowerCase();
+      return num.includes(term) || cashier.includes(term) || seller.includes(term) || pos.includes(term);
+    });
+  }, [rows, kindFilter, q]);
+
   if (loading) {
     return (
       <div className="space-y-2 px-4 pb-4">
@@ -218,41 +255,101 @@ export function RecentReceiptsList({ rows, loading }: { rows: ReceiptSummary[]; 
   }
   if (!rows.length) return <EmptyState compact title="لا توجد فواتير بعد اليوم" description="ستظهر هنا فور تسجيل أول عملية بيع." />;
   return (
-    <div className="overflow-x-auto px-2 pb-2">
-      <table className="w-full text-[12.5px]">
-        <thead>
-          <tr className="text-[11px] text-slate-400">
-            <th className="px-2 py-1.5 text-right font-semibold">الفاتورة</th>
-            <th className="px-2 py-1.5 text-right font-semibold">النوع</th>
-            <th className="px-2 py-1.5 text-right font-semibold">الكاشير / البائع</th>
-            <th className="px-2 py-1.5 text-right font-semibold">نقطة البيع</th>
-            <th className="px-2 py-1.5 text-left font-semibold">المبلغ</th>
-            <th className="px-2 py-1.5 text-left font-semibold">الوقت</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => {
-            const k = KIND[r.kind ?? 0] ?? KIND[0];
-            return (
-              <tr key={r.id} className="border-t border-slate-100 transition hover:bg-slate-50">
-                <td className="px-2 py-2">
-                  <Link to={`/receipts?search=${encodeURIComponent(receiptDisplayNumber(r))}&highlight=${r.id}`} className="font-bold text-slate-800 num hover:text-brand-700">
-                    #{receiptDisplayNumber(r)}
-                  </Link>
+    <div className="space-y-2 pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          {(
+            [
+              ['all', `الكل (${rows.length})`],
+              [0, 'بيع'],
+              [1, 'مرتجع'],
+              [2, 'هدية'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={String(id)}
+              type="button"
+              onClick={() => setKindFilter(id)}
+              className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${
+                kindFilter === id ? 'bg-white text-brand-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="search"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="فلترة برقم أو كاشير أو بائع…"
+          className="h-7 w-48 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 text-[11.5px] text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:bg-white"
+        />
+      </div>
+      <div className="overflow-x-auto px-2">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-[11px] text-slate-400">
+              <th className="px-2 py-1.5 text-right font-semibold">الفاتورة</th>
+              <th className="px-2 py-1.5 text-right font-semibold">النوع</th>
+              <th className="px-2 py-1.5 text-right font-semibold">الكاشير / البائع</th>
+              <th className="px-2 py-1.5 text-right font-semibold">نقطة البيع</th>
+              <th className="px-2 py-1.5 text-center font-semibold">أصناف</th>
+              <th className="px-2 py-1.5 text-left font-semibold">المبلغ</th>
+              <th className="px-2 py-1.5 text-left font-semibold">الوقت</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(r => {
+              const k = KIND[r.kind ?? 0] ?? KIND[0];
+              const disc = (r.offersDiscount ?? 0) + (r.userDiscount ?? 0) + (r.itemsDiscount ?? 0);
+              return (
+                <tr
+                  key={r.id}
+                  onClick={onSelect ? () => onSelect(r) : undefined}
+                  className={`border-t border-slate-100 transition hover:bg-slate-50 ${onSelect ? 'cursor-pointer' : ''}`}
+                >
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <Link
+                        to={`/receipts?search=${encodeURIComponent(receiptDisplayNumber(r))}&highlight=${r.id}`}
+                        onClick={e => e.stopPropagation()}
+                        className="font-bold text-slate-800 num hover:text-brand-700"
+                      >
+                        #{receiptDisplayNumber(r)}
+                      </Link>
+                      {!r.synced && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" title="بانتظار الترحيل للأداري" />
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${k.cls}`}>{k.label}</span>
+                  </td>
+                  <td className="max-w-[180px] truncate px-2 py-2 text-slate-600">
+                    {r.cashierName || '—'}
+                    {r.salesmanName ? <span className="text-slate-400"> · {fixEdariName(r.salesmanName)}</span> : null}
+                  </td>
+                  <td className="max-w-[140px] truncate px-2 py-2 text-slate-500">{prettyPos(r.posName, r.sectionName)}</td>
+                  <td className="px-2 py-2 text-center text-[11.5px] text-slate-500 num">{formatNum(r.itemCount ?? 0)}</td>
+                  <td className={`px-2 py-2 text-left font-bold num ${r.kind === 1 ? 'text-red-600' : 'text-header'}`}>
+                    {formatNum(r.totalAmount)}
+                    {disc > 0 && <span className="ms-1 text-[10px] font-normal text-amber-700" title={`خصم ${formatNum(disc)}`}>خصم</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2 text-left text-[11.5px] text-slate-400">{timeAgo(r.creationDate)}</td>
+                </tr>
+              );
+            })}
+            {!filtered.length && (
+              <tr>
+                <td colSpan={7} className="px-2 py-6 text-center text-[12px] text-slate-400">
+                  لا فواتير تطابق البحث الحالي
                 </td>
-                <td className="px-2 py-2"><span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${k.cls}`}>{k.label}</span></td>
-                <td className="max-w-[180px] truncate px-2 py-2 text-slate-600">
-                  {r.cashierName || '—'}
-                  {r.salesmanName ? <span className="text-slate-400"> · {fixEdariName(r.salesmanName)}</span> : null}
-                </td>
-                <td className="max-w-[140px] truncate px-2 py-2 text-slate-500">{prettyPos(r.posName, r.sectionName)}</td>
-                <td className={`px-2 py-2 text-left font-bold num ${r.kind === 1 ? 'text-red-600' : 'text-header'}`}>{formatNum(r.totalAmount)}</td>
-                <td className="whitespace-nowrap px-2 py-2 text-left text-[11.5px] text-slate-400">{timeAgo(r.creationDate)}</td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

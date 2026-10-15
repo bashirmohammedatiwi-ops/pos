@@ -116,6 +116,37 @@ export function useDashboardData() {
     refetchInterval: poll(60_000),
   });
 
+  const weekMovementQ = useQuery({
+    queryKey: ['report-movement', weekPeriod.from, weekPeriod.to, ''],
+    queryFn: () => api.movement(weekPeriod.from, weekPeriod.to),
+    staleTime: 120_000,
+    refetchInterval: poll(180_000),
+  });
+
+  const reorderQ = useQuery({
+    queryKey: ['dashboard-reorder'],
+    queryFn: () => api.reorder(30, 7),
+    staleTime: 180_000,
+    refetchInterval: poll(240_000),
+    retry: 0,
+  });
+
+  const voidsQ = useQuery({
+    queryKey: ['dashboard-voids', today],
+    queryFn: () => api.cashierVoids(today, today),
+    staleTime: 60_000,
+    refetchInterval: poll(90_000),
+    retry: 0,
+  });
+
+  const activityQ = useQuery({
+    queryKey: ['dashboard-cashier-activity', today],
+    queryFn: () => api.cashierActivity(today, today),
+    staleTime: 45_000,
+    refetchInterval: poll(60_000),
+    retry: 0,
+  });
+
   const targetsQ = useQuery({
     queryKey: ['target-breakdowns', weekPeriod.from, weekPeriod.to],
     queryFn: () => api.targetBreakdowns(weekPeriod.from, weekPeriod.to),
@@ -244,9 +275,14 @@ export function useDashboardData() {
   );
 
   const topProducts = useMemo(
-    () => [...(movementQ.data ?? [])].sort((a, b) => b.soldAmount - a.soldAmount).slice(0, 5),
+    () => [...(movementQ.data ?? [])].sort((a, b) => b.soldAmount - a.soldAmount).slice(0, 6),
     [movementQ.data],
   );
+
+  const todayMovement = movementQ.data ?? [];
+  const weekMovement = weekMovementQ.data ?? [];
+  const uniqueSoldToday = todayMovement.filter(m => m.soldQty > 0).length;
+  const totalUnitsSoldToday = todayMovement.reduce((n, m) => n + Math.max(0, m.soldQty), 0);
 
   const commWeek = commWeekQ.data ?? [];
   const weekCommission = commWeek.reduce((n, c) => n + c.totalCommission, 0);
@@ -355,6 +391,10 @@ export function useDashboardData() {
       holdsQ.refetch(),
       salesmenQ.refetch(),
       movementQ.refetch(),
+      weekMovementQ.refetch(),
+      reorderQ.refetch(),
+      voidsQ.refetch(),
+      activityQ.refetch(),
       targetsQ.refetch(),
       offersStatsQ.refetch(),
       commWeekQ.refetch(),
@@ -416,6 +456,17 @@ export function useDashboardData() {
     onlineTerminals,
     topSalesmen,
     topProducts,
+    todayMovement,
+    weekMovement,
+    weekMovementLoading: weekMovementQ.isLoading && !weekMovementQ.data,
+    uniqueSoldToday,
+    totalUnitsSoldToday,
+    reorder: reorderQ.data ?? null,
+    reorderLoading: reorderQ.isLoading && !reorderQ.data,
+    voids: voidsQ.data ?? null,
+    voidsLoading: voidsQ.isLoading && !voidsQ.data,
+    cashierActivity: (activityQ.data ?? []).slice(0, 8),
+    activityLoading: activityQ.isLoading && !activityQ.data,
     commDue,
     commDueCount,
     weekCommission,
