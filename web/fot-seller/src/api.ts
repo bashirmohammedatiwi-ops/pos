@@ -34,6 +34,34 @@ export function setLastId(id: string) {
   if (id) localStorage.setItem(LAST_ID_KEY, id);
 }
 
+/** حالة أوقات فتح الويب — يرسلها الخادم بتوقيت UTC، ويُعرض النص بتوقيت العراق. */
+export interface SellerAccess {
+  restricted: boolean;
+  open: boolean;
+  serverNow: string;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  from?: string;
+  to?: string;
+  days?: string;
+}
+
+export const ACCESS_EVENT = 'fot-seller-access';
+
+/** يُطلَق عند كل رد يحمل حالة الوصول (مغلق 423 أو معلومات الجلسة) — تستمع له بوابة الأوقات. */
+export function publishAccess(access: SellerAccess | null | undefined) {
+  if (!access) return;
+  window.dispatchEvent(new CustomEvent<SellerAccess>(ACCESS_EVENT, { detail: access }));
+}
+
+export class AccessClosedError extends Error {
+  access: SellerAccess;
+  constructor(message: string, access: SellerAccess) {
+    super(message);
+    this.access = access;
+  }
+}
+
 let refreshWait: Promise<boolean> | null = null;
 
 export async function refreshSession(): Promise<boolean> {
@@ -47,10 +75,17 @@ export async function refreshSession(): Promise<boolean> {
         headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
       });
       const text = await res.text();
+      if (res.status === 423) {
+        try {
+          publishAccess((JSON.parse(text) as { access?: SellerAccess }).access);
+        } catch { /* ignore */ }
+        return false;
+      }
       if (!res.ok) return false;
-      const data = text ? JSON.parse(text) as { token?: string; seller?: SellerMe } : {};
+      const data = text ? JSON.parse(text) as { token?: string; seller?: SellerMe; access?: SellerAccess } : {};
       if (data.token) setToken(data.token);
       if (data.seller) setSeller(data.seller);
+      publishAccess(data.access);
       return !!data.token;
     } catch {
       return false;
@@ -70,10 +105,17 @@ async function request<T>(path: string, init?: RequestInit, retried = false): Pr
   const text = await res.text();
   if (!res.ok) {
     let msg = text;
+    let access: SellerAccess | undefined;
     try {
-      const j = JSON.parse(text) as { error?: string };
+      const j = JSON.parse(text) as { error?: string; access?: SellerAccess };
       if (j.error) msg = j.error;
+      access = j.access;
     } catch { /* raw */ }
+    if (res.status === 423 && access) {
+      // خارج أوقات الفتح — لا نُخرج البائع من جلسته، فقط نقفل الواجهة حتى يحين الوقت
+      publishAccess(access);
+      throw new AccessClosedError(msg || 'الويب مغلق الآن', access);
+    }
     const authCall = path.startsWith('/auth/seller-login') || path.startsWith('/auth/seller-lookup') || path.startsWith('/auth/seller-refresh');
     if (res.status === 502 || res.status === 503 || res.status === 504) {
       throw new Error('بيانات المحل لم تصل إلى السيرفر بعد — انتظر المزامنة من لوحة التحكم');
@@ -148,11 +190,12 @@ function weekQs(weekStart?: string) {
 export const api = {
   lookup: (id: number) => request<SellerMe>(`/auth/seller-lookup?id=${id}`),
   login: (salesmanId: number, pin: string) =>
-    request<{ token: string; seller: SellerMe }>('/auth/seller-login', {
+    request<{ token: string; seller: SellerMe; access?: SellerAccess }>('/auth/seller-login', {
       method: 'POST',
       body: JSON.stringify({ salesmanId, pin }),
     }),
   me: () => request<SellerMe>('/api/seller/me'),
+  access: () => request<SellerAccess>('/api/seller/access'),
   dashboard: async (weekStart?: string) => {
     const d = await request<Dashboard>(`/api/seller/dashboard${weekQs(weekStart)}`);
     return { ...d, goals: liveGoals(d.goals) };

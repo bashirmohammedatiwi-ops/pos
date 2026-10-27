@@ -6,6 +6,7 @@ import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconOut, IconRefresh, I
 import { Goals } from './pages/Goals';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
+import { AccessGate } from './access';
 import { Products } from './pages/Products';
 
 const links = [
@@ -297,6 +298,7 @@ export function App() {
   return (
     <>
       <Boot />
+      <AccessGate />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/*" element={<Guard />} />

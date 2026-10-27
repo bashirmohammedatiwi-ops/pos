@@ -165,6 +165,84 @@ function readBody(req) {
   });
 }
 
+/* ── أوقات فتح ويب البائع — بتوقيت العراق (UTC+3 ثابت، لا توقيت صيفي منذ 2008) ── */
+const IRAQ_OFFSET_MIN = 180;
+const DAY_NAMES = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+
+function hhmm(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** حالة الوصول الآن: مفتوح/مغلق، ومتى يفتح ومتى يغلق (ISO بتوقيت UTC). */
+function accessState(acc, nowMs = Date.now()) {
+  const from = acc && Number.isInteger(acc.accessFromMin) ? acc.accessFromMin : null;
+  const to = acc && Number.isInteger(acc.accessToMin) ? acc.accessToMin : null;
+  const days = acc && Number.isInteger(acc.accessDays) && acc.accessDays > 0 ? acc.accessDays & 127 : 127;
+  const serverNow = new Date(nowMs).toISOString();
+  if (from == null || to == null || from === to) {
+    if (days === 127) return { restricted: false, open: true, serverNow };
+  }
+  const fromM = from == null || to == null || from === to ? 0 : from;
+  const toM = from == null || to == null || from === to ? 1440 : to;
+  const iraq = new Date(nowMs + IRAQ_OFFSET_MIN * 60000);
+  const mins = iraq.getUTCHours() * 60 + iraq.getUTCMinutes();
+  const dayIdx = (iraq.getUTCDay() + 1) % 7; // السبت = 0
+  const allowed = d => ((days >> (((d % 7) + 7) % 7)) & 1) === 1;
+  const midnightUtcMs = Date.UTC(iraq.getUTCFullYear(), iraq.getUTCMonth(), iraq.getUTCDate()) - IRAQ_OFFSET_MIN * 60000;
+  const at = (dayOffset, minute) => new Date(midnightUtcMs + dayOffset * 86400000 + minute * 60000).toISOString();
+  const overnight = fromM > toM;
+  let open = false;
+  let closesAt = null;
+  if (!overnight) {
+    open = allowed(dayIdx) && mins >= fromM && mins < toM;
+    if (open) closesAt = at(0, toM);
+  } else if (mins >= fromM && allowed(dayIdx)) {
+    open = true;
+    closesAt = at(1, toM);
+  } else if (mins < toM && allowed(dayIdx - 1)) {
+    open = true;
+    closesAt = at(0, toM);
+  }
+  let opensAt = null;
+  if (!open) {
+    for (let k = 0; k <= 7; k++) {
+      if (!allowed(dayIdx + k)) continue;
+      if (k === 0 && mins >= fromM) continue;
+      opensAt = at(k, fromM);
+      break;
+    }
+  }
+  const dayList = DAY_NAMES.filter((_, i) => allowed(i));
+  return {
+    restricted: true,
+    open,
+    serverNow,
+    opensAt,
+    closesAt,
+    from: hhmm(fromM % 1440),
+    to: toM === 1440 ? '24:00' : hhmm(toM),
+    days: dayList.length === 7 ? 'كل الأيام' : dayList.join('، '),
+  };
+}
+
+function to12(hm) {
+  const [h, m] = String(hm || '').split(':').map(Number);
+  if (!Number.isFinite(h)) return hm;
+  const suffix = h < 12 || h === 24 ? 'ص' : 'م';
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${hh}:${String(m || 0).padStart(2, '0')} ${suffix}`;
+}
+
+function sendClosed(res, access) {
+  send(res, 423, {
+    error: `الويب متاح لك من ${to12(access.from)} إلى ${to12(access.to)} بتوقيت العراق (${access.days})`,
+    code: 'outside_hours',
+    access,
+  });
+}
+
 function syncAuthorized(req) {
   const header = req.headers['x-fot-sync-key'] || '';
   const auth = req.headers.authorization || '';
@@ -765,6 +843,9 @@ function applySync(payload) {
       pinHash: row.pinHash ?? row.PinHash ?? '',
       isActive: row.isActive ?? row.IsActive ?? true,
       mustChangePin: row.mustChangePin ?? row.MustChangePin ?? false,
+      accessFromMin: row.accessFromMin ?? row.AccessFromMin ?? null,
+      accessToMin: row.accessToMin ?? row.AccessToMin ?? null,
+      accessDays: row.accessDays ?? row.AccessDays ?? 127,
     };
   }
   const rawSnapshots = {};
@@ -887,9 +968,14 @@ const server = http.createServer(async (req, res) => {
         send(res, 401, { error: 'الرمز غير صحيح' });
         return;
       }
+      const loginAccess = accessState(acc);
+      if (!loginAccess.open) {
+        sendClosed(res, loginAccess);
+        return;
+      }
       const snap = state.snapshots[id];
       const me = snap?.me || snap?.Me || { id: acc.id, name: acc.name, mustChangePin: acc.mustChangePin };
-      send(res, 200, { token: issueSellerToken(acc), seller: me });
+      send(res, 200, { token: issueSellerToken(acc), seller: me, access: loginAccess });
       return;
     }
 
@@ -900,9 +986,14 @@ const server = http.createServer(async (req, res) => {
         send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
         return;
       }
+      const refreshAccess = accessState(acc);
+      if (!refreshAccess.open) {
+        sendClosed(res, refreshAccess);
+        return;
+      }
       const snap = state.snapshots[id];
       const me = snap?.me || snap?.Me || { id: acc.id, name: acc.name, mustChangePin: acc.mustChangePin };
-      send(res, 200, { token: issueSellerToken(acc), seller: me });
+      send(res, 200, { token: issueSellerToken(acc), seller: me, access: refreshAccess });
       return;
     }
 
@@ -1062,13 +1153,26 @@ const server = http.createServer(async (req, res) => {
       send(res, 404, { error: 'لم تُرفع بيانات هذا البائع بعد' });
       return;
     }
+    if (acc.isActive === false) {
+      send(res, 401, { error: 'الحساب متوقف — راجع الإدارة' });
+      return;
+    }
+    const access = accessState(acc);
+    if (req.method === 'GET' && url.pathname === '/api/seller/access') {
+      send(res, 200, access);
+      return;
+    }
+    if (!access.open) {
+      sendClosed(res, access);
+      return;
+    }
 
     const weekStart = url.searchParams.get('weekStart');
     const pack = findPack(snap, weekStart);
     const me = snap.me || snap.Me || { id: acc.id, name: acc.name, mustChangePin: acc.mustChangePin };
 
     if (req.method === 'GET' && url.pathname === '/api/seller/me') {
-      send(res, 200, me);
+      send(res, 200, { ...me, access });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/weeks') {

@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, getLastId, getToken, setLastId, setSeller, setToken, tick } from '../api';
+import { AccessClosedError, api, getLastId, getToken, publishAccess, setLastId, setSeller, setToken, tick } from '../api';
 import { BrandMark, Keypad, LoginArt, PinDots } from '../ui';
 
 export function Login() {
@@ -58,8 +58,15 @@ export function Login() {
       setToken(res.token);
       setSeller(res.seller);
       setLastId(String(res.seller.id));
+      publishAccess(res.access);
       nav('/');
     } catch (ex) {
+      if (ex instanceof AccessClosedError) {
+        // الرمز صحيح لكن خارج الوقت — بوابة الأوقات تعرض الرسالة والعداد
+        setPin('');
+        setErr(ex.message);
+        return;
+      }
       tick(30);
       setPin('');
       setErr(ex instanceof Error ? ex.message : 'فشل الدخول');
