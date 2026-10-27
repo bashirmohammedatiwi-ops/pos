@@ -1,14 +1,14 @@
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { ago, getSeller, getToken, moneyIq, refreshSession, setSeller, setToken, shownWeekAmount, shownWeekLabel, weekRange } from './api';
 import { SellerProvider, useSeller } from './store';
 import { Avatar, BrandMark, IconBox, IconGoal, IconHome, IconOut, IconRefresh, IconSearch, Sheet } from './ui';
-import { Goals } from './pages/Goals';
+const Goals = lazy(() => import('./pages/Goals').then(m => ({ default: m.Goals })));
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { AccessGate } from './access';
-import { Products } from './pages/Products';
-import { Brands } from './pages/Brands';
+const Products = lazy(() => import('./pages/Products').then(m => ({ default: m.Products })));
+const Brands = lazy(() => import('./pages/Brands').then(m => ({ default: m.Brands })));
 import { clearBrandCache, useBrandList } from './brands';
 
 function IconBrand() {
@@ -230,6 +230,7 @@ function Shell() {
           <div className="pull" style={{ height: pull }}>{pull > 48 ? 'أفلت للتحديث' : 'اسحب للتحديث'}</div>
 
           <main className="main">
+            <Suspense fallback={<div className="page-loading" aria-hidden><span /><span /><span /></div>}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/brands" element={<Brands />} />
@@ -237,6 +238,7 @@ function Shell() {
               <Route path="/products" element={<Products />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </Suspense>
           </main>
         </div>
       </div>
@@ -317,11 +319,12 @@ export function App() {
   return (
     <>
       <Boot />
-      <AccessGate />
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/*" element={<Guard />} />
-      </Routes>
+      <AccessGate>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/*" element={<Guard />} />
+        </Routes>
+      </AccessGate>
     </>
   );
 }

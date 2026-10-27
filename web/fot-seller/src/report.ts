@@ -31,16 +31,8 @@ const STYLES: XlsxStyleDef[] = [
   { id: 'xNote', fontSize: 9, color: '64748B', valign: 'center', wrap: true },
 ];
 
-const AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-
-export function dayName(iso: string) {
-  return AR_DAYS[new Date(`${iso}T12:00:00`).getDay()];
-}
-
-export function fmtDate(iso: string) {
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
-}
+import { dayName, fmtDate } from './dates';
+export { dayName, fmtDate };
 
 function scopeLabel(f: BrandFilter) {
   return f.scope === 'mine' ? 'مبيعاتي فقط' : 'مبيعات البراند في المحل';

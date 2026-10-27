@@ -81,13 +81,13 @@ export function BrandMark({ size = 40 }: { size?: number }) {
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden>
       <defs>
         <linearGradient id="bm" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#0f766e" />
-          <stop offset="100%" stopColor="#4338ca" />
+          <stop offset="0%" stopColor="#10a37f" />
+          <stop offset="100%" stopColor="#0b1324" />
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="18" fill="url(#bm)" />
       <circle cx="32" cy="32" r="18" fill="none" stroke="#ffffff" strokeWidth="3.2" opacity="0.28" />
-      <circle cx="32" cy="32" r="18" fill="none" stroke="#99f6e4" strokeWidth="3.2" strokeDasharray="70 113" strokeLinecap="round" transform="rotate(-90 32 32)" />
+      <circle cx="32" cy="32" r="18" fill="none" stroke="#5eead4" strokeWidth="3.2" strokeDasharray="70 113" strokeLinecap="round" transform="rotate(-90 32 32)" />
       <circle cx="32" cy="32" r="6" fill="#fbbf24" />
     </svg>
   );

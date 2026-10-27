@@ -80,7 +80,7 @@ export function Login() {
       <div className="login-stage fade-up">
         <section className="login-brand">
           <BrandMark size={56} />
-          <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-teal-100">FOT SELLER</p>
+          <p className="mt-6 text-[11px] font-extrabold tracking-[0.32em] text-teal-100">DEEMA · TEAM</p>
           <h2 className="display mt-3 text-4xl font-black leading-tight">مساحتك الخاصة<br />للعمولة والأهداف</h2>
           <p className="mt-4 max-w-sm text-sm font-bold leading-7 text-white/80">
             عمولتك اليوم والأسبوع، عدد القطع، تقدّم أهدافك، وكل فاتورة بوقتها — بدون أرقام مبيعات المحل.
@@ -94,7 +94,7 @@ export function Login() {
 
         <div className="login-card">
           <LoginArt />
-          <p className="text-center text-[11px] font-extrabold tracking-[0.32em] text-gold">FOT SELLER</p>
+          <p className="text-center text-[11px] font-extrabold tracking-[0.32em] text-gold">DEEMA · TEAM</p>
           <h1 className="display mt-2 text-center text-[30px] font-black leading-tight">
             {step === 'id' ? 'مساحة البائع' : `أهلاً ${name.split(' ')[0]}`}
           </h1>

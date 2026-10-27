@@ -45,6 +45,10 @@ export interface SellerAccess {
   from?: string;
   to?: string;
   days?: string;
+  /** القيم الخام ليحسب الجهاز الجدول محلياً (خادم أحدث). */
+  fromMin?: number | null;
+  toMin?: number | null;
+  daysMask?: number;
 }
 
 export const ACCESS_EVENT = 'fot-seller-access';

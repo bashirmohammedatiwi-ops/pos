@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, getSeller } from './api';
+import { onBrandsChanged } from './access';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * براندات البائع — كل براند شجرة مواد مستقلة في الإداري.
@@ -102,6 +103,8 @@ export function useBrandList() {
     }
   });
   const [err, setErr] = useState('');
+  const [version, setVersion] = useState(0);
+  useEffect(() => onBrandsChanged(() => setVersion(v => v + 1)), []);
   useEffect(() => {
     let alive = true;
     api
@@ -119,7 +122,7 @@ export function useBrandList() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [version]);
   return { list, err };
 }
 
@@ -127,6 +130,8 @@ export function useBrandPack(seq: number | null) {
   const [pack, setPack] = useState<BrandPack | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  const [version, setVersion] = useState(0);
+  useEffect(() => onBrandsChanged(() => setVersion(v => v + 1)), []);
   useEffect(() => {
     if (!seq) return;
     let alive = true;
@@ -160,7 +165,7 @@ export function useBrandPack(seq: number | null) {
     return () => {
       alive = false;
     };
-  }, [seq]);
+  }, [seq, version]);
   return { pack, loading, err };
 }
 

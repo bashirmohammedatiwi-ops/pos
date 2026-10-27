@@ -13,7 +13,7 @@ import {
   type PresetId,
   type Scope,
 } from '../brands';
-import { dayName, exportBrandExcel, fmtDate, openBrandPdf } from '../report';
+import { dayName, fmtDate } from '../dates';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * براندي — مبيعات كل براند مرتبط بالموظف (شجرة مستقلة لكل براند)،
@@ -202,11 +202,11 @@ export function Brands() {
           </div>
 
           <div className="bx-actions">
-            <button type="button" className="bx-btn excel" disabled={!exportArgs} onClick={() => exportArgs && exportBrandExcel(exportArgs)}>
+            <button type="button" className="bx-btn excel" disabled={!exportArgs} onClick={() => exportArgs && void import('../report').then(m => m.exportBrandExcel(exportArgs))}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2.5" /><path d="M9 8l6 8M15 8l-6 8" /></svg>
               كشف Excel
             </button>
-            <button type="button" className="bx-btn pdf" disabled={!exportArgs} onClick={() => exportArgs && openBrandPdf(exportArgs)}>
+            <button type="button" className="bx-btn pdf" disabled={!exportArgs} onClick={() => exportArgs && void import('../report').then(m => m.openBrandPdf(exportArgs))}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 14h6M9 17h4" /></svg>
               كشف PDF
             </button>

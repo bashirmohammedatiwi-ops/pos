@@ -24,10 +24,33 @@ try {
   console.error('hub state load failed', err.message);
 }
 
+let saveTimer = null;
+let saving = false;
+let saveAgain = false;
+/** حفظ مجمّع غير حاجب: عدة تحديثات متتالية تُكتب مرة واحدة. */
 function saveState() {
-  const tmp = STATE_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(state));
-  fs.renameSync(tmp, STATE_FILE);
+  if (saveTimer) return;
+  saveTimer = setTimeout(async () => {
+    saveTimer = null;
+    if (saving) {
+      saveAgain = true;
+      return;
+    }
+    saving = true;
+    try {
+      const tmp = STATE_FILE + '.tmp';
+      await fs.promises.writeFile(tmp, JSON.stringify(state));
+      await fs.promises.rename(tmp, STATE_FILE);
+    } catch (err) {
+      console.error('hub state save failed', err.message);
+    } finally {
+      saving = false;
+      if (saveAgain) {
+        saveAgain = false;
+        saveState();
+      }
+    }
+  }, 400);
 }
 
 function b64url(value) {
@@ -216,6 +239,9 @@ function accessState(acc, nowMs = Date.now()) {
   }
   const dayList = DAY_NAMES.filter((_, i) => allowed(i));
   return {
+    fromMin: from == null || to == null || from === to ? null : from,
+    toMin: from == null || to == null || from === to ? null : to,
+    daysMask: days,
     restricted: true,
     open,
     serverNow,
@@ -294,6 +320,68 @@ function sellerBrandList(sellerId) {
       };
     });
 }
+
+/* ── قناة فورية للبائعين: أي تغيير من لوحة التحكم يصل للهاتف خلال ثانية ── */
+const streams = new Map(); // sellerId -> Set<{res, lastAccess, lastBrands}>
+
+function sseWrite(res, event, data) {
+  try {
+    res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n');
+  } catch {
+    /* اتصال مغلق */
+  }
+}
+
+function sellerEventState(id) {
+  const acc = state.accounts[id] || state.accounts[String(id)];
+  if (!acc || acc.isActive === false) return { kind: 'logout' };
+  return {
+    kind: 'access',
+    access: accessState(acc),
+    brands: sellerBrandList(id).map(b => b.treeSeq + ':' + (b.builtAt || '')).join(','),
+  };
+}
+
+/** يرسل لكل بائع متصل ما تغيّر فقط (الوصول، الإيقاف، البراندات). */
+function notifySellers(ids) {
+  const list = ids ? ids.map(Number) : [...streams.keys()];
+  for (const id of list) {
+    const set = streams.get(id);
+    if (!set || !set.size) continue;
+    const st = sellerEventState(id);
+    for (const c of set) {
+      if (st.kind === 'logout') {
+        sseWrite(c.res, 'logout', {});
+        continue;
+      }
+      const a = st.access;
+      const key = [a.open, a.fromMin, a.toMin, a.daysMask].join('|');
+      if (key !== c.lastAccess) {
+        c.lastAccess = key;
+        sseWrite(c.res, 'access', a);
+      }
+      if (st.brands !== c.lastBrands) {
+        if (c.lastBrands !== undefined) sseWrite(c.res, 'brands', {});
+        c.lastBrands = st.brands;
+      }
+    }
+  }
+}
+
+// حدود الوقت (فتح/إغلاق) تُرصد كل 10 ثوانٍ لكل المتصلين
+setInterval(() => notifySellers(), 10000).unref();
+// نبضة تبقي الاتصال حياً خلف البروكسي والشبكات المتنقلة
+setInterval(() => {
+  for (const set of streams.values()) {
+    for (const c of set) {
+      try {
+        c.res.write(': ping\n\n');
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}, 20000).unref();
 
 function sendClosed(res, access) {
   send(res, 423, {
@@ -892,6 +980,69 @@ function fixManagerGoals(list) {
     .sort((a, b) => a.salesmanName.localeCompare(b.salesmanName, 'ar') || a.percent - b.percent);
 }
 
+function readAccounts(payload) {
+  const accounts = {};
+  for (const row of payload.accounts || payload.Accounts || []) {
+    const id = Number(row.id ?? row.Id);
+    if (!id) continue;
+    accounts[id] = {
+      id,
+      name: row.name ?? row.Name ?? '',
+      pinHash: row.pinHash ?? row.PinHash ?? '',
+      isActive: row.isActive ?? row.IsActive ?? true,
+      mustChangePin: row.mustChangePin ?? row.MustChangePin ?? false,
+      accessFromMin: row.accessFromMin ?? row.AccessFromMin ?? null,
+      accessToMin: row.accessToMin ?? row.AccessToMin ?? null,
+      accessDays: row.accessDays ?? row.AccessDays ?? 127,
+    };
+  }
+  return accounts;
+}
+
+function readBrandLinks(payload) {
+  const rows = payload.brandLinks || payload.BrandLinks;
+  if (!Array.isArray(rows)) return null;
+  const links = {};
+  for (const row of rows) {
+    const sid = Number(row.salesmanId ?? row.SalesmanId);
+    const seq = Number(row.treeSeq ?? row.TreeSeq);
+    if (!sid || !seq) continue;
+    (links[sid] = links[sid] || []).push({
+      treeSeq: seq,
+      name: row.treeName ?? row.TreeName ?? '#' + seq,
+      sort: Number(row.sortOrder ?? row.SortOrder ?? 0),
+    });
+  }
+  return links;
+}
+
+/** مزامنة خفيفة: الحسابات وأوقات الفتح وروابط البراندات والمدراء — دون البيانات الثقيلة. */
+function applyAccounts(payload) {
+  const next = { ...state, accounts: readAccounts(payload) };
+  const links = readBrandLinks(payload);
+  if (links) next.brandLinks = links;
+  const managerRows = payload.managers || payload.Managers;
+  if (Array.isArray(managerRows)) {
+    const managers = {};
+    for (const row of managerRows) {
+      const id = Number(row.id ?? row.Id);
+      const username = String(row.username ?? row.Username ?? '').trim().toLowerCase();
+      if (!id || !username) continue;
+      managers[id] = {
+        id,
+        username,
+        displayName: row.displayName ?? row.DisplayName ?? username,
+        passwordHash: row.passwordHash ?? row.PasswordHash ?? '',
+        isActive: row.isActive ?? row.IsActive ?? true,
+      };
+    }
+    next.managers = managers;
+  }
+  state = next;
+  saveState();
+  notifySellers();
+}
+
 function applySync(payload) {
   const accounts = {};
   for (const row of payload.accounts || []) {
@@ -984,6 +1135,7 @@ function applySync(payload) {
 
   state = next;
   saveState();
+  notifySellers();
 }
 
 const server = http.createServer(async (req, res) => {
@@ -1018,6 +1170,66 @@ const server = http.createServer(async (req, res) => {
         lastSyncAt: state.lastSyncAt,
         sellerCount: Object.keys(state.accounts).length,
         managerCount: Object.keys(state.managers || {}).length,
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/sync/accounts') {
+      if (!syncAuthorized(req)) {
+        send(res, 401, { error: 'مفتاح المزامنة غير صحيح' });
+        return;
+      }
+      const raw = await readBody(req);
+      applyAccounts(raw ? JSON.parse(raw) : {});
+      sendOpen(res, 200, { ok: true, sellerCount: Object.keys(state.accounts).length });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/sync/brand-packs') {
+      if (!syncAuthorized(req)) {
+        send(res, 401, { error: 'مفتاح المزامنة غير صحيح' });
+        return;
+      }
+      const raw = await readBody(req);
+      const payload = raw ? JSON.parse(raw) : {};
+      const brands = { ...(state.brands || {}) };
+      for (const pack of payload.brands || payload.Brands || []) {
+        const seq = Number(pack.treeSeq ?? pack.TreeSeq);
+        if (seq) brands[seq] = pack;
+      }
+      state = { ...state, brands };
+      saveState();
+      notifySellers();
+      sendOpen(res, 200, { ok: true, brandCount: Object.keys(brands).length });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/seller/events') {
+      // EventSource لا يرسل ترويسات — الرمز في الرابط
+      const payload = verifyJwt(url.searchParams.get('token') || bearerToken(req), 'seller', { ignoreExp: true });
+      const sid = Number(payload?.sub || 0);
+      if (!sid || !state.accounts[sid]) {
+        send(res, 401, { error: 'انتهت الجلسة' });
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.write('retry: 3000\n\n');
+      const client = { res, lastAccess: undefined, lastBrands: undefined };
+      if (!streams.has(sid)) streams.set(sid, new Set());
+      streams.get(sid).add(client);
+      notifySellers([sid]);
+      req.on('close', () => {
+        const set = streams.get(sid);
+        if (set) {
+          set.delete(client);
+          if (!set.size) streams.delete(sid);
+        }
       });
       return;
     }

@@ -1,179 +1,302 @@
-import { useEffect, useRef, useState } from 'react';
-import { ACCESS_EVENT, api, getToken, publishAccess, refreshSession, type SellerAccess } from './api';
-import { BrandMark } from './ui';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ACCESS_EVENT, api, getSeller, getToken, publishAccess, refreshSession, setSeller, setToken, type SellerAccess } from './api';
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * بوابة أوقات الفتح — تحدد الإدارة لكل بائع وقتاً يُفتح فيه الويب (بتوقيت العراق).
- * خارج الوقت: شاشة كاملة برسالة وعدّاد تنازلي حتى الفتح، ثم تُفتح تلقائياً.
- * أثناء الوقت: تُقفل تلقائياً لحظة انتهاء الوقت دون انتظار طلب جديد.
- * الوقت يُحسب من ساعة الخادم (لا ساعة الهاتف) عبر فرق serverNow.
+ * بوابة أوقات الفتح — صارمة وفورية:
+ *  · الجدول (البداية/النهاية/الأيام) يُحفظ على الجهاز ويُحسب محلياً كل ثانية بساعة الخادم،
+ *    فيُقفل التطبيق لحظة انتهاء الوقت حتى دون إنترنت، ولا يظهر أي محتوى قبل التحقق.
+ *  · قناة حية (SSE) من الخادم: أي تعديل من لوحة التحكم يصل خلال ثانية.
+ *  · أثناء الإغلاق لا يُركّب التطبيق إطلاقاً (لا بيانات في الصفحة) وتُمسح البيانات المخزنة.
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const IRAQ_OFFSET_MS = 3 * 3600_000;
+const SCHED_KEY = 'fot_seller_sched_';
+const BRANDS_EVENT = 'fot-seller-brands-changed';
+
+type Schedule = { restricted: boolean; fromMin: number | null; toMin: number | null; daysMask: number; skew: number; from?: string; to?: string; days?: string };
 
 function two(n: number) {
   return String(n).padStart(2, '0');
 }
 
-/** "HH:MM" (24 ساعة) → "9:00 ص" */
-function to12(hm?: string) {
-  if (!hm) return '';
-  const [h, m] = hm.split(':').map(Number);
-  if (!Number.isFinite(h)) return hm;
-  if (h === 24 || h === 0) return `12:${two(m || 0)} ص`;
+function to12(min: number | null | undefined) {
+  if (min == null) return '';
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
   const suffix = h < 12 ? 'ص' : 'م';
   const hh = h % 12 === 0 ? 12 : h % 12;
-  return `${hh}:${two(m || 0)} ${suffix}`;
+  return `${hh}:${two(m)} ${suffix}`;
 }
 
-/** تاريخ ووقت بتوقيت العراق للعرض (مستقل عن منطقة الهاتف). */
-function iraqLabel(iso: string) {
-  const d = new Date(Date.parse(iso) + IRAQ_OFFSET_MS);
-  const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-  return `${days[d.getUTCDay()]} ${to12(`${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`)}`;
+function hmToMin(hm?: string) {
+  if (!hm) return null;
+  const [h, m] = hm.split(':').map(Number);
+  return Number.isFinite(h) ? h * 60 + (m || 0) : null;
 }
 
-export function AccessGate() {
-  const [access, setAccess] = useState<SellerAccess | null>(null);
-  const [skew, setSkew] = useState(0); // serverNow − Date.now()
-  const [now, setNow] = useState(() => Date.now());
-  const checking = useRef(false);
+/** نفس منطق الخادم: مفتوح الآن؟ ومتى يفتح/يغلق — بتوقيت العراق. */
+export function evalSchedule(s: Schedule, nowMs: number): { open: boolean; opensAt: number | null; closesAt: number | null } {
+  if (!s.restricted) return { open: true, opensAt: null, closesAt: null };
+  const timed = s.fromMin != null && s.toMin != null && s.fromMin !== s.toMin;
+  const fromM = timed ? s.fromMin! : 0;
+  const toM = timed ? s.toMin! : 1440;
+  const days = s.daysMask > 0 ? s.daysMask & 127 : 127;
+  const iraq = new Date(nowMs + IRAQ_OFFSET_MS);
+  const mins = iraq.getUTCHours() * 60 + iraq.getUTCMinutes();
+  const dayIdx = (iraq.getUTCDay() + 1) % 7;
+  const allowed = (d: number) => ((days >> (((d % 7) + 7) % 7)) & 1) === 1;
+  const midnight = Date.UTC(iraq.getUTCFullYear(), iraq.getUTCMonth(), iraq.getUTCDate()) - IRAQ_OFFSET_MS;
+  const at = (k: number, minute: number) => midnight + k * 86_400_000 + minute * 60_000;
+  const overnight = fromM > toM;
+  if (!overnight) {
+    if (allowed(dayIdx) && mins >= fromM && mins < toM) return { open: true, opensAt: null, closesAt: at(0, toM) };
+  } else if (mins >= fromM && allowed(dayIdx)) {
+    return { open: true, opensAt: null, closesAt: at(1, toM) };
+  } else if (mins < toM && allowed(dayIdx - 1)) {
+    return { open: true, opensAt: null, closesAt: at(0, toM) };
+  }
+  for (let k = 0; k <= 7; k++) {
+    if (!allowed(dayIdx + k)) continue;
+    if (k === 0 && mins >= fromM) continue;
+    return { open: false, opensAt: at(k, fromM), closesAt: null };
+  }
+  return { open: false, opensAt: null, closesAt: null };
+}
 
-  // استقبال حالة الوصول من أي رد
+function scheduleFrom(a: SellerAccess): Schedule {
+  const server = Date.parse(a.serverNow);
+  return {
+    restricted: !!a.restricted,
+    fromMin: a.fromMin ?? hmToMin(a.from),
+    toMin: a.toMin ?? (a.to === '24:00' ? 1440 : hmToMin(a.to)),
+    daysMask: a.daysMask ?? 127,
+    skew: Number.isFinite(server) ? server - Date.now() : 0,
+    from: a.from,
+    to: a.to,
+    days: a.days,
+  };
+}
+
+function loadSchedule(): Schedule | null {
+  const id = getSeller()?.id;
+  if (!id) return null;
+  try {
+    const raw = localStorage.getItem(SCHED_KEY + id);
+    return raw ? (JSON.parse(raw) as Schedule) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSchedule(s: Schedule) {
+  const id = getSeller()?.id;
+  if (!id) return;
+  try {
+    localStorage.setItem(SCHED_KEY + id, JSON.stringify(s));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** يمسح كل ما يُعرض من بيانات البائع على الجهاز (أثناء الإغلاق أو الخروج). */
+export function wipeSellerData() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k === 'fot_seller_cache' || k.startsWith('fot_seller_brand_')) localStorage.removeItem(k);
+    }
+    sessionStorage.removeItem('fot_seller_week');
+  } catch {
+    /* ignore */
+  }
+}
+
+export function onBrandsChanged(fn: () => void) {
+  window.addEventListener(BRANDS_EVENT, fn);
+  return () => window.removeEventListener(BRANDS_EVENT, fn);
+}
+
+export function AccessGate({ children }: { children: ReactNode }) {
+  const nav = useNavigate();
+  const [schedule, setSchedule] = useState<Schedule | null>(() => (getToken() ? loadSchedule() : null));
+  const [checked, setChecked] = useState(() => !getToken() || loadSchedule() != null);
+  const [offline, setOffline] = useState(false);
+  const [, setTick] = useState(0);
+  const token = getToken();
+
+  // أي رد يحمل حالة الوصول (تسجيل الدخول، 423، /access، القناة الحية)
   useEffect(() => {
     const onAccess = (e: Event) => {
       const a = (e as CustomEvent<SellerAccess>).detail;
       if (!a) return;
-      const server = Date.parse(a.serverNow);
-      if (Number.isFinite(server)) setSkew(server - Date.now());
-      setAccess(a);
+      const s = scheduleFrom(a);
+      setSchedule(s);
+      saveSchedule(s);
+      setChecked(true);
+      setOffline(false);
     };
     window.addEventListener(ACCESS_EVENT, onAccess);
     return () => window.removeEventListener(ACCESS_EVENT, onAccess);
   }, []);
 
-  // سؤال الخادم عند الفتح وكل دقيقتين وعند العودة للصفحة
+  // القناة الحية + احتياط بالسؤال الدوري
   useEffect(() => {
-    const check = async () => {
-      if (checking.current || !getToken()) return;
-      checking.current = true;
-      try {
-        await api.access().then(a => window.dispatchEvent(new CustomEvent(ACCESS_EVENT, { detail: a })));
-      } catch {
-        /* 423 يُنشر تلقائياً من request؛ الأخطاء الأخرى تُتجاهل هنا */
-      } finally {
-        checking.current = false;
-      }
+    if (!token) return;
+    let es: EventSource | null = null;
+    let live = false;
+    let stopped = false;
+    const ask = () =>
+      api
+        .access()
+        .then(a => publishAccess(a))
+        .catch(e => {
+          // 423 يُنشر داخل request؛ غير ذلك = لا اتصال
+          if (!(e && typeof e === 'object' && 'access' in e)) {
+            setOffline(true);
+            setChecked(true);
+          }
+        });
+    void ask();
+    const connect = () => {
+      if (stopped || typeof EventSource === 'undefined') return;
+      es = new EventSource(`/api/seller/events?token=${encodeURIComponent(token)}`);
+      es.addEventListener('open', () => {
+        live = true;
+      });
+      es.addEventListener('access', ev => {
+        try {
+          publishAccess(JSON.parse((ev as MessageEvent).data) as SellerAccess);
+        } catch {
+          /* ignore */
+        }
+      });
+      es.addEventListener('brands', () => window.dispatchEvent(new Event(BRANDS_EVENT)));
+      es.addEventListener('logout', () => {
+        wipeSellerData();
+        setToken(null);
+        setSeller(null);
+        nav('/login', { replace: true });
+      });
+      es.onerror = () => {
+        live = false;
+      };
     };
-    void check();
-    const id = window.setInterval(check, 120_000);
+    connect();
+    // احتياط: كل 30 ثانية حين لا تكون القناة الحية متصلة، وعند العودة للتطبيق
+    const poll = window.setInterval(() => {
+      if (!live) void ask();
+    }, 30_000);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void check();
+      if (document.visibilityState === 'visible') void ask();
     };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onVisible);
     return () => {
-      window.clearInterval(id);
+      stopped = true;
+      es?.close();
+      window.clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onVisible);
     };
-  }, []);
+  }, [token, nav]);
 
-  // نبضة كل ثانية فقط حين يلزم عدّاد أو إغلاق قريب
-  const serverNow = now + skew;
-  const closesAt = access?.open && access.closesAt ? Date.parse(access.closesAt) : null;
-  const opensAt = access && !access.open && access.opensAt ? Date.parse(access.opensAt) : null;
-  const needTick = Boolean(access?.restricted) && (opensAt != null || closesAt != null);
+  const now = Date.now() + (schedule?.skew ?? 0);
+  const state = useMemo(() => (schedule ? evalSchedule(schedule, now) : null), [schedule, now]);
+  const locked = !!schedule?.restricted && state != null && !state.open;
+
+  // نبضة كل ثانية عند وجود جدول (إغلاق لحظي / عدّاد)
   useEffect(() => {
-    if (!needTick) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    if (!schedule?.restricted) return;
+    const id = window.setInterval(() => setTick(t => t + 1), 1000);
     return () => window.clearInterval(id);
-  }, [needTick]);
+  }, [schedule?.restricted]);
 
-  // انتهى الوقت أثناء الاستخدام → قفل فوري محلياً
-  const closedLocally = closesAt != null && serverNow >= closesAt;
-  // حان وقت الفتح → إعادة التحقق من الخادم ثم فتح
-  const reached = opensAt != null && serverNow >= opensAt;
+  // عند الإغلاق: نمسح البيانات المخزنة، وعند الفتح: نجدد الجلسة
+  const wasLocked = useRef(locked);
   useEffect(() => {
-    if (!reached) return;
-    let cancelled = false;
-    void (async () => {
-      if (getToken()) {
-        await refreshSession();
-        try {
-          const a = await api.access();
-          if (!cancelled) window.dispatchEvent(new CustomEvent(ACCESS_EVENT, { detail: a }));
-        } catch {
-          /* 423 → يبقى مغلقاً بموعد جديد */
-        }
-      } else if (!cancelled && access) {
-        // على شاشة الدخول: نزيل القفل ليتمكن من الدخول
-        setAccess({ ...access, open: true, opensAt: null, closesAt: null });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [reached]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (locked) wipeSellerData();
+    if (wasLocked.current && !locked && getToken()) void refreshSession();
+    wasLocked.current = locked;
+  }, [locked]);
 
-  useEffect(() => {
-    if (!closedLocally || !access) return;
-    // نطلب الموعد التالي من الخادم (200 يُنشر هنا، و423 يُنشر داخل request)
-    void api.access().then(publishAccess).catch(() => undefined);
-  }, [closedLocally]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (token && !checked) return <Splash />;
+  if (locked && state) return <LockScreen schedule={schedule!} opensAt={state.opensAt} now={now} />;
+  if (token && offline && !schedule) return <Splash offline />;
+  return <>{children}</>;
+}
 
-  const locked = Boolean(access?.restricted) && (!access!.open || closedLocally);
-  if (!locked || !access) return null;
+function Splash({ offline }: { offline?: boolean }) {
+  return (
+    <div className="gate-splash">
+      <div className="gate-logo">
+        <span>d</span>
+      </div>
+      {offline ? <p>لا اتصال بالإنترنت — نحاول مجدداً…</p> : <div className="gate-spinner" aria-label="جارٍ التحقق" />}
+    </div>
+  );
+}
 
-  const target = opensAt;
-  const left = target != null ? Math.max(0, Math.floor((target - serverNow) / 1000)) : null;
+function LockScreen({ schedule, opensAt, now }: { schedule: Schedule; opensAt: number | null; now: number }) {
+  const left = opensAt != null ? Math.max(0, Math.floor((opensAt - now) / 1000)) : null;
   const d = left != null ? Math.floor(left / 86400) : 0;
   const h = left != null ? Math.floor((left % 86400) / 3600) : 0;
   const m = left != null ? Math.floor((left % 3600) / 60) : 0;
   const s = left != null ? left % 60 : 0;
-  const iraqNow = new Date(serverNow + IRAQ_OFFSET_MS);
-
+  const iraq = new Date(now + IRAQ_OFFSET_MS);
+  const opens = opensAt != null ? new Date(opensAt + IRAQ_OFFSET_MS) : null;
+  const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  const timed = schedule.fromMin != null && schedule.toMin != null;
   return (
-    <div className="access-gate" role="alertdialog" aria-modal="true" aria-labelledby="access-title">
-      <div className="access-card fade-up">
-        <div className="access-brand">
-          <BrandMark />
-        </div>
-        <div className="access-lock" aria-hidden>
+    <div className="lock" role="alertdialog" aria-modal="true" aria-labelledby="lock-title">
+      <div className="lock-glow" aria-hidden />
+      <div className="lock-card">
+        <div className="lock-ring" aria-hidden>
           <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7v5l3 2" />
+            <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+            <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
           </svg>
         </div>
-        <h1 id="access-title" className="access-title">الويب مغلق الآن</h1>
-        <p className="access-text">
-          وقت فتح حسابك من <b>{to12(access.from)}</b> إلى <b>{to12(access.to)}</b>
+        <h1 id="lock-title">التطبيق مغلق الآن</h1>
+        <p className="lock-text">
+          {timed ? (
+            <>
+              وقت عملك من <b>{to12(schedule.fromMin)}</b> إلى <b>{to12(schedule.toMin)}</b>
+            </>
+          ) : (
+            'متاح لك في الأيام المحددة فقط'
+          )}
           <br />
-          <span className="access-days">{access.days}</span> · بتوقيت العراق
+          <span>{schedule.days || 'كل الأيام'}</span> · بتوقيت العراق
         </p>
-
         {left != null ? (
           <>
-            <div className="access-sub">يُفتح بعد</div>
-            <div className="access-timer" dir="ltr">
+            <div className="lock-sub">يُفتح بعد</div>
+            <div className="lock-timer" dir="ltr">
               {d > 0 && (
                 <>
                   <span className="cell"><b>{d}</b><small>يوم</small></span>
-                  <span className="sep">:</span>
+                  <i>:</i>
                 </>
               )}
               <span className="cell"><b>{two(h)}</b><small>ساعة</small></span>
-              <span className="sep">:</span>
+              <i>:</i>
               <span className="cell"><b>{two(m)}</b><small>دقيقة</small></span>
-              <span className="sep">:</span>
+              <i>:</i>
               <span className="cell"><b>{two(s)}</b><small>ثانية</small></span>
             </div>
-            {access.opensAt && <div className="access-when">موعد الفتح: {iraqLabel(access.opensAt)}</div>}
+            {opens && (
+              <div className="lock-when">
+                {DAYS[opens.getUTCDay()]} · {to12(opens.getUTCHours() * 60 + opens.getUTCMinutes())}
+              </div>
+            )}
           </>
         ) : (
-          <div className="access-sub">جاري التحقق من الموعد…</div>
+          <div className="lock-sub">لا موعد فتح قادم — راجع الإدارة</div>
         )}
-
-        <div className="access-now">
-          الساعة الآن في العراق: <b dir="ltr">{to12(`${two(iraqNow.getUTCHours())}:${two(iraqNow.getUTCMinutes())}`)}</b>
+        <div className="lock-now">
+          الساعة في العراق <b dir="ltr">{to12(iraq.getUTCHours() * 60 + iraq.getUTCMinutes())}</b>
         </div>
       </div>
     </div>
