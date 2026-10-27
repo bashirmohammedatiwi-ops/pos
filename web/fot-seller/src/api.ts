@@ -1,4 +1,5 @@
 import { scrubSellerPayload } from './privacy';
+import type { BrandPack, BrandSummary } from './brands';
 
 const TOKEN_KEY = 'fot_seller_token';
 const SELLER_KEY = 'fot_seller_me';
@@ -196,6 +197,8 @@ export const api = {
     }),
   me: () => request<SellerMe>('/api/seller/me'),
   access: () => request<SellerAccess>('/api/seller/access'),
+  brands: () => request<BrandSummary[]>('/api/seller/brands'),
+  brand: (seq: number) => request<BrandPack>(`/api/seller/brands/${seq}`),
   dashboard: async (weekStart?: string) => {
     const d = await request<Dashboard>(`/api/seller/dashboard${weekQs(weekStart)}`);
     return { ...d, goals: liveGoals(d.goals) };
@@ -248,7 +251,8 @@ export function dayKey(iso: string) {
   return iso.slice(0, 10);
 }
 
-export function dayLabel(iso: string) {
+export function dayLabel(iso?: string | null) {
+  if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
   return d.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'short' });
@@ -292,7 +296,7 @@ export function receiptLabel(n?: number | null) {
   return n ? `#${n}` : 'فاتورة';
 }
 
-export function weekRange(start: string, end: string) {
+export function weekRange(start?: string | null, end?: string | null) {
   return `${dayLabel(start)} — ${dayLabel(end)}`;
 }
 

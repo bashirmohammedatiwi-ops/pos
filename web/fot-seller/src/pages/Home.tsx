@@ -7,6 +7,29 @@ import { CommissionList, CommissionSheet } from '../lines';
 import { useSeller } from '../store';
 import { CountMoney, DayStrip, ErrorBox, Ring, SectionHead, Skeleton, Track } from '../ui';
 import { WeekBar } from '../week';
+import { useBrandList } from '../brands';
+
+/** شريط براندات الموظف في الرئيسية — دخول سريع لكشف كل براند. */
+function BrandStrip() {
+  const { list } = useBrandList();
+  if (!list?.length) return null;
+  return (
+    <section className="brand-strip">
+      <div className="brand-strip-head">
+        <span>براندي</span>
+        <Link to="/brands">الكشوفات ←</Link>
+      </div>
+      <div className="brand-strip-list">
+        {list.map(b => (
+          <Link key={b.treeSeq} to={`/brands?b=${b.treeSeq}`} className="brand-chip">
+            <b>{b.name}</b>
+            <small>{b.productCount} مادة · مبيعات وكشف Excel و PDF</small>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function Home() {
   const { weekStart, setWeek, dash, weeks, lines, err, loading, reload } = useSeller();
@@ -36,6 +59,7 @@ export function Home() {
 
   return (
     <div className="fade-up space-y-4">
+      <BrandStrip />
       <section className="hero">
         <p className="kicker">{greeting()}</p>
         <h1 className="display mt-1 text-[28px] font-black leading-tight">{dash.seller.name}</h1>

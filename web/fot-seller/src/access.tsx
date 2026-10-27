@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ACCESS_EVENT, api, getToken, refreshSession, type SellerAccess } from './api';
+import { ACCESS_EVENT, api, getToken, publishAccess, refreshSession, type SellerAccess } from './api';
 import { BrandMark } from './ui';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -116,8 +116,8 @@ export function AccessGate() {
 
   useEffect(() => {
     if (!closedLocally || !access) return;
-    // نطلب الموعد التالي من الخادم
-    void api.access().catch(() => undefined);
+    // نطلب الموعد التالي من الخادم (200 يُنشر هنا، و423 يُنشر داخل request)
+    void api.access().then(publishAccess).catch(() => undefined);
   }, [closedLocally]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const locked = Boolean(access?.restricted) && (!access!.open || closedLocally);

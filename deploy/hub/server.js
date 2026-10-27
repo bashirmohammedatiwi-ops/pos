@@ -235,6 +235,66 @@ function to12(hm) {
   return `${hh}:${String(m || 0).padStart(2, '0')} ${suffix}`;
 }
 
+/** حزمة براند لبائع محدد: نستبدل رقم البائع بعلامة «لي/لغيري» ونجمع، فلا تُكشف هوية بائع آخر. */
+function brandPackFor(pack, sellerId) {
+  const rows = new Map();
+  for (const r of pack.rows || pack.Rows || []) {
+    const [day, article, section, salesman, qty, amount] = r;
+    const mine = Number(salesman) === sellerId ? 1 : 0;
+    const key = `${day}|${article}|${section}|${mine}`;
+    const cur = rows.get(key);
+    if (cur) {
+      cur[4] += Number(qty) || 0;
+      cur[5] += Number(amount) || 0;
+    } else rows.set(key, [day, Number(article), Number(section), mine, Number(qty) || 0, Number(amount) || 0]);
+  }
+  const receipts = new Map();
+  for (const r of pack.receiptRows || pack.ReceiptRows || []) {
+    const [day, section, salesman, count] = r;
+    const mine = Number(salesman) === sellerId ? 1 : 0;
+    const key = `${day}|${section}|${mine}`;
+    const cur = receipts.get(key);
+    if (cur) cur[3] += Number(count) || 0;
+    else receipts.set(key, [day, Number(section), mine, Number(count) || 0]);
+  }
+  // فواتير «كل المحل» بلا تقسيم بائع (لا تتكرر فاتورة فيها بنود لبائعَين)
+  const receiptsAll = (pack.receiptTotals || pack.ReceiptTotals || []).map(r => [r[0], Number(r[1]), Number(r[2]) || 0]);
+  return {
+    treeSeq: Number(pack.treeSeq ?? pack.TreeSeq),
+    name: pack.treeName ?? pack.TreeName ?? '',
+    receiptsAll,
+    builtAt: pack.builtAt ?? pack.BuiltAt ?? null,
+    from: pack.from ?? pack.From ?? null,
+    products: (pack.products || pack.Products || []).map(p => ({
+      id: Number(p.id ?? p.Id),
+      name: p.name ?? p.Name ?? '',
+      barcode: p.barcode ?? p.Barcode ?? '',
+      price: Number(p.price ?? p.Price ?? 0),
+    })),
+    // أسماء الفروع لا تُعرض للبائع (نفس سياسة الخصوصية في بقية الويب)
+    sections: [],
+    rows: [...rows.values()],
+    receipts: [...receipts.values()],
+  };
+}
+
+function sellerBrandList(sellerId) {
+  const links = (state.brandLinks || {})[sellerId] || (state.brandLinks || {})[String(sellerId)] || [];
+  return links
+    .slice()
+    .sort((a, b) => a.sort - b.sort)
+    .map(l => {
+      const pack = (state.brands || {})[l.treeSeq] || (state.brands || {})[String(l.treeSeq)];
+      return {
+        treeSeq: l.treeSeq,
+        name: (pack && (pack.treeName ?? pack.TreeName)) || l.name,
+        productCount: pack ? (pack.products || pack.Products || []).length : 0,
+        builtAt: pack ? pack.builtAt ?? pack.BuiltAt ?? null : null,
+        ready: !!pack,
+      };
+    });
+}
+
 function sendClosed(res, access) {
   send(res, 423, {
     error: `الويب متاح لك من ${to12(access.from)} إلى ${to12(access.to)} بتوقيت العراق (${access.days})`,
@@ -857,10 +917,37 @@ function applySync(payload) {
     rawSnapshots[id] = snap;
     snapshots[id] = scrub(snap);
   }
+  // براندات البائعين: الروابط تُرسل كل مرة، والحزم الثقيلة فقط عند إعادة بنائها (وإلا نحتفظ بالسابقة)
+  const brandLinks = {};
+  for (const row of payload.brandLinks || payload.BrandLinks || []) {
+    const sid = Number(row.salesmanId ?? row.SalesmanId);
+    const seq = Number(row.treeSeq ?? row.TreeSeq);
+    if (!sid || !seq) continue;
+    (brandLinks[sid] = brandLinks[sid] || []).push({ treeSeq: seq, name: row.treeName ?? row.TreeName ?? `#${seq}`, sort: Number(row.sortOrder ?? row.SortOrder ?? 0) });
+  }
+  let brands = state.brands || {};
+  const incomingBrands = payload.brands || payload.Brands;
+  if (Array.isArray(incomingBrands)) {
+    const prev = state.brands || {};
+    brands = {};
+    for (const pack of incomingBrands) {
+      const seq = Number(pack.treeSeq ?? pack.TreeSeq);
+      if (seq) brands[seq] = pack;
+    }
+    // شجرة فشل بناؤها هذه المرة: نُبقي حزمتها السابقة ما دامت مرتبطة ببائع
+    const linked = new Set(Object.values(brandLinks).flat().map(l => l.treeSeq));
+    for (const seq of linked) {
+      if (!brands[seq] && prev[seq]) brands[seq] = prev[seq];
+    }
+  }
+  const hasLinks = Array.isArray(payload.brandLinks || payload.BrandLinks);
+
   const next = {
     lastSyncAt: new Date().toISOString(),
     accounts,
     snapshots,
+    brandLinks: hasLinks ? brandLinks : state.brandLinks || {},
+    brands,
     managers: state.managers || {},
     managerSnapshot: state.managerSnapshot || null,
     detailSnapshots: state.detailSnapshots || {},
@@ -1172,8 +1259,29 @@ const server = http.createServer(async (req, res) => {
     const me = snap.me || snap.Me || { id: acc.id, name: acc.name, mustChangePin: acc.mustChangePin };
 
     if (req.method === 'GET' && url.pathname === '/api/seller/me') {
-      send(res, 200, { ...me, access });
+      send(res, 200, { ...me, access, brandCount: sellerBrandList(id).length });
       return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/seller/brands') {
+      send(res, 200, sellerBrandList(id));
+      return;
+    }
+    {
+      const bm = url.pathname.match(/^\/api\/seller\/brands\/(\d+)$/);
+      if (req.method === 'GET' && bm) {
+        const seq = Number(bm[1]);
+        if (!sellerBrandList(id).some(b => b.treeSeq === seq)) {
+          send(res, 404, { error: 'هذا البراند غير مرتبط بحسابك' });
+          return;
+        }
+        const pack = (state.brands || {})[seq] || (state.brands || {})[String(seq)];
+        if (!pack) {
+          send(res, 404, { error: 'بيانات البراند لم تُرفع بعد — انتظر دقائق' });
+          return;
+        }
+        send(res, 200, brandPackFor(pack, id));
+        return;
+      }
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/weeks') {
       send(res, 200, snap.weeks || snap.Weeks || []);
