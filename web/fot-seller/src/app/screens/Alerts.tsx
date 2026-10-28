@@ -62,7 +62,8 @@ export function Alerts({ role, back }: { role: Role; back?: string }) {
     setLoadingMore(true);
     try {
       const r = await api.notifications(items[items.length - 1].id);
-      setItems([...items, ...r.items]);
+      // تحديث وظيفي: لا تضيع التبليغات التي وصلت أثناء التحميل
+      setItems(list => [...(list ?? []), ...r.items.filter(x => !(list ?? []).some(y => y.id === x.id))]);
       setMore(r.items.length >= 40);
     } finally {
       setLoadingMore(false);

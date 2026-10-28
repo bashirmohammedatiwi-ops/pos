@@ -93,4 +93,18 @@ public class WifiInfoPlugin extends Plugin {
         getContext().startActivity(i);
         call.resolve();
     }
+
+    /** فتح رابط خارج التطبيق (تنزيل تحديث APK في المتصفح/مدير التنزيلات) */
+    @PluginMethod
+    public void openUrl(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            call.reject("invalid url");
+            return;
+        }
+        Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(i);
+        call.resolve();
+    }
 }

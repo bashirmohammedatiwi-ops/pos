@@ -148,6 +148,12 @@ export const I = {
       <path d="M4 8v8M20 8v8M1.8 10.5v3M22.2 10.5v3" />
     </Svg>
   ),
+  download: ({ size }: IconProps) => (
+    <Svg size={size}>
+      <path d="M12 3.5V15M7.5 10.5 12 15l4.5-4.5" />
+      <path d="M5 16.5v2A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5v-2" />
+    </Svg>
+  ),
   share: ({ size }: IconProps) => (
     <Svg size={size}>
       <path d="M12 15V3.5M7.5 8 12 3.5 16.5 8" />

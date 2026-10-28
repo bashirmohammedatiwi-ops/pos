@@ -321,7 +321,7 @@ function Boot() {
       void refreshTeam().then(r => {
         if (r.sellerToken) setToken(r.sellerToken);
         else if (getToken()) void refreshSession();
-        if (r.ok) void registerPush();
+        if (r.ok) void registerPush('staff', getTeamToken());
       });
     } else if (getToken()) void refreshSession();
   }, []);

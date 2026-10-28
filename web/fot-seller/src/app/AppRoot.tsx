@@ -4,7 +4,8 @@ import { AccessGate, wipeSellerData } from '../access';
 import { getToken, refreshSession, setSeller, setToken } from '../api';
 import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
-import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush } from '../team';
+import { UpdateCheck } from './Update';
+import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
 import { ManagerApp } from './manager/ManagerApp';
@@ -125,7 +126,7 @@ function StaffLive() {
           toast(m.data.item.title);
         }
         const msg = m.data.message;
-        if (m.event === 'chat' && msg && msg.sender.key !== `staff:${getTeamMe()?.id}` && !path.current.startsWith(`/chat/${m.data.convId}`)) {
+        if (m.event === 'chat' && msg && msg.sender.key !== `staff:${getTeamMe()?.id}` && path.current !== `/chat/${m.data.convId}`) {
           haptic('tap');
           toast(`💬 ${msg.sender.name}: ${msg.body || 'صورة'}`);
         }
@@ -266,6 +267,7 @@ export function TeamApp() {
 
   const logout = useCallback(() => {
     haptic('tap');
+    void unregisterPush('staff', getTeamToken());
     clearBrandCache();
     wipeSellerData();
     setToken(null);
@@ -287,7 +289,7 @@ export function TeamApp() {
         }
         if (r.sellerToken) setToken(r.sellerToken);
         else if (getToken()) void refreshSession();
-        void registerPush();
+        void registerPush('staff', getTeamToken(), link => nav(link));
       });
     } else if (getToken()) void refreshSession();
     return () => {
@@ -305,6 +307,7 @@ export function TeamApp() {
           <Route path="/*" element={<Guard onLogout={logout} />} />
         </Routes>
       </AccessGate>
+      <UpdateCheck />
       <ToastHost />
     </>
   );

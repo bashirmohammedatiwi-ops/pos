@@ -96,27 +96,56 @@ export const teamApi = {
   },
 };
 
-/** تسجيل الهاتف لإشعارات Firebase (يُتجاهل بهدوء إن لم تُفعَّل في البناء). */
-export async function registerPush() {
-  if (!PUSH_ENABLED) return;
-  const token = getTeamToken();
-  if (!token) return;
+const PUSH_PATH = { staff: '/api/team/push-token', manager: '/api/team/m/push-token' } as const;
+let pushValue: string | null = null;
+
+/**
+ * تسجيل الهاتف لإشعارات Firebase (يُتجاهل بهدوء إن لم تُفعَّل في البناء).
+ * onOpen: الضغط على الإشعار يفتح الصفحة المرتبطة به (رابط داخل التطبيق).
+ */
+export async function registerPush(role: 'staff' | 'manager', bearer: string | null, onOpen?: (link: string) => void) {
+  if (!PUSH_ENABLED || !bearer) return;
   try {
     const { PushNotifications } = await import('@capacitor/push-notifications');
     const perm = await PushNotifications.requestPermissions();
     if (perm.receive !== 'granted') return;
     await PushNotifications.removeAllListeners();
+    if (platform() === 'android') {
+      await PushNotifications.createChannel({ id: 'team', name: 'تنبيهات الفريق', description: 'الطلبات والإعلانات والمحادثات والحضور', importance: 5, visibility: 1, vibration: true }).catch(() => undefined);
+    }
     await PushNotifications.addListener('registration', async t => {
+      pushValue = t.value;
       const dev = await deviceInfo();
-      await fetch(apiUrl('/api/team/push-token'), {
+      await fetch(apiUrl(PUSH_PATH[role]), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
         body: JSON.stringify({ token: t.value, platform: platform(), deviceId: dev.deviceId }),
       }).catch(() => undefined);
+    });
+    await PushNotifications.addListener('pushNotificationActionPerformed', a => {
+      const link = String((a.notification.data as { link?: string } | undefined)?.link || '');
+      if (link && onOpen) onOpen(link);
     });
     await PushNotifications.register();
   } catch {
     /* الإشعارات اختيارية */
+  }
+}
+
+/** عند الخروج: يتوقف وصول إشعارات هذا الحساب إلى الهاتف */
+export async function unregisterPush(role: 'staff' | 'manager', bearer: string | null) {
+  if (!PUSH_ENABLED || !bearer) return;
+  try {
+    const dev = await deviceInfo();
+    await fetch(apiUrl(PUSH_PATH[role]), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+      body: JSON.stringify({ token: pushValue, deviceId: dev.deviceId }),
+    });
+    const { PushNotifications } = await import('@capacitor/push-notifications');
+    await PushNotifications.removeAllListeners();
+  } catch {
+    /* بلا شبكة: يُنظَّف الرمز لاحقاً عند فشل الإرسال */
   }
 }
 

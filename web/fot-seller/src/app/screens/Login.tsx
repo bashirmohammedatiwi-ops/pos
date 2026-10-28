@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AccessClosedError, api, publishAccess, setLastId, setSeller, setToken } from '../../api';
 import { apiUrl } from '../../config';
-import { KIND_LABEL, getLastCode, registerPush, setLastCode, setTeamMe, setTeamToken, teamApi } from '../../team';
+import { KIND_LABEL, getLastCode, registerPush, getTeamToken, setLastCode, setTeamMe, setTeamToken, teamApi } from '../../team';
 import { Avatar, I, Mark, Segmented } from '../kit';
 import { haptic, statusOnHero } from '../native';
 
@@ -129,7 +129,7 @@ function StaffLogin() {
           setLastId(String(res.staff.salesmanId));
         }
         if (res.access) publishAccess(res.access as never);
-        void registerPush();
+        void registerPush('staff', getTeamToken());
       } else {
         const res = await api.login(Number(code), value);
         setToken(res.token);

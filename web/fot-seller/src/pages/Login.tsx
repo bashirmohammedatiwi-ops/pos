@@ -102,7 +102,7 @@ export function Login() {
         }
         setLastCode(code.trim());
         if (res.access) publishAccess(res.access as never);
-        void registerPush();
+        void registerPush('staff', getTeamToken());
       } else {
         const res = await api.login(Number(code), pin);
         setToken(res.token);

@@ -13,6 +13,7 @@ import {
   WEEK_DAYS,
   clearManager,
   getManagerMe,
+  getManagerToken,
   leaveWhen,
   managerApi,
   mediaUrl,
@@ -32,7 +33,7 @@ import {
   type ManagerPerms,
   type Post,
 } from '../work';
-import { KIND_LABEL } from '../../team';
+import { KIND_LABEL, registerPush, unregisterPush } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق المدير داخل «ديما · الفريق» — بنفس الهوية:
@@ -89,6 +90,8 @@ export function ManagerApp() {
           if (st === 403) setPending(0);
         });
     void load();
+    // إشعارات الهاتف للمدير؛ الضغط على الإشعار يفتح صفحته داخل نافذة المدير
+    void registerPush('manager', getManagerToken(), link => nav(link.startsWith('/m') ? link : `/m${link === '/' ? '' : link}`));
     return onLive(m => {
       if (m.event === 'leave') void load();
       if (m.event === 'notify' && m.data.item) {
@@ -96,7 +99,7 @@ export function ManagerApp() {
         toast(m.data.item.title);
       }
       // رسالة جديدة خارج غرفتها
-      if (m.event === 'chat' && m.data.message && m.data.message.sender.key !== `manager:${getManagerMe()?.id}` && !locRef.current.startsWith(`/m/chat/${m.data.convId}`)) {
+      if (m.event === 'chat' && m.data.message && m.data.message.sender.key !== `manager:${getManagerMe()?.id}` && locRef.current !== `/m/chat/${m.data.convId}`) {
         haptic('tap');
         toast(`💬 ${m.data.message.sender.name}: ${m.data.message.body || 'صورة'}`);
       }
@@ -104,6 +107,7 @@ export function ManagerApp() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function logout() {
+    void unregisterPush('manager', getManagerToken());
     clearManager();
     nav('/login?as=manager', { replace: true });
   }

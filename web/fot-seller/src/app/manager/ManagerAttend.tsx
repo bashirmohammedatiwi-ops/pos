@@ -206,7 +206,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
               <div className="t-stat">
                 <span>العمل</span>
                 <b className="num ltr">{hhmm(a.workedMinutes)}</b>
-                <em>{a.checkOut ? `انصرف ${clockLabel(a.checkOut)}` : 'مستمر'}</em>
+                <em>{a.overtimeMinutes ? `+${dur(a.overtimeMinutes)} أوفر تايم` : a.checkOut ? `انصرف ${clockLabel(a.checkOut)}` : 'مستمر'}</em>
               </div>
               <div className="t-stat">
                 <span>الاستراحة</span>
@@ -289,7 +289,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
                     </div>
                     <div className="end">
                       <b className="num ltr">{hhmm(r.workedMinutes)}</b>
-                      <small>{r.lateMinutes ? `تأخير ${dur(r.lateMinutes)}` : 'منضبط'}</small>
+                      <small>{r.overtimeMinutes ? `+${dur(r.overtimeMinutes)} أوفر` : r.lateMinutes ? `تأخير ${dur(r.lateMinutes)}` : 'منضبط'}</small>
                     </div>
                   </div>
                 ))}

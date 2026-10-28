@@ -388,7 +388,7 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
     scrollDown(true);
     try {
       const saved = await api.send(id, { body: body || undefined, image: image ?? null, replyTo: replyId });
-      setMsgs(list => (list ?? []).filter(x => x.id !== temp.id && x.id !== saved.id).concat(saved).sort((a, b) => a.id - b.id));
+      setMsgs(list => (list ?? []).filter(x => x.id !== temp.id && x.id !== saved.id).concat(saved).sort((a, b) => Number(a.id < 0) - Number(b.id < 0) || (a.id < 0 ? 0 : a.id - b.id)));
     } catch (e) {
       setMsgs(list => (list ?? []).filter(x => x.id !== temp.id));
       setText(body);

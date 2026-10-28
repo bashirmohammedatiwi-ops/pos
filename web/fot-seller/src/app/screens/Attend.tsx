@@ -104,6 +104,12 @@ export function AttendCard({ compact }: { compact?: boolean }) {
   const ob = data?.openBreak ?? null;
   useTick(!!data?.attendance && !data.attendance.checkOut);
   const scheduled = useRef('');
+  // فرق ساعة الهاتف عن ساعة الخادم: العداد والمنبّه يتبعان وقت الخادم حتى لو كانت ساعة الهاتف خاطئة
+  const skew = useRef(0);
+  useEffect(() => {
+    if (data?.now) skew.current = Date.parse(data.now) - Date.now();
+  }, [data]);
+  const nowMs = () => Date.now() + skew.current;
 
   // منبّه الاستراحة وتذكير الدوام (مرة لكل حالة)
   useEffect(() => {
@@ -111,7 +117,7 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     const key = `${data.attendance?.id ?? 0}:${ob?.id ?? 0}:${data.attendance?.checkOut ?? ''}`;
     if (scheduled.current === key) return;
     scheduled.current = key;
-    if (ob) void scheduleBreakAlarms(ob.endsAt, 2);
+    if (ob) void scheduleBreakAlarms(new Date(Date.parse(ob.endsAt) - skew.current).toISOString(), data.breakWarnMinutes ?? 2);
     else void cancelBreakAlarms();
     const off = data.day?.off;
     void scheduleShiftReminders({
@@ -174,7 +180,7 @@ export function AttendCard({ compact }: { compact?: boolean }) {
   // في استراحة: عداد تنازلي حي
   if (a && !a.checkOut && ob) {
     const end = Date.parse(ob.endsAt);
-    const left = (end - Date.now()) / 1000;
+    const left = (end - nowMs()) / 1000;
     const over = left < 0;
     const total = ob.plannedMinutes * 60;
     const frac = over ? 1 : Math.max(0, Math.min(1, 1 - left / total));
@@ -214,12 +220,27 @@ export function AttendCard({ compact }: { compact?: boolean }) {
 
   // في الدوام
   if (a && !a.checkOut) {
-    const worked = Math.max(0, Math.round((Date.now() - Date.parse(a.checkIn)) / 60_000) - a.breakMinutes);
+    const worked = Math.max(0, Math.round((nowMs() - Date.parse(a.checkIn)) / 60_000) - a.breakMinutes);
+    // الأوفر تايم الجاري (للمفعّل لهم): ما زاد على الدوام الصافي
+    const net = (() => {
+      const [sh, sm] = s.start.split(':').map(Number);
+      const [eh, em] = s.end.split(':').map(Number);
+      let len = eh * 60 + em - (sh * 60 + sm);
+      if (len <= 0) len += 1440;
+      return Math.max(0, len - s.breakMinutes);
+    })();
+    const otNow = s.overtime ? (data.day?.off ? worked : Math.max(0, worked - net)) : 0;
     return (
       <section className="t-attend live">
         <div className="row">
           <span className="label">في الدوام منذ {clockLabel(a.checkIn)}</span>
-          {a.lateMinutes > 0 ? <span className="t-chip-glass down">متأخر {dur(a.lateMinutes)}</span> : <span className="t-chip-glass up">في الموعد</span>}
+          {otNow > 0 ? (
+            <span className="t-chip-glass up">أوفر تايم {dur(otNow)}</span>
+          ) : a.lateMinutes > 0 ? (
+            <span className="t-chip-glass down">متأخر {dur(a.lateMinutes)}</span>
+          ) : (
+            <span className="t-chip-glass up">في الموعد</span>
+          )}
         </div>
         <div className="clock num ltr" style={{ marginTop: 8, textAlign: 'right' }}>
           {hhmm(worked)}
@@ -265,14 +286,22 @@ export function AttendCard({ compact }: { compact?: boolean }) {
             <span>الاستراحة</span>
             <b className="num">{a.breakMinutes} د</b>
           </div>
-          <div className="t-stat">
-            <span>التأخير</span>
-            <b className="num">{a.lateMinutes ? dur(a.lateMinutes) : "—"}</b>
-          </div>
+          {a.overtimeMinutes ? (
+            <div className="t-stat">
+              <span>أوفر تايم</span>
+              <b className="num">{dur(a.overtimeMinutes)}</b>
+            </div>
+          ) : (
+            <div className="t-stat">
+              <span>التأخير</span>
+              <b className="num">{a.lateMinutes ? dur(a.lateMinutes) : '—'}</b>
+            </div>
+          )}
         </div>
         <p className="muted" style={{ marginTop: 10, fontSize: 12.5 }}>
           حضور {clockLabel(a.checkIn)} · انصراف {clockLabel(a.checkOut)}
           {a.overMinutes ? ` · تجاوز استراحة ${a.overMinutes} د` : ''}
+          {a.overtimeMinutes && a.lateMinutes ? ` · تأخير ${dur(a.lateMinutes)}` : ''}
         </p>
       </section>
     );
@@ -314,6 +343,7 @@ export function AttendHistory() {
   if (!rows.length) return null;
   const total = rows.reduce((s, r) => s + r.workedMinutes, 0);
   const late = rows.filter(r => r.lateMinutes > 0).length;
+  const ot = data?.overtime;
   return (
     <section className="t-section">
       <div className="t-section-head">
@@ -322,6 +352,22 @@ export function AttendHistory() {
           {hhmm(total)} ساعة · {late ? `${late} تأخير` : 'بلا تأخير'}
         </small>
       </div>
+      {ot && (
+        <div className="t-ot-card">
+          <div>
+            <span>الأوفر تايم هذا الشهر</span>
+            <b className="num ltr">{hhmm(ot.monthMinutes)}</b>
+            <small>{ot.days ? `في ${ot.days} ${ot.days === 1 ? 'يوم' : ot.days === 2 ? 'يومين' : 'أيام'}` : 'لا ساعات إضافية بعد'}</small>
+          </div>
+          {ot.pay ? (
+            <div className="pay">
+              <span>المستحق</span>
+              <b className="num">{ot.pay.toLocaleString('en-US')}</b>
+              <small>دينار</small>
+            </div>
+          ) : null}
+        </div>
+      )}
       <div className="t-list">
         {rows.map(r => (
           <div key={r.id} className="t-row">
@@ -339,7 +385,9 @@ export function AttendHistory() {
             </div>
             <div className="end">
               <b className="num ltr">{hhmm(r.workedMinutes)}</b>
-              <small>{r.lateMinutes ? `تأخير ${dur(r.lateMinutes)}` : r.overMinutes ? `تجاوز ${r.overMinutes} د` : 'منضبط'}</small>
+              <small className={r.overtimeMinutes ? 'ot' : undefined}>
+                {r.overtimeMinutes ? `+${dur(r.overtimeMinutes)} أوفر` : r.lateMinutes ? `تأخير ${dur(r.lateMinutes)}` : r.overMinutes ? `تجاوز ${r.overMinutes} د` : 'منضبط'}
+              </small>
             </div>
           </div>
         ))}

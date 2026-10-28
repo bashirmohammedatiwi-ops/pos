@@ -169,7 +169,7 @@ export async function hideSplash() {
 
 /* ── شبكة الواي فاي (للحضور من شبكة المحل) ── */
 export type WifiState = { bssid?: string | null; ssid?: string | null; permission?: 'granted' | 'denied'; locationEnabled?: boolean; wifiEnabled?: boolean };
-type WifiPlugin = { getInfo(): Promise<WifiState>; openLocationSettings(): Promise<void>; openWifiSettings(): Promise<void> };
+type WifiPlugin = { getInfo(): Promise<WifiState>; openLocationSettings(): Promise<void>; openWifiSettings(): Promise<void>; openUrl(o: { url: string }): Promise<void> };
 let wifiPlugin: WifiPlugin | null = null;
 async function wifi() {
   if (!wifiPlugin) {
@@ -197,6 +197,11 @@ export async function readWifi(): Promise<WifiState> {
 }
 export async function openLocationSettings() {
   if (isNative()) await (await wifi()).openLocationSettings().catch(() => undefined);
+}
+/** فتح رابط خارج التطبيق (مثل تنزيل تحديث التطبيق) */
+export async function openExternal(url: string) {
+  if (isNative()) await (await wifi()).openUrl({ url }).catch(() => window.open(url, '_system'));
+  else window.open(url, '_blank', 'noopener');
 }
 export async function openWifiSettings() {
   if (isNative()) await (await wifi()).openWifiSettings().catch(() => undefined);

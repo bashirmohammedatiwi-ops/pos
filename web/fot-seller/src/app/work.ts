@@ -265,6 +265,7 @@ export interface AttendRec {
   edited: boolean;
   note?: string | null;
   workedMinutes: number;
+  overtimeMinutes?: number;
   breakMinutes: number;
   overMinutes: number;
   breaks: BreakRec[];
@@ -280,6 +281,8 @@ export interface Shift {
   breakMinutes: number;
   maxBreaks: number;
   custom?: boolean;
+  overtime?: boolean;
+  overtimeRate?: number | null;
 }
 export interface AttendState {
   now: string;
@@ -292,6 +295,9 @@ export interface AttendState {
   breaksLeft: number;
   history: AttendRec[];
   network: { enforced: boolean; configured: boolean; needsBssid: boolean };
+  breakWarnMinutes?: number;
+  /** الأوفر تايم هذا الشهر — null إن لم يكن مفعّلاً للموظف */
+  overtime?: { monthMinutes: number; days: number; rate: number | null; pay: number | null } | null;
 }
 export type BoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent';
 export interface BoardRow {
