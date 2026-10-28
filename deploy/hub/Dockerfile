@@ -1,8 +1,9 @@
-FROM node:20-alpine
+# Node 24: قاعدة node:sqlite المدمجة لتطبيق الفريق (بلا مكتبات أصلية)
+FROM node:24-alpine
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
-COPY server.js ./
+COPY *.js ./
 ENV PORT=4705
 EXPOSE 4705
-CMD ["node", "server.js"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "server.js"]

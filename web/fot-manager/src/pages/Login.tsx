@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, getLastUser, getToken, setLastUser, setMe, setToken, tick } from '../api';
 import { BrandMark } from '../ui';
+import { STAFF_LOGIN_URL, isNative } from '../native';
 
 export function Login() {
   const nav = useNavigate();
@@ -16,6 +17,8 @@ export function Login() {
 
   useEffect(() => {
     if (getToken()) nav('/', { replace: true });
+    // داخل تطبيق الفريق: الدخول من شاشة التطبيق نفسها (نافذة «مدير»)
+    else if (isNative()) window.location.replace(STAFF_LOGIN_URL);
   }, [nav]);
 
   useEffect(() => {
@@ -54,6 +57,8 @@ export function Login() {
       setBusy(false);
     }
   }
+
+  if (isNative() && !getToken()) return null;
 
   return (
     <div className="login-wrap">

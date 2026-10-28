@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ACCESS_EVENT, api, getSeller, getToken, publishAccess, refreshSession, setSeller, setToken, type SellerAccess } from './api';
+import { apiUrl } from './config';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * بوابة أوقات الفتح — صارمة وفورية:
@@ -10,17 +11,17 @@ import { ACCESS_EVENT, api, getSeller, getToken, publishAccess, refreshSession, 
  *  · أثناء الإغلاق لا يُركّب التطبيق إطلاقاً (لا بيانات في الصفحة) وتُمسح البيانات المخزنة.
  * ───────────────────────────────────────────────────────────────────────────── */
 
-const IRAQ_OFFSET_MS = 3 * 3600_000;
+export const IRAQ_OFFSET_MS = 3 * 3600_000;
 const SCHED_KEY = 'fot_seller_sched_';
 const BRANDS_EVENT = 'fot-seller-brands-changed';
 
-type Schedule = { restricted: boolean; fromMin: number | null; toMin: number | null; daysMask: number; skew: number; from?: string; to?: string; days?: string };
+export type Schedule = { restricted: boolean; fromMin: number | null; toMin: number | null; daysMask: number; skew: number; from?: string; to?: string; days?: string };
 
-function two(n: number) {
+export function two(n: number) {
   return String(n).padStart(2, '0');
 }
 
-function to12(min: number | null | undefined) {
+export function to12(min: number | null | undefined) {
   if (min == null) return '';
   const h = Math.floor(min / 60) % 24;
   const m = min % 60;
@@ -118,13 +119,30 @@ export function onBrandsChanged(fn: () => void) {
   return () => window.removeEventListener(BRANDS_EVENT, fn);
 }
 
-export function AccessGate({ children }: { children: ReactNode }) {
+export type LockProps = { schedule: Schedule; opensAt: number | null; now: number };
+
+/**
+ * تطبيق الهاتف يمرّر واجهاته الخاصة (شاشة البدء والقفل) — المنطق نفسه في الويب والتطبيق.
+ */
+export function AccessGate({
+  children,
+  renderSplash,
+  renderLock,
+  onLogout,
+}: {
+  children: ReactNode;
+  renderSplash?: (offline: boolean) => ReactNode;
+  renderLock?: (p: LockProps) => ReactNode;
+  onLogout?: () => void;
+}) {
   const nav = useNavigate();
   const [schedule, setSchedule] = useState<Schedule | null>(() => (getToken() ? loadSchedule() : null));
   const [checked, setChecked] = useState(() => !getToken() || loadSchedule() != null);
   const [offline, setOffline] = useState(false);
   const [, setTick] = useState(0);
   const token = getToken();
+  const onLogoutRef = useRef(onLogout);
+  onLogoutRef.current = onLogout;
 
   // أي رد يحمل حالة الوصول (تسجيل الدخول، 423، /access، القناة الحية)
   useEffect(() => {
@@ -161,7 +179,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
     void ask();
     const connect = () => {
       if (stopped || typeof EventSource === 'undefined') return;
-      es = new EventSource(`/api/seller/events?token=${encodeURIComponent(token)}`);
+      es = new EventSource(apiUrl(`/api/seller/events?token=${encodeURIComponent(token)}`));
       es.addEventListener('open', () => {
         live = true;
       });
@@ -177,6 +195,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
         wipeSellerData();
         setToken(null);
         setSeller(null);
+        onLogoutRef.current?.();
         nav('/login', { replace: true });
       });
       es.onerror = () => {
@@ -221,9 +240,12 @@ export function AccessGate({ children }: { children: ReactNode }) {
     wasLocked.current = locked;
   }, [locked]);
 
-  if (token && !checked) return <Splash />;
-  if (locked && state) return <LockScreen schedule={schedule!} opensAt={state.opensAt} now={now} />;
-  if (token && offline && !schedule) return <Splash offline />;
+  if (token && !checked) return <>{renderSplash ? renderSplash(false) : <Splash />}</>;
+  if (locked && state) {
+    const p = { schedule: schedule!, opensAt: state.opensAt, now };
+    return <>{renderLock ? renderLock(p) : <LockScreen {...p} />}</>;
+  }
+  if (token && offline && !schedule) return <>{renderSplash ? renderSplash(true) : <Splash offline />}</>;
   return <>{children}</>;
 }
 

@@ -1,0 +1,1796 @@
+/* ═════════════════════════════════════════════════════════════════════════════
+ * «ديما · الفريق» — نظام تصميم تطبيق الهاتف (مستقل تماماً عن الويب)
+ * هوية: بنفسجي ملكي + زعفراني دافئ، خط Readex Pro، أسطح هادئة، وضع ليلي كامل.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+@import '@fontsource-variable/readex-pro/index.css';
+
+:root {
+  --bg: #f5f3ef;
+  --bg-elev: #ffffff;
+  --bg-sunk: #ece9e3;
+  --bg-glass: rgba(245, 243, 239, 0.82);
+  --ink: #17131f;
+  --ink-2: #4a4458;
+  --ink-3: #8a8497;
+  --ink-4: #b9b4c3;
+  --line: rgba(23, 19, 31, 0.08);
+  --line-2: rgba(23, 19, 31, 0.14);
+
+  --brand: #4c2a85;
+  --brand-2: #6d45c9;
+  --brand-ink: #3a1f69;
+  --brand-soft: #efe9fb;
+  --accent: #e39a2d;
+  --accent-ink: #9a5f05;
+  --accent-soft: #fcf0dc;
+  --ok: #138a5a;
+  --ok-soft: #e1f3ea;
+  --warn: #c27406;
+  --warn-soft: #fdf1df;
+  --bad: #cf3f3a;
+  --bad-soft: #fbe8e7;
+
+  --hero: linear-gradient(150deg, #241245 0%, #4c2a85 52%, #7b51d8 100%);
+  --hero-ink: #ffffff;
+
+  --r-xs: 10px;
+  --r-sm: 14px;
+  --r-md: 20px;
+  --r-lg: 26px;
+  --r-xl: 32px;
+
+  --shadow-1: 0 1px 2px rgba(23, 19, 31, 0.04), 0 2px 10px rgba(23, 19, 31, 0.04);
+  --shadow-2: 0 10px 30px rgba(36, 18, 69, 0.12), 0 2px 6px rgba(36, 18, 69, 0.06);
+  --shadow-hero: 0 22px 44px -14px rgba(60, 30, 120, 0.55);
+
+  --tabbar-h: 64px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0e0c13;
+  --bg-elev: #18151f;
+  --bg-sunk: #221e2b;
+  --bg-glass: rgba(14, 12, 19, 0.8);
+  --ink: #f3f0f8;
+  --ink-2: #c3bcd1;
+  --ink-3: #8a8398;
+  --ink-4: #5b5567;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-2: rgba(255, 255, 255, 0.13);
+  --brand: #9a78f0;
+  --brand-2: #b69bff;
+  --brand-ink: #d9cbff;
+  --brand-soft: rgba(154, 120, 240, 0.16);
+  --accent: #f0b04f;
+  --accent-ink: #f5c477;
+  --accent-soft: rgba(240, 176, 79, 0.14);
+  --ok: #3ccf8e;
+  --ok-soft: rgba(60, 207, 142, 0.13);
+  --warn: #f0a33b;
+  --warn-soft: rgba(240, 163, 59, 0.14);
+  --bad: #ff6b63;
+  --bad-soft: rgba(255, 107, 99, 0.13);
+  --hero: linear-gradient(150deg, #1b0e35 0%, #3b2070 55%, #5f3cb8 100%);
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  --shadow-2: 0 14px 34px rgba(0, 0, 0, 0.45);
+  --shadow-hero: 0 22px 44px -16px rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Readex Pro Variable', 'Readex Pro', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-height: 100dvh;
+  transition: background-color 0.25s var(--ease);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+button:disabled {
+  cursor: default;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+ol,
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+img,
+svg {
+  display: block;
+}
+::selection {
+  background: var(--brand-soft);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
+}
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.muted {
+  color: var(--ink-3);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── التفاعل عند اللمس ── */
+.press {
+  transition: transform 0.18s var(--ease), background-color 0.18s, opacity 0.18s;
+  will-change: transform;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.965);
+}
+.press-soft:active:not(:disabled) {
+  background: var(--bg-sunk);
+}
+:focus-visible {
+  outline: 2px solid var(--brand-2);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ═════════════ الهيكل ═════════════ */
+.t-app {
+  min-height: 100dvh;
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 18px);
+}
+.t-app.no-tabs {
+  padding-bottom: calc(var(--safe-b) + 24px);
+}
+.t-page {
+  padding: 0 18px;
+  animation: page-in 0.38s var(--ease) backwards;
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* شريط علوي مضغوط يظهر عند التمرير */
+.t-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: calc(54px + var(--safe-t));
+  padding: var(--safe-t) 14px 0;
+  background: transparent;
+  transition: background-color 0.25s, box-shadow 0.25s, backdrop-filter 0.25s;
+}
+.t-bar.scrolled {
+  background: var(--bg-glass);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  backdrop-filter: saturate(1.6) blur(18px);
+  box-shadow: 0 1px 0 var(--line);
+}
+.t-bar-title {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 650;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.22s, transform 0.22s var(--ease);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t-bar.scrolled .t-bar-title {
+  opacity: 1;
+  transform: none;
+}
+.t-bar-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 44px;
+}
+.t-bar-side.end {
+  justify-content: flex-end;
+}
+
+.t-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-1);
+  border: 1px solid var(--line);
+}
+.t-icon-btn.ghost {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+.t-icon-btn.spin svg {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* العنوان الكبير */
+.t-large {
+  padding: 2px 2px 14px;
+}
+.t-large h1 {
+  font-size: 30px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.t-large p {
+  margin-top: 4px;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+
+/* ═════════════ شريط التبويبات ═════════════ */
+.t-tabs {
+  position: fixed;
+  inset-inline: 12px;
+  bottom: calc(10px + var(--safe-b));
+  z-index: 40;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  height: var(--tabbar-h);
+  padding: 6px;
+  border-radius: 24px;
+  background: var(--bg-glass);
+  -webkit-backdrop-filter: saturate(1.8) blur(22px);
+  backdrop-filter: saturate(1.8) blur(22px);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 34px rgba(23, 19, 31, 0.14);
+}
+.t-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 18px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+.t-tab .ico {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  transition: background-color 0.25s var(--ease), transform 0.25s var(--spring);
+}
+.t-tab.on {
+  color: var(--brand);
+}
+.t-tab.on .ico {
+  background: var(--brand-soft);
+  transform: translateY(-1px);
+}
+.t-tab .dot {
+  position: absolute;
+  top: -2px;
+  inset-inline-end: 4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* ═════════════ البطاقات والأقسام ═════════════ */
+.t-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+.t-card.pad {
+  padding: 16px;
+}
+.t-section {
+  margin-top: 26px;
+}
+.t-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+.t-section-head h2 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.t-section-head .more {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand);
+}
+.t-section-head small {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* بطاقة البطل (التدرّج) */
+.t-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 20px;
+  border-radius: var(--r-lg);
+  background: var(--hero);
+  color: var(--hero-ink);
+  box-shadow: var(--shadow-hero);
+  isolation: isolate;
+}
+.t-hero::before {
+  content: '';
+  position: absolute;
+  inset: -40% -30% auto auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(240, 176, 79, 0.42), transparent);
+  z-index: -1;
+}
+.t-hero::after {
+  content: '';
+  position: absolute;
+  inset: auto auto -55% -25%;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 36px rgba(255, 255, 255, 0.03), 0 0 0 72px rgba(255, 255, 255, 0.02);
+  z-index: -1;
+}
+.t-hero .kicker {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+}
+.t-hero .amount {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 38px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.t-hero .amount small {
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0;
+}
+.t-hero .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.t-hero .meta b {
+  color: #fff;
+  font-weight: 650;
+}
+.t-hero-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.t-chip-glass {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 11.5px;
+  font-weight: 650;
+  color: #fff;
+  white-space: nowrap;
+}
+.t-chip-glass.up {
+  color: #a6f3cf;
+}
+.t-chip-glass.down {
+  color: #ffc2bd;
+}
+
+/* أعمدة الأسبوع الصغيرة داخل البطل */
+.t-week-bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: end;
+  gap: 7px;
+  height: 64px;
+  margin-top: 18px;
+}
+.t-week-bars .col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+}
+.t-week-bars .bar {
+  width: 100%;
+  margin-top: auto;
+  min-height: 4px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.22);
+  transform-origin: bottom;
+  animation: grow 0.7s var(--ease) both;
+}
+.t-week-bars .col.today .bar {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgba(240, 176, 79, 0.55);
+}
+.t-week-bars .col span {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.t-week-bars .col.today span {
+  color: #fff;
+  font-weight: 700;
+}
+@keyframes grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* إحصاءات صغيرة */
+.t-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.t-stats.two {
+  grid-template-columns: repeat(2, 1fr);
+}
+.t-stat {
+  padding: 13px 12px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+}
+.t-stat span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.t-stat b {
+  display: block;
+  margin-top: 3px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.t-stat em {
+  display: block;
+  margin-top: 1px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* صف قائمة */
+.t-list {
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+}
+.t-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 11px 14px;
+  text-align: start;
+  position: relative;
+}
+.t-row + .t-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  inset-inline-start: 62px;
+  inset-inline-end: 0;
+  height: 1px;
+  background: var(--line);
+}
+.t-list.flat .t-row + .t-row::before {
+  inset-inline-start: 14px;
+}
+.t-row .body {
+  flex: 1;
+  min-width: 0;
+}
+.t-row .title {
+  font-size: 14.5px;
+  font-weight: 560;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.t-row .sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t-row .end {
+  flex-shrink: 0;
+  text-align: end;
+}
+.t-row .end b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.t-row .end small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.t-row .chev {
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.t-row.danger {
+  color: var(--bad);
+}
+
+/* مربع الأيقونة / الحرف الأول */
+.t-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 14px;
+  font-weight: 700;
+}
+.t-tile.accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.t-tile.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.t-tile.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.t-tile.mute {
+  background: var(--bg-sunk);
+  color: var(--ink-2);
+}
+.t-tile.lg {
+  width: 46px;
+  height: 46px;
+  border-radius: 15px;
+}
+
+/* الصورة الرمزية */
+.t-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #7b51d8, #4c2a85);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--line-2);
+}
+.t-avatar.xl {
+  width: 84px;
+  height: 84px;
+  font-size: 30px;
+  box-shadow: 0 0 0 4px var(--bg-elev), 0 10px 26px rgba(76, 42, 133, 0.35);
+}
+.t-avatar.sm {
+  width: 34px;
+  height: 34px;
+  font-size: 13px;
+}
+
+/* شارات */
+.t-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 650;
+  background: var(--brand-soft);
+  color: var(--brand);
+  white-space: nowrap;
+}
+.t-badge.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.t-badge.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.t-badge.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.t-badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.t-badge.mute {
+  background: var(--bg-sunk);
+  color: var(--ink-2);
+}
+
+/* شرائح أفقية */
+.t-scroller {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  margin: 0 -18px;
+  padding: 2px 18px 6px;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 18px;
+  scrollbar-width: none;
+}
+.t-scroller::-webkit-scrollbar {
+  display: none;
+}
+.t-scroller > * {
+  scroll-snap-align: start;
+  flex-shrink: 0;
+}
+
+.t-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.t-pill small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.t-pill.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.t-pill.on small {
+  color: var(--ink-4);
+}
+:root[data-theme='dark'] .t-pill.on small {
+  color: var(--ink-3);
+}
+
+/* المفتاح المقسّم */
+.t-seg {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 4px;
+  border-radius: 15px;
+  background: var(--bg-sunk);
+}
+.t-seg-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 11px;
+  background: var(--bg-elev);
+  box-shadow: 0 3px 10px rgba(23, 19, 31, 0.1), 0 0 0 1px var(--line);
+  transition: inset-inline-start 0.32s var(--ease), width 0.32s var(--ease);
+}
+.t-seg button {
+  position: relative;
+  z-index: 1;
+  height: 36px;
+  border-radius: 11px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  transition: color 0.2s;
+}
+.t-seg button.on {
+  color: var(--ink);
+}
+.t-seg.glass {
+  background: rgba(255, 255, 255, 0.12);
+}
+.t-seg.glass .t-seg-thumb {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: none;
+}
+.t-seg.glass button {
+  color: rgba(255, 255, 255, 0.75);
+}
+.t-seg.glass button.on {
+  color: #241245;
+}
+
+/* حقل البحث والإدخال */
+.t-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+}
+.t-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14.5px;
+}
+.t-search input::placeholder {
+  color: var(--ink-3);
+}
+.t-field {
+  display: block;
+}
+.t-field > span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.t-input {
+  width: 100%;
+  height: 54px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1.5px solid var(--line-2);
+  background: var(--bg-elev);
+  font-size: 18px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.t-input:focus {
+  border-color: var(--brand-2);
+  box-shadow: 0 0 0 4px var(--brand-soft);
+}
+.t-input-wrap {
+  position: relative;
+}
+.t-input-wrap .t-input {
+  padding-inline-start: 52px;
+}
+.t-input-wrap .reveal {
+  position: absolute;
+  inset-inline-start: 6px;
+  top: 7px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink-3);
+}
+
+/* الأزرار */
+.t-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 54px;
+  padding: 0 22px;
+  border-radius: 17px;
+  font-size: 16px;
+  font-weight: 650;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 10px 22px -10px rgba(76, 42, 133, 0.7);
+  transition: transform 0.18s var(--ease), opacity 0.2s, background-color 0.2s;
+}
+.t-btn.block {
+  width: 100%;
+}
+.t-btn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+}
+.t-btn.soft {
+  background: var(--brand-soft);
+  color: var(--brand);
+  box-shadow: none;
+}
+.t-btn.plain {
+  background: var(--bg-sunk);
+  color: var(--ink);
+  box-shadow: none;
+}
+.t-btn.danger {
+  background: var(--bad);
+  box-shadow: 0 10px 22px -10px rgba(207, 63, 58, 0.7);
+}
+.t-btn.ok {
+  background: var(--ok);
+  box-shadow: 0 10px 22px -10px rgba(19, 138, 90, 0.7);
+}
+.t-btn.sm {
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 13px;
+  font-size: 14px;
+}
+.t-btn .spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+/* شريط التقدم */
+.t-track {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.t-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+  transform-origin: right;
+  animation: grow-x 0.8s var(--ease) both;
+}
+.t-track.ok i {
+  background: linear-gradient(90deg, #0f7a4f, var(--ok));
+}
+.t-track.accent i {
+  background: linear-gradient(90deg, #d0861a, var(--accent));
+}
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* حلقة النسبة */
+.t-ring {
+  position: relative;
+  flex-shrink: 0;
+}
+.t-ring svg {
+  transform: rotate(-90deg);
+}
+.t-ring .track {
+  stroke: var(--bg-sunk);
+}
+.t-ring .val {
+  stroke: var(--brand);
+  transition: stroke-dashoffset 1s var(--ease);
+}
+.t-ring.ok .val {
+  stroke: var(--ok);
+}
+.t-ring.accent .val {
+  stroke: var(--accent);
+}
+.t-ring .label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* الحالات الفارغة والهيكل العظمي */
+.t-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 24px;
+  text-align: center;
+}
+.t-empty .art {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 6px;
+  border-radius: 24px;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.t-empty h3 {
+  font-size: 16.5px;
+  font-weight: 700;
+}
+.t-empty p {
+  max-width: 280px;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.t-skel {
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--bg-sunk) 0%, var(--bg-elev) 50%, var(--bg-sunk) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.t-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-size: 13.5px;
+  font-weight: 560;
+}
+.t-error button {
+  margin-inline-start: auto;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+/* عنوان يومي لاصق داخل القوائم */
+.t-day-head {
+  position: sticky;
+  top: calc(54px + var(--safe-t));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px -18px 8px;
+  padding: 8px 20px;
+  background: var(--bg-glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+.t-day-head b {
+  color: var(--ink);
+}
+
+/* ═════════════ الورقة السفلية ═════════════ */
+.t-sheet-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(12, 8, 22, 0.42);
+  animation: fade 0.25s var(--ease) both;
+}
+.t-sheet-bg.closing {
+  animation: fade-out 0.22s var(--ease) both;
+}
+.t-sheet {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 81;
+  display: flex;
+  flex-direction: column;
+  max-height: 88dvh;
+  padding: 8px 18px calc(18px + var(--safe-b));
+  border-radius: 28px 28px 0 0;
+  background: var(--bg-elev);
+  box-shadow: 0 -12px 40px rgba(12, 8, 22, 0.22);
+  animation: sheet-up 0.42s var(--ease) both;
+}
+.t-sheet.closing {
+  animation: sheet-down 0.24s var(--ease) both;
+}
+.t-sheet-grab {
+  align-self: center;
+  width: 40px;
+  height: 5px;
+  margin: 2px 0 12px;
+  border-radius: 99px;
+  background: var(--line-2);
+  touch-action: none;
+}
+.t-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.t-sheet-head h3 {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.t-sheet-head p {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.t-sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -18px;
+  padding: 0 18px 4px;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes sheet-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* إشعار مؤقت */
+.t-toast {
+  position: fixed;
+  top: calc(12px + var(--safe-t));
+  inset-inline: 0;
+  z-index: 120;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.t-toast div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 11px 16px;
+  border-radius: 16px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 13.5px;
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
+  animation: toast-in 0.4s var(--spring) both;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.96);
+  }
+}
+
+/* السحب للتحديث */
+.t-pull {
+  display: grid;
+  place-items: center;
+  height: 0;
+  overflow: hidden;
+  color: var(--brand);
+  transition: height 0.25s var(--ease);
+}
+.t-pull.dragging {
+  transition: none;
+}
+.t-pull .ring {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid var(--brand-soft);
+  border-top-color: var(--brand);
+}
+.t-pull.ready .ring,
+.t-pull.loading .ring {
+  animation: spin 0.8s linear infinite;
+}
+
+/* مفتاح تشغيل */
+.t-switch {
+  position: relative;
+  width: 50px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 99px;
+  background: var(--line-2);
+  transition: background-color 0.25s;
+}
+.t-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  inset-inline-start: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: inset-inline-start 0.28s var(--spring);
+}
+.t-switch.on {
+  background: var(--ok);
+}
+.t-switch.on::after {
+  inset-inline-start: 23px;
+}
+
+/* ═════════════ شاشة الدخول ═════════════ */
+.t-login {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--hero);
+}
+.t-login-top {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 36dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: calc(34px + var(--safe-t)) 24px 54px;
+  color: #fff;
+  overflow: hidden;
+  isolation: isolate;
+}
+.t-login-top::before {
+  content: '';
+  position: absolute;
+  top: -120px;
+  inset-inline-end: -110px;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(240, 176, 79, 0.45), transparent);
+  z-index: -1;
+}
+.t-login-top::after {
+  content: '';
+  position: absolute;
+  bottom: -160px;
+  inset-inline-start: -120px;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 40px rgba(255, 255, 255, 0.035), 0 0 0 80px rgba(255, 255, 255, 0.02);
+  z-index: -1;
+}
+.t-login-top h1 {
+  margin-top: 22px;
+  font-size: 30px;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.t-login-top p {
+  margin-top: 8px;
+  max-width: 300px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.t-login-sheet {
+  flex: 1;
+  margin-top: -26px;
+  padding: 22px 22px calc(26px + var(--safe-b));
+  border-radius: 30px 30px 0 0;
+  background: var(--bg);
+  box-shadow: 0 -10px 30px rgba(12, 8, 22, 0.18);
+  animation: sheet-up 0.55s var(--ease) both;
+}
+.t-mark {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.t-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  animation: pop 0.38s var(--spring) both;
+}
+.t-who .name {
+  font-size: 15.5px;
+  font-weight: 700;
+}
+.t-who .role {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+.t-hint {
+  min-height: 20px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.t-hint.bad {
+  color: var(--bad);
+}
+
+/* نقاط الرمز ولوحة الأرقام */
+.t-pin {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 22px 0 6px;
+}
+.t-pin i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  transition: background-color 0.18s, border-color 0.18s, transform 0.25s var(--spring);
+}
+.t-pin i.on {
+  background: var(--brand);
+  border-color: var(--brand);
+  transform: scale(1.12);
+}
+.t-pin.shake {
+  animation: shake 0.42s ease both;
+}
+.t-pin.shake i.on {
+  background: var(--bad);
+  border-color: var(--bad);
+}
+@keyframes shake {
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  80% {
+    transform: translateX(4px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-8px);
+  }
+  40%,
+  60% {
+    transform: translateX(8px);
+  }
+}
+.t-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 22px;
+  max-width: 300px;
+  margin: 18px auto 0;
+  direction: ltr;
+}
+.t-key {
+  display: grid;
+  place-items: center;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 26px;
+  font-weight: 500;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-1);
+  transition: transform 0.12s var(--ease), background-color 0.12s;
+}
+.t-key:active {
+  transform: scale(0.9);
+  background: var(--brand-soft);
+}
+.t-key.ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+/* ═════════════ شاشة البدء والقفل ═════════════ */
+.t-splash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--hero);
+  color: #fff;
+}
+.t-splash .t-mark {
+  width: 82px;
+  height: 82px;
+  border-radius: 26px;
+  animation: breathe 1.8s ease-in-out infinite;
+}
+.t-splash p {
+  margin-top: 18px;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+@keyframes breathe {
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 14px rgba(255, 255, 255, 0.05);
+  }
+}
+
+.t-lock {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(30px + var(--safe-t)) 24px calc(30px + var(--safe-b));
+  background: var(--hero);
+  color: #fff;
+  text-align: center;
+}
+.t-lock .icon {
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.t-lock h1 {
+  margin-top: 20px;
+  font-size: 25px;
+  font-weight: 750;
+}
+.t-lock .hours {
+  margin-top: 8px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.8;
+}
+.t-lock .hours b {
+  color: #fff;
+}
+.t-count {
+  display: flex;
+  gap: 10px;
+  margin-top: 26px;
+  direction: ltr;
+}
+.t-count .cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 68px;
+  padding: 12px 6px 9px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.t-count b {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.t-count small {
+  margin-top: 3px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+}
+.t-lock .when {
+  margin-top: 16px;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.t-lock .now {
+  margin-top: 26px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ═════════════ عناصر الشاشات ═════════════ */
+.t-greet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(14px + var(--safe-t)) 18px 6px;
+}
+.t-greet .hello {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.t-greet .who {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.t-greet .grow {
+  flex: 1;
+  min-width: 0;
+}
+.t-date {
+  padding: 0 20px 14px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.t-quick {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.t-quick a,
+.t-quick button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 4px 10px;
+  border-radius: 18px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.t-goal-card {
+  width: 156px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  text-align: start;
+}
+.t-goal-card .name {
+  margin-top: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  height: 36px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.t-goal-card .sub {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.t-brand-card {
+  width: 210px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: linear-gradient(160deg, var(--bg-elev), var(--bg-elev)) padding-box;
+  border: 1px solid var(--line);
+  text-align: start;
+  position: relative;
+  overflow: hidden;
+}
+.t-brand-card::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: -30px;
+  top: -30px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+}
+.t-brand-card b {
+  position: relative;
+  display: block;
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.t-brand-card small {
+  position: relative;
+  display: block;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.t-soon {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.t-soon h3 {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.t-soon p {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.t-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px;
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+}
+.t-feature h3 {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.t-feature p {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+.t-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* مخطط أعمدة البراند */
+.t-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  direction: ltr;
+}
+.t-chart i {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, var(--brand-2), var(--brand));
+  transform-origin: bottom;
+  animation: grow 0.7s var(--ease) both;
+}
+.t-chart i.peak {
+  background: linear-gradient(180deg, #f5c477, var(--accent));
+}
+.t-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ink-3);
+  direction: ltr;
+}
+
+.t-share {
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 99px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.t-share i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand-2);
+}
+
+.t-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.t-delta.up {
+  color: var(--ok);
+}
+.t-delta.down {
+  color: var(--bad);
+}
+.t-delta.flat {
+  color: var(--ink-3);
+}
+
+.t-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0 6px;
+  text-align: center;
+}
+.t-profile h2 {
+  margin-top: 14px;
+  font-size: 22px;
+  font-weight: 750;
+}
+.t-profile p {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.t-foot {
+  margin-top: 28px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

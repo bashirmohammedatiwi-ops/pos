@@ -642,18 +642,29 @@ export function buildXlsxBytes(sheets: XlsxSheetInput[], customStyles: XlsxStyle
   return buildZip(zipEntries);
 }
 
+type FileSaver = (fileName: string, bytes: Uint8Array, mime: string) => void | Promise<void>;
+let fileSaver: FileSaver | null = null;
+
+/** تطبيق الهاتف يحفظ الملف ويشاركه بطريقته (لا تنزيلات داخل WebView). */
+export function setFileSaver(fn: FileSaver | null) {
+  fileSaver = fn;
+}
+
 export function downloadXlsxFile(fileName: string, sheets: XlsxSheetInput[], customStyles?: XlsxStyleDef[]) {
   const bytes = buildXlsxBytes(sheets, customStyles);
-  const blob = new Blob([bytes], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
+  const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const cleanBase = fileName
     .replace(/\.(xlsx|xls)$/i, '')
     .replace(/[^\w\u0600-\u06FF.-]+/g, '_')
     .replace(/_+/g, '_') || 'report';
+  if (fileSaver) {
+    void fileSaver(`${cleanBase}.xlsx`, bytes, mime);
+    return;
+  }
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
   a.download = `${cleanBase}.xlsx`;
   document.body.appendChild(a);
   a.click();

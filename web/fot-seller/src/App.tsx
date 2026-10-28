@@ -10,6 +10,8 @@ import { AccessGate } from './access';
 const Products = lazy(() => import('./pages/Products').then(m => ({ default: m.Products })));
 const Brands = lazy(() => import('./pages/Brands').then(m => ({ default: m.Brands })));
 import { clearBrandCache, useBrandList } from './brands';
+import { StaffHome } from './pages/StaffHome';
+import { clearTeam, getTeamToken, refreshTeam, registerPush } from './team';
 
 function IconBrand() {
   return (
@@ -123,6 +125,7 @@ function Shell() {
       clearBrandCache();
       setToken(null);
       setSeller(null);
+      clearTeam();
       nav('/login', { replace: true });
     }
   }, [err, nav]);
@@ -158,6 +161,7 @@ function Shell() {
     clearBrandCache();
     setToken(null);
     setSeller(null);
+    clearTeam();
     sessionStorage.removeItem('fot_seller_week');
     nav('/login');
   }
@@ -304,13 +308,22 @@ function Shell() {
 }
 
 function Guard() {
-  if (!getToken()) return <Navigate to="/login" replace />;
-  return <SellerProvider><Shell /></SellerProvider>;
+  if (getToken()) return <SellerProvider><Shell /></SellerProvider>;
+  // موظف غير بائع (كاشير، مشرف…) — جلسة الفريق فقط
+  if (getTeamToken()) return <StaffHome />;
+  return <Navigate to="/login" replace />;
 }
 
 function Boot() {
   useEffect(() => {
-    if (getToken()) void refreshSession();
+    if (getTeamToken()) {
+      // جلسة الفريق تجدد رمز البائع أيضاً؛ إن كان الخادم أقدم نرجع للتجديد القديم
+      void refreshTeam().then(r => {
+        if (r.sellerToken) setToken(r.sellerToken);
+        else if (getToken()) void refreshSession();
+        if (r.ok) void registerPush();
+      });
+    } else if (getToken()) void refreshSession();
   }, []);
   return null;
 }

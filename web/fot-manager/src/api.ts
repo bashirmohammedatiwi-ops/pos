@@ -1,3 +1,5 @@
+import { apiUrl } from './native';
+
 const TOKEN_KEY = 'fot_manager_token';
 const ME_KEY = 'fot_manager_me';
 const LAST_USER_KEY = 'fot_manager_last_user';
@@ -50,7 +52,7 @@ export async function refreshSession(): Promise<boolean> {
   if (!token) return false;
   refreshWait = (async () => {
     try {
-      const res = await fetch('/auth/manager-refresh', {
+      const res = await fetch(apiUrl('/auth/manager-refresh'), {
         method: 'POST',
         headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
       });
@@ -74,7 +76,7 @@ async function request<T>(path: string, init?: RequestInit, retried = false): Pr
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (init?.body) headers['Content-Type'] = 'application/json';
-  const res = await fetch(path, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } });
+  const res = await fetch(apiUrl(path), { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } });
   const text = await res.text();
   if (!res.ok) {
     let msg = text;

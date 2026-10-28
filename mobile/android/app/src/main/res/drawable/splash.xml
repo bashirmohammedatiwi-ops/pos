@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- شاشة البدء: خلفية بنفسجية والشعار في الوسط -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:width="132dp"
+        android:height="132dp"
+        android:drawable="@drawable/ic_brand_mark"
+        android:gravity="center" />
+</layer-list>

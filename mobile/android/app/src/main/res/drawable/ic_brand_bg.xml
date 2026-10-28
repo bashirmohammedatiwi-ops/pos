@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- خلفية الأيقونة: تدرّج بنفسجي ملكي مع وهج زعفراني خفيف -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108">
+                <item android:offset="0" android:color="#FF241245" />
+                <item android:offset="0.55" android:color="#FF4C2A85" />
+                <item android:offset="1" android:color="#FF7B51D8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M54,0a54,54 0,1 0,108 0a54,54 0,1 0,-108 0z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="108"
+                android:centerY="0"
+                android:gradientRadius="54">
+                <item android:offset="0" android:color="#55F0B04F" />
+                <item android:offset="1" android:color="#00F0B04F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

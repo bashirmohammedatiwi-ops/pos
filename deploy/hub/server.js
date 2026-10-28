@@ -156,7 +156,7 @@ function writeJson(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Fot-Sync-Key',
   });
   res.end(json);
@@ -1018,6 +1018,8 @@ function readBrandLinks(payload) {
 
 /** مزامنة خفيفة: الحسابات وأوقات الفتح وروابط البراندات والمدراء — دون البيانات الثقيلة. */
 function applyAccounts(payload) {
+  const staffRows = payload.staff || payload.Staff;
+  if (Array.isArray(staffRows)) team.applyStaff(staffRows);
   const next = { ...state, accounts: readAccounts(payload) };
   const links = readBrandLinks(payload);
   if (links) next.brandLinks = links;
@@ -1138,6 +1140,24 @@ function applySync(payload) {
   notifySellers();
 }
 
+/* ── تطبيق الفريق (SQLite) ── */
+const { createTeam } = require('./team');
+const team = createTeam({
+  dataDir: DATA_DIR,
+  bcrypt,
+  signJwt,
+  verifyJwt,
+  bearerToken,
+  tokenExp,
+  readBody,
+  send,
+  sendOpen,
+  syncAuthorized,
+  accessState,
+  issueSellerToken,
+  getSellerAccount: id => state.accounts[id] || state.accounts[String(id)] || null,
+});
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
@@ -1156,6 +1176,8 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+
+    if (await team.handle(req, res, url)) return;
 
     if (req.method === 'POST' && url.pathname === '/api/sync') {
       if (!syncAuthorized(req)) {
