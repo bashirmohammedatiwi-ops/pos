@@ -12,7 +12,7 @@ import { haptic } from '../native';
 
 export type MoreItem = { to: string; label: string; icon: ReactNode; badge?: number; tone?: string };
 
-export function More({ items, soon = true }: { items: MoreItem[]; soon?: boolean }) {
+export function More({ items }: { items: MoreItem[] }) {
   const me = getTeamMe();
   const seller = getSeller();
   const name = me?.name || seller?.name || 'حسابي';
@@ -43,34 +43,6 @@ export function More({ items, soon = true }: { items: MoreItem[]; soon?: boolean
           ))}
         </div>
       </section>
-
-      {soon && (
-        <section className="t-section">
-          <div className="t-section-head">
-            <h2>قريباً</h2>
-          </div>
-          <div className="t-list">
-            <div className="t-row">
-              <span className="t-tile mute">
-                <I.clock size={19} />
-              </span>
-              <div className="body">
-                <div className="title">الحضور والاستراحة</div>
-                <div className="sub">بصمة من شبكة المحل ومنبّه نهاية الاستراحة</div>
-              </div>
-            </div>
-            <div className="t-row">
-              <span className="t-tile mute">
-                <I.chat size={19} />
-              </span>
-              <div className="body">
-                <div className="title">المحادثات</div>
-                <div className="sub">خاصة ومجموعات عمل مع الفريق</div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
 
       <p className="t-foot">
         ديما · الفريق — الإصدار <span className="num">{APP_VERSION}</span>

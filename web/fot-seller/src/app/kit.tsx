@@ -390,6 +390,41 @@ export function CountUp({ value }: { value: number }) {
   return <span className="num">{fmt(v)}</span>;
 }
 
+/* ═════════════ الزر العائم ═════════════ */
+/**
+ * زر عائم فوق شريط التبويب: داخل body مباشرة (الصفحات المتحركة تكسر position: fixed)،
+ * ويتقلص لأيقونة عند النزول في الصفحة حتى لا يغطي المحتوى، ويعود عند الصعود.
+ */
+export function Fab({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
+  const [mini, setMini] = useState(false);
+  useEffect(() => {
+    let last = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (Math.abs(y - last) < 6) return;
+      setMini(y > last && y > 80);
+      last = y;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  return createPortal(
+    <button
+      type="button"
+      className={`t-fab press ${mini ? 'mini' : ''}`}
+      aria-label={label}
+      onClick={() => {
+        haptic('tap');
+        onClick();
+      }}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>,
+    document.body,
+  );
+}
+
 /* ═════════════ المفتاح المقسّم ═════════════ */
 export function Segmented<T extends string>({
   items,

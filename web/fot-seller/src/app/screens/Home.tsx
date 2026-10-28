@@ -240,7 +240,6 @@ export function SellerHome() {
           )}
         </section>
 
-        <ComingSoon />
       </div>
     </>
   );
@@ -320,22 +319,6 @@ function TeamWidgets() {
   );
 }
 
-function ComingSoon() {
-  return (
-    <section className="t-section">
-      <div className="t-soon">
-        <span className="t-tile accent lg">
-          <I.sparkle size={22} />
-        </span>
-        <div>
-          <h3>قريباً في تطبيقك</h3>
-          <p>الحضور والانصراف من شبكة المحل، منبّه الاستراحة، والمحادثات.</p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 /* ═════════════ الموظف غير البائع ═════════════ */
 export function StaffHome() {
   const me = getTeamMe();
@@ -379,7 +362,6 @@ export function StaffHome() {
         </section>
 
         <TeamWidgets />
-        <ComingSoon />
       </div>
     </>
   );

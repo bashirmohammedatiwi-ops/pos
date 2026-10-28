@@ -160,51 +160,78 @@
   box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow-1);
 }
 
-/* شبكة الصور */
+/* صور الإعلان: شريط سحب، الصورة كاملة فوق خلفية ضبابية منها */
 .t-gallery {
-  display: grid;
-  gap: 3px;
-  margin-top: 12px;
-}
-.t-gallery.n1 {
-  grid-template-columns: 1fr;
-}
-.t-gallery.n2,
-.t-gallery.n4 {
-  grid-template-columns: 1fr 1fr;
-}
-.t-gallery.n3 {
-  grid-template-columns: 2fr 1fr;
-  grid-template-rows: 1fr 1fr;
-}
-.t-gallery.n3 > :first-child {
-  grid-row: span 2;
-  aspect-ratio: auto;
-}
-.t-gallery > * {
   position: relative;
-  display: block;
-  overflow: hidden;
+  margin-top: 12px;
   background: var(--bg-sunk);
-  aspect-ratio: 4 / 3;
 }
-.t-gallery.n1 > * {
-  aspect-ratio: 16 / 10;
+.t-gallery .track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.t-gallery .track::-webkit-scrollbar {
+  display: none;
+}
+.t-gallery .slide {
+  position: relative;
+  flex: 0 0 100%;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  max-height: 62vh;
+  scroll-snap-align: center;
 }
 .t-gallery img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.t-gallery .more {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+.t-gallery img.bg {
+  object-fit: cover;
+  filter: blur(22px) saturate(1.2);
+  transform: scale(1.15);
+  opacity: 0.55;
+}
+.t-gallery img.fg {
+  object-fit: contain;
+}
+.t-gallery .count {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
   background: rgba(12, 8, 22, 0.55);
   color: #fff;
-  font-size: 22px;
+  font-size: 11.5px;
   font-weight: 700;
+  pointer-events: none;
+}
+.t-gallery .dots {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  pointer-events: none;
+}
+.t-gallery .dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: width 0.25s var(--ease), background-color 0.25s;
+}
+.t-gallery .dots i.on {
+  width: 16px;
+  background: #fff;
 }
 
 /* عارض الصور بملء الشاشة */
@@ -293,6 +320,23 @@
   font-weight: 650;
   box-shadow: 0 14px 30px -10px rgba(76, 42, 133, 0.75);
   animation: pop 0.4s var(--spring) both;
+  transition: padding 0.25s var(--ease), width 0.25s var(--ease);
+}
+.t-fab span {
+  overflow: hidden;
+  max-width: 160px;
+  white-space: nowrap;
+  transition: max-width 0.25s var(--ease), opacity 0.2s;
+}
+.t-fab.mini {
+  padding: 0 16px;
+}
+.t-fab.mini span {
+  max-width: 0;
+  opacity: 0;
+}
+.t-fab.mini {
+  gap: 0;
 }
 
 /* تقويم الدوام */

@@ -78,7 +78,7 @@ export function Account({ onLogout, back }: { onLogout: () => void; back?: strin
             title={device?.label || (platform() === 'web' ? 'متصفح' : 'هذا الهاتف')}
             value={bound ? `مربوط بحسابك منذ ${bound}` : 'يُربط الحساب بأول هاتف تدخل منه'}
           />
-          <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'تُفعَّل مع تحديث قادم'} />
+          <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'داخل التطبيق · تنبيهات الدوام والاستراحة تعمل والتطبيق مغلق'} />
         </div>
       </section>
 

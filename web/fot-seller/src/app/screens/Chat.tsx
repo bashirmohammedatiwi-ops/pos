@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Avatar, Empty, ErrorLine, I, Screen, Sheet, Skeleton, Switch, toast } from '../kit';
+import { Avatar, Empty, ErrorLine, Fab, I, Screen, Sheet, Skeleton, Switch, toast } from '../kit';
 import { haptic, pushBack } from '../native';
 import { Lightbox } from '../parts';
 import { KIND_LABEL } from '../../team';
@@ -131,17 +131,7 @@ export function ChatList({ role, base, canGroup = role === 'manager' }: { role: 
         </div>
       )}
       <div style={{ height: 70 }} />
-      <button
-        type="button"
-        className="t-fab press"
-        onClick={() => {
-          haptic('tap');
-          setPick('direct');
-        }}
-      >
-        <I.chat size={20} />
-        محادثة جديدة
-      </button>
+      <Fab icon={<I.chat size={20} />} label="محادثة جديدة" onClick={() => setPick('direct')} />
       <PeopleSheet
         role={role}
         canGroup={canGroup}

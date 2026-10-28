@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { MANAGER_URL } from '../../config';
-import { Avatar, Badge, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, greet, iraqToday, toast, usePull } from '../kit';
+import { Avatar, Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, greet, iraqToday, toast, usePull } from '../kit';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, StatusBadge } from '../parts';
 import { Alerts } from '../screens/Alerts';
@@ -658,19 +658,15 @@ function MPosts() {
       )}
       <div style={{ height: 70 }} />
       {perms.sendPosts && (
-      <button
-        type="button"
-        className="t-fab press"
-        onClick={() => {
-          haptic('tap');
-          setCompose('new');
-        }}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-        إعلان جديد
-      </button>
+      <Fab
+        icon={
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        }
+        label="إعلان جديد"
+        onClick={() => setCompose('new')}
+      />
       )}
 
       <PostComposer

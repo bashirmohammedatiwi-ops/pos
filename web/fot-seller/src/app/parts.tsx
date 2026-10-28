@@ -30,27 +30,55 @@ export function BackBtn({ to }: { to?: string }) {
 }
 
 /* ═════════════ الصور ═════════════ */
+/**
+ * صور الإعلان: شريط يُسحب أفقياً، كل صورة كاملة دون قص (صور العروض فيها نصوص)
+ * فوق خلفية ضبابية منها، مع نقاط وعدّاد. الضغط يفتح العارض بملء الشاشة.
+ */
 export function Gallery({ images, onOpen }: { images: string[]; onOpen: (i: number) => void }) {
+  const [at, setAt] = useState(0);
   if (!images.length) return null;
-  const shown = images.slice(0, 4);
-  const n = shown.length;
+  const many = images.length > 1;
   return (
-    <div className={`t-gallery n${n}`}>
-      {shown.map((u, i) => (
-        <span
-          key={u}
-          role="button"
-          tabIndex={0}
-          onClick={e => {
-            e.stopPropagation();
-            haptic('tap');
-            onOpen(i);
-          }}
-        >
-          <img src={mediaUrl(u)} alt="" loading="lazy" decoding="async" />
-          {i === 3 && images.length > 4 && <span className="more num">+{images.length - 4}</span>}
-        </span>
-      ))}
+    <div className="t-gallery">
+      <div
+        className="track"
+        dir="ltr"
+        onScroll={e => {
+          const el = e.currentTarget;
+          const i = Math.round(el.scrollLeft / el.clientWidth);
+          if (i !== at) setAt(i);
+        }}
+      >
+        {images.map((u, i) => (
+          <span
+            key={u}
+            className="slide"
+            role="button"
+            tabIndex={0}
+            aria-label={`صورة ${i + 1} من ${images.length}`}
+            onClick={e => {
+              e.stopPropagation();
+              haptic('tap');
+              onOpen(i);
+            }}
+          >
+            <img className="bg" src={mediaUrl(u)} alt="" aria-hidden loading="lazy" decoding="async" />
+            <img className="fg" src={mediaUrl(u)} alt="" loading="lazy" decoding="async" />
+          </span>
+        ))}
+      </div>
+      {many && (
+        <>
+          <span className="count num">
+            {at + 1}/{images.length}
+          </span>
+          <div className="dots" dir="ltr" aria-hidden>
+            {images.map((u, i) => (
+              <i key={u} className={i === at ? 'on' : ''} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

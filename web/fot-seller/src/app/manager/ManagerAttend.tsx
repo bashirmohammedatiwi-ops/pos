@@ -4,7 +4,7 @@ import { Avatar, Badge, Empty, ErrorLine, I, Screen, Sheet, Skeleton, clockLabel
 import { haptic, readWifi, type WifiState } from '../native';
 import { BackBtn } from '../parts';
 import { dur, hhmm } from '../screens/Attend';
-import { dateShort, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus } from '../work';
+import { dateShort, dateTiny, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus } from '../work';
 import { KIND_LABEL } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +289,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
                 {hist.data.map(r => (
                   <div key={r.id} className="t-row">
                     <div className="body">
-                      <div className="title">{dateShort(r.date)}</div>
+                      <div className="title">{dateTiny(r.date)}</div>
                       <div className="sub">
                         {clockLabel(r.checkIn)} – {r.checkOut ? clockLabel(r.checkOut) : '—'}
                         {r.autoClosed ? ' · تلقائي' : ''}

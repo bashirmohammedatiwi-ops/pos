@@ -653,6 +653,13 @@ export function dateShort(iso?: string | null) {
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(LOC, { weekday: 'short', day: 'numeric', month: 'short' });
 }
+/** تاريخ مختصر للقوائم الضيقة: «الثلاثاء 27/10» (أشهر العراق طويلة حتى بالصيغة المختصرة) */
+export function dateTiny(iso?: string | null) {
+  if (!iso) return '';
+  const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.toLocaleDateString(LOC, { weekday: 'long' })} ${d.getDate()}/${d.getMonth() + 1}`;
+}
 export function time12(hm?: string | null) {
   if (!hm) return '';
   const [h, m] = hm.split(':').map(Number);
@@ -660,9 +667,9 @@ export function time12(hm?: string | null) {
   return `${hh}:${String(m).padStart(2, '0')} ${h < 12 ? 'ص' : 'م'}`;
 }
 export function leaveWhen(r: Pick<LeaveReq, 'type' | 'dateFrom' | 'dateTo' | 'swapFrom' | 'swapTo' | 'timeFrom' | 'timeTo'>) {
-  if (r.type === 'swap') return `${dateShort(r.swapFrom)} ← ${dateShort(r.swapTo)}`;
+  if (r.type === 'swap') return `${dateTiny(r.swapFrom)} ← ${dateTiny(r.swapTo)}`;
   if (r.type === 'hours') return `${dateShort(r.dateFrom)} · ${time12(r.timeFrom)} – ${time12(r.timeTo)}`;
-  return r.dateFrom === r.dateTo || !r.dateTo ? dateShort(r.dateFrom) : `${dateShort(r.dateFrom)} – ${dateShort(r.dateTo)}`;
+  return r.dateFrom === r.dateTo || !r.dateTo ? dateShort(r.dateFrom) : `${dateTiny(r.dateFrom)} – ${dateTiny(r.dateTo)}`;
 }
 export function dayGroup(iso: string) {
   const d = new Date(iso);

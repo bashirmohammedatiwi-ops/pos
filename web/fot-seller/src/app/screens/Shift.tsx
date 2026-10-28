@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Badge, ErrorLine, I, Screen, Sheet, Skeleton, toast } from '../kit';
+import { Badge, ErrorLine, Fab, I, Screen, Sheet, Skeleton, toast } from '../kit';
 import { haptic } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, StatusBadge } from '../parts';
 import { AttendCard, AttendHistory } from './Attend';
@@ -213,19 +213,15 @@ export function Shift({ back }: { back?: string }) {
       ) : null}
 
       {data && (
-        <button
-          type="button"
-          className="t-fab press"
-          onClick={() => {
-            haptic('tap');
-            setForm(true);
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          طلب جديد
-        </button>
+        <Fab
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          }
+          label="طلب جديد"
+          onClick={() => setForm(true)}
+        />
       )}
 
       {data && (

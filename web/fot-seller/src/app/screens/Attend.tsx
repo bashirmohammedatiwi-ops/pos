@@ -11,7 +11,7 @@ import {
   scheduleShiftReminders,
   type WifiState,
 } from '../native';
-import { attendApi, dateShort, useLoad, type AttendRec, type AttendState } from '../work';
+import { attendApi, dateTiny, useLoad, type AttendRec, type AttendState } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الحضور والانصراف والاستراحة — من شبكة المحل فقط (يتحقق الخادم من BSSID و IP).
@@ -309,6 +309,26 @@ export function AttendCard({ compact }: { compact?: boolean }) {
 
   // لم يحضر بعد
   const off = data.day?.off;
+  const noNets = !data.network.configured && data.network.enforced;
+  // الرئيسية: بطاقة أفقية مختصرة (الزر الدائري الكبير في «دوامي»)
+  if (compact)
+    return (
+      <section className="t-attend t-attend-mini">
+        <div className="info">
+          <span className="label">{off ? 'اليوم عطلتك' : 'لم تسجّل حضورك بعد'}</span>
+          <b className="num ltr">
+            {s.start} – {s.end}
+          </b>
+          <small>{noNets ? 'البصمة تُفعَّل حين تضيف الإدارة واي فاي المحل' : `استراحة ${s.breakMinutes} د · من واي فاي المحل`}</small>
+        </div>
+        {!noNets && (
+          <button type="button" className="t-punch-mini press" disabled={!!busy} onClick={() => void act('in')} aria-label="تسجيل الحضور">
+            {busy === 'in' ? <span className="spinner" /> : <I.store size={26} />}
+            <span>{off ? 'حضور إضافي' : 'حضور'}</span>
+          </button>
+        )}
+      </section>
+    );
   return (
     <section className="t-attend" style={{ textAlign: 'center' }}>
       <div className="row">
@@ -375,7 +395,7 @@ export function AttendHistory() {
               <I.clock size={18} />
             </span>
             <div className="body">
-              <div className="title">{dateShort(r.date)}</div>
+              <div className="title">{dateTiny(r.date)}</div>
               <div className="sub">
                 {clockLabel(r.checkIn)} – {r.checkOut ? clockLabel(r.checkOut) : '—'}
                 {r.breakMinutes ? ` · استراحة ${r.breakMinutes} د` : ''}
