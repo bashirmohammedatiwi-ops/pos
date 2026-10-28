@@ -167,6 +167,13 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
   const activeStaff = () => db.prepare('SELECT * FROM staff WHERE is_active = 1').all();
   const audienceIds = a => activeStaff().filter(s => matches(a, s)).map(s => s.id);
+  /** يحصر الجمهور في نطاق المدير؛ إن خرج منه شيء يتحول لقائمة موظفين صريحة. null = لا أحد ضمن النطاق */
+  function scopeAudience(a, allow) {
+    const ids = audienceIds(a);
+    const mine = ids.filter(id => allow(id));
+    if (!mine.length) return null;
+    return mine.length === ids.length ? a : { staff: mine };
+  }
   function audienceLabel(a) {
     if (!a || a.all) return 'كل الموظفين';
     const parts = [];
@@ -235,7 +242,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (body.all) db.prepare('UPDATE notifications SET read_at = ? WHERE user_kind = ? AND user_id = ? AND read_at IS NULL').run(at, kind, id);
     else if (Array.isArray(body.ids) && body.ids.length) {
       const ids = body.ids.map(Number).filter(Boolean).slice(0, 500);
-      db.prepare(`UPDATE notifications SET read_at = ? WHERE user_kind = ? AND user_id = ? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(at, kind, id, ...ids);
+      if (ids.length) db.prepare(`UPDATE notifications SET read_at = ? WHERE user_kind = ? AND user_id = ? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(at, kind, id, ...ids);
     }
     const unread = unreadCount(kind, id);
     emit(`${kind}:${id}`, 'unread', { unread });
@@ -243,10 +250,11 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /** تبليغ يدوي من الإدارة/المدير لجمهور محدد */
-  function broadcast(body, actor) {
+  function broadcast(body, actor, allow = () => true) {
     const title = clip(body.title, 120);
     if (!title) return { status: 400, body: { error: 'العنوان مطلوب' } };
-    const audience = normAudience(body.audience);
+    const audience = scopeAudience(normAudience(body.audience), allow);
+    if (!audience) return { status: 400, body: { error: 'لا موظفين من أقسامك في هذا الجمهور' } };
     const ids = audienceIds(audience);
     if (!ids.length) return { status: 400, body: { error: 'لا موظفين في هذا الجمهور' } };
     const r = db.prepare('INSERT INTO broadcasts (title, body, image, link, audience, target_count, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -286,6 +294,13 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     const buf = Buffer.from(data, 'base64');
     if (!buf.length) return { status: 400, body: { error: 'الصورة فارغة' } };
     if (buf.length > maxBytes) return { status: 413, body: { error: `الصورة أكبر من ${Math.round(maxBytes / 1048576)} ميغابايت` } };
+    // المحتوى نفسه يجب أن يكون صورة (لا نثق بالنوع المُعلَن)
+    const isImg =
+      (buf[0] === 0xff && buf[1] === 0xd8) ||
+      buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ||
+      (buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') ||
+      buf.subarray(0, 4).toString('latin1') === 'GIF8';
+    if (!isImg) return { status: 400, body: { error: 'الملف ليس صورة صالحة' } };
     const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
     fs.writeFileSync(path.join(mediaDir, name), buf);
     return { status: 200, body: { url: `/api/team/media/${name}`, name, size: buf.length } };
@@ -304,6 +319,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       'Content-Type': EXT_MIME[name.split('.').pop()],
       'Cache-Control': 'public, max-age=31536000, immutable',
       'Access-Control-Allow-Origin': '*',
+      'X-Content-Type-Options': 'nosniff',
     });
     fs.createReadStream(file).pipe(res);
   }
@@ -352,12 +368,14 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, readAt: r?.read_at ?? null, ackAt: r?.ack_at ?? null };
     }).sort((x, y) => (x.readAt ? 1 : 0) - (y.readAt ? 1 : 0) || x.name.localeCompare(y.name, 'ar'));
   }
-  function savePost(id, body, actor) {
+  function savePost(id, body, actor, open = true, allow = () => true) {
     const title = clip(body.title, 160);
     if (!title) return { status: 400, body: { error: 'عنوان الإعلان مطلوب' } };
     const kind = POST_KINDS.includes(body.kind) ? body.kind : 'news';
     const images = (Array.isArray(body.images) ? body.images : []).map(String).filter(u => /^\/api\/team\/media\/[a-f0-9]{32}\.(jpg|png|webp|gif)$/.test(u)).slice(0, 10);
-    const audience = normAudience(body.audience);
+    const audience = scopeAudience(normAudience(body.audience), allow);
+    if (!audience) return { status: 400, body: { error: 'لا موظفين من أقسامك في هذا الجمهور' } };
+    if (id && !open && db.prepare('SELECT created_by FROM posts WHERE id = ?').get(id)?.created_by !== actor) return { status: 403, body: { error: 'تعدّل إعلاناتك فقط' } };
     const expires = body.expiresAt && !Number.isNaN(Date.parse(body.expiresAt)) ? new Date(body.expiresAt).toISOString() : null;
     const t = now();
     let pid = id;
@@ -381,7 +399,8 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     for (const s of activeStaff()) if (matches(audience, s)) emit(`staff:${s.id}`, 'post', { id: pid });
     return { status: 200, body: postView(p, null) };
   }
-  function deletePost(id, actor) {
+  function deletePost(id, actor, open = true) {
+    if (!open && db.prepare('SELECT created_by FROM posts WHERE id = ?').get(id)?.created_by !== actor) return { status: 403, body: { error: 'تحذف إعلاناتك فقط' } };
     db.prepare('UPDATE posts SET deleted = 1, updated_at = ? WHERE id = ?').run(now(), id);
     audit(actor, 'post.delete', id, null);
     for (const key of streams.keys()) if (key.startsWith('staff:')) emit(key, 'post', { id, deleted: true });
@@ -453,7 +472,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
   function schedule(staffId, from, days) {
     const mask = getMask(staffId);
-    const approved = db.prepare("SELECT * FROM leave_requests WHERE staff_id = ? AND status = 'approved' AND (date_to >= ? OR swap_to >= ? OR swap_from >= ?)")
+    const approved = db.prepare("SELECT * FROM leave_requests WHERE staff_id = ? AND status = 'approved' AND (date_to >= ? OR swap_to >= ? OR swap_from >= ?) ORDER BY id")
       .all(staffId, from, from, from);
     return Array.from({ length: days }, (_, i) => dayStatus(staffId, addDays(from, i), mask, approved));
   }
@@ -471,7 +490,8 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       if (body.swapFrom < today || body.swapTo < today) return { status: 400, body: { error: 'لا يمكن التبديل لأيام مضت' } };
       if (body.swapFrom > addDays(today, 30) || body.swapTo > addDays(today, 30)) return { status: 400, body: { error: 'التبديل خلال 30 يوماً فقط' } };
       const mask = getMask(s.id);
-      if (mask && ((mask >> dayIdx(body.swapFrom)) & 1) !== 1) return { status: 400, body: { error: `${DAY_NAMES[dayIdx(body.swapFrom)]} ليس يوم عطلتك` } };
+      if (!mask) return { status: 400, body: { error: 'لم تُحدَّد عطلتك الأسبوعية بعد — راجع مديرك' } };
+      if (((mask >> dayIdx(body.swapFrom)) & 1) !== 1) return { status: 400, body: { error: `${DAY_NAMES[dayIdx(body.swapFrom)]} ليس يوم عطلتك` } };
       row = { ...row, swap_from: body.swapFrom, swap_to: body.swapTo };
     } else if (type === 'hours') {
       if (!isDate(body.dateFrom) || !isTime(body.timeFrom) || !isTime(body.timeTo)) return { status: 400, body: { error: 'اختر اليوم ووقت الخروج والعودة' } };
@@ -493,6 +513,9 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     const span = r => (r.type === 'swap' ? [r.swap_to, r.swap_to] : [r.date_from, r.date_to]);
     const [a1, a2] = type === 'swap' ? [row.swap_to, row.swap_to] : [row.date_from, row.date_to];
     const clash = active.find(r => {
+      // يوم العطلة نفسه لا يُبدَّل مرتين، ولا يُبدَّل يوم عليه إجازة
+      if (type === 'swap' && r.type === 'swap' && r.swap_from === row.swap_from) return true;
+      if (type === 'swap' && r.type !== 'swap' && r.date_from && r.date_from <= row.swap_from && row.swap_from <= r.date_to) return true;
       const [b1, b2] = span(r);
       return b1 && a1 <= b2 && b1 <= a2 && !(type === 'hours' && r.type === 'hours' && (row.time_to <= r.time_from || r.time_to <= row.time_from));
     });
@@ -786,20 +809,20 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (req.method === 'POST' && sub === 'posts') {
       const body = await json(req);
       if (!body) return send(400, { error: 'طلب غير صالح' }), true;
-      reply(res, savePost(null, body, actor), open);
+      reply(res, savePost(null, body, actor, open, allow), open);
       return true;
     }
     m = sub.match(/^posts\/(\d+)$/);
     if (m && req.method === 'PUT') {
       const body = await json(req);
       if (!body) return send(400, { error: 'طلب غير صالح' }), true;
-      reply(res, savePost(Number(m[1]), body, actor), open);
+      reply(res, savePost(Number(m[1]), body, actor, open, allow), open);
       return true;
     }
-    if (m && req.method === 'DELETE') return reply(res, deletePost(Number(m[1]), actor), open), true;
+    if (m && req.method === 'DELETE') return reply(res, deletePost(Number(m[1]), actor, open), open), true;
     m = sub.match(/^posts\/(\d+)\/readers$/);
     if (req.method === 'GET' && m) {
-      const rows = postReaders(Number(m[1]));
+      const rows = postReaders(Number(m[1]))?.filter(r => allow(r.staffId));
       return send(rows ? 200 : 404, rows ?? { error: 'الإعلان غير موجود' }), true;
     }
     if (req.method === 'POST' && sub === 'media') {
@@ -813,7 +836,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (req.method === 'POST' && sub === 'notify') {
       const body = await json(req);
       if (!body) return send(400, { error: 'طلب غير صالح' }), true;
-      reply(res, broadcast(body, actor), open);
+      reply(res, broadcast(body, actor, allow), open);
       return true;
     }
     if (req.method === 'GET' && sub === 'notify/log') return send(200, broadcastLog()), true;

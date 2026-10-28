@@ -1150,7 +1150,8 @@ const team = createTeam({
   bearerToken,
   tokenExp,
   readBody,
-  send,
+  // ردود الفريق لا تحمل بيانات كاشير المبيعات؛ المنقّي كان يحذف sectionName/cashierId منها
+  send: sendOpen,
   sendOpen,
   syncAuthorized,
   accessState,

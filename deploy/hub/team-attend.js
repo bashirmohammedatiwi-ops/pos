@@ -19,6 +19,12 @@ const DEFAULTS = {
   earlyMinutes: 60,
   autoCloseHours: 3,
   breakWarnMinutes: 2,
+  // يجب أن يطابق عنوان الإنترنت قاعدةً (BSSID وحده يمكن تزويره)
+  requireIp: true,
+  // الأوفر تايم (للموظفين المفعّل لهم فقط)
+  otMinMinutes: 15,
+  otRoundMinutes: 15,
+  otCountDayOff: true,
 };
 
 const iraqNow = (ms = Date.now()) => new Date(ms + IRAQ_MS);
@@ -61,8 +67,9 @@ const PRIVATE = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd)/;
 /** عنوان المرسل الحقيقي: نثق بترويسة البوابة فقط إذا جاء الطلب من شبكة Docker الداخلية. */
 function clientIp(req) {
   const remote = String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
-  if (PRIVATE.test(remote)) {
-    const h = String(req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim().replace(/^::ffff:/, '');
+  // البوابة (nginx) حاوية بعنوان داخلي؛ ‎.1 هو عنوان جسر Docker الذي يمرّر الاتصالات الخارجية المباشرة فلا نثق به
+  if (/^127\./.test(remote) || (PRIVATE.test(remote) && !/\.1$/.test(remote))) {
+    const h = String(req.headers['x-real-ip'] || '').trim().replace(/^::ffff:/, '');
     if (h) return h;
   }
   return remote;
@@ -93,6 +100,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
        warned INTEGER NOT NULL DEFAULT 0, over_notified INTEGER NOT NULL DEFAULT 0, ip TEXT, bssid TEXT
      );
      CREATE INDEX ix_breaks_att ON breaks(attendance_id);`,
+    // الأوفر تايم لكل موظف: تفعيل + سعر الساعة (اختياري)
+    `ALTER TABLE staff_shift ADD COLUMN overtime INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE staff_shift ADD COLUMN overtime_rate INTEGER;`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _attend_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -127,6 +137,10 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     num('earlyMinutes', 0, 240);
     num('autoCloseHours', 1, 12);
     num('breakWarnMinutes', 0, 15);
+    num('otMinMinutes', 0, 240);
+    num('otRoundMinutes', 1, 60);
+    if (typeof body.otCountDayOff === 'boolean') next.otCountDayOff = body.otCountDayOff;
+    if (typeof body.requireIp === 'boolean') next.requireIp = body.requireIp;
     db.prepare("INSERT INTO settings (key, value) VALUES ('attend', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(next));
     audit(actor, 'attend.settings', null, next);
     return next;
@@ -139,13 +153,45 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       end: o?.end || s.shiftEnd,
       breakMinutes: o?.break_minutes ?? s.breakMinutes,
       maxBreaks: o?.max_breaks ?? s.maxBreaks,
-      custom: !!o,
+      custom: !!(o && (o.start || o.end || o.break_minutes != null || o.max_breaks != null)),
+      overtime: !!o?.overtime,
+      overtimeRate: o?.overtime_rate ?? null,
     };
+  }
+  /** تفعيل/إيقاف الأوفر تايم لموظف وسعر ساعته — مستقل عن الوردية */
+  function setOvertime(staffId, body, actor) {
+    if (!getStaff(staffId)) return { status: 404, body: { error: 'الموظف غير موجود' } };
+    const on = body.enabled ? 1 : 0;
+    const rate = body.rate === '' || body.rate == null ? null : Math.max(0, Math.min(1_000_000, Math.round(Number(body.rate)) || 0));
+    db.prepare(`INSERT INTO staff_shift (staff_id, overtime, overtime_rate, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(staff_id) DO UPDATE SET overtime = excluded.overtime, overtime_rate = excluded.overtime_rate, updated_at = excluded.updated_at`).run(staffId, on, rate, now());
+    audit(actor, 'overtime.set', staffId, { enabled: !!on, rate });
+    emit(`staff:${staffId}`, 'attend', { overtime: true });
+    return { status: 200, body: shiftOf(staffId) };
+  }
+  /** دقائق الأوفر تايم ليوم: العمل الفعلي ناقص الدوام الصافي (أو كل العمل في يوم العطلة) */
+  function overtimeOf(staffId, date, workedMinutes) {
+    const sh = shiftOf(staffId);
+    if (!sh.overtime) return 0;
+    const st = settings();
+    const day = dayFor(staffId, date);
+    let raw;
+    if (day?.off) {
+      if (!st.otCountDayOff) return 0;
+      raw = workedMinutes;
+    } else {
+      let len = (hm(sh.end) ?? 1320) - (hm(sh.start) ?? 600);
+      if (len <= 0) len += 1440;
+      raw = workedMinutes - Math.max(0, len - sh.breakMinutes);
+    }
+    if (raw < st.otMinMinutes || raw <= 0) return 0;
+    const r = Math.max(1, st.otRoundMinutes);
+    return Math.floor(raw / r) * r;
   }
   function setShift(staffId, body, actor) {
     if (!getStaff(staffId)) return { status: 404, body: { error: 'الموظف غير موجود' } };
     if (body.reset) {
-      db.prepare('DELETE FROM staff_shift WHERE staff_id = ?').run(staffId);
+      db.prepare('UPDATE staff_shift SET start = NULL, end = NULL, break_minutes = NULL, max_breaks = NULL WHERE staff_id = ?').run(staffId);
       audit(actor, 'shift.reset', staffId, null);
       return { status: 200, body: shiftOf(staffId) };
     }
@@ -192,10 +238,12 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const bssid = normBssid(bssidRaw);
     const s = settings();
     const nets = networks().filter(n => n.is_active);
-    const match = nets.find(n => (!n.bssid || n.bssid === bssid) && (!n.ip || ipMatch(n.ip, ip)));
+    const match = nets.find(n => (!n.bssid || n.bssid === bssid) && (!n.ip || ipMatch(n.ip, ip)) && (n.ip || !s.requireIp));
     if (!s.enforceNetwork) return { ok: true, ip, bssid, network: match || null, enforced: false };
     if (!nets.length) return { ok: false, ip, bssid, error: 'لم تُضبط شبكات المحل بعد — راجع الإدارة' };
     if (match) return { ok: true, ip, bssid, network: match, enforced: true };
+    if (s.requireIp && !nets.some(n => n.ip)) return { ok: false, ip, bssid, error: 'شبكات المحل بلا عنوان إنترنت — اطلب من الإدارة إضافته' };
+    if (s.requireIp && bssid && nets.some(n => n.bssid === bssid)) return { ok: false, ip, bssid, error: 'واي فاي المحل صحيح لكن عنوان الإنترنت تغيّر — أبلغ الإدارة لتحديثه' };
     const needsBssid = nets.some(n => n.bssid);
     return {
       ok: false,
@@ -233,6 +281,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       edited: !!a.edited_by,
       note: a.note,
       workedMinutes: Math.max(0, Math.round((end - Date.parse(a.check_in)) / 60_000) - breakMin),
+      overtimeMinutes: overtimeOf(a.staff_id, a.date, Math.max(0, Math.round((end - Date.parse(a.check_in)) / 60_000) - breakMin)),
       breakMinutes: breakMin,
       overMinutes: list.reduce((s, b) => s + (b.end_at ? b.over_minutes : breakView(b).overMinutes), 0),
       breaks: list.map(breakView),
@@ -258,7 +307,17 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       breaksLeft: Math.max(0, shift.maxBreaks - (view?.breaks.length ?? 0)),
       history,
       network: { enforced: settings().enforceNetwork, configured: nets.length > 0, needsBssid: nets.some(n => n.bssid) },
+      breakWarnMinutes: settings().breakWarnMinutes,
+      overtime: shift.overtime ? overtimeMonth(s.id) : null,
     };
+  }
+  /** أوفر تايم الموظف هذا الشهر (حتى اليوم) */
+  function overtimeMonth(staffId) {
+    const today = iraqDate();
+    const rows = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND date BETWEEN ? AND ?').all(staffId, `${today.slice(0, 8)}01`, today).map(attView);
+    const minutes = rows.reduce((x, r) => x + (r.overtimeMinutes || 0), 0);
+    const rate = shiftOf(staffId).overtimeRate;
+    return { monthMinutes: minutes, days: rows.filter(r => r.overtimeMinutes > 0).length, rate: rate ?? null, pay: rate ? Math.round((minutes / 60) * rate) : null };
   }
 
   function checkIn(req, s, body) {
@@ -388,6 +447,14 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const late = lateRaw > settings().graceMinutes ? lateRaw : 0;
     db.prepare('UPDATE attendance SET check_in = ?, check_out = ?, late_minutes = ?, note = ?, edited_by = ?, edited_at = ?, auto_closed = CASE WHEN ? IS NULL THEN auto_closed ELSE 0 END WHERE id = ?')
       .run(ci, co, late, String(body.note || a.note || '').slice(0, 300) || null, actor, now(), co, id);
+    if (co) {
+      const ob = openBreak(id);
+      if (ob) {
+        const end = new Date(Math.max(Date.parse(ob.start_at), Math.min(Date.parse(co), Date.now()))).toISOString();
+        const over = Math.max(0, Math.round((Date.parse(end) - Date.parse(ob.start_at)) / 60_000 - ob.planned_minutes));
+        db.prepare('UPDATE breaks SET end_at = ?, over_minutes = ? WHERE id = ?').run(end, over, ob.id);
+      }
+    }
     audit(actor, 'attend.correct', id, { from: { in: a.check_in, out: a.check_out }, to: { in: ci, out: co }, note: body.note });
     emit(`staff:${a.staff_id}`, 'attend', { id });
     emitManagers('attend', { staffId: a.staff_id });
@@ -401,6 +468,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (Number.isNaN(ci)) return { status: 400, body: { error: 'وقت الحضور مطلوب' } };
     const date = iraqDate(ci);
     if (db.prepare('SELECT id FROM attendance WHERE staff_id = ? AND date = ?').get(staffId, date)) return { status: 409, body: { error: 'يوجد سجل لهذا اليوم — عدّله بدلاً من إضافة جديد' } };
+    if (body.checkOut && !(Date.parse(body.checkOut) > ci)) return { status: 400, body: { error: 'وقت الانصراف قبل الحضور' } };
     const r = db.prepare("INSERT INTO attendance (staff_id, date, check_in, note, edited_by, edited_at) VALUES (?, ?, ?, ?, ?, ?)")
       .run(staffId, date, new Date(ci).toISOString(), String(body.note || 'إضافة يدوية').slice(0, 300), actor, now());
     return correct(Number(r.lastInsertRowid), { checkIn: body.checkIn, checkOut: body.checkOut, note: body.note || 'إضافة يدوية' }, actor);
@@ -477,6 +545,12 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       return true;
     }
     const body = req.method === 'POST' ? (await json(req)) || {} : {};
+    if (req.method === 'POST') {
+      const bound = db.prepare('SELECT device_id FROM devices WHERE staff_id = ?').get(s.id);
+      if (bound && bound.device_id !== String(body.deviceId || '')) {
+        return reply(res, { status: 403, body: { error: 'الحضور من هاتفك المربوط فقط — افتح تطبيق ديما على هاتفك', code: 'device' } }), true;
+      }
+    }
     if (req.method === 'POST' && p === '/api/team/attend/in') return reply(res, checkIn(req, s, body)), true;
     if (req.method === 'POST' && p === '/api/team/attend/out') return reply(res, checkOut(req, s, body)), true;
     if (req.method === 'POST' && p === '/api/team/attend/break/start') return reply(res, breakStart(req, s, body)), true;
@@ -520,13 +594,16 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       const net = checkNetwork(req, url.searchParams.get('bssid'));
       return send(200, { ok: net.ok, ip: net.ip, bssid: net.bssid, network: net.network ? net.network.name : null, error: net.ok ? null : net.error }), true;
     }
+    let om = sub.match(/^staff\/(\d+)\/overtime$/);
+    // الأوفر تايم يمسّ الرواتب: من لوحة التحكم فقط
+    if (om && req.method === 'PUT') return reply(res, !open ? { status: 403, body: { error: 'تفعيل الأوفر تايم من لوحة التحكم فقط' } } : setOvertime(Number(om[1]), (await json(req)) || {}, actor), open), true;
     m = sub.match(/^staff\/(\d+)\/shift$/);
     if (m && req.method === 'PUT') return reply(res, allow(Number(m[1])) ? setShift(Number(m[1]), (await json(req)) || {}, actor) : { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } }, open), true;
     if (m && req.method === 'GET') return send(200, shiftOf(Number(m[1]))), true;
     return false;
   }
 
-  return { handleStaff, handleManage, shiftOf, board, clientIp };
+  return { handleStaff, handleManage, shiftOf, board, clientIp, overtimeOf };
 }
 
 module.exports = { createAttend, clientIp, ipMatch, normBssid };

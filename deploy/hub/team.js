@@ -112,8 +112,8 @@ function createTeam(ctx) {
           now(),
         );
       }
+      // قائمة فارغة = مزامنة ناقصة غالباً: لا نحذف أحداً (الإيقاف يتم بـ isActive)
       if (ids.length) db.prepare(`DELETE FROM staff WHERE id NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
-      else db.prepare('DELETE FROM staff').run();
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
@@ -151,6 +151,23 @@ function createTeam(ctx) {
     return s && s.is_active ? s : null;
   }
 
+  /* حدّ محاولات الدخول: بعد max فشل خلال 15 دقيقة يُقفل المفتاح 15 دقيقة */
+  const attempts = new Map();
+  function throttled(key) {
+    const a = attempts.get(key);
+    if (!a) return 0;
+    if (a.until && a.until > Date.now()) return Math.round((a.until - Date.now()) / 1000);
+    if (Date.now() - a.first > 15 * 60_000) attempts.delete(key);
+    return 0;
+  }
+  function failed(key, max) {
+    const a = attempts.get(key) && Date.now() - attempts.get(key).first < 15 * 60_000 ? attempts.get(key) : { n: 0, first: Date.now(), until: 0 };
+    a.n++;
+    if (a.n >= max) a.until = Date.now() + 15 * 60_000;
+    attempts.set(key, a);
+    if (attempts.size > 5000) attempts.delete(attempts.keys().next().value);
+  }
+
   function touchDevice(staffId, info) {
     db.prepare('UPDATE devices SET last_seen = ?, app_version = COALESCE(?, app_version) WHERE staff_id = ?').run(now(), info?.appVersion || null, staffId);
   }
@@ -171,14 +188,18 @@ function createTeam(ctx) {
     dayFor: work.dayFor,
   });
   const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit });
+  // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
+  const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf });
+  ctx.pushTo = (kind, ids, n) => void extra.pushTo(kind, ids, n);
 
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
     if (sub === 'leave' || /^leave\//.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return 'approveLeave';
-    if (/^attend\/(board|log)$/.test(sub) || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
+    if (/^attend\/(board|log|summary)$/.test(sub) || sub === 'roster' || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
     if (/^attend\//.test(sub) || /^networks/.test(sub) || /^staff\/\d+\/shift$/.test(sub)) return 'editAttendance';
     if ((sub === 'posts' && method !== 'GET') || /^posts\/\d+$/.test(sub) || sub === 'notify') return 'sendPosts';
     if (sub === 'chat/groups' || /^chat\/groups\//.test(sub) || (method === 'DELETE' && /^chat\/messages\//.test(sub))) return 'manageChat';
+    if (/^product-images\//.test(sub) && method !== 'GET') return 'admin';
     return null;
   }
 
@@ -192,6 +213,9 @@ function createTeam(ctx) {
   /* ── المسارات ── */
   async function handle(req, res, url) {
     const p = url.pathname;
+
+    // فحص التحديث وتنزيل التطبيق (عام)
+    if (extra.handlePublic(req, res, url)) return true;
 
     // صور الإعلانات والتقارير: عامة بأسماء عشوائية غير قابلة للتخمين
     const media = p.match(/^\/api\/team\/media\/([\w.]+)$/);
@@ -230,6 +254,23 @@ function createTeam(ctx) {
         ctx.send(res, 200, { id: mid, username: m.username, displayName: m.displayName, unread: work.unreadCount('manager', mid), perms, sections });
         return true;
       }
+      // رمز إشعارات هاتف المدير
+      if (sub === 'push-token' && (req.method === 'POST' || req.method === 'DELETE')) {
+        const body = JSON.parse((await ctx.readBody(req)) || '{}');
+        const token = String(body.token || '').slice(0, 500);
+        if (req.method === 'DELETE') {
+          db.prepare("DELETE FROM push_tokens WHERE user_kind = 'manager' AND user_id = ? AND (token = ? OR device_id = ?)").run(mid, token, String(body.deviceId || '-'));
+        } else if (token) {
+          db.prepare(`INSERT INTO push_tokens (token, user_kind, user_id, platform, device_id, updated_at) VALUES (?, 'manager', ?, ?, ?, ?)
+            ON CONFLICT(token) DO UPDATE SET user_kind='manager', user_id=excluded.user_id, platform=excluded.platform, device_id=excluded.device_id, updated_at=excluded.updated_at`)
+            .run(token, mid, String(body.platform || '').slice(0, 20) || null, String(body.deviceId || '').slice(0, 120) || null, now());
+        } else {
+          ctx.send(res, 400, { error: 'رمز الإشعارات مفقود' });
+          return true;
+        }
+        ctx.send(res, 200, { ok: true });
+        return true;
+      }
       // الصلاحية المطلوبة لكل مسار، ونطاق أقسام المدير
       const need = permFor(req.method, sub);
       if (need && !perms[need]) {
@@ -262,6 +303,7 @@ function createTeam(ctx) {
       const actorName = `manager:${m.displayName || m.username}`;
       if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       if (await attend.handleManage(req, res, url, sub, actorName, false, allow)) return true;
+      if (await extra.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -280,12 +322,22 @@ function createTeam(ctx) {
     // دخول الموظف: كود + رمز + الجهاز
     if (req.method === 'POST' && p === '/auth/team-login') {
       const body = JSON.parse((await ctx.readBody(req)) || '{}');
+      const ipKey = `ip:${require('./team-attend').clientIp(req)}`;
+      const codeKey = `code:${String(body.code || '').trim().toLowerCase()}`;
+      const wait = Math.max(throttled(ipKey), throttled(codeKey));
+      if (wait) {
+        ctx.send(res, 429, { error: `محاولات كثيرة — حاول بعد ${Math.ceil(wait / 60)} دقيقة`, code: 'throttled' });
+        return true;
+      }
       const s = findStaffByCode(body.code);
       const pin = String(body.pin || '').trim();
-      if (!s || !s.pin_hash || pin.length < 4 || !ctx.bcrypt.compareSync(pin, s.pin_hash)) {
+      if (!s || !s.pin_hash || pin.length < 4 || !(await ctx.bcrypt.compare(pin, s.pin_hash))) {
+        failed(ipKey, 30);
+        failed(codeKey, 8);
         ctx.send(res, 401, { error: 'الكود أو الرمز غير صحيح' });
         return true;
       }
+      attempts.delete(codeKey);
       if (!s.is_active) {
         ctx.send(res, 403, { error: 'الحساب متوقف — راجع الإدارة' });
         return true;
@@ -349,6 +401,13 @@ function createTeam(ctx) {
         ctx.send(res, 200, { ...staffView(s), device });
         return true;
       }
+      // الخروج: إيقاف إشعارات هذا الهاتف
+      if (req.method === 'DELETE' && p === '/api/team/push-token') {
+        const body = JSON.parse((await ctx.readBody(req)) || '{}');
+        db.prepare("DELETE FROM push_tokens WHERE user_kind = 'staff' AND user_id = ? AND (token = ? OR device_id = ?)").run(s.id, String(body.token || ''), String(body.deviceId || '-'));
+        ctx.send(res, 200, { ok: true });
+        return true;
+      }
       if (req.method === 'POST' && p === '/api/team/push-token') {
         const body = JSON.parse((await ctx.readBody(req)) || '{}');
         const token = String(body.token || '').slice(0, 500);
@@ -408,6 +467,12 @@ function createTeam(ctx) {
       }
       if (await work.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       if (await attend.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
+      if (await extra.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
+      // عنوان المحل العام كما يراه الخادم (الطلب يصل من سيرفر المحل مباشرة)
+      if (req.method === 'GET' && p === '/api/admin/team/whoami') {
+        ctx.sendOpen(res, 200, { ip: require('./team-attend').clientIp(req) });
+        return true;
+      }
       ctx.sendOpen(res, 404, { error: 'not found' });
       return true;
     }

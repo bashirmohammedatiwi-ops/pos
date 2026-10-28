@@ -79,7 +79,7 @@ function createChat({ db, ctx, now, audit, emit }) {
     return db.prepare('SELECT user_key FROM chat_members WHERE conv_id = ?').all(c.id).map(r => r.user_key);
   }
   function ensureRow(cid, key) {
-    db.prepare("INSERT INTO chat_members (conv_id, user_key, joined_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").run(cid, key, now());
+    db.prepare("INSERT INTO chat_members (conv_id, user_key, joined_at, last_read) VALUES (?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM messages WHERE conv_id = ?)) ON CONFLICT DO NOTHING").run(cid, key, now(), cid);
   }
 
   /* ── العرض ── */
@@ -87,7 +87,8 @@ function createChat({ db, ctx, now, audit, emit }) {
     const p = person(m.sender_key);
     let reply = null;
     if (m.reply_to) {
-      const r = db.prepare('SELECT id, sender_key, body, image, deleted_at FROM messages WHERE id = ?').get(m.reply_to);
+      // الرد يُعرض فقط إن كانت الرسالة الأصلية من نفس المحادثة
+      const r = db.prepare('SELECT id, sender_key, body, image, deleted_at FROM messages WHERE id = ? AND conv_id = ?').get(m.reply_to, m.conv_id);
       if (r) reply = { id: r.id, senderName: person(r.sender_key)?.name ?? '—', body: r.deleted_at ? 'رسالة محذوفة' : r.body || (r.image ? '📷 صورة' : '') };
     }
     return {
@@ -190,7 +191,7 @@ function createChat({ db, ctx, now, audit, emit }) {
     const text = String(body.body || '').trim().slice(0, 2000);
     const image = typeof body.image === 'string' && MEDIA_RE.test(body.image) ? body.image : null;
     if (!text && !image) return { status: 400, body: { error: 'الرسالة فارغة' } };
-    const replyTo = Number(body.replyTo) || null;
+    const replyTo = Number(body.replyTo) && db.prepare('SELECT id FROM messages WHERE id = ? AND conv_id = ?').get(Number(body.replyTo), id) ? Number(body.replyTo) : null;
     const t = now();
     const r = db.prepare('INSERT INTO messages (conv_id, sender_key, body, image, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, me.key, text || null, image, replyTo, t);
     const mid = Number(r.lastInsertRowid);
@@ -199,6 +200,18 @@ function createChat({ db, ctx, now, audit, emit }) {
     db.prepare('UPDATE chat_members SET last_read = ? WHERE conv_id = ? AND user_key = ?').run(mid, id, me.key);
     const view = msgView(db.prepare('SELECT * FROM messages WHERE id = ?').get(mid));
     for (const k of memberKeys(c)) emit(k, 'chat', { convId: id, message: view });
+    // إشعار Firebase لمن لم يكتم المحادثة (يصل والتطبيق مغلق)
+    const muted = new Set(db.prepare('SELECT user_key FROM chat_members WHERE conv_id = ? AND muted = 1').all(id).map(r => r.user_key));
+    const targets = { staff: [], manager: [] };
+    for (const k of memberKeys(c)) {
+      if (k === me.key || muted.has(k)) continue;
+      const [kind, uid] = k.split(':');
+      if (targets[kind]) targets[kind].push(Number(uid));
+    }
+    const sender = person(me.key)?.name ?? '';
+    const title = c.kind === 'direct' ? sender : `${c.title || 'فريق ديما'} · ${sender}`;
+    const preview = text ? text.slice(0, 140) : '📷 صورة';
+    for (const kind of ['staff', 'manager']) if (targets[kind].length) ctx.pushTo?.(kind, targets[kind], { title, body: preview, link: `/chat/${id}` });
     return { status: 200, body: view };
   }
   function messages(me, id, url) {
