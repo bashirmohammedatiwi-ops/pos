@@ -76,6 +76,12 @@ export type FotDesktopBridge = {
   /** True exactly once per app launch — POS forces a fresh login on every restart. */
   consumeFreshLaunch?: () => Promise<boolean>;
   hwId?: () => Promise<string>;
+  /** تطبيق الفريق: شبكات الواي فاي المرئية من هذا الجهاز (لوحة التحكم المكتبية) */
+  wifiScan?: () => Promise<{
+    networks: { ssid: string; auth?: string | null; accessPoints: { bssid: string; signal?: number | null; channel?: number | null; band?: string | null }[] }[];
+    current?: { ssid?: string | null; bssid?: string | null; signal?: number | null } | null;
+    error?: string | null;
+  }>;
   printHtml?: (
     html: string,
     copies?: number,

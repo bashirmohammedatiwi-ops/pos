@@ -577,6 +577,9 @@ ipcMain.handle('api:discover', (_event, opts) => discoverServers({ timeoutMs: op
 
 ipcMain.handle('hwid:get', () => getMachineHwId());
 
+// تطبيق الفريق: البحث عن شبكات الواي فاي من هذا الجهاز (احتياط لبحث سيرفر المحل)
+ipcMain.handle('wifi:scan', () => require('./wifiScan.cjs').scanWifi());
+
 ipcMain.handle('print:list', async () => {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) return [];

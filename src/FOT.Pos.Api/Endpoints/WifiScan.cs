@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace FOT.Pos.Api.Endpoints;
@@ -22,6 +23,48 @@ public static partial class WifiScan
     private static partial Regex IfaceBssid();
     [GeneratedRegex(@"^\s*SSID\s*:\s*(.*)$")]
     private static partial Regex IfaceSsid();
+
+
+    /* ── طلب بحث جديد من ويندوز (WlanScan): netsh وحده يعرض آخر قائمة محفوظة وقد تكون ناقصة ── */
+    [DllImport("wlanapi.dll")] private static extern int WlanOpenHandle(uint version, IntPtr reserved, out uint negotiated, out IntPtr handle);
+    [DllImport("wlanapi.dll")] private static extern int WlanEnumInterfaces(IntPtr handle, IntPtr reserved, out IntPtr list);
+    [DllImport("wlanapi.dll")] private static extern int WlanScan(IntPtr handle, ref Guid iface, IntPtr ssid, IntPtr ie, IntPtr reserved);
+    [DllImport("wlanapi.dll")] private static extern void WlanFreeMemory(IntPtr memory);
+    [DllImport("wlanapi.dll")] private static extern int WlanCloseHandle(IntPtr handle, IntPtr reserved);
+
+    /// <summary>يطلب بحثاً جديداً على كل بطاقات الواي فاي؛ يعيد عدد البطاقات التي بدأ عليها البحث.</summary>
+    public static int TriggerScan()
+    {
+        if (!OperatingSystem.IsWindows()) return 0;
+        try
+        {
+            if (WlanOpenHandle(2, IntPtr.Zero, out _, out var handle) != 0) return 0;
+            var started = 0;
+            try
+            {
+                if (WlanEnumInterfaces(handle, IntPtr.Zero, out var list) != 0) return 0;
+                var count = Marshal.ReadInt32(list);
+                for (var i = 0; i < count; i++)
+                {
+                    // WLAN_INTERFACE_INFO: GUID(16) + WCHAR[256](512) + state(4) = 532 بايت بعد ترويسة 8 بايت
+                    var bytes = new byte[16];
+                    Marshal.Copy(IntPtr.Add(list, 8 + i * 532), bytes, 0, 16);
+                    var id = new Guid(bytes);
+                    if (WlanScan(handle, ref id, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) == 0) started++;
+                }
+                WlanFreeMemory(list);
+            }
+            finally
+            {
+                WlanCloseHandle(handle, IntPtr.Zero);
+            }
+            return started;
+        }
+        catch
+        {
+            return 0; // لا بطاقة واي فاي أو خدمة WLAN متوقفة
+        }
+    }
 
     public static List<Network> ParseNetworks(string text)
     {

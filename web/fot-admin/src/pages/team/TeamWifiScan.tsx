@@ -41,7 +41,19 @@ export function WifiScanModal({ open, onClose, existing, onAdded }: { open: bool
   async function run() {
     setLoading(true);
     setFailure(null);
-    const [s, w] = await Promise.allSettled([api.teamWifiScan(), api.teamShopIp()]);
+    // لوحة التحكم المكتبية تبحث من جهازها (بصلاحيات المستخدم)؛ وإلا — أو إن لم يكن فيه واي فاي — يبحث سيرفر المحل
+    const scanBoth = async (): Promise<WifiScanDto> => {
+      const local = await window.fotDesktop?.wifiScan?.().catch(() => null);
+      if (local && local.networks.length) return local;
+      try {
+        const remote = await api.teamWifiScan();
+        if (remote.networks.length || !local) return remote;
+      } catch (e) {
+        if (!local) throw e;
+      }
+      return local!;
+    };
+    const [s, w] = await Promise.allSettled([scanBoth(), api.teamShopIp()]);
     if (s.status === 'fulfilled') {
       setScan(s.value);
       // تحديد مسبق: شبكة السيرفر الحالية = واي فاي المحل غالباً

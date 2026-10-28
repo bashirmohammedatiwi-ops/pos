@@ -105,6 +105,8 @@ public static class TeamEndpoints
             if (!IsAdmin(http)) return Results.Forbid();
             if (!OperatingSystem.IsWindows())
                 return Results.Json(new { error = "البحث عن الشبكات متاح على سيرفر ويندوز فقط" }, statusCode: 501);
+            // بحث جديد ثم انتظار النتائج (الشبكات المحيطة كلها، لا آخر قائمة محفوظة فقط)
+            if (WifiScan.TriggerScan() > 0) await Task.Delay(TimeSpan.FromSeconds(4), ct);
             var (networksOut, code1) = await RunNetshAsync("wlan show networks mode=bssid", ct);
             var (ifaceOut, _) = await RunNetshAsync("wlan show interfaces", ct);
             var networks = WifiScan.ParseNetworks(networksOut);

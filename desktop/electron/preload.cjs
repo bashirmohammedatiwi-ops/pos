@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('fotDesktop', {
   /** True once per app launch — POS uses it to force re-login on every restart. */
   consumeFreshLaunch: () => ipcRenderer.invoke('boot:consume-fresh'),
   hwId: () => ipcRenderer.invoke('hwid:get'),
+  wifiScan: () => ipcRenderer.invoke('wifi:scan'),
   printHtml: (html, copies, deviceName, options) =>
     ipcRenderer.invoke('print:html', html, copies, deviceName, options),
   printRaster: (pages, opts) => ipcRenderer.invoke('print:raster', pages, opts),
