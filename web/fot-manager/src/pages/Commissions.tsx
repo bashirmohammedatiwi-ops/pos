@@ -4,16 +4,15 @@ import { moneyIq, weekRange } from '../api';
 import { ExportMenu } from '../ExportMenu';
 import { useManager, useWeekCompare } from '../store';
 import {
-  Donut, Empty, ErrorBox, Legend, Medal, MetricStrip, PageHero, Podium, SearchField,
-  SectionCard, Skeleton, WeekCompare,
+  Empty, ErrorBox, Medal, MetricStrip, PageHero, SearchField, Skeleton, WeekCompare,
 } from '../ui';
-import { WeekStepper, WeekTimeline } from '../week';
+import { WeekPicker } from '../picker';
 
 type Sort = 'commission' | 'sales' | 'receipts';
 
 export function Commissions() {
   const {
-    weekStart, setWeek, weeks, dash, prevDash, paySellers, payKind, setPayKind,
+    weekStart, weeks, dash, prevDash, paySellers, payKind, setPayKind,
     payTotals, err, loading, reload,
   } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
@@ -38,25 +37,16 @@ export function Commissions() {
     });
   }, [paySellers, q, sort, hideZero]);
 
-  const top = rows.slice(0, 3);
   const totalComm = payTotals.commission || rows.reduce((s, r) => s + r.commissionAmount, 0);
   const totalSales = payTotals.sales || rows.reduce((s, r) => s + r.salesAmount, 0);
   const week = dash?.week;
-  const donutItems = useMemo(
-    () => rows.slice(0, 5).map(s => ({ label: s.name, value: s.commissionAmount })),
-    [rows],
-  );
 
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading && !rows.length) return <Skeleton rows={6} />;
 
   return (
     <div className="page-flow fade-up">
-      <WeekStepper weeks={weeks} weekStart={weekStart} setWeek={setWeek} kicker="عمولات الأسبوع" />
-
-      <SectionCard kicker="تصفح" title="الأسابيع" className="week-timeline-wrap">
-        <WeekTimeline weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
-      </SectionCard>
+      <WeekPicker title="عمولات أسبوع" />
 
       <PageHero
         kicker="أجور البائعين"
@@ -84,36 +74,14 @@ export function Commissions() {
         />
       )}
 
-      {donutItems.length >= 2 && (
-        <SectionCard kicker="توزيع" title="توزيع العمولات">
-          <div className="donut-panel">
-            <Donut items={donutItems} center={moneyIq(totalComm)} />
-            <Legend items={donutItems.map(s => ({ label: s.label, value: moneyIq(s.value) }))} />
-          </div>
-        </SectionCard>
-      )}
-
-      {top.length >= 2 && (
-        <SectionCard kicker="أعلى ثلاثة" title="منصة التكريم">
-          <Podium
-            items={top.map(s => ({
-              id: String(s.salesmanId),
-              name: s.name,
-              value: moneyIq(s.commissionAmount),
-              hint: `${s.receiptCount} فاتورة · ${moneyIq(s.salesAmount)}`,
-            }))}
-          />
-        </SectionCard>
-      )}
-
       <section className="people-toolbar card">
         <SearchField value={q} onChange={setQ} placeholder="ابحث بالاسم" />
         <div className="sort-bar">
           {([['commission', 'العمولة'], ['sales', 'المبيعات'], ['receipts', 'الفواتير']] as const).map(([k, label]) => (
             <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
           ))}
-          <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
-            {hideZero ? 'إخفاء الصفر' : 'إظهار الكل'}
+          <button type="button" className={hideZero ? 'muted' : 'on muted'} onClick={() => setHideZero(v => !v)}>
+            {hideZero ? 'إظهار الجميع' : 'أصحاب العمولة فقط'}
           </button>
         </div>
       </section>
@@ -144,7 +112,7 @@ export function Commissions() {
             </Link>
         ))}
         {!rows.length && (
-          <Empty title="لا عمولات في هذا الأسبوع" hint="اختر أسبوعاً من الخط الزمني أو استخدم ‹ ›" />
+          <Empty title="لا عمولات في هذا الأسبوع" hint="اضغط على الأسبوع في الأعلى لاختيار أسبوع آخر" />
         )}
       </div>
     </div>

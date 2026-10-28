@@ -4,8 +4,42 @@
     {
       "name": "fot-admin",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web/fot-admin", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "web/fot-admin",
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "fot-seller",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "web/fot-seller",
+        "run",
+        "dev"
+      ],
+      "port": 4701
+    },
+    {
+      "name": "fot-seller-hubtest",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set FOT_SELLER_API=http://127.0.0.1:47907&& npm --prefix web/fot-seller run dev -- --port 4711"
+      ],
+      "port": 4711
+    },
+    {
+      "name": "team-app-hubtest",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set FOT_SELLER_API=http://127.0.0.1:47907&& set VITE_TARGET=app&& npm --prefix web/fot-seller run dev -- --port 4712"
+      ],
+      "port": 4712
     }
   ]
 }

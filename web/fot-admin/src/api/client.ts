@@ -97,6 +97,11 @@ import type {
   DiscountQrReceiptDto,
   PortalPublishResult,
   PortalSellerAccountDto,
+  SellerAccessRequest,
+  SellerBrandLinkDto,
+  StaffDto,
+  StaffSaveRequest,
+  TeamHubStatusDto,
   PortalWebStatusDto,
   PortalManagerAccountDto,
   PortalBulkIssueResult,
@@ -133,6 +138,13 @@ import type {
   UpsertOfferDetailRequest,
   ReceiptPrintPreviewDto,
   ServerInfoDto,
+  BackupFileItemDto,
+  BackupManifestDto,
+  BackupSettingsDto,
+  CreateBackupRequest,
+  RestoreBackupRequest,
+  RestoreBackupResultDto,
+  UpdateBackupSettingsRequest,
 } from './types';
 import { fetchLan } from '@fot/shared';
 import { getApiBase } from '@/lib/apiBase';
@@ -525,6 +537,25 @@ export const api = {
     request<PortalBulkIssueResult>('/api/portal-accounts/sellers/issue-missing', { method: 'POST' }),
   setSellerPortalActive: (id: number, active: boolean) =>
     request<PortalSellerAccountDto>(`/api/portal-accounts/sellers/${id}/active${qs({ active })}`, { method: 'POST' }),
+  setSellerAccess: (id: number, body: SellerAccessRequest) =>
+    request<PortalSellerAccountDto>(`/api/portal-accounts/sellers/${id}/access`, { method: 'PUT', body: JSON.stringify(body) }),
+  setAllSellersAccess: (body: SellerAccessRequest) =>
+    request<{ updated: number }>('/api/portal-accounts/sellers/access-all', { method: 'PUT', body: JSON.stringify(body) }),
+  sellerBrandLinks: () => request<SellerBrandLinkDto[]>('/api/portal-accounts/brand-links'),
+  setSellerBrands: (id: number, trees: { treeSeq: number; treeName?: string | null }[]) =>
+    request<SellerBrandLinkDto[]>(`/api/portal-accounts/sellers/${id}/brands`, { method: 'PUT', body: JSON.stringify({ trees }) }),
+  // تطبيق الفريق
+  teamStaff: () => request<StaffDto[]>('/api/team/staff'),
+  createStaff: (body: StaffSaveRequest) => request<StaffDto>('/api/team/staff', { method: 'POST', body: JSON.stringify(body) }),
+  updateStaff: (id: number, body: StaffSaveRequest) =>
+    request<StaffDto>(`/api/team/staff/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  issueStaffPin: (id: number) => request<StaffDto>(`/api/team/staff/${id}/pin`, { method: 'POST' }),
+  setStaffActive: (id: number, active: boolean) =>
+    request<StaffDto>(`/api/team/staff/${id}/active${qs({ active })}`, { method: 'POST' }),
+  importStaffCashiers: () => request<{ added: number; staff: StaffDto[] }>('/api/team/staff/import-cashiers', { method: 'POST' }),
+  /** خادم الفريق عبر وكيل المحل */
+  teamHubStatus: () => request<TeamHubStatusDto>('/api/team/hub/status'),
+  resetStaffDevice: (id: number) => request<{ ok: boolean }>(`/api/team/hub/staff/${id}/reset-device`, { method: 'POST' }),
   portalWebStatus: () => request<PortalWebStatusDto>('/api/portal-accounts/web-status'),
   publishSellerToWeb: (id: number) =>
     request<PortalPublishResult>(`/api/portal-accounts/sellers/${id}/publish`, { method: 'POST' }),
@@ -798,7 +829,242 @@ export const api = {
     request<{ purged: number }>(`/api/telemetry/errors?days=${days}`, { method: 'DELETE' }),
 
   serverInfo: () => request<ServerInfoDto>('/api/server/info'),
+
+  // System Backups
+  backups: () => request<BackupFileItemDto[]>('/api/backups'),
+  backupSettings: () => request<BackupSettingsDto>('/api/backups/settings'),
+  saveBackupSettings: (req: UpdateBackupSettingsRequest) =>
+    request<BackupSettingsDto>('/api/backups/settings', {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    }),
+  createBackup: (req?: CreateBackupRequest) =>
+    request<BackupFileItemDto>('/api/backups/create', {
+      method: 'POST',
+      body: JSON.stringify(req ?? {}),
+      timeoutMs: 300_000,
+    }),
+  inspectBackup: (fileName: string) =>
+    request<BackupManifestDto>(`/api/backups/${encodeURIComponent(fileName)}/inspect`),
+  deleteBackup: (fileName: string) =>
+    request<void>(`/api/backups/${encodeURIComponent(fileName)}`, { method: 'DELETE' }),
+  restoreBackup: (fileName: string, req?: RestoreBackupRequest) =>
+    request<RestoreBackupResultDto>(`/api/backups/${encodeURIComponent(fileName)}/restore`, {
+      method: 'POST',
+      body: JSON.stringify(req ?? {}),
+      timeoutMs: 300_000,
+    }),
+  inspectUploadedBackup: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return request<BackupManifestDto>('/api/backups/inspect-upload', {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 120_000,
+    });
+  },
+  uploadAndRestoreBackup: (
+    file: File,
+    opts?: { sections?: string[]; safety?: boolean; saveToVault?: boolean },
+  ) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const q = qs({
+      sections: opts?.sections?.length ? opts.sections.join(',') : undefined,
+      safety: opts?.safety ?? true,
+      saveToVault: opts?.saveToVault ?? true,
+    });
+    return request<RestoreBackupResultDto>(`/api/backups/upload-restore${q}`, {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 300_000,
+    });
+  },
+  downloadBackup: async (fileName: string) => {
+    const token = getToken();
+    const res = await fetchLan(`${getApiBase()}/api/backups/${encodeURIComponent(fileName)}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      timeoutMs: 180_000,
+    });
+    if (!res.ok) throw new Error('تعذر تحميل ملف النسخة الاحتياطية');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  // ── Network API Platform ──
+  apiPlatformOverview: () => request<ApiPlatformOverviewDto>('/api/platform/overview'),
+  apiKeys: () => request<ApiKeyDto[]>('/api/platform/keys'),
+  createApiKey: (req: CreateApiKeyRequest) =>
+    request<CreateApiKeyResponse>('/api/platform/keys', { method: 'POST', body: JSON.stringify(req) }),
+  updateApiKey: (id: number, req: UpdateApiKeyRequest) =>
+    request<ApiKeyDto>(`/api/platform/keys/${id}`, { method: 'PATCH', body: JSON.stringify(req) }),
+  deleteApiKey: (id: number) =>
+    request<void>(`/api/platform/keys/${id}`, { method: 'DELETE' }),
+  apiWebhooks: () => request<ApiWebhookDto[]>('/api/platform/webhooks'),
+  createApiWebhook: (req: CreateApiWebhookRequest) =>
+    request<ApiWebhookDto>('/api/platform/webhooks', { method: 'POST', body: JSON.stringify(req) }),
+  updateApiWebhook: (id: number, req: UpdateApiWebhookRequest) =>
+    request<ApiWebhookDto>(`/api/platform/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(req) }),
+  deleteApiWebhook: (id: number) =>
+    request<void>(`/api/platform/webhooks/${id}`, { method: 'DELETE' }),
+  testApiWebhook: (id: number) =>
+    request<WebhookTestResultDto>(`/api/platform/webhooks/${id}/test`, { method: 'POST' }),
+  recentNetworkEvents: (limit = 30) =>
+    request<NetworkEventDto[]>(`/api/v1/events/recent${qs({ limit })}`),
+  publishNetworkEvent: (eventType: string, data?: unknown) =>
+    request<NetworkEventDto>('/api/v1/events/publish', {
+      method: 'POST',
+      body: JSON.stringify({ eventType, data }),
+    }),
+  callNetworkEndpoint: async (method: string, pathWithQuery: string, bodyJson?: string, customApiKey?: string) => {
+    const t0 = performance.now();
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (customApiKey?.trim()) {
+      headers['X-API-Key'] = customApiKey.trim();
+    } else if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    if (bodyJson && method !== 'GET') {
+      headers['Content-Type'] = 'application/json';
+    }
+    const res = await fetchLan(`${getApiBase()}${pathWithQuery}`, {
+      method,
+      headers,
+      body: bodyJson && method !== 'GET' ? bodyJson : undefined,
+      timeoutMs: 30_000,
+    });
+    const elapsedMs = Math.round(performance.now() - t0);
+    const text = await res.text();
+    let parsed: unknown = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* keep raw text */
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      elapsedMs,
+      catalogRevision: res.headers.get('X-Catalog-Revision'),
+      body: parsed,
+    };
+  },
 };
+
+export interface ApiKeyDto {
+  id: number;
+  name: string;
+  keyPrefix: string;
+  scopes: string[];
+  roleName: string;
+  notes?: string | null;
+  isActive: boolean;
+  requestCount: number;
+  lastUsedAt?: string | null;
+  lastUsedIp?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateApiKeyRequest {
+  name: string;
+  scopes?: string[];
+  roleName?: string;
+  notes?: string;
+  expiresInDays?: number | null;
+}
+
+export interface CreateApiKeyResponse {
+  plainTextKey: string;
+  key: ApiKeyDto;
+}
+
+export interface UpdateApiKeyRequest {
+  name?: string;
+  scopes?: string[];
+  notes?: string;
+  isActive?: boolean;
+}
+
+export interface ApiWebhookDto {
+  id: number;
+  name: string;
+  targetUrl: string;
+  hasSecret: boolean;
+  events: string[];
+  isActive: boolean;
+  deliveryCount: number;
+  failureCount: number;
+  lastStatusCode?: number | null;
+  lastError?: string | null;
+  lastTriggeredAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateApiWebhookRequest {
+  name: string;
+  targetUrl: string;
+  secret?: string;
+  events?: string[];
+}
+
+export interface UpdateApiWebhookRequest {
+  name?: string;
+  targetUrl?: string;
+  secret?: string;
+  events?: string[];
+  isActive?: boolean;
+}
+
+export interface WebhookTestResultDto {
+  ok: boolean;
+  statusCode?: number | null;
+  elapsedMs: number;
+  message: string;
+}
+
+export interface NetworkEventDto {
+  id: number;
+  eventType: string;
+  timestampUtc: string;
+  data?: unknown;
+}
+
+export interface ApiEndpointDescriptorDto {
+  group: string;
+  method: string;
+  path: string;
+  summary: string;
+  scope: string;
+  anonymousAllowed: boolean;
+  sampleQueryOrBody?: string | null;
+}
+
+export interface ApiPlatformOverviewDto {
+  serverName: string;
+  port: number;
+  lanIps: string[];
+  baseUrls: string[];
+  swaggerUrl: string;
+  openApiJsonUrl: string;
+  sseStreamUrl: string;
+  signalRHubUrl: string;
+  catalogRevision: number;
+  activeKeysCount: number;
+  totalApiKeyRequests: number;
+  activeWebhooksCount: number;
+  availableScopes: string[];
+  endpoints: ApiEndpointDescriptorDto[];
+  recentEvents: NetworkEventDto[];
+}
 
 const NUM_LOCALE = 'en-US';
 

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatNum } from '@/api/client';
 import type { OfferDetailDto } from '@/api/types';
 import { fixEdariName } from '@/lib/text';
@@ -56,6 +56,15 @@ export function OfferBundleRequiredEditor({
   });
 
   const requiredRows = useMemo(() => existing.filter(r => r.detailRole === 1), [existing]);
+  const prevStamp = useRef('');
+  useEffect(() => {
+    const stamp = requiredRows.map(r => r.id).join(',');
+    if (prevStamp.current && prevStamp.current !== stamp) {
+      setAdd([]);
+      setRemoveRowIds([]);
+    }
+    prevStamp.current = stamp;
+  }, [requiredRows]);
   const removed = useMemo(() => new Set(removeRowIds), [removeRowIds]);
   const visible = useMemo(() => requiredRows.filter(r => !removed.has(r.id)), [requiredRows, removed]);
   const removedRows = useMemo(() => requiredRows.filter(r => removed.has(r.id)), [requiredRows, removed]);
@@ -209,6 +218,23 @@ export function OfferBundleRequiredEditor({
             </button>
           </span>
         ))}
+        {singlesAdded.map(p => (
+          <span
+            key={`new-${p.seq}`}
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 py-0.5 pe-1 ps-2.5 text-[12px] font-semibold text-emerald-900"
+            title="أُضيف الآن — سيُحفظ عند الضغط على حفظ"
+          >
+            <span className="truncate">{p.name}</span>
+            <button
+              type="button"
+              className="rounded-full p-0.5 text-emerald-700 hover:bg-emerald-100 hover:text-red-600"
+              onClick={() => setAdd(list => list.filter(x => x.seq !== p.seq))}
+              aria-label="إلغاء"
+            >
+              <IconX size={13} />
+            </button>
+          </span>
+        ))}
         {visibleShown.map(r => (
           <span
             key={r.id}
@@ -245,23 +271,6 @@ export function OfferBundleRequiredEditor({
             إزالة الكل
           </button>
         )}
-        {singlesAdded.map(p => (
-          <span
-            key={`new-${p.seq}`}
-            className="inline-flex max-w-full items-center gap-1 rounded-full border border-amber-300 bg-amber-50 py-0.5 pe-1 ps-2.5 text-[12px] font-semibold text-amber-900"
-            title="سيُضاف عند الحفظ"
-          >
-            <span className="truncate">{p.name}</span>
-            <button
-              type="button"
-              className="rounded-full p-0.5 text-amber-600 hover:bg-amber-100 hover:text-red-600"
-              onClick={() => setAdd(list => list.filter(x => x.seq !== p.seq))}
-              aria-label="إلغاء"
-            >
-              <IconX size={13} />
-            </button>
-          </span>
-        ))}
         {removedRows.map(r => (
           <span
             key={`rm-${r.id}`}

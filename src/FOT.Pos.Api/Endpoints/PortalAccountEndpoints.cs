@@ -23,7 +23,7 @@ public static class PortalAccountEndpoints
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.IssueSellerPinAsync(id, default);
             if (row is null) return Results.NotFound(new { error = "البائع غير موجود" });
-            _ = sync.PushNowAsync(CancellationToken.None);
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushNowAsync(CancellationToken.None));
             return Results.Ok(row);
         });
 
@@ -31,7 +31,7 @@ public static class PortalAccountEndpoints
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var result = await repo.IssueMissingSellerPinsAsync(default);
-            _ = sync.PushNowAsync(CancellationToken.None);
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushNowAsync(CancellationToken.None));
             return Results.Ok(result);
         });
 
@@ -40,8 +40,41 @@ public static class PortalAccountEndpoints
             if (!IsAdmin(http)) return Results.Forbid();
             var row = await repo.SetSellerActiveAsync(id, active, default);
             if (row is null) return Results.NotFound(new { error = "لا يوجد حساب لهذا البائع" });
-            _ = sync.PushNowAsync(CancellationToken.None);
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushNowAsync(CancellationToken.None));
             return Results.Ok(row);
+        });
+
+        g.MapPut("/sellers/{id:long}/access", async (HttpContext http, long id, SellerAccessRequest req, PortalAccountRepository repo, ISellerHubSync sync) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var n = await repo.SetSellerAccessAsync(id, req.FromMin, req.ToMin, req.Days, default);
+            if (n <= 0) return Results.NotFound(new { error = "لا يوجد حساب لهذا البائع — ولّد الرمز أولاً" });
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushNowAsync(CancellationToken.None));
+            return Results.Ok((await repo.ListSellersAsync(default)).FirstOrDefault(s => s.SalesmanId == id));
+        });
+
+        g.MapPut("/sellers/access-all", async (HttpContext http, SellerAccessRequest req, PortalAccountRepository repo, ISellerHubSync sync) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var n = await repo.SetSellerAccessAsync(null, req.FromMin, req.ToMin, req.Days, default);
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushNowAsync(CancellationToken.None));
+            return Results.Ok(new { updated = n, sellers = await repo.ListSellersAsync(default) });
+        });
+
+        // براندات البائع: شجرة مواد أو أكثر لكل بائع (كل شجرة براند مستقل في ويبه)
+        g.MapGet("/brand-links", async (HttpContext http, SellerBrandRepository repo) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            return Results.Ok(await repo.ListLinksAsync(null, default));
+        });
+
+        g.MapPut("/sellers/{id:long}/brands", async (HttpContext http, long id, SellerBrandLinksRequest req, SellerBrandRepository repo, ISellerHubSync sync) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            await repo.SetLinksAsync(id, req.Trees ?? [], default);
+            // الروابط تصل فوراً، وحزم براندات هذا البائع تُبنى وتُرفع مباشرة دون انتظار الدورة
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushBrandPacksForAsync(id, CancellationToken.None));
+            return Results.Ok(await repo.ListLinksAsync(id, default));
         });
 
         g.MapGet("/web-status", async (HttpContext http, PortalAccountRepository repo, SellerWebPublisher web) =>
@@ -85,7 +118,7 @@ public static class PortalAccountEndpoints
             if (!IsAdmin(http)) return Results.Forbid();
             var (row, error) = await repo.CreateManagerAsync(req.Username, req.DisplayName, req.Password, default);
             if (error is not null) return Results.BadRequest(new { error });
-            _ = sync.PushNowAsync(CancellationToken.None);
+            _ = sync.PushAccountsNowAsync(CancellationToken.None).ContinueWith(_ => sync.PushNowAsync(CancellationToken.None));
             return Results.Ok(row);
         });
 

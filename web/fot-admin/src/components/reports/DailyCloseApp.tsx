@@ -3,10 +3,12 @@ import { useMemo, useState } from 'react';
 import { api, formatNum, todayIso } from '@/api/client';
 import type { CashReportDto, DayBreakdownDto, MovementRowDto, NamedTotalDto, SalesmanSalesRowDto } from '@/api/types';
 import { useToast } from '@/components/Toast';
-import { IconChevronLeft, IconChevronRight, IconPrinter, IconReceipt } from '@/components/icons';
+import { IconChevronLeft, IconChevronRight, IconCopy, IconDownload, IconPrinter, IconReceipt } from '@/components/icons';
 import { Btn, Input } from '@/components/ui';
 import { isoDate } from '@/lib/businessPeriod';
+import { copyText } from '@/lib/clipboard';
 import { printDocument } from '@/lib/print';
+import { downloadReportExcel, type ReportExcelSheet } from '@/lib/reportExcel';
 import { fixEdariName } from '@/lib/text';
 import { ReportAppWindow } from './ReportAppWindow';
 import { ReportBanner, ReportError, ReportFill } from './ReportKit';
@@ -103,6 +105,68 @@ export function DailyCloseApp({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function copySummary() {
+    if (!m) return;
+    const lines = [
+      `تقرير نهاية اليوم${shopName ? ` — ${shopName}` : ''}`,
+      dayTitle(m.date),
+      `صافي المبيعات: ${money(m.cash.totalSales)} IQD`,
+      ...(m.day ? [`نقدي: ${money(m.cashTotal)} IQD | بطاقة: ${money(m.cardTotal)} IQD (${formatNum(m.day.cardCount)} فاتورة)`] : []),
+      `المرتجعات: ${money(m.cash.returnsTotal ?? 0)} IQD (${formatNum(m.cash.returnsCount ?? 0)} فاتورة)`,
+      `الفواتير: ${formatNum(m.cash.receiptCount)} | المتوسط: ${money(m.cash.averageTicket)} IQD | القطع: ${formatNum(m.pieces)}`,
+      ...(m.salesmen.length
+        ? ['', 'حسب البائع:', ...m.salesmen.slice(0, 8).map(s => `• ${fixEdariName(s.name) || `#${s.salesmanId}`}: ${money(s.total)} IQD (${formatNum(s.count)} فاتورة)`)]
+        : []),
+    ];
+    try {
+      await copyText(lines.join('\n'));
+      toast.success('تم نسخ ملخص نهاية اليوم');
+    } catch {
+      toast.error('تعذر النسخ');
+    }
+  }
+
+  function exportExcel() {
+    if (!m) return;
+    const sheets: ReportExcelSheet[] = [
+      {
+        name: 'ملخص اليوم',
+        title: `تقرير نهاية اليوم — ${m.date}`,
+        headers: ['المؤشر', 'القيمة'],
+        columnWidths: [180, 140],
+        rows: [
+          ['التاريخ', m.date],
+          ['صافي المبيعات (IQD)', Math.round(m.cash.totalSales)],
+          ['النقدي (IQD)', m.day ? Math.round(m.cashTotal) : '—'],
+          ['البطاقة (IQD)', m.day ? Math.round(m.cardTotal) : '—'],
+          ['المرتجعات (IQD)', Math.round(m.cash.returnsTotal ?? 0)],
+          ['عدد الفواتير', m.cash.receiptCount],
+          ['متوسط الفاتورة (IQD)', Math.round(m.cash.averageTicket)],
+          ['القطع المباعة', m.pieces],
+        ],
+      },
+    ];
+    if (m.salesmen.length) {
+      sheets.push({
+        name: 'حسب البائع',
+        title: `مبيعات البائعين — ${m.date}`,
+        headers: ['البائع', 'الفواتير', 'المبلغ (IQD)'],
+        columnWidths: [180, 90, 130],
+        rows: m.salesmen.map(s => [fixEdariName(s.name) || `#${s.salesmanId}`, s.count, Math.round(s.total)]),
+      });
+    }
+    if (m.top.length) {
+      sheets.push({
+        name: 'أكثر المواد',
+        title: `أكثر المواد مبيعاً — ${m.date}`,
+        headers: ['المادة', 'الباركود', 'الكمية', 'المبلغ (IQD)'],
+        columnWidths: [240, 120, 80, 120],
+        rows: m.top.map(t => [fixEdariName(t.name) || '', t.barcode || '', t.soldQty, Math.round(t.soldAmount)]),
+      });
+    }
+    downloadReportExcel(`نهاية-اليوم-${m.date}`, sheets);
+  }
+
   const maxHour = Math.max(1, ...(m?.hours ?? []).map(h => h.total));
 
   return (
@@ -129,9 +193,17 @@ export function DailyCloseApp({ onClose }: { onClose: () => void }) {
         </div>
       }
       actions={
-        <Btn size="sm" icon={<IconPrinter size={14} />} loading={printing} disabled={!m} onClick={() => void print()}>
-          طباعة A4
-        </Btn>
+        <>
+          <Btn size="sm" variant="secondary" icon={<IconCopy size={14} />} disabled={!m} onClick={() => void copySummary()}>
+            نسخ الملخص
+          </Btn>
+          <Btn size="sm" variant="secondary" icon={<IconDownload size={14} />} disabled={!m} onClick={exportExcel}>
+            Excel
+          </Btn>
+          <Btn size="sm" icon={<IconPrinter size={14} />} loading={printing} disabled={!m} onClick={() => void print()}>
+            طباعة A4
+          </Btn>
+        </>
       }
       onClose={onClose}
     >

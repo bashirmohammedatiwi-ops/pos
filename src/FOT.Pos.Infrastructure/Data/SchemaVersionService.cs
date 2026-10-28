@@ -22,22 +22,32 @@ internal sealed class MigrationRow
 
 public sealed class SchemaVersionService(ISqlConnectionFactory db)
 {
-    public const int LatestBundledVersion = 38;
+    public const int LatestBundledVersion = 81;
 
     public static int ResolveBundledVersion(string? contentRoot)
     {
         try
         {
+            var embeddedMax = typeof(SchemaVersionService).Assembly
+                .GetManifestResourceNames()
+                .Where(n => n.StartsWith("FOT.Pos.Infrastructure.Migrations.", StringComparison.Ordinal) && n.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
+                .Select(n => n["FOT.Pos.Infrastructure.Migrations.".Length..])
+                .Select(name => Regex.Match(name, @"^(\d+)_"))
+                .Where(m => m.Success)
+                .Select(m => int.Parse(m.Groups[1].Value))
+                .DefaultIfEmpty(LatestBundledVersion)
+                .Max();
+
             var dir = Path.GetFullPath(Path.Combine(contentRoot ?? "", "..", "..", "database", "migrations"));
-            if (!Directory.Exists(dir)) return LatestBundledVersion;
+            if (!Directory.Exists(dir)) return Math.Max(embeddedMax, LatestBundledVersion);
             var max = Directory.GetFiles(dir, "*.sql")
                 .Select(Path.GetFileName)
                 .Select(name => Regex.Match(name ?? "", @"^(\d+)_"))
                 .Where(m => m.Success)
                 .Select(m => int.Parse(m.Groups[1].Value))
-                .DefaultIfEmpty(LatestBundledVersion)
+                .DefaultIfEmpty(embeddedMax)
                 .Max();
-            return Math.Max(max, LatestBundledVersion);
+            return Math.Max(Math.Max(max, embeddedMax), LatestBundledVersion);
         }
         catch
         {

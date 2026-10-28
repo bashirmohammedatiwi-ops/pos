@@ -101,3 +101,6 @@ Desktop.ini
 
 # Nested copies
 web/node_modules/
+
+# ناتج بناء ملفات التثبيت
+desktop/dist-out*/

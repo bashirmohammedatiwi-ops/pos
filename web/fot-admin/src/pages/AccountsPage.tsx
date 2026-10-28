@@ -85,6 +85,8 @@ export function AccountsPage() {
   const [debounced, setDebounced] = useState(search.trim());
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [view, setView] = useState<'all' | 'on'>('all');
+  const [balanceFilter, setBalanceFilter] = useState<'all' | 'debit' | 'credit' | 'zero'>('all');
+  const [sideSearch, setSideSearch] = useState('');
   /** الصف المؤشَّر بلوحة المفاتيح (↑↓ ثم Enter للتفعيل). */
   const [cursorSeq, setCursorSeq] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -151,12 +153,32 @@ export function AccountsPage() {
   }, [items, selected, selectedQ.data]);
 
   const visibleItems = useMemo(() => {
-    if (view === 'all') return items;
-    // «المفعّلة فقط» تعرض كل المفعّلة (وليس نتائج البحث فقط) مع تصفية محلية
-    const q = search.trim().toLowerCase();
+    const base = view === 'all' ? items : (() => {
+      const q = search.trim().toLowerCase();
+      if (!q) return selectedRows;
+      return selectedRows.filter(a => (a.name || '').toLowerCase().includes(q) || (a.num || '').toLowerCase().includes(q));
+    })();
+    if (balanceFilter === 'debit') return base.filter(a => a.balance < 0);
+    if (balanceFilter === 'credit') return base.filter(a => a.balance > 0);
+    if (balanceFilter === 'zero') return base.filter(a => a.balance === 0);
+    return base;
+  }, [items, selectedRows, view, search, balanceFilter]);
+
+  const filteredSelectedRows = useMemo(() => {
+    const q = sideSearch.trim().toLowerCase();
     if (!q) return selectedRows;
     return selectedRows.filter(a => (a.name || '').toLowerCase().includes(q) || (a.num || '').toLowerCase().includes(q));
-  }, [items, selectedRows, view, search]);
+  }, [selectedRows, sideSearch]);
+
+  const syncAccounts = useMutation({
+    mutationFn: api.syncEdariAccounts,
+    onSuccess: res => {
+      void qc.invalidateQueries({ queryKey: ['credit-accounts-edari'] });
+      void qc.invalidateQueries({ queryKey: ['credit-accounts-selected'] });
+      toast.success(res.message || `تم جلب ${formatNum(res.total)} حساب من الأداري`);
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر جلب الحسابات من الأداري'),
+  });
 
   const selectedBalance = selectedRows.reduce((n, a) => n + a.balance, 0);
   const savedCount = selectedQ.data?.length ?? 0;
@@ -317,16 +339,38 @@ export function AccountsPage() {
                 />
               </div>
             </div>
+            <div className="min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-500">الرصيد</span>
+              <div className="flex h-9 items-center">
+                <SegmentedFilter
+                  label="فلتر الرصيد"
+                  value={balanceFilter}
+                  onChange={setBalanceFilter}
+                  items={[
+                    { id: 'all', label: 'الكل' },
+                    { id: 'debit', label: 'مدين (-)' },
+                    { id: 'credit', label: 'دائن (+)' },
+                    { id: 'zero', label: 'صفر' },
+                  ]}
+                />
+              </div>
+            </div>
             <FilterActions>
+              <Btn
+                variant="secondary"
+                icon={<IconRefresh size={13} className={syncAccounts.isPending ? 'animate-spin' : ''} />}
+                loading={syncAccounts.isPending}
+                onClick={() => syncAccounts.mutate()}
+                title="جلب أحدث الحسابات وأرصدتها من الأداري"
+              >
+                جلب من الأداري
+              </Btn>
               <Btn variant="secondary" icon={<IconCheck size={13} />} disabled={!visibleItems.length} onClick={selectAllVisible}>
                 تحديد المعروض
               </Btn>
               <Btn variant="ghost" disabled={!selected.size} onClick={() => void clearAll()}>
                 إلغاء الكل
               </Btn>
-              <IconButton label="تحديث" onClick={() => { void edariQ.refetch(); void selectedQ.refetch(); }}>
-                <IconRefresh size={15} className={edariQ.isFetching ? 'animate-spin' : ''} />
-              </IconButton>
             </FilterActions>
           </FilterBar>
 
@@ -388,35 +432,50 @@ export function AccountsPage() {
 
         {/* المفعّلة على نقطة البيع — قائمة جانبية ضيقة */}
         <aside className="card flex max-h-[40vh] min-h-0 shrink-0 flex-col overflow-hidden lg:max-h-none">
-          <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/70 px-2.5 py-2">
-            <div className="min-w-0">
-              <h2 className="text-[12.5px] font-bold text-header">على نقطة البيع</h2>
-              <p className="text-[11px] text-slate-500 num">{formatNum(selectedRows.length)} حساب</p>
+          <header className="space-y-1.5 border-b border-slate-200 bg-slate-50/70 px-2.5 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-[12.5px] font-bold text-header">على نقطة البيع</h2>
+                <p className="text-[11px] text-slate-500 num">{formatNum(selectedRows.length)} حساب</p>
+              </div>
+              <IconButton
+                label="تصدير CSV"
+                className="!h-8 !w-8"
+                disabled={!selectedRows.length}
+                onClick={() =>
+                  downloadCsv(
+                    'credit-accounts.csv',
+                    ['الرقم', 'الاسم', 'الرصيد'],
+                    selectedRows.map(a => [a.num ?? '', a.name ?? '', a.balance]),
+                  )
+                }
+              >
+                <IconDownload size={14} />
+              </IconButton>
             </div>
-            <IconButton
-              label="تصدير CSV"
-              className="!h-8 !w-8"
-              disabled={!selectedRows.length}
-              onClick={() =>
-                downloadCsv(
-                  'credit-accounts.csv',
-                  ['الرقم', 'الاسم', 'الرصيد'],
-                  selectedRows.map(a => [a.num ?? '', a.name ?? '', a.balance]),
-                )
-              }
-            >
-              <IconDownload size={14} />
-            </IconButton>
+            {selectedRows.length > 4 && (
+              <Input
+                value={sideSearch}
+                onChange={e => setSideSearch(e.target.value)}
+                placeholder="تصفية المفعّلة…"
+                className="!h-7 text-[11.5px]"
+              />
+            )}
           </header>
           <ul className="min-h-0 flex-1 overflow-y-auto">
             {selectedQ.isLoading ? (
               <li className="p-2"><TableSkeleton rows={5} cols={1} /></li>
-            ) : selectedRows.length === 0 ? (
+            ) : filteredSelectedRows.length === 0 ? (
               <li>
-                <EmptyState compact icon={<IconMonitor size={18} />} title="لا حسابات مفعّلة" description="حدّد حسابات من الجدول." />
+                <EmptyState
+                  compact
+                  icon={<IconMonitor size={18} />}
+                  title={selectedRows.length === 0 ? 'لا حسابات مفعّلة' : 'لا مطابق في المفعّلة'}
+                  description={selectedRows.length === 0 ? 'حدّد حسابات من الجدول.' : 'جرّب مسح بحث القائمة الجانبية.'}
+                />
               </li>
             ) : (
-              selectedRows.map(a => (
+              filteredSelectedRows.map(a => (
                 <li
                   key={a.edariSeq}
                   className="group flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1 hover:bg-slate-50"

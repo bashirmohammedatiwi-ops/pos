@@ -288,6 +288,7 @@ export const ICONS = {
   edari: IconCloud,
   settings: IconSliders,
   shield: IconShield,
+  database: IconDatabase,
 } as const;
 
 export type IconKey = keyof typeof ICONS;

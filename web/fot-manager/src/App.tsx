@@ -17,17 +17,17 @@ import { Watch } from './pages/Watch';
 
 const links = [
   { to: '/', label: 'الرئيسية', icon: IconHome, end: true },
-  { to: '/team', label: 'بائعون', icon: IconTeam },
-  { to: '/cashiers', label: 'كاشير', icon: IconCashier },
-  { to: '/commissions', label: 'عمولات', icon: IconComm },
-  { to: '/goals', label: 'أهداف', icon: IconGoal },
+  { to: '/team', label: 'البائعون', icon: IconTeam },
+  { to: '/cashiers', label: 'الكاشير', icon: IconCashier },
+  { to: '/moves', label: 'الفواتير', icon: IconBox },
 ] as const;
 
 const extra = [
-  { to: '/moves', label: 'الفواتير', icon: IconBox },
-  { to: '/watch', label: 'المتابعة', icon: IconWatch },
-  { to: '/products', label: 'المنتجات', icon: IconBag },
-  { to: '/report', label: 'التقرير', icon: IconReport },
+  { to: '/commissions', label: 'العمولات', icon: IconComm, hint: 'كم يستحق كل بائع هذا الأسبوع' },
+  { to: '/goals', label: 'الأهداف', icon: IconGoal, hint: 'من حقق التاركت ومن يحتاج متابعة' },
+  { to: '/products', label: 'المنتجات', icon: IconBag, hint: 'الأكثر بيعاً في المدة المختارة' },
+  { to: '/watch', label: 'التنبيهات', icon: IconWatch, hint: 'أمور تحتاج انتباهك الآن' },
+  { to: '/report', label: 'التقرير', icon: IconReport, hint: 'ملخص كامل للطباعة أو الإرسال' },
 ] as const;
 
 const titles: Record<string, string> = {
@@ -39,7 +39,7 @@ const titles: Record<string, string> = {
   '/moves': 'الفواتير',
   '/report': 'التقرير',
   '/products': 'المنتجات',
-  '/watch': 'المتابعة',
+  '/watch': 'التنبيهات',
 };
 
 function NavItems({ badges }: { badges?: Partial<Record<string, number>> }) {
@@ -62,13 +62,8 @@ function Shell() {
   const nav = useNavigate();
   const loc = useLocation();
   const me = getMe();
-  const { dash, cashiers, lines, paySellers, periodTotals, period, payTotals, reload, loading, err, updatedAt } = useManager();
-  const badges = {
-    '/goals': dash?.goals?.filter(g => g.percent < 100).length || undefined,
-    '/team': dash?.sellers?.filter(s => s.salesAmount > 0 || s.receiptCount > 0).length || undefined,
-    '/cashiers': cashiers.length || undefined,
-    '/commissions': payTotals.commission > 0 ? Math.min(99, paySellers.length) : undefined,
-  };
+  const { dash, cashiers, lines, periodTotals, period, payTotals, reload, loading, err, updatedAt } = useManager();
+  const badges: Partial<Record<string, number>> = {};
   const [askOut, setAskOut] = useState(false);
   const [profile, setProfile] = useState(false);
   const [finder, setFinder] = useState(false);
@@ -163,23 +158,16 @@ function Shell() {
             </div>
           </div>
           {dash && (
-            <div className="card seller-mini">
-              <p className="kicker">{period.label}</p>
-              <p className="num mt-1 text-xl font-extrabold">{moneyIq(periodTotals.sales)}</p>
-              <p className="mt-1 text-xs font-extrabold text-muted">{periodTotals.receipts} فاتورة</p>
-              <div className="side-pulse">
-                <p className="kicker">عمولات</p>
-                <p className="num mt-1 text-sm font-extrabold">{moneyIq(payTotals.commission)}</p>
-              </div>
-              <p className="mt-2 text-[11px] font-bold text-muted">{weekRange(dash.week.weekStart, dash.week.weekEnd)}</p>
-              {dash.lastSyncAt && (
-                <p className="mt-1 text-[11px] font-bold text-muted">مزامنة {ago(lastSyncMs(dash.lastSyncAt) ?? Date.now())}</p>
-              )}
+            <div className="s-side-sum">
+              <span>{period.label}</span>
+              <strong className="num">{moneyIq(periodTotals.sales)}</strong>
+              <small>{periodTotals.receipts} فاتورة · عمولات {moneyIq(payTotals.commission)}</small>
+              <small>{weekRange(dash.week.weekStart, dash.week.weekEnd)}{dash.lastSyncAt ? ` · محدّث ${ago(lastSyncMs(dash.lastSyncAt) ?? Date.now())}` : ''}</small>
             </div>
           )}
-          <p className="side-label">المحل</p>
+          <p className="side-label">الأساسي</p>
           <NavItems badges={badges} />
-          <p className="side-label">المزيد</p>
+          <p className="side-label">أقسام أخرى</p>
           {extra.map(l => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => isActive ? 'on' : ''}>
               <span className="nav-ico"><l.icon /></span>
@@ -240,7 +228,7 @@ function Shell() {
       </div>
 
       <nav className="dock">
-        {links.slice(0, 3).map(l => (
+        {links.map(l => (
           <NavLink key={l.to} to={l.to} end={'end' in l ? l.end : false} className={({ isActive }) => isActive ? 'on' : ''}>
             <span className="nav-ico">
               <l.icon />
@@ -251,7 +239,7 @@ function Shell() {
         ))}
         <button
           type="button"
-          className={more || extra.some(l => l.to === loc.pathname) || loc.pathname === '/goals' || loc.pathname === '/commissions' ? 'on' : ''}
+          className={more || extra.some(l => l.to === loc.pathname) ? 'on' : ''}
           onClick={() => setMore(true)}
         >
           <span className="nav-ico more-dots" />
@@ -259,19 +247,31 @@ function Shell() {
         </button>
       </nav>
 
-      <Sheet open={more} title="أقسام المدير" onClose={() => setMore(false)}>
-        <div className="phone-more">
-          {[...links.slice(3), ...extra].map(l => (
+      <Sheet open={more} title="باقي الأقسام" onClose={() => setMore(false)}>
+        <div className="s-more">
+          {extra.map(l => (
             <button
               key={l.to}
               type="button"
               className={loc.pathname === l.to ? 'on' : ''}
               onClick={() => { setMore(false); nav(l.to); }}
             >
-              <span className="nav-ico"><l.icon /></span>
-              {l.label}
+              <span className="s-more-ico"><l.icon /></span>
+              <span className="s-more-text">
+                <strong>{l.label}</strong>
+                <small>{l.hint}</small>
+              </span>
+              <span className="s-more-go" aria-hidden>←</span>
             </button>
           ))}
+          <button type="button" onClick={() => { setMore(false); setFinder(true); }}>
+            <span className="s-more-ico"><IconSearch /></span>
+            <span className="s-more-text">
+              <strong>بحث سريع</strong>
+              <small>اكتب اسم بائع أو كاشير أو منتج أو رقم فاتورة</small>
+            </span>
+            <span className="s-more-go" aria-hidden>←</span>
+          </button>
         </div>
       </Sheet>
 

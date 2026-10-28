@@ -424,6 +424,10 @@ export function EdariPage() {
   const okLogs = useMemo(() => logs.filter(l => logTone(l.status) === 'ok').length, [logs]);
 
   const unsyncedRows = useMemo(() => unsyncedQ.data ?? [], [unsyncedQ.data]);
+  const unsyncedAmount = useMemo(
+    () => unsyncedRows.reduce((s, r) => s + (r.netAmount ?? r.totalAmount ?? 0), 0),
+    [unsyncedRows],
+  );
   const filteredUnsynced = useMemo(() => {
     const q = queueQuery.trim().toLowerCase();
     if (!q) return unsyncedRows;
@@ -624,7 +628,9 @@ export function EdariPage() {
             {
               label: 'بانتظار الترحيل',
               value: formatNum(unsyncedCount),
-              hint: oldest > 0 ? `أقدمها منذ ${minutesLabel(oldest)}` : 'لا تراكم',
+              hint: unsyncedAmount > 0
+                ? `${formatCurrency(unsyncedAmount)}${oldest > 0 ? ` · منذ ${minutesLabel(oldest)}` : ''}`
+                : oldest > 0 ? `أقدمها منذ ${minutesLabel(oldest)}` : 'لا تراكم',
               tone: unsyncedCount ? 'warn' : 'ok',
               onClick: () => setTab('queue'),
               active: tab === 'queue',
@@ -691,6 +697,11 @@ export function EdariPage() {
                 <CompactSearch value={queueQuery} onChange={setQueueQuery} placeholder="رقم الفاتورة، الكاشير، البائع، القسم…" />
               </FilterLabel>
               <FilterActions>
+                <Link to="/receipts?synced=false">
+                  <Btn variant="secondary" size="md" icon={<IconHistory size={14} />}>
+                    فتح في صفحة الفواتير
+                  </Btn>
+                </Link>
                 <Btn size="md" icon={<IconSend size={14} />} loading={syncReceipts.isPending} disabled={!enabled || !unsyncedCount} onClick={() => syncReceipts.mutate()}>
                   ترحيل الآن
                 </Btn>

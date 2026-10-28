@@ -40,20 +40,22 @@ export function useNavBadges() {
     refetchInterval: poll(120_000),
   });
 
+  const commList = Array.isArray(commQ.data) ? commQ.data : [];
   const commDue = {
-    total: (commQ.data ?? []).reduce((n, c) => n + Math.max(0, c.balanceDue), 0),
-    count: (commQ.data ?? []).filter(c => c.balanceDue > 0).length,
+    total: commList.reduce((n, c) => n + Math.max(0, c.balanceDue), 0),
+    count: commList.filter(c => c.balanceDue > 0).length,
   };
 
   let atRiskCount = 0;
-  for (const b of targetsQ.data ?? []) {
-    for (const m of b.salesmen) {
+  const breakdownList = Array.isArray(targetsQ.data) ? targetsQ.data : [];
+  for (const b of breakdownList) {
+    for (const m of b.salesmen ?? []) {
       if (m.dailyTarget > 0 && m.dailyPercent < 70) atRiskCount += 1;
     }
   }
 
   return {
-    holds: holdsQ.isError ? 0 : (holdsQ.data?.length ?? 0),
+    holds: holdsQ.isError || !Array.isArray(holdsQ.data) ? 0 : holdsQ.data.length,
     unsynced: edariQ.data?.unsyncedCount ?? 0,
     failed: edariQ.data?.failedCount ?? 0,
     edariStatus: edariQ.data,

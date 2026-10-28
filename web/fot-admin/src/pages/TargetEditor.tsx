@@ -195,13 +195,16 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
   const missingNumbers = assignments.length - withNumbers;
   const canSave = !nameError && !scopeError;
 
-  async function persistTarget(snapshot?: {
-    name?: string;
-    trees?: TargetTreeLinkDto[];
-    assignments?: TargetSalesmanAssignmentDto[];
-    targetType?: 'quantity' | 'amount';
-    excludedSeqs?: Set<number>;
-  }) {
+  async function persistTarget(
+    snapshot?: {
+      name?: string;
+      trees?: TargetTreeLinkDto[];
+      assignments?: TargetSalesmanAssignmentDto[];
+      targetType?: 'quantity' | 'amount';
+      excludedSeqs?: Set<number>;
+    },
+    closeAfter = false,
+  ) {
     const draft = { ...draftRef.current, ...snapshot };
     setAttempted(true);
     if (!draft.name.trim() || draft.trees.length === 0) {
@@ -227,6 +230,11 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
       excludedArticleIds: [...draft.excludedSeqs],
       existingId: draft.editRule?.id ?? null,
     });
+    if (closeAfter) {
+      dirtyRef.current = false;
+      setDirty(false);
+      onClose();
+    }
   }
 
   const save = useMutation({
@@ -426,7 +434,8 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
   const previewAssignment = assignments.find(a => a.salesmanId === previewSalesmanId) ?? assignments[0] ?? null;
   const previewSold = useMemo(() => {
     if (!previewAssignment || !breakdownQ.data) return 0;
-    const row = breakdownQ.data.salesmen.find(s => s.salesmanId === previewAssignment.salesmanId);
+    const list = Array.isArray(breakdownQ.data.salesmen) ? breakdownQ.data.salesmen : [];
+    const row = list.find(s => s.salesmanId === previewAssignment.salesmanId);
     return row ? rowMetric(row, targetType) : 0;
   }, [previewAssignment, breakdownQ.data, targetType]);
 
@@ -573,6 +582,22 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
                   onChange={setSalesmanSelection}
                   emptyLabel="لم يُختر بائع — أشّر واحداً أو أكثر"
                 />
+                {salesmen.length > 0 && assignments.length < salesmen.length && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Btn
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => setSalesmanSelection(salesmen.map(s => s.id))}
+                    >
+                      تحديد كل البائعين ({formatNum(salesmen.length)})
+                    </Btn>
+                    {assignments.length > 0 && (
+                      <Btn size="xs" variant="ghost" onClick={() => setSalesmanSelection([])}>
+                        إزالة الجميع
+                      </Btn>
+                    )}
+                  </div>
+                )}
 
                 {assignments.length > 0 && (
                   <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
@@ -753,12 +778,21 @@ export function TargetEditor({ ruleId, onClose, autoOpenPicker }: { ruleId: numb
                   <Btn variant="ghost" onClick={() => void discardChanges()}>تجاهل</Btn>
                 )}
                 <Btn
+                  variant="secondary"
                   icon={<IconCheck size={15} />}
                   loading={save.isPending}
                   disabled={!dirty && !!editRule}
-                  onClick={() => void persistTarget().catch(() => undefined)}
+                  onClick={() => void persistTarget(undefined, false).catch(() => undefined)}
                 >
                   {editRule ? 'حفظ التغييرات' : 'إنشاء الهدف'}
+                </Btn>
+                <Btn
+                  icon={<IconCheck size={15} />}
+                  loading={save.isPending}
+                  disabled={!dirty && !!editRule}
+                  onClick={() => void persistTarget(undefined, true).catch(() => undefined)}
+                >
+                  حفظ وإغلاق
                 </Btn>
               </div>
             </div>

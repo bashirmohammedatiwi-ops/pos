@@ -42,7 +42,7 @@ if (!exportOpenApi)
     builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("FOT_API_URL") ?? "http://0.0.0.0:5000");
     builder.WebHost.ConfigureKestrel(o =>
     {
-        o.Limits.MaxRequestBodySize = 8 * 1024 * 1024;
+        o.Limits.MaxRequestBodySize = 256L * 1024 * 1024;
         o.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
         o.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
         o.Limits.MaxConcurrentConnections = 256;
@@ -65,9 +65,18 @@ builder.Services.AddHttpClient(SellerHubSyncService.ClientName, c =>
 {
     c.Timeout = TimeSpan.FromSeconds(180);
 });
+builder.Services.AddHttpClient(TeamEndpoints.HubClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(60);
+});
 builder.Services.AddSingleton<SellerHubSyncService>();
 builder.Services.AddSingleton<ISellerHubSync>(sp => sp.GetRequiredService<SellerHubSyncService>());
 builder.Services.AddSingleton<FOT.Pos.Infrastructure.Edari.IEdariRealtimeNotifier, PosHubEdariRealtimeNotifier>();
+builder.Services.AddHttpClient(NetworkEventBus.HttpClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddSingleton<NetworkEventBus>();
 if (!exportOpenApi)
 {
     builder.Services.AddHostedService(sp => sp.GetRequiredService<SellerHubSyncService>());
@@ -77,24 +86,41 @@ if (!exportOpenApi)
     builder.Services.Configure<PriceCheckerLanOptions>(builder.Configuration.GetSection("PriceCheckerLan"));
     builder.Services.AddHostedService<LanDhcpHostedService>();
     builder.Services.AddHostedService<ClientTelemetryFlushService>();
+    builder.Services.AddHostedService<BackupAutoHostedService>();
 }
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "FOT POS API", Version = "v2" });
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "FOT POS Network API Platform",
+        Version = "v1",
+        Description = "منصة الـ API الموحدة للشبكة المحلية (الكتالوج، المبيعات، الفواتير، المخزون، الفريق، الحسابات، والبث اللحظي SSE/Webhooks)."
+    });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Bearer token",
+        Description = "JWT Bearer token or API Key (Bearer fot_k_...)",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
         Scheme = "bearer"
     });
+    c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        Description = "مفتاح الـ API الشبكي (X-API-Key: fot_k_...)",
+        Name = "X-API-Key",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey
+    });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
             new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } },
+            Array.Empty<string>()
+        },
+        {
+            new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "ApiKey" } },
             Array.Empty<string>()
         }
     });
@@ -166,9 +192,11 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.SetIsOriginAllowed(origin => LanOrigin.IsAllowed(origin, allowedOrigins))
         .AllowAnyHeader()
         .AllowAnyMethod()
+        .WithExposedHeaders("X-API-Version", "X-Catalog-Revision")
         .AllowCredentials()));
 
 var app = builder.Build();
+app.Services.GetRequiredService<NetworkEventBus>().RegisterGlobalInstance();
 var bundledSchema = SchemaVersionService.ResolveBundledVersion(app.Environment.ContentRootPath);
 
 if (!exportOpenApi && Environment.GetEnvironmentVariable("FOT_SKIP_STARTUP_DB") != "1")
@@ -178,6 +206,7 @@ if (!exportOpenApi && Environment.GetEnvironmentVariable("FOT_SKIP_STARTUP_DB") 
         using var scope = app.Services.CreateScope();
         await scope.ServiceProvider.GetRequiredService<PosStartupService>().RunAsync(default);
         await scope.ServiceProvider.GetRequiredService<AuthRepository>().EnsureAdminSeededAsync(default);
+        await scope.ServiceProvider.GetRequiredService<ApiPlatformRepository>().EnsureSchemaAsync(default);
 
         // Seed the durable catalog version so pushes survive restarts without resetting to zero.
         var catalogVersionRepo = scope.ServiceProvider.GetRequiredService<CatalogVersionRepository>();
@@ -209,10 +238,11 @@ app.UseExceptionHandler(err => err.Run(async ctx =>
 }));
 
 app.UseSwagger();
-if (app.Environment.IsDevelopment())
+app.UseSwaggerUI(c =>
 {
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "FOT POS Network API v1");
+    c.DocumentTitle = "FOT POS — توثيق ومستكشف الـ API";
+});
 
 app.UseResponseCompression();
 // Request timing/duration log — the diagnostics backbone: every API call is traceable
@@ -236,7 +266,7 @@ app.Use(async (ctx, next) =>
     var origin = ctx.Request.Headers.Origin.ToString();
     var path = ctx.Request.Path.Value ?? "";
     var priceOrHealth = path.StartsWith("/api/price-checker", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/api/v1/catalog", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/v1", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/health", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/healthz", StringComparison.OrdinalIgnoreCase);
     if (priceOrHealth && (string.IsNullOrEmpty(origin) || origin == "null" || origin.StartsWith("file:", StringComparison.OrdinalIgnoreCase)))
@@ -252,6 +282,7 @@ app.Use(async (ctx, next) =>
 });
 app.UseCors();
 app.UseAuthentication();
+app.UseMiddleware<ApiKeyAuthenticationMiddleware>();
 app.UseAuthorization();
 
 app.MapHub<PosHub>("/hubs/pos");
@@ -325,6 +356,7 @@ app.MapSellerAuthEndpoints();
 app.MapManagerAuthEndpoints();
 app.MapPriceCheckerEndpoints();
 app.MapStoreCatalogEndpoints();
+app.MapNetworkApiV1Endpoints();
 
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapCatalogEndpoints();
@@ -332,6 +364,8 @@ api.MapReceiptEndpoints();
 api.MapSettingsEndpoints();
 api.MapAdminEndpoints();
 api.MapPortalAccountEndpoints();
+api.MapTeamEndpoints();
+api.MapApiPlatformAdminEndpoints();
 api.MapTelemetryEndpoints();
 api.MapSellerPortalEndpoints();
 api.MapManagerPortalEndpoints();

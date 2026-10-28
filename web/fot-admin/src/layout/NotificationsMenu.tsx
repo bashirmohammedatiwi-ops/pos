@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, formatNum, todayIso } from '@/api/client';
 import { useNavBadges } from '@/hooks/useNavBadges';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
-import { IconActivity, IconAlert, IconBell, IconCheckCircle, IconCloud, IconCoins, IconMonitor, IconPackage, IconReceipt, IconTarget } from '@/components/icons';
+import { IconActivity, IconAlert, IconBell, IconCheckCircle, IconCloud, IconCoins, IconDatabase, IconMonitor, IconPackage, IconReceipt, IconTarget } from '@/components/icons';
 
 type Notice = { key: string; to: string; title: string; detail: string; tone: 'danger' | 'warn' | 'info'; icon: ReactNode };
 
@@ -40,6 +40,13 @@ export function NotificationsMenu() {
     queryKey: ['dashboard-voids', today],
     queryFn: () => api.cashierVoids(today, today),
     staleTime: 60_000,
+    retry: 0,
+  });
+
+  const backupSettingsQ = useQuery({
+    queryKey: ['system-backup-settings'],
+    queryFn: api.backupSettings,
+    staleTime: 120_000,
     retry: 0,
   });
 
@@ -84,6 +91,20 @@ export function NotificationsMenu() {
   const cancelledInvoices = voidsQ.data?.cancelledInvoices ?? 0;
   if (cancelledInvoices > 0)
     notices.push({ key: 'voids', to: '/reports?app=cashier-voids', title: `${formatNum(cancelledInvoices)} فاتورة ملغاة اليوم`, detail: `بقيمة ${formatNum(voidsQ.data?.cancelledAmount ?? 0)} IQD`, tone: 'warn', icon: <IconActivity size={15} /> });
+  if (backupSettingsQ.data) {
+    const lastBkp = backupSettingsQ.data.lastBackupAt ? new Date(backupSettingsQ.data.lastBackupAt).getTime() : 0;
+    const hrs = lastBkp > 0 ? (Date.now() - lastBkp) / 3_600_000 : 999;
+    if (hrs >= 24) {
+      notices.push({
+        key: 'backup',
+        to: '/backups',
+        title: lastBkp > 0 ? 'مضى أكثر من 24 ساعة على آخر نسخة احتياطية' : 'لم تُنشأ نسخة احتياطية بعد',
+        detail: 'افتح صفحة النسخ الاحتياطي لحفظ نسخة شاملة (.fotbackup)',
+        tone: hrs >= 72 ? 'warn' : 'info',
+        icon: <IconDatabase size={15} />,
+      });
+    }
+  }
 
   const urgent = notices.filter(n => n.tone !== 'info').length;
 

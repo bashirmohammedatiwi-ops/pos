@@ -58,6 +58,7 @@ const ReportsPage = lazyPage(() => import('@/pages/ReportsPage'), 'ReportsPage')
 const SalesmenPage = lazyPage(() => import('@/pages/SalesmenPage'), 'SalesmenPage');
 
 const PortalAccountsPage = lazyPage(() => import('@/pages/PortalAccountsPage'), 'PortalAccountsPage');
+const TeamStaffPage = lazyPage(() => import('@/pages/team/TeamStaffPage'), 'TeamStaffPage');
 
 const CashiersPage = lazyPage(() => import('@/pages/CashiersPage'), 'CashiersPage');
 
@@ -77,7 +78,11 @@ const SettingsPage = lazyPage(() => import('@/pages/SettingsPage'), 'SettingsPag
 
 const EdariPage = lazyPage(() => import('@/pages/EdariPage'), 'EdariPage');
 
+const BackupsPage = lazyPage(() => import('@/pages/BackupsPage'), 'BackupsPage');
+
 const SystemHealthPage = lazyPage(() => import('@/pages/SystemHealthPage'), 'SystemHealthPage');
+
+const ApiPlatformPage = lazyPage(() => import('@/pages/ApiPlatformPage'), 'ApiPlatformPage');
 
 const EditorWindows = {
   Offer: lazyPage(() => import('@/pages/EditorWindows'), 'OfferEditorWindow'),
@@ -160,6 +165,7 @@ export function App() {
                     <Route path="salesmen" element={<Page><SalesmenPage /></Page>} />
 
                     <Route path="portal-accounts" element={<Page><PortalAccountsPage /></Page>} />
+                    <Route path="team/staff" element={<Page><TeamStaffPage /></Page>} />
 
                     <Route path="cashiers" element={<Page><CashiersPage /></Page>} />
 
@@ -179,7 +185,11 @@ export function App() {
 
                     <Route path="edari" element={<Page><EdariPage /></Page>} />
 
+                    <Route path="backups" element={<Page><BackupsPage /></Page>} />
+
                     <Route path="system" element={<Page><SystemHealthPage /></Page>} />
+
+                    <Route path="developer" element={<Page><ApiPlatformPage /></Page>} />
 
                     <Route path="*" element={<NotFoundPage />} />
 

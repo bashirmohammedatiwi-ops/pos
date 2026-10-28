@@ -4,9 +4,11 @@ import { Link } from 'react-router-dom';
 import { api, formatCurrency, formatNum } from '@/api/client';
 import type { ReorderRowDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
-import { IconAlert, IconSearch } from '@/components/icons';
-import { Input, Select } from '@/components/ui';
+import { IconAlert, IconCopy, IconSearch } from '@/components/icons';
+import { Btn, Input, Select } from '@/components/ui';
 import { SummaryStrip } from '@/components/listWorkspace';
+import { useToast } from '@/components/Toast';
+import { copyText } from '@/lib/clipboard';
 import type { ReportExcelSheet } from '@/lib/reportExcel';
 import { fixEdariName } from '@/lib/text';
 import { ReportAppWindow } from './ReportAppWindow';
@@ -41,6 +43,7 @@ function coverBadge(r: ReorderRowDto) {
 }
 
 export function ReorderApp({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
   const init = loadPrefs();
   const [days, setDays] = useState(init.days);
   const [cover, setCover] = useState(init.cover);
@@ -71,6 +74,22 @@ export function ReorderApp({ onClose }: { onClose: () => void }) {
     view === 'out' ? all.filter(r => r.stock === 0) : view === 'negative' ? all.filter(r => r.stock < 0) : view === 'low' ? all.filter(r => r.stock > 0) : all;
   const negatives = all.filter(r => r.stock < 0).length;
   const suggested = (r: ReorderRowDto) => Math.max(0, Math.ceil(r.dailyRate * cover - Math.max(0, r.stock)));
+  const totalOrderValue = rows.reduce((s, r) => s + suggested(r) * (r.price || 0), 0);
+
+  async function copyPurchaseOrder() {
+    const items = rows.filter(r => suggested(r) > 0);
+    if (!items.length) return;
+    const lines = [
+      `قائمة طلب شراء (${cover} يوم تغطية) — ${new Date().toLocaleDateString('ar-IQ')}`,
+      ...items.map((r, i) => `${i + 1}. ${fixEdariName(r.name) || r.barcode} — المطلوب: ${formatNum(suggested(r))} (الرصيد: ${formatNum(r.stock)})`),
+    ];
+    try {
+      await copyText(lines.join('\n'));
+      toast.success(`تم نسخ قائمة طلب لـ ${formatNum(items.length)} صنف`);
+    } catch {
+      toast.error('تعذر النسخ');
+    }
+  }
 
   const columns: GridColumn<ReorderRowDto>[] = [
     {
@@ -181,6 +200,9 @@ export function ReorderApp({ onClose }: { onClose: () => void }) {
       }
       actions={
         <>
+          <Btn size="sm" variant="secondary" icon={<IconCopy size={14} />} disabled={!rows.length} onClick={() => void copyPurchaseOrder()}>
+            نسخ قائمة الطلب
+          </Btn>
           <ExcelBtn fileName={`reorder_${cover}d`} getSheets={sheets} disabled={!rows.length} />
           <PrintBtn title={`مواد ستنفد خلال ${cover} يوماً`} getSheets={sheets} disabled={!rows.length} />
         </>
@@ -200,6 +222,7 @@ export function ReorderApp({ onClose }: { onClose: () => void }) {
             { label: 'تكفي أقل من أسبوع', value: formatNum(data?.underWeek ?? 0), tone: 'danger' },
             { label: 'نفدت أو رصيدها سالب', value: formatNum(data?.outOfStock ?? 0), tone: 'danger' },
             { label: 'رصيد سالب (يحتاج تصحيح)', value: formatNum(negatives), hint: 'بيع أكثر من المسجّل في الإداري' },
+            { label: `قيمة الطلب المقترح (${cover} يوم)`, value: formatCurrency(totalOrderValue), hint: 'مجموع (اقتراح الطلب × سعر البيع)', tone: 'brand' },
           ]}
         />
         <ReportNote bar>

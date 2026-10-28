@@ -7,29 +7,24 @@ import {
 import { cashiersForSeller, groupReceipts, linesForSeller, mergeLines, rankProducts } from '../insights';
 import { LineSheet, MoveList, PhoneTable, ReceiptList } from '../lines';
 import { ExportMenu } from '../ExportMenu';
-import { useManager, useShopInsights } from '../store';
+import { useManager } from '../store';
 import {
-  Badge, Empty, ErrorBox, FilterStats, LeaderCard, Medal, MetricStrip, PageHero,
+  Badge, Empty, ErrorBox, LeaderCard, Medal, MetricStrip, PageHero,
   Ring, SearchField, SectionCard, Sheet, Skeleton, StatGrid, Track,
 } from '../ui';
-import { avgTicket, todayKey } from '../api';
-import { PeriodBar } from '../week';
+import { avgTicket } from '../api';
+import { PeriodBar } from '../picker';
 
 type Sort = 'sales' | 'goals' | 'commission' | 'name';
 type Tab = 'overview' | 'goals' | 'cashiers' | 'products' | 'invoices';
-type Filter = 'all' | 'active' | 'goals' | 'due';
-
 export function Team() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, scopedLines, activityLines, scopedSellers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
+    weekStart, dash, prevDash, scopedLines, activityLines, scopedSellers, period, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
-  const insights = useShopInsights();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
   const [sort, setSort] = useState<Sort>('commission');
-  const [filter, setFilter] = useState<Filter>('all');
   const [open, setOpen] = useState<SellerRow | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [hideZero, setHideZero] = useState(true);
@@ -62,9 +57,6 @@ export function Team() {
     const list = scopedSellers.filter(s => {
       if (q.trim() && !s.name.includes(q.trim())) return false;
       if (hideZero && s.salesAmount <= 0 && s.receiptCount <= 0) return false;
-      if (filter === 'active' && s.salesAmount <= 0) return false;
-      if (filter === 'goals' && s.goalCount <= 0) return false;
-      if (filter === 'due' && s.balanceDue <= 0) return false;
       return true;
     });
     return [...list].sort((a, b) => {
@@ -74,11 +66,9 @@ export function Team() {
       if (sort === 'sales') return b.salesAmount - a.salesAmount;
       return b.commissionAmount - a.commissionAmount;
     });
-  }, [scopedSellers, q, sort, hideZero, filter]);
+  }, [scopedSellers, q, sort, hideZero]);
 
   const activeCount = scopedSellers.filter(s => s.salesAmount > 0).length;
-  const goalsCount = scopedSellers.filter(s => s.goalCount > 0).length;
-  const dueCount = scopedSellers.filter(s => s.balanceDue > 0).length;
 
   const detailLines = open ? mergeLines(
     linesForSeller(activityLines, open.salesmanId),
@@ -93,21 +83,7 @@ export function Team() {
 
   return (
     <div className="page-flow fade-up people-page">
-      <PeriodBar
-        weeks={weeks}
-        weekStart={weekStart}
-        setWeek={setWeek}
-        period={period}
-        kind={periodKind}
-        setKind={setPeriodKind}
-        customFrom={customFrom}
-        customTo={customTo}
-        setCustom={setCustom}
-        days={insights.days}
-        activeDay={period.singleDay ? period.from : undefined}
-        today={todayKey()}
-        onDaySelect={key => { setCustom(key, key); setPeriodKind('custom'); }}
-      />
+      <PeriodBar />
 
       <PageHero
         kicker={`فريق المبيعات · ${period.label}`}
@@ -132,22 +108,12 @@ export function Team() {
 
       <section className="people-toolbar card">
         <SearchField value={q} onChange={setQ} placeholder="ابحث باسم البائع" />
-        <FilterStats
-          active={filter}
-          onPick={k => setFilter(k as Filter)}
-          items={[
-            { key: 'all', count: scopedSellers.length, label: 'الكل' },
-            { key: 'active', count: activeCount, label: 'نشط' },
-            { key: 'goals', count: goalsCount, label: 'أهداف' },
-            { key: 'due', count: dueCount, label: 'مستحق' },
-          ]}
-        />
         <div className="sort-bar">
-          {([['commission', 'العمولة'], ['goals', 'التاركت'], ['sales', 'المبيعات'], ['name', 'الاسم']] as const).map(([k, label]) => (
+          {([['commission', 'العمولة'], ['goals', 'الهدف'], ['name', 'الاسم']] as const).map(([k, label]) => (
             <button key={k} type="button" className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>{label}</button>
           ))}
-          <button type="button" className={hideZero ? 'on muted' : 'muted'} onClick={() => setHideZero(v => !v)}>
-            {hideZero ? 'إخفاء بلا حركة' : 'إظهار الكل'}
+          <button type="button" className={hideZero ? 'muted' : 'on muted'} onClick={() => setHideZero(v => !v)}>
+            {hideZero ? 'إظهار الجميع' : 'النشطون فقط'}
           </button>
         </div>
       </section>
@@ -179,8 +145,7 @@ export function Team() {
         {rows.map((s, i) => {
           const chips: string[] = [];
           if (s.commissionAmount > 0) chips.push(`عمولة ${moneyIq(s.commissionAmount)}`);
-          if (s.goalCount > 0) chips.push(`تاركت ${Math.round(s.goalPercent)}%`);
-          if (s.balanceDue > 0) chips.push(`مستحق ${moneyIq(s.balanceDue)}`);
+          if (s.goalCount > 0) chips.push(`الهدف ${Math.round(s.goalPercent)}٪`);
           return (
             <div key={s.salesmanId}>
               <LeaderCard

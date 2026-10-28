@@ -28,11 +28,13 @@ import {
 import {
   IconCheckCircle,
   IconClock,
+  IconCloud,
   IconReceipt,
   IconRefresh,
   IconSearch,
   IconX,
 } from '@/components/icons';
+import { useToast } from '@/components/Toast';
 import { useBusinessPeriod } from '@/hooks/useBusinessPeriod';
 
 const RECEIPT_FILTERS_KEY = 'fot_admin_receipts_v3';
@@ -132,6 +134,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 
 export function ReceiptsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const highlight = Number(params.get('highlight') || 0) || null;
   const saved = loadReceiptFilters();
@@ -142,6 +145,21 @@ export function ReceiptsPage() {
   const [showCardInfo, setShowCardInfo] = useState(saved?.showCardInfo ?? false);
   const [holdTarget, setHoldTarget] = useState<HoldTarget | null>(null);
   const [openDetailId, setOpenDetailId] = useState<number | null>(highlight);
+  const [syncingEdari, setSyncingEdari] = useState(false);
+
+  async function syncPendingReceipts() {
+    setSyncingEdari(true);
+    try {
+      const r = await api.syncEdariReceipts(true, 50);
+      await queryClient.invalidateQueries({ queryKey: ['receipts'] });
+      await queryClient.invalidateQueries({ queryKey: ['edari-status'] });
+      toast.success(r.message || 'تم ترحيل الفواتير إلى الأداري');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر ترحيل الفواتير');
+    } finally {
+      setSyncingEdari(false);
+    }
+  }
 
   const initial = useMemo<AppliedFilters>(() => ({
     search: params.get('search') || saved?.search || '',
@@ -405,7 +423,7 @@ export function ReceiptsPage() {
             <FilterSelect label="الكاشير" value={draft.cashierId} onChange={v => applyFilters({ cashierId: v })}>
               <option value="">كل الكاشير</option>
               {(cashiersQ.data?.items ?? []).map(c => (
-                <option key={c.id} value={c.id}>{c.username}</option>
+                <option key={c.id} value={c.id}>{c.accountName?.trim() || c.username}</option>
               ))}
             </FilterSelect>
 
@@ -533,6 +551,16 @@ export function ReceiptsPage() {
               )}
               toolbar={
                 <div className="flex items-center gap-2">
+                  {applied.synced === 'false' && rows.length > 0 && (
+                    <Btn
+                      size="xs"
+                      icon={<IconCloud size={13} />}
+                      loading={syncingEdari}
+                      onClick={() => void syncPendingReceipts()}
+                    >
+                      ترحيل غير المرحّلة للأداري
+                    </Btn>
+                  )}
                   <Checkbox label="أعمدة البطاقة" checked={showCardInfo} onChange={setShowCardInfo} />
                   <IconButton label="تحديث" onClick={() => { void q.refetch(); void holdsQ.refetch(); }}>
                     <IconRefresh size={15} className={q.isFetching ? 'animate-spin' : ''} />

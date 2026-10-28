@@ -26,21 +26,25 @@ INNER JOIN reciepts r ON r.id = ri.reciept_id
 
 INNER JOIN articles a ON a.id = ri.article_id
 
-INNER JOIN offer_details od
-
-    ON od.offer_id = @offerId
-
-   AND od.detail_role IN (0, 1)
-
-   AND COALESCE(od.excluded, 0) = 0
-
-   AND od.item_id = a.Seq
-
 WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
   AND r.is_pending = 0
 
   AND r.kind IN (0, 1)
+
+  AND EXISTS (
+
+      SELECT 1 FROM offer_details od
+
+      WHERE od.offer_id = @offerId
+
+        AND od.detail_role IN (0, 1)
+
+        AND COALESCE(od.excluded, 0) = 0
+
+        AND od.item_id = a.Seq
+
+  )
 
 ";
 
@@ -202,21 +206,25 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
                 INNER JOIN articles a ON a.id = ri.article_id
 
-                INNER JOIN offer_details od
-
-                    ON od.offer_id = c.offer_id
-
-                   AND od.detail_role IN (0, 1)
-
-                   AND COALESCE(od.excluded, 0) = 0
-
-                   AND od.item_id = a.Seq
-
                 WHERE CAST(r.creation_date AS date) BETWEEN c.period_from AND c.period_to
 
                   AND r.is_pending = 0
 
                   AND r.kind IN (0, 1)
+
+                  AND EXISTS (
+
+                      SELECT 1 FROM offer_details od
+
+                      WHERE od.offer_id = c.offer_id
+
+                        AND od.detail_role IN (0, 1)
+
+                        AND COALESCE(od.excluded, 0) = 0
+
+                        AND od.item_id = a.Seq
+
+                  )
 
             ) agg
 
@@ -280,11 +288,11 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
                 COALESCE(
 
-                    NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Barcode))), N''),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Barcode))), N'')),
 
-                    NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), ri.barcode))), N''),
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), ri.barcode))), N'')),
 
-                    NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Num))), N'')
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Num))), N''))
 
                 ) AS Barcode,
 
@@ -294,7 +302,13 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
                 CAST(SUM(ri.quantity * ri.price) AS DECIMAL(18,2)) AS Amount,
 
-                CAST(SUM(ri.quantity * ri.price) AS DECIMAL(18,2)) AS ListAmount
+                CAST(SUM(ri.quantity * CASE WHEN COALESCE(a.SellPr4, 0) > ri.price THEN a.SellPr4 ELSE ri.price END) AS DECIMAL(18,2)) AS ListAmount,
+
+                MIN(CAST(r.creation_date AS date)) AS FirstSoldDate,
+
+                MAX(CAST(r.creation_date AS date)) AS LastSoldDate,
+
+                COUNT(DISTINCT CAST(r.creation_date AS date)) AS ActiveDaysCount
 
             """ + SalesJoinSql + """
 
@@ -328,7 +342,71 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
             return new OfferSalesProductRowDto(
 
-                r.ArticleSeq, r.Barcode, r.Name, r.Quantity, r.Amount, listAmount, discount, share);
+                r.ArticleSeq, r.Barcode, r.Name, r.Quantity, r.Amount, listAmount, discount, share,
+
+                r.FirstSoldDate, r.LastSoldDate, r.ActiveDaysCount);
+
+        }).ToList();
+
+
+
+        var productDailySql = """
+
+            SELECT
+
+                CAST(r.creation_date AS date) AS [Date],
+
+                a.Seq AS ArticleSeq,
+
+                COALESCE(
+
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Barcode))), N'')),
+
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), ri.barcode))), N'')),
+
+                    MAX(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Num))), N''))
+
+                ) AS Barcode,
+
+                MAX(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1)))) AS Name,
+
+                CAST(SUM(ri.quantity) AS DECIMAL(18,6)) AS Quantity,
+
+                CAST(SUM(ri.quantity * ri.price) AS DECIMAL(18,2)) AS Amount,
+
+                CAST(SUM(ri.quantity * CASE WHEN COALESCE(a.SellPr4, 0) > ri.price THEN a.SellPr4 ELSE ri.price END) AS DECIMAL(18,2)) AS ListAmount,
+
+                COUNT(DISTINCT r.id) AS ReceiptCount
+
+            """ + SalesJoinSql + """
+
+            GROUP BY CAST(r.creation_date AS date), a.Seq
+
+            HAVING SUM(ri.quantity) <> 0
+
+            ORDER BY CAST(r.creation_date AS date), SUM(ri.quantity * ri.price) DESC
+
+            """;
+
+
+
+        var productDailyRows = (await conn.QueryAsync<OfferProductDayAggRow>(new CommandDefinition(
+
+            productDailySql, p, cancellationToken: ct))).ToList();
+
+
+
+        var productDaily = productDailyRows.Select(r =>
+
+        {
+
+            var listAmount = r.ListAmount > 0 ? r.ListAmount : r.Amount;
+
+            var discount = Math.Max(0, listAmount - r.Amount);
+
+            return new OfferSalesProductDayRowDto(
+
+                r.Date, r.ArticleSeq, r.Barcode, r.Name, r.Quantity, r.Amount, listAmount, discount, r.ReceiptCount);
 
         }).ToList();
 
@@ -374,105 +452,9 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
 
 
-        const string unsoldSql = """
-
-            SELECT TOP 40
-
-                COALESCE(NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Barcode))), N''), NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(200), a.Num))), N'')) AS Barcode,
-
-                LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))) AS Name
-
-            FROM offer_details od
-
-            INNER JOIN articles a ON a.Seq = od.item_id
-
-              AND NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))), N'') IS NOT NULL
-
-            WHERE od.offer_id = @offerId
-
-              AND od.detail_role IN (0, 1)
-
-              AND COALESCE(od.excluded, 0) = 0
-
-              AND od.item_id IS NOT NULL
-
-              AND NOT EXISTS (
-
-                  SELECT 1
-
-                  FROM reciept_items ri
-
-                  INNER JOIN reciepts r ON r.id = ri.reciept_id
-
-                  INNER JOIN articles ax ON ax.id = ri.article_id AND ax.Seq = od.item_id
-
-                  WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
-
-                    AND r.is_pending = 0
-
-                    AND r.kind IN (0, 1)
-
-                    AND ri.quantity <> 0
-
-              )
-
-            ORDER BY a.Name1
-
-            """;
-
-
-
-        var unsoldSamples = (await conn.QueryRowsAsync<OfferSalesUnsoldRowDto>(new CommandDefinition(
-
-            unsoldSql, p, cancellationToken: ct))).ToList();
-
-
-
-        const string unsoldCountSql = """
-
-            SELECT COUNT(DISTINCT od.item_id)
-
-            FROM offer_details od
-
-            WHERE od.offer_id = @offerId
-
-              AND od.detail_role IN (0, 1)
-
-              AND COALESCE(od.excluded, 0) = 0
-
-              AND od.item_id IS NOT NULL
-
-              AND NOT EXISTS (
-
-                  SELECT 1
-
-                  FROM reciept_items ri
-
-                  INNER JOIN reciepts r ON r.id = ri.reciept_id
-
-                  INNER JOIN articles ax ON ax.id = ri.article_id AND ax.Seq = od.item_id
-
-                  WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
-
-                    AND r.is_pending = 0
-
-                    AND r.kind IN (0, 1)
-
-                    AND ri.quantity <> 0
-
-              )
-
-            """;
-
-
-
-        var unsoldCount = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
-
-            unsoldCountSql, p, cancellationToken: ct));
-
-
-
         var soldCount = products.Count;
+
+        var unsoldCount = Math.Max(0, meta.ScopeProductCount - soldCount);
 
         var totalQty = products.Sum(x => x.Quantity);
 
@@ -540,7 +522,9 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
 
             products,
 
-            unsoldSamples);
+            [],
+
+            productDaily);
 
     }
 
@@ -697,6 +681,36 @@ WHERE CAST(r.creation_date AS date) BETWEEN @from AND @to
         public decimal Amount { get; set; }
 
         public decimal ListAmount { get; set; }
+
+        public DateTime? FirstSoldDate { get; set; }
+
+        public DateTime? LastSoldDate { get; set; }
+
+        public int ActiveDaysCount { get; set; }
+
+    }
+
+
+
+    private sealed class OfferProductDayAggRow
+
+    {
+
+        public DateTime Date { get; set; }
+
+        public long ArticleSeq { get; set; }
+
+        public string? Barcode { get; set; }
+
+        public string? Name { get; set; }
+
+        public decimal Quantity { get; set; }
+
+        public decimal Amount { get; set; }
+
+        public decimal ListAmount { get; set; }
+
+        public int ReceiptCount { get; set; }
 
     }
 

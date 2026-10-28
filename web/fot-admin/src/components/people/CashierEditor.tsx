@@ -191,6 +191,7 @@ export function CashierEditor({
   const [tab, setTab] = useState<EditorTab>('account');
   const [showPassword, setShowPassword] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [permQuery, setPermQuery] = useState('');
   const [form, setForm] = useState<FormState>(() => ({
     username: listRow?.username ?? '',
     password: '',
@@ -376,6 +377,50 @@ export function CashierEditor({
       for (const k of keys) (next as Record<string, unknown>)[k] = v;
       return { ...f, perms: next };
     });
+  }
+
+  function applyRolePreset(preset: 'full' | 'standard' | 'strict') {
+    if (preset === 'full') {
+      const next = { ...emptyPerms() };
+      for (const k of ALL_BOOL_KEYS) next[k] = true;
+      setForm(f => ({ ...f, perms: next }));
+      toast.info('طُبّق نمط «كاشير كامل الصلاحيات»');
+    } else if (preset === 'standard') {
+      setForm(f => ({
+        ...f,
+        perms: {
+          ...emptyPerms(),
+          makeDiscount: true,
+          viewReceipts: true,
+          cashReport: true,
+          deleteItem: true,
+          discardReceipt: true,
+          allowSalesReturn: true,
+          allowSearchArticles: true,
+          printSalesmanOnReceipt: true,
+        },
+      }));
+      toast.info('طُبّق نمط «كاشير قياسي»');
+    } else {
+      setForm(f => ({
+        ...f,
+        perms: {
+          ...emptyPerms(),
+          makeDiscount: false,
+          deleteItem: false,
+          discardReceipt: false,
+          allowEditReceipt: false,
+          allowPriceChange: false,
+          allowGiftReceipt: false,
+          invoiceBoundReturn: true,
+          allowSalesReturn: true,
+          allowSearchArticles: true,
+          viewReceipts: true,
+          cashReport: true,
+        },
+      }));
+      toast.info('طُبّق نمط «بيع رقابي مشدّد (بلا حذف/إلغاء/خصم)»');
+    }
   }
 
   const loading = sourceId != null && !formReady && !detailQ.isError;
@@ -604,8 +649,30 @@ export function CashierEditor({
                 </div>
               </div>
 
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                  <span className="font-bold text-slate-500">أنماط سريعة:</span>
+                  <Btn size="xs" variant="secondary" onClick={() => applyRolePreset('standard')}>كاشير قياسي</Btn>
+                  <Btn size="xs" variant="secondary" onClick={() => applyRolePreset('strict')}>بيع رقابي مشدّد</Btn>
+                  <Btn size="xs" variant="secondary" onClick={() => applyRolePreset('full')}>كامل الصلاحيات</Btn>
+                </div>
+                <div className="w-56 max-w-full">
+                  <Input
+                    value={permQuery}
+                    onChange={e => setPermQuery(e.target.value)}
+                    placeholder="بحث في الصلاحيات…"
+                    className="!h-8 text-[12px]"
+                  />
+                </div>
+              </div>
+
               <div className="grid gap-4 lg:grid-cols-2">
                 {PERM_GROUPS.map(g => {
+                  const q = permQuery.trim().toLowerCase();
+                  const visibleKeys = q
+                    ? g.keys.filter(k => k.label.toLowerCase().includes(q) || k.desc.toLowerCase().includes(q))
+                    : g.keys;
+                  if (!visibleKeys.length) return null;
                   const keys = g.keys.map(k => k.key);
                   const on = keys.filter(k => form.perms[k]).length;
                   const all = on === keys.length;
@@ -621,7 +688,7 @@ export function CashierEditor({
                       }
                     >
                       <div className="-my-1 divide-y divide-slate-100">
-                        {g.keys.map(f => (
+                        {visibleKeys.map(f => (
                           <div key={f.key} className="py-2">
                             <Switch
                               checked={Boolean(form.perms[f.key])}

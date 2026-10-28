@@ -236,12 +236,12 @@ public partial record SellerGoalLineDto
 
 public partial record PortalSellerAccountDto
 {
-    public PortalSellerAccountDto() : this(0, "", false, false, null, null, null) { }
+    public PortalSellerAccountDto() : this(0, "", false, false, null, null, null, null, null, 127) { }
 }
 
 public partial record SellerHubAccountDto
 {
-    public SellerHubAccountDto() : this(0, "", null, false, false) { }
+    public SellerHubAccountDto() : this(0, "", null, false, false, null, null, 127) { }
 }
 
 public partial record PortalManagerAccountDto
@@ -286,7 +286,12 @@ public partial record OfferSalesClosureDto
 
 public partial record OfferSalesProductRowDto
 {
-    public OfferSalesProductRowDto() : this(0, null, null, 0, 0, 0, 0, 0) { }
+    public OfferSalesProductRowDto() : this(0, null, null, 0, 0, 0, 0, 0, null, null, 0) { }
+}
+
+public partial record OfferSalesProductDayRowDto
+{
+    public OfferSalesProductDayRowDto() : this(default, 0, null, null, 0, 0, 0, 0, 0) { }
 }
 
 public partial record OfferSalesDailyRowDto

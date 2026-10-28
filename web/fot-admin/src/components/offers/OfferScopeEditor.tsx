@@ -20,7 +20,7 @@ import type { ScopeStandaloneItem, ScopeTreeCard, ScopeTreeProduct } from '@/com
 /** عمليات النطاق المؤجّلة — تُطبَّق عند حفظ صفحة التعديل فقط */
 export interface OfferScopeOps {
   addTrees: { seq: number; name: string }[];
-  addProducts: { seq: number; name: string; barcode?: string }[];
+  addProducts: { seq: number; name: string; barcode?: string; price?: number }[];
   removeTreeSeqs: number[];
   removeRowIds: number[];
   excludeChanges: { detailId: number; excluded: boolean }[];
@@ -52,38 +52,33 @@ export function offerScopeOpsCount(ops: OfferScopeOps) {
   );
 }
 
-interface InScopeIndex {
+interface SavedScopeIndex {
   treeSeqs: Set<number>;
-  /** seq المنتج → معرّف سطر التفصيل */
+  /** seq المنتج المحفوظ → معرّف سطر التفصيل */
   seqRowIds: Map<number, number>;
 }
 
-function buildInScopeIndex(
+function buildSavedScopeIndex(
   trees: ScopeTreeCard[],
   allDetails: OfferDetailDto[],
-  addTrees: Map<number, { seq: number; name: string }>,
-  addProducts: Map<number, { seq: number; name: string; barcode?: string }>,
   removeTrees: Set<number>,
   removeRows: Map<number, number>,
-): InScopeIndex {
+): SavedScopeIndex {
   const treeSeqs = new Set<number>();
   for (const t of trees) {
     if (!removeTrees.has(t.treeSeq)) treeSeqs.add(t.treeSeq);
   }
-  for (const t of addTrees.values()) treeSeqs.add(t.seq);
 
   const seqRowIds = new Map<number, number>();
   for (const d of allDetails) {
+    if (d.detailRole !== 0 && d.detailRole != null) continue;
     if (d.itemId == null) continue;
     if (removeRows.has(d.itemId)) continue;
     const inTree = d.sourceTreeSeq != null && treeSeqs.has(d.sourceTreeSeq);
-    const standalone = d.sourceTreeSeq == null || !treeSeqs.has(d.sourceTreeSeq);
+    const standalone = d.sourceTreeSeq == null;
     if (standalone || inTree) {
       if (!seqRowIds.has(d.itemId)) seqRowIds.set(d.itemId, d.id);
     }
-  }
-  for (const p of addProducts.values()) {
-    if (!seqRowIds.has(p.seq)) seqRowIds.set(p.seq, -1);
   }
   return { treeSeqs, seqRowIds };
 }
@@ -109,15 +104,33 @@ export function OfferScopeEditor({
   const [path, setPath] = useState<{ seq: number; name: string }[]>([]);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [scopeFilter, setScopeFilter] = useState('');
   const [expandedTree, setExpandedTree] = useState<number | null>(null);
 
   const [addTrees, setAddTrees] = useState<Map<number, { seq: number; name: string }>>(new Map());
-  const [addProducts, setAddProducts] = useState<Map<number, { seq: number; name: string; barcode?: string }>>(new Map());
+  const [addTreeCounts, setAddTreeCounts] = useState<Map<number, number>>(new Map());
+  const [addProducts, setAddProducts] = useState<Map<number, { seq: number; name: string; barcode?: string; price?: number }>>(new Map());
   const [removeTrees, setRemoveTrees] = useState<Set<number>>(new Set());
   const [removeRows, setRemoveRows] = useState<Map<number, number>>(new Map());
   const [excludeChanges, setExcludeChanges] = useState<Map<number, boolean>>(new Map());
   const [excludeArticleSeqs, setExcludeArticleSeqs] = useState<Map<number, boolean>>(new Map());
   const [treeDiscounts, setTreeDiscounts] = useState<Map<number, number>>(new Map());
+
+  // عند إعادة تحميل بيانات العرض بعد الحفظ، صفّر العمليات المرحلية
+  const prevDetailsStamp = useRef<string>('');
+  useEffect(() => {
+    const stamp = `${trees.map(t => `${t.treeSeq}:${t.count}:${t.discount ?? ''}`).join('|')}#${standalone.map(s => s.id).join(',')}`;
+    if (prevDetailsStamp.current && prevDetailsStamp.current !== stamp) {
+      setAddTrees(new Map());
+      setAddProducts(new Map());
+      setRemoveTrees(new Set());
+      setRemoveRows(new Map());
+      setExcludeChanges(new Map());
+      setExcludeArticleSeqs(new Map());
+      setTreeDiscounts(new Map());
+    }
+    prevDetailsStamp.current = stamp;
+  }, [trees, standalone]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebounced(search.trim()), 280);
@@ -136,54 +149,85 @@ export function OfferScopeEditor({
     });
   }, [addTrees, addProducts, removeTrees, removeRows, excludeChanges, excludeArticleSeqs, treeDiscounts, onOpsChange]);
 
-  const inScope = useMemo(
-    () => buildInScopeIndex(trees, allDetails, addTrees, addProducts, removeTrees, removeRows),
-    [trees, allDetails, addTrees, addProducts, removeTrees, removeRows],
+  const savedScope = useMemo(
+    () => buildSavedScopeIndex(trees, allDetails, removeTrees, removeRows),
+    [trees, allDetails, removeTrees, removeRows],
   );
 
   function treeState(seq: number): RowState {
     if (removeTrees.has(seq)) return 'staged-remove';
-    if (inScope.treeSeqs.has(seq)) return 'in-scope';
     if (addTrees.has(seq)) return 'staged-add';
+    if (savedScope.treeSeqs.has(seq)) return 'in-scope';
     return 'normal';
   }
 
   function productState(seq: number): RowState {
     if (removeRows.has(seq) || excludeArticleSeqs.get(seq) === true) return 'staged-remove';
-    if (inScope.seqRowIds.has(seq)) return 'in-scope';
     if (addProducts.has(seq)) return 'staged-add';
+    if (savedScope.seqRowIds.has(seq)) return 'in-scope';
     return 'normal';
   }
 
   function toggleTree(seq: number, name: string) {
     const st = treeState(seq);
-    if (st === 'normal') setAddTrees(m => new Map(m).set(seq, { seq, name }));
-    else if (st === 'staged-add') setAddTrees(m => { const n = new Map(m); n.delete(seq); return n; });
-    else if (st === 'in-scope') setRemoveTrees(s => new Set(s).add(seq));
-    else setRemoveTrees(s => { const n = new Set(s); n.delete(seq); return n; });
+    if (st === 'normal') {
+      setAddTrees(m => new Map(m).set(seq, { seq, name }));
+      setExpandedTree(seq);
+      void api.offerTreeProducts(offerId, seq)
+        .then(rows => setAddTreeCounts(m => new Map(m).set(seq, rows.length)))
+        .catch(() => {});
+    } else if (st === 'staged-add') {
+      setAddTrees(m => {
+        const n = new Map(m);
+        n.delete(seq);
+        return n;
+      });
+    } else if (st === 'in-scope') {
+      setRemoveTrees(s => new Set(s).add(seq));
+    } else {
+      setRemoveTrees(s => {
+        const n = new Set(s);
+        n.delete(seq);
+        return n;
+      });
+    }
   }
 
-  function toggleProduct(seq: number, name: string, barcode?: string) {
+  function toggleProduct(seq: number, name: string, barcode?: string, price?: number) {
     const st = productState(seq);
-    if (st === 'normal') setAddProducts(m => new Map(m).set(seq, { seq, name, barcode }));
-    else if (st === 'staged-add') setAddProducts(m => { const n = new Map(m); n.delete(seq); return n; });
-    else if (st === 'in-scope') {
-      const rowId = inScope.seqRowIds.get(seq);
+    if (st === 'normal') {
+      setAddProducts(m => new Map(m).set(seq, { seq, name, barcode, price }));
+    } else if (st === 'staged-add') {
+      setAddProducts(m => {
+        const n = new Map(m);
+        n.delete(seq);
+        return n;
+      });
+    } else if (st === 'in-scope') {
+      const rowId = savedScope.seqRowIds.get(seq);
       if (rowId == null || rowId < 0) {
         setExcludeArticleSeqs(m => new Map(m).set(seq, true));
         return;
       }
       setRemoveRows(m => new Map(m).set(seq, rowId));
     } else {
-      setExcludeArticleSeqs(m => { const n = new Map(m); n.delete(seq); return n; });
-      setRemoveRows(m => { const n = new Map(m); n.delete(seq); return n; });
+      setExcludeArticleSeqs(m => {
+        const n = new Map(m);
+        n.delete(seq);
+        return n;
+      });
+      setRemoveRows(m => {
+        const n = new Map(m);
+        n.delete(seq);
+        return n;
+      });
     }
   }
 
   function toggleStandalone(item: ScopeStandaloneItem) {
     const seq = item.seq;
     if (seq == null) return;
-    toggleProduct(seq, item.name, item.barcode);
+    toggleProduct(seq, item.name, item.barcode, item.price);
   }
 
   const nodesQ = useQuery({
@@ -220,20 +264,6 @@ export function OfferScopeEditor({
     return map;
   }, [membershipsQ.data]);
 
-  const searchSplit = useMemo(() => {
-    if (!debounced) return null;
-    const added: TreeNodeDto[] = [];
-    const notAdded: TreeNodeDto[] = [];
-    for (const n of [...folders, ...products]) {
-      const isFolder = n.isFolder || n.hasChildren;
-      const st = isFolder ? treeState(n.seq) : productState(n.seq);
-      const inAddedSide = st === 'in-scope' || st === 'staged-remove';
-      if (inAddedSide) added.push(n);
-      else notAdded.push(n);
-    }
-    return { added, notAdded };
-  }, [debounced, folders, products, inScope, addTrees, addProducts, removeTrees, removeRows]);
-
   function enter(node: TreeNodeDto) {
     setPath(p => [...p, { seq: node.seq, name: fixEdariName(node.name) || `#${node.seq}` }]);
     setParent(node.seq);
@@ -247,18 +277,51 @@ export function OfferScopeEditor({
   }
 
   const effectiveTrees = useMemo(() => {
-    const list = trees.filter(t => !removeTrees.has(t.treeSeq));
+    const stagedList: ScopeTreeCard[] = [];
     for (const t of addTrees.values()) {
-      list.push({
+      stagedList.push({
         treeSeq: t.seq,
         treeName: t.name,
-        count: 0,
+        count: addTreeCounts.get(t.seq) ?? 0,
         excludedCount: 0,
         discount: defaultDiscount,
       });
     }
-    return list;
-  }, [trees, removeTrees, addTrees, defaultDiscount]);
+    const savedList = trees.filter(t => !removeTrees.has(t.treeSeq));
+    return [...stagedList, ...savedList];
+  }, [trees, removeTrees, addTrees, addTreeCounts, defaultDiscount]);
+
+  const removedTreesList = useMemo(
+    () => trees.filter(t => removeTrees.has(t.treeSeq)),
+    [trees, removeTrees],
+  );
+
+  const visibleStandalone = useMemo(
+    () => standalone.filter(s => s.seq == null || !removeRows.has(s.seq)),
+    [standalone, removeRows],
+  );
+
+  const removedStandalone = useMemo(
+    () => standalone.filter(s => s.seq != null && removeRows.has(s.seq)),
+    [standalone, removeRows],
+  );
+
+  const filteredStandalone = useMemo(() => {
+    const q = scopeFilter.trim().toLowerCase();
+    if (!q) return visibleStandalone;
+    return visibleStandalone.filter(
+      s => s.name.toLowerCase().includes(q) || (s.barcode ?? '').toLowerCase().includes(q) || String(s.seq ?? '').includes(q),
+    );
+  }, [visibleStandalone, scopeFilter]);
+
+  const stagedProductsList = useMemo(() => {
+    const list = [...addProducts.values()].reverse();
+    const q = scopeFilter.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      p => p.name.toLowerCase().includes(q) || (p.barcode ?? '').toLowerCase().includes(q) || String(p.seq).includes(q),
+    );
+  }, [addProducts, scopeFilter]);
 
   const stagedCount = offerScopeOpsCount({
     addTrees: [...addTrees.values()],
@@ -272,12 +335,14 @@ export function OfferScopeEditor({
 
   const totalInScope =
     effectiveTrees.reduce((n, t) => n + t.count, 0) +
-    standalone.filter(s => s.seq == null || !removeRows.has(s.seq)).length +
+    visibleStandalone.length +
     addProducts.size;
+
+  const catalogNodes = useMemo(() => [...folders, ...products], [folders, products]);
 
   return (
     <div className="card flex h-full min-h-0 flex-col overflow-hidden">
-      {/* بحث موحّد */}
+      {/* شريط البحث والمسار */}
       <header className="shrink-0 space-y-1.5 border-b border-slate-100 px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[220px] flex-1">
@@ -287,9 +352,22 @@ export function OfferScopeEditor({
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="بحث منتج / شجرة / باركود — يقسّم النتائج تلقائياً"
+              placeholder="ابحث في الكتالوج بالاسم أو الباركود لإضافة منتجات أو أشجار…"
               className="!ps-8"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setDebounced('');
+                }}
+                className="absolute inset-y-0 end-2.5 flex items-center text-slate-400 hover:text-slate-700"
+                title="مسح البحث"
+              >
+                <IconX size={13} />
+              </button>
+            )}
           </div>
           {!debounced && (
             <>
@@ -311,166 +389,177 @@ export function OfferScopeEditor({
           </span>
           {stagedCount > 0 && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-amber-300">
-              {formatNum(stagedCount)} تعديل — بانتظار الحفظ
+              {formatNum(stagedCount)} تعديل جاهز — اضغط «حفظ» لتثبيته
             </span>
           )}
         </div>
-        {debounced && (
-          <p className="text-[11.5px] text-slate-500">
-            نتائج «{debounced}»: يمين = مضاف للعرض · يسار = غير مضاف — اضغط الزر للإضافة أو الإزالة
-          </p>
-        )}
       </header>
 
       <div className="grid min-h-0 flex-1 lg:grid-cols-2">
-        {/* يسار: غير مضاف / كتالوج */}
+        {/* اليمين في RTL (الأول في الـ DOM): الكتالوج والبحث للإضافة */}
         <section className="flex min-h-0 flex-col border-e border-slate-100">
-          <div className="shrink-0 border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/70 px-3 py-2">
             <h3 className="text-[12.5px] font-bold text-header">
-              {debounced ? `غير مضاف (${formatNum(searchSplit?.notAdded.length ?? 0)})` : 'إضافة من الكتالوج'}
+              {debounced ? `نتائج الكتالوج (${formatNum(catalogNodes.length)})` : 'إضافة من الكتالوج'}
             </h3>
+            {debounced && (
+              <span className="text-[11px] text-slate-400">اضغط «+ إضافة» ليظهر الصنف فوراً في لوحة العرض</span>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {nodesQ.isLoading && <Loading />}
-            {debounced && searchSplit && (
-              <>
-                {searchSplit.notAdded.length === 0 && (
-                  <p className="p-6 text-center text-[12px] text-slate-400">كل النتائج مضافة للعرض</p>
-                )}
-                {searchSplit.notAdded.map(n => (
-                  <CatalogRow
-                    key={n.seq}
-                    node={n}
-                    side="add"
-                    state={n.isFolder || n.hasChildren ? treeState(n.seq) : productState(n.seq)}
-                    offers={membershipsBySeq.get(n.seq)}
-                    currentOfferId={offerId}
-                    onEnter={() => enter(n)}
-                    onAction={() => {
-                      const name = fixEdariName(n.name) ?? n.barcode ?? `#${n.seq}`;
-                      if (n.isFolder || n.hasChildren) toggleTree(n.seq, name);
-                      else toggleProduct(n.seq, name, n.barcode ?? undefined);
-                    }}
-                  />
-                ))}
-              </>
+            {!nodesQ.isLoading && catalogNodes.length === 0 && (
+              <p className="p-8 text-center text-[12px] text-slate-400">
+                {debounced ? `لا نتائج لـ «${debounced}»` : 'لا عناصر — جرّب البحث أو ارجع للجذر'}
+              </p>
             )}
-            {!debounced && (
-              <>
-                {folders.map(n => (
-                  <CatalogRow
-                    key={n.seq}
-                    node={n}
-                    side="add"
-                    state={treeState(n.seq)}
-                    onEnter={() => enter(n)}
-                    onAction={() => toggleTree(n.seq, fixEdariName(n.name) ?? `#${n.seq}`)}
-                  />
-                ))}
-                {products.map(n => (
-                  <CatalogRow
-                    key={n.seq}
-                    node={n}
-                    side="add"
-                    state={productState(n.seq)}
-                    offers={membershipsBySeq.get(n.seq)}
-                    currentOfferId={offerId}
-                    onAction={() => toggleProduct(n.seq, fixEdariName(n.name) ?? `#${n.seq}`, n.barcode ?? undefined)}
-                  />
-                ))}
-                {!nodesQ.isLoading && folders.length === 0 && products.length === 0 && (
-                  <p className="p-8 text-center text-[12px] text-slate-400">لا عناصر — جرّب البحث أو ارجع للجذر</p>
-                )}
-              </>
-            )}
+            {catalogNodes.map(n => {
+              const isFolder = n.isFolder || n.hasChildren;
+              const st = isFolder ? treeState(n.seq) : productState(n.seq);
+              const alreadyIn = st === 'in-scope' || st === 'staged-add';
+              return (
+                <CatalogRow
+                  key={n.seq}
+                  node={n}
+                  side={alreadyIn ? 'remove' : 'add'}
+                  state={st}
+                  offers={membershipsBySeq.get(n.seq)}
+                  currentOfferId={offerId}
+                  onEnter={isFolder ? () => enter(n) : undefined}
+                  onAction={() => {
+                    const name = fixEdariName(n.name) ?? n.barcode ?? `#${n.seq}`;
+                    if (isFolder) toggleTree(n.seq, name);
+                    else toggleProduct(n.seq, name, n.barcode ?? undefined, n.price ?? undefined);
+                  }}
+                />
+              );
+            })}
           </div>
         </section>
 
-        {/* يمين: مضاف للعرض */}
+        {/* اليسار في RTL (الثاني في الـ DOM): محتوى العرض — مرئي دائماً */}
         <section className="flex min-h-0 flex-col">
-          <div className="shrink-0 border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-3 py-1.5">
             <h3 className="text-[12.5px] font-bold text-header">
-              {debounced ? `مضاف للعرض (${formatNum(searchSplit?.added.length ?? 0)})` : `محتوى العرض (${formatNum(totalInScope)} صنف · ${formatNum(effectiveTrees.length)} شجرة)`}
+              محتوى العرض ({formatNum(totalInScope)} صنف · {formatNum(effectiveTrees.length)} شجرة)
             </h3>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-2">
-            {debounced && searchSplit && (
-              <>
-                {searchSplit.added.length === 0 && effectiveTrees.length === 0 && standalone.length === 0 && (
-                  <p className="p-6 text-center text-[12px] text-slate-400">لا نتائج مضافة لهذا البحث</p>
-                )}
-                {searchSplit.added.map(n => (
-                  <CatalogRow
-                    key={`in-${n.seq}`}
-                    node={n}
-                    side="remove"
-                    state={n.isFolder || n.hasChildren ? treeState(n.seq) : productState(n.seq)}
-                    offers={membershipsBySeq.get(n.seq)}
-                    currentOfferId={offerId}
-                    onEnter={() => enter(n)}
-                    onAction={() => {
-                      const name = fixEdariName(n.name) ?? n.barcode ?? `#${n.seq}`;
-                      if (n.isFolder || n.hasChildren) toggleTree(n.seq, name);
-                      else toggleProduct(n.seq, name, n.barcode ?? undefined);
-                    }}
-                  />
-                ))}
-              </>
+            {(visibleStandalone.length + addProducts.size > 4 || scopeFilter) && (
+              <input
+                type="search"
+                value={scopeFilter}
+                onChange={e => setScopeFilter(e.target.value)}
+                placeholder="تصفية داخل العرض…"
+                className="h-7 w-40 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-700 placeholder:text-slate-400 focus:border-brand-400"
+              />
             )}
-
-            {!debounced && (
-              <>
-                {effectiveTrees.map(tree => (
-                  <ScopeTreeCardView
-                    key={tree.treeSeq}
-                    offerId={offerId}
-                    tree={tree}
-                    expanded={expandedTree === tree.treeSeq}
-                    onToggle={() => setExpandedTree(e => (e === tree.treeSeq ? null : tree.treeSeq))}
-                    isPendingAdd={addTrees.has(tree.treeSeq)}
-                    isPendingRemove={removeTrees.has(tree.treeSeq)}
-                    onRemove={() => toggleTree(tree.treeSeq, tree.treeName)}
-                    onUndoRemove={() => toggleTree(tree.treeSeq, tree.treeName)}
-                    discount={treeDiscounts.get(tree.treeSeq) ?? tree.discount ?? defaultDiscount}
-                    onDiscountChange={d => setTreeDiscounts(m => new Map(m).set(tree.treeSeq, d))}
-                    excludeChanges={excludeChanges}
-                    excludeArticleSeqs={excludeArticleSeqs}
-                    onToggleExclude={(detailId, excluded) => setExcludeChanges(m => new Map(m).set(detailId, excluded))}
-                    onToggleExcludeSeq={(seq, excluded) => setExcludeArticleSeqs(m => new Map(m).set(seq, excluded))}
-                  />
-                ))}
-
-                {standalone
-                  .filter(s => s.seq == null || !removeRows.has(s.seq))
-                  .map(item => (
-                    <div key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
-                      <IconPackage size={14} className="shrink-0 text-slate-400" />
-                      <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-header">{item.name}</span>
-                      {item.meta && <span className="text-[11px] text-slate-400">{item.meta}</span>}
-                      <Btn size="sm" variant="ghost" className="!text-red-500" onClick={() => toggleStandalone(item)}>
-                        <IconX size={12} /> إزالة
+          </div>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+            {/* 1. المنتجات المضافة الآن — في أعلى القائمة دائماً لتظهر لحظة الإضافة */}
+            {stagedProductsList.length > 0 && (
+              <div className="overflow-hidden rounded-lg border border-emerald-300 bg-emerald-50/70">
+                <div className="flex items-center justify-between border-b border-emerald-200 px-2.5 py-1.5">
+                  <span className="text-[11.5px] font-bold text-emerald-900">
+                    أُضيف الآن للعرض ({formatNum(addProducts.size)} منتج)
+                  </span>
+                  <span className="text-[10.5px] font-semibold text-emerald-700">خصم {formatNum(defaultDiscount)}%</span>
+                </div>
+                <div className="divide-y divide-emerald-100">
+                  {stagedProductsList.map(p => (
+                    <div key={`staged-${p.seq}`} className="flex items-center gap-2 px-2.5 py-1.5">
+                      <IconPackage size={14} className="shrink-0 text-emerald-700" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[12px] font-semibold text-emerald-950">{p.name}</p>
+                        {p.barcode && <p className="font-mono text-[10.5px] text-emerald-700">{p.barcode}</p>}
+                      </div>
+                      {(p.price ?? 0) > 0 && (
+                        <span className="num text-[11.5px] font-bold text-emerald-900">{formatNum(p.price ?? 0)}</span>
+                      )}
+                      <Btn
+                        size="xs"
+                        variant="ghost"
+                        className="!text-red-600 hover:!bg-red-50"
+                        onClick={() => toggleProduct(p.seq, p.name, p.barcode, p.price)}
+                      >
+                        <IconX size={12} /> إلغاء
                       </Btn>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
 
-                {addProducts.size > 0 && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50/80">
-                    <p className="border-b border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800">سيُضاف — منتجات</p>
-                    {[...addProducts.values()].map(p => (
-                      <div key={p.seq} className="flex items-center gap-2 px-2.5 py-1">
-                        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-amber-900">{p.name}</span>
-                        <Btn size="sm" variant="ghost" onClick={() => toggleProduct(p.seq, p.name, p.barcode)}>
-                          <IconX size={12} />
-                        </Btn>
-                      </div>
-                    ))}
+            {/* 2. الأشجار (المضافة الآن تظهر أولاً ثم المحفوظة) */}
+            {effectiveTrees.map(tree => (
+              <ScopeTreeCardView
+                key={tree.treeSeq}
+                offerId={offerId}
+                tree={tree}
+                expanded={expandedTree === tree.treeSeq}
+                onToggle={() => setExpandedTree(e => (e === tree.treeSeq ? null : tree.treeSeq))}
+                isPendingAdd={addTrees.has(tree.treeSeq)}
+                isPendingRemove={removeTrees.has(tree.treeSeq)}
+                onRemove={() => toggleTree(tree.treeSeq, tree.treeName)}
+                onUndoRemove={() => toggleTree(tree.treeSeq, tree.treeName)}
+                discount={treeDiscounts.get(tree.treeSeq) ?? tree.discount ?? defaultDiscount}
+                onDiscountChange={d => setTreeDiscounts(m => new Map(m).set(tree.treeSeq, d))}
+                excludeChanges={excludeChanges}
+                excludeArticleSeqs={excludeArticleSeqs}
+                onToggleExclude={(detailId, excluded) => setExcludeChanges(m => new Map(m).set(detailId, excluded))}
+                onToggleExcludeSeq={(seq, excluded) => setExcludeArticleSeqs(m => new Map(m).set(seq, excluded))}
+                onCountResolved={cnt => {
+                  if (addTrees.has(tree.treeSeq) && addTreeCounts.get(tree.treeSeq) !== cnt) {
+                    setAddTreeCounts(m => new Map(m).set(tree.treeSeq, cnt));
+                  }
+                }}
+              />
+            ))}
+
+            {/* 3. المنتجات المنفردة المحفوظة */}
+            {filteredStandalone.map(item => (
+              <div key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+                <IconPackage size={14} className="shrink-0 text-slate-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12px] font-medium text-header">{item.name}</p>
+                  {item.barcode && <p className="font-mono text-[10.5px] text-slate-400">{item.barcode}</p>}
+                </div>
+                {item.meta && <span className="text-[11px] font-semibold text-brand-700 num">{item.meta}</span>}
+                <Btn size="sm" variant="ghost" className="!text-red-500" onClick={() => toggleStandalone(item)}>
+                  <IconX size={12} /> إزالة
+                </Btn>
+              </div>
+            ))}
+
+            {/* 4. العناصر التي حُددت للإزالة (مع زر تراجع) */}
+            {(removedTreesList.length > 0 || removedStandalone.length > 0) && (
+              <div className="overflow-hidden rounded-lg border border-red-200 bg-red-50/60">
+                <p className="border-b border-red-100 px-2.5 py-1 text-[11px] font-bold text-red-700">
+                  سيُزال عند الحفظ ({formatNum(removedTreesList.length + removedStandalone.length)})
+                </p>
+                {removedTreesList.map(t => (
+                  <div key={`rm-tree-${t.treeSeq}`} className="flex items-center gap-2 px-2.5 py-1">
+                    <IconFolderClosed size={13} className="shrink-0 text-red-400" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-red-600 line-through">{t.treeName}</span>
+                    <Btn size="xs" variant="ghost" onClick={() => toggleTree(t.treeSeq, t.treeName)}>
+                      <IconRefresh size={12} /> تراجع
+                    </Btn>
                   </div>
-                )}
+                ))}
+                {removedStandalone.map(item => (
+                  <div key={`rm-item-${item.id}`} className="flex items-center gap-2 px-2.5 py-1">
+                    <IconPackage size={13} className="shrink-0 text-red-400" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-red-600 line-through">{item.name}</span>
+                    <Btn size="xs" variant="ghost" onClick={() => toggleStandalone(item)}>
+                      <IconRefresh size={12} /> تراجع
+                    </Btn>
+                  </div>
+                ))}
+              </div>
+            )}
 
-                {effectiveTrees.length === 0 && standalone.length === 0 && addProducts.size === 0 && (
-                  <p className="py-10 text-center text-[12px] text-slate-400">لا محتوى — أضف من العمود الأيسر أو ابحث عن منتج</p>
-                )}
-              </>
+            {effectiveTrees.length === 0 && visibleStandalone.length === 0 && addProducts.size === 0 && (
+              <p className="py-10 text-center text-[12px] text-slate-400">
+                لا محتوى في العرض بعد — ابحث أو تصفّح من القائمة المقابلة واضغط «+ إضافة»
+              </p>
             )}
           </div>
         </section>
@@ -505,7 +594,7 @@ function CatalogRow({
   return (
     <div
       className={`flex items-start gap-2 border-b border-slate-50 px-2.5 py-1.5 transition ${
-        pendingAdd ? 'bg-amber-50' : pendingRemove ? 'bg-red-50/80' : inScope ? 'bg-brand-50/40' : 'hover:bg-slate-50'
+        pendingAdd ? 'bg-emerald-50/80' : pendingRemove ? 'bg-red-50/80' : inScope ? 'bg-brand-50/40' : 'hover:bg-slate-50'
       }`}
     >
       {isFolder ? (
@@ -528,21 +617,23 @@ function CatalogRow({
           </div>
         </div>
       )}
-      {pendingAdd && <span className="mt-0.5 text-[10.5px] font-bold text-amber-700">مؤقّت</span>}
+      {pendingAdd && <span className="mt-0.5 text-[10.5px] font-bold text-emerald-700">أُضيف الآن</span>}
       {pendingRemove && <span className="mt-0.5 text-[10.5px] font-bold text-red-600">سيُزال</span>}
-      {inScope && side === 'add' && <IconCheckCircle size={13} className="mt-0.5 text-brand-600" />}
+      {inScope && <IconCheckCircle size={13} className="mt-1 shrink-0 text-brand-600" />}
       <Btn
         size="sm"
-        variant={side === 'add' ? 'primary' : 'ghost'}
-        className={side === 'remove' ? '!text-red-600 hover:!bg-red-50' : ''}
+        variant={side === 'add' && !pendingRemove ? 'primary' : 'ghost'}
+        className={side === 'remove' || pendingAdd ? '!text-red-600 hover:!bg-red-50' : ''}
         onClick={onAction}
       >
-        {side === 'add' ? (
-          pendingAdd ? <><IconX size={12} /> تراجع</> : <><IconPlus size={12} /> {isFolder ? 'الشجرة' : 'إضافة'}</>
+        {pendingAdd ? (
+          <><IconX size={12} /> تراجع</>
         ) : pendingRemove ? (
           <><IconRefresh size={12} /> تراجع</>
-        ) : (
+        ) : inScope ? (
           <><IconX size={12} /> {isFolder ? 'إزالة الشجرة' : 'إزالة'}</>
+        ) : (
+          <><IconPlus size={12} /> {isFolder ? 'الشجرة' : 'إضافة'}</>
         )}
       </Btn>
     </div>
@@ -564,6 +655,7 @@ function ScopeTreeCardView({
   excludeArticleSeqs,
   onToggleExclude,
   onToggleExcludeSeq,
+  onCountResolved,
 }: {
   offerId: number;
   tree: ScopeTreeCard;
@@ -579,42 +671,45 @@ function ScopeTreeCardView({
   excludeArticleSeqs: Map<number, boolean>;
   onToggleExclude: (detailId: number, excluded: boolean) => void;
   onToggleExcludeSeq: (seq: number, excluded: boolean) => void;
+  onCountResolved?: (count: number) => void;
 }) {
   const [products, setProducts] = useState<ScopeTreeProduct[] | null>(null);
   const [loading, setLoading] = useState(false);
   const loaded = useRef(false);
 
   useEffect(() => {
-    if (!expanded || isPendingAdd) return;
+    if (!expanded) return;
     if (loaded.current && products) return;
     loaded.current = true;
     setLoading(true);
     void api.offerTreeProducts(offerId, tree.treeSeq)
-      .then(rows =>
-        setProducts(
-          rows.map(r => ({
-            seq: r.seq,
-            name: r.name ?? `#${r.seq}`,
-            barcode: r.barcode,
-            price: r.price,
-            inScope: r.inOffer,
-            excluded: r.excluded,
-            discount: r.discount,
-            rowId: r.detailId,
-          })),
-        ),
-      )
+      .then(rows => {
+        const mapped = rows.map(r => ({
+          seq: r.seq,
+          name: r.name ?? `#${r.seq}`,
+          barcode: r.barcode,
+          price: r.price,
+          inScope: isPendingAdd ? !r.excluded : r.inOffer,
+          excluded: r.excluded,
+          discount: r.discount,
+          rowId: r.detailId,
+        }));
+        setProducts(mapped);
+        onCountResolved?.(mapped.length);
+      })
       .finally(() => setLoading(false));
-  }, [expanded, offerId, tree.treeSeq, isPendingAdd, products]);
+  }, [expanded, offerId, tree.treeSeq, isPendingAdd, products, onCountResolved]);
+
+  const displayCount = products ? products.length : tree.count;
 
   return (
-    <article className={`overflow-hidden rounded-xl border ${isPendingRemove ? 'border-red-300 bg-red-50/50' : isPendingAdd ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200 bg-white'}`}>
+    <article className={`overflow-hidden rounded-xl border ${isPendingRemove ? 'border-red-300 bg-red-50/50' : isPendingAdd ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}>
       <div className="flex flex-wrap items-center gap-2 px-2.5 py-2">
         <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-right">
           <IconChevronDown size={14} className={`shrink-0 text-brand-600 transition ${expanded ? '' : '-rotate-90'}`} />
           <IconFolderClosed size={14} className="text-amber-600" />
           <span className={`truncate text-[12px] font-bold ${isPendingRemove ? 'line-through text-red-500' : 'text-header'}`}>{tree.treeName}</span>
-          <span className="text-[11px] text-slate-500">{formatNum(tree.count)} صنف</span>
+          <span className="text-[11px] text-slate-500 num">{formatNum(displayCount)} صنف</span>
         </button>
         <label className="flex items-center gap-1 text-[11px] text-slate-500">
           خصم %
@@ -635,10 +730,10 @@ function ScopeTreeCardView({
             <IconX size={12} />
           </Btn>
         )}
-        {isPendingAdd && <span className="text-[11px] font-bold text-amber-700">شجرة جديدة</span>}
+        {isPendingAdd && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-bold text-emerald-800">أُضيفت الآن</span>}
       </div>
-      {expanded && !isPendingAdd && (
-        <div className="max-h-[200px] overflow-y-auto border-t border-slate-100">
+      {expanded && (
+        <div className="max-h-[220px] overflow-y-auto border-t border-slate-100 bg-white/80">
           {loading && <Loading />}
           {products?.map(p => {
             const detailId = p.rowId;
@@ -648,8 +743,10 @@ function ScopeTreeCardView({
                 ? excludeChanges.get(detailId)!
                 : p.excluded;
             return (
-              <div key={p.seq} className={`flex items-center gap-2 px-2.5 py-1 text-[11px] ${excluded ? 'opacity-50 line-through' : ''}`}>
-                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              <div key={p.seq} className={`flex items-center gap-2 border-b border-slate-50 px-2.5 py-1 text-[11.5px] ${excluded ? 'opacity-50 line-through' : ''}`}>
+                <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{p.name}</span>
+                {p.barcode && <span className="font-mono text-[10.5px] text-slate-400">{p.barcode}</span>}
+                {p.price > 0 && <span className="num text-[11px] font-semibold text-slate-600">{formatNum(p.price)}</span>}
                 <button
                   type="button"
                   onClick={() => {
@@ -663,6 +760,9 @@ function ScopeTreeCardView({
               </div>
             );
           })}
+          {!loading && products?.length === 0 && (
+            <p className="p-3 text-center text-[11px] text-slate-400">لا أصناف تحت هذه الشجرة</p>
+          )}
         </div>
       )}
     </article>

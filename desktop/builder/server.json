@@ -3,7 +3,7 @@
   "productName": "FOT POS Server",
   "copyright": "Copyright © Future of Technology",
   "directories": {
-    "output": "dist-out82/server"
+    "output": "dist-out84/server"
   },
   "files": [
     "electron/**/*",

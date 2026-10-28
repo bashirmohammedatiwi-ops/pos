@@ -77,7 +77,13 @@ public partial record PortalSellerAccountDto(
     bool IsActive,
     string? PinDisplay,
     DateTime? LastLoginAt,
-    DateTime? CreatedAt);
+    DateTime? CreatedAt,
+    int? AccessFromMin = null,
+    int? AccessToMin = null,
+    int AccessDays = 127);
+
+/// <summary>أوقات فتح ويب البائع بتوقيت العراق. From/To = null → بلا تقييد. Days: بت 0 = السبت … بت 6 = الجمعة.</summary>
+public sealed record SellerAccessRequest(int? FromMin, int? ToMin, int Days);
 
 public partial record PortalManagerAccountDto(
     long Id,
@@ -133,12 +139,112 @@ public record PortalPublishResult(
     string Message,
     string WebUrl);
 
+/* ── تطبيق الفريق: الموظفون ── */
+
+public sealed class StaffDto
+{
+    public long Id { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "other";
+    public string? JobTitle { get; set; }
+    public string? Phone { get; set; }
+    public string? PhotoUrl { get; set; }
+    public long? SalesmanId { get; set; }
+    public long? CashierId { get; set; }
+    public long? SectionId { get; set; }
+    public string? SectionName { get; set; }
+    public string? PinDisplay { get; set; }
+    public bool HasPin { get; set; }
+    public bool IsActive { get; set; }
+    public DateTime? HireDate { get; set; }
+    public string? Notes { get; set; }
+    public string? DeviceId { get; set; }
+    public string? DeviceLabel { get; set; }
+    public DateTime? DeviceBoundAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public sealed record StaffSaveRequest(
+    string? Code,
+    string? Name,
+    string? Kind,
+    string? JobTitle,
+    string? Phone,
+    long? SalesmanId,
+    long? CashierId,
+    long? SectionId,
+    DateTime? HireDate,
+    string? Notes,
+    bool? IsActive);
+
+/// <summary>ما يُرفع لخادم الفريق عن كل موظف.</summary>
+public sealed class StaffSyncDto
+{
+    public long Id { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "other";
+    public string? JobTitle { get; set; }
+    public string? PhotoUrl { get; set; }
+    public long? SalesmanId { get; set; }
+    public long? CashierId { get; set; }
+    public long? SectionId { get; set; }
+    public string? SectionName { get; set; }
+    public string? PinHash { get; set; }
+    public bool IsActive { get; set; }
+    public string? DeviceId { get; set; }
+}
+
+public sealed class SellerBrandLinkDto
+{
+    public long SalesmanId { get; set; }
+    public long TreeSeq { get; set; }
+    public string? TreeName { get; set; }
+    public int SortOrder { get; set; }
+}
+
+public sealed record SellerBrandTreeInput(long TreeSeq, string? TreeName);
+
+public sealed record SellerBrandLinksRequest(IReadOnlyList<SellerBrandTreeInput> Trees);
+
+public sealed class SellerBrandProductDto
+{
+    public long Id { get; set; }
+    public string? Name { get; set; }
+    public string? Barcode { get; set; }
+    public decimal Price { get; set; }
+}
+
+public sealed class SellerBrandSectionDto
+{
+    public long Id { get; set; }
+    public string? Name { get; set; }
+}
+
+/// <summary>حزمة مبيعات براند (شجرة) لويب البائعين. Rows: [يوم, مادة, قسم, بائع, كمية, مبلغ] · ReceiptRows: [يوم, قسم, بائع, فواتير].</summary>
+public sealed record SellerBrandPackDto(
+    long TreeSeq,
+    string TreeName,
+    DateTime BuiltAt,
+    DateTime From,
+    IReadOnlyList<SellerBrandProductDto> Products,
+    IReadOnlyList<SellerBrandSectionDto> Sections,
+    IReadOnlyList<object[]> Rows,
+    IReadOnlyList<object[]> ReceiptRows,
+    /// <summary>[يوم, قسم, فواتير] بلا تقسيم بائع — لعدّ «كل المحل» دون تكرار.</summary>
+    IReadOnlyList<object[]>? ReceiptTotals = null);
+
 public partial record SellerHubAccountDto(
     long Id,
     string Name,
     string? PinHash,
     bool IsActive,
-    bool MustChangePin);
+    bool MustChangePin,
+    int? AccessFromMin = null,
+    int? AccessToMin = null,
+    int AccessDays = 127);
 
 public record SellerHubWeekPackDto(
     DateTime WeekStart,
@@ -161,7 +267,10 @@ public record SellerHubSyncRequest(
     IReadOnlyList<SellerHubAccountDto> Accounts,
     IReadOnlyList<SellerHubSnapshotDto> Snapshots,
     IReadOnlyList<ManagerHubAccountDto>? Managers = null,
-    ManagerHubSnapshotDto? ManagerSnapshot = null);
+    ManagerHubSnapshotDto? ManagerSnapshot = null,
+    IReadOnlyList<SellerBrandLinkDto>? BrandLinks = null,
+    /// <summary>null = لم تُحدَّث هذه المرة (الويب يحتفظ بالحزم السابقة).</summary>
+    IReadOnlyList<SellerBrandPackDto>? Brands = null);
 
 public partial record ManagerHubAccountDto(
     long Id,
@@ -1127,7 +1236,21 @@ public partial record OfferSalesProductRowDto(
     decimal Amount,
     decimal ListAmount,
     decimal DiscountAmount,
-    decimal SharePercent);
+    decimal SharePercent,
+    DateTime? FirstSoldDate = null,
+    DateTime? LastSoldDate = null,
+    int ActiveDaysCount = 0);
+
+public partial record OfferSalesProductDayRowDto(
+    DateTime Date,
+    long ArticleSeq,
+    string? Barcode,
+    string? Name,
+    decimal Quantity,
+    decimal Amount,
+    decimal ListAmount,
+    decimal DiscountAmount,
+    int ReceiptCount);
 
 public partial record OfferSalesDailyRowDto(
     DateTime Date,
@@ -1159,7 +1282,8 @@ public record OfferSalesReportDto(
     DateTime GeneratedAt,
     IReadOnlyList<OfferSalesDailyRowDto> Daily,
     IReadOnlyList<OfferSalesProductRowDto> Products,
-    IReadOnlyList<OfferSalesUnsoldRowDto> UnsoldSamples);
+    IReadOnlyList<OfferSalesUnsoldRowDto> UnsoldSamples,
+    IReadOnlyList<OfferSalesProductDayRowDto>? ProductDaily = null);
 public record EdariSyncStatusDto(
     int UnsyncedCount, int SyncedCount, int FailedCount, string Message,
     bool? ConnectionOk = null, string? DatabaseAlias = null, string? DataRoot = null,
@@ -1966,3 +2090,223 @@ public record ProductInquiryDto(
     IReadOnlyList<ProductInquiryReceiptRowDto> Receipts,
     bool ReceiptsTruncated = false,
     bool CommissionsTruncated = false);
+
+// ── System Backup & Restore ──────────────────────────────────────────────────
+
+public record BackupSummaryCountsDto(
+    int OffersCount,
+    int CommissionGroupsCount,
+    int TargetsCount,
+    int CashiersCount,
+    int SalesmenCount,
+    int SectionsCount,
+    int ReceiptsCount,
+    int ArticlesCount,
+    int TablesCount,
+    long TotalRows);
+
+public record BackupSectionInfoDto(
+    string Id,
+    string Label,
+    int TableCount,
+    long RowCount);
+
+public record BackupTableInfoDto(
+    string Name,
+    string Section,
+    long RowCount,
+    bool HasIdentity);
+
+public record BackupManifestDto(
+    int FormatVersion,
+    DateTime CreatedAt,
+    string AppVersion,
+    string Label,
+    bool IncludeCatalog,
+    BackupSummaryCountsDto Summary,
+    IReadOnlyList<BackupSectionInfoDto> Sections,
+    IReadOnlyList<BackupTableInfoDto> Tables);
+
+public record BackupFileItemDto(
+    string FileName,
+    string Label,
+    DateTime CreatedAt,
+    long SizeBytes,
+    bool IncludeCatalog,
+    bool IsAuto,
+    BackupSummaryCountsDto? Summary);
+
+public record BackupSettingsDto(
+    bool AutoBackupEnabled,
+    int IntervalHours,
+    int RetainCount,
+    bool IncludeCatalogInAuto,
+    string BackupFolder,
+    DateTime? LastAutoBackupAt,
+    DateTime? LastBackupAt,
+    int StoredBackupsCount,
+    long TotalStorageBytes);
+
+public record UpdateBackupSettingsRequest(
+    bool AutoBackupEnabled,
+    int IntervalHours,
+    int RetainCount,
+    bool IncludeCatalogInAuto);
+
+public record CreateBackupRequest(
+    string? Label = null,
+    bool IncludeCatalog = true);
+
+public record RestoreBackupRequest(
+    IReadOnlyList<string>? Sections = null,
+    bool CreateSafetyBackup = true);
+
+public record RestoreBackupResultDto(
+    bool Ok,
+    string Message,
+    int RestoredTables,
+    long RestoredRows,
+    string? SafetyBackupFileName);
+
+// ── Network API Platform (API Keys, Webhooks, Events, Cart Quote) ────────────
+
+public record ApiKeyDto(
+    long Id,
+    string Name,
+    string KeyPrefix,
+    IReadOnlyList<string> Scopes,
+    string RoleName,
+    string? Notes,
+    bool IsActive,
+    long RequestCount,
+    DateTime? LastUsedAt,
+    string? LastUsedIp,
+    DateTime? ExpiresAt,
+    DateTime CreatedAt);
+
+public record CreateApiKeyRequest(
+    string Name,
+    IReadOnlyList<string>? Scopes = null,
+    string? RoleName = null,
+    string? Notes = null,
+    int? ExpiresInDays = null);
+
+public record CreateApiKeyResponse(
+    string PlainTextKey,
+    ApiKeyDto Key);
+
+public record UpdateApiKeyRequest(
+    string? Name = null,
+    IReadOnlyList<string>? Scopes = null,
+    string? Notes = null,
+    bool? IsActive = null);
+
+public record ApiWebhookDto(
+    long Id,
+    string Name,
+    string TargetUrl,
+    bool HasSecret,
+    IReadOnlyList<string> Events,
+    bool IsActive,
+    long DeliveryCount,
+    long FailureCount,
+    int? LastStatusCode,
+    string? LastError,
+    DateTime? LastTriggeredAt,
+    DateTime CreatedAt);
+
+public record CreateApiWebhookRequest(
+    string Name,
+    string TargetUrl,
+    string? Secret = null,
+    IReadOnlyList<string>? Events = null);
+
+public record UpdateApiWebhookRequest(
+    string? Name = null,
+    string? TargetUrl = null,
+    string? Secret = null,
+    IReadOnlyList<string>? Events = null,
+    bool? IsActive = null);
+
+public record WebhookTestResultDto(
+    bool Ok,
+    int? StatusCode,
+    long ElapsedMs,
+    string Message);
+
+public record NetworkEventDto(
+    long Id,
+    string EventType,
+    DateTime TimestampUtc,
+    object? Data);
+
+public record PublishNetworkEventRequest(
+    string EventType,
+    object? Data = null);
+
+public record CartQuoteItemRequest(
+    string? Code = null,
+    long? ProductId = null,
+    decimal Quantity = 1);
+
+public record CartQuoteRequest(
+    IReadOnlyList<CartQuoteItemRequest> Items,
+    string? DiscountQrCode = null,
+    decimal? ManualDiscountPercent = null);
+
+public record CartQuoteLineDto(
+    long ProductId,
+    string? Sku,
+    string? Barcode,
+    string Name,
+    decimal Quantity,
+    decimal Stock,
+    bool InStock,
+    decimal OriginalUnitPrice,
+    decimal FinalUnitPrice,
+    decimal OriginalLineTotal,
+    decimal FinalLineTotal,
+    decimal LineSavings,
+    string? OfferName);
+
+public record CartQuoteResponse(
+    string Currency,
+    DateTime PricedAtUtc,
+    IReadOnlyList<CartQuoteLineDto> Lines,
+    IReadOnlyList<string> UnresolvedCodes,
+    decimal SubtotalOriginal,
+    decimal SubtotalAfterOffers,
+    decimal OfferSavings,
+    bool DiscountQrValid,
+    string? DiscountQrHolderName,
+    decimal ExtraDiscountPercent,
+    decimal ExtraDiscountAmount,
+    decimal GrandTotal);
+
+public record ApiEndpointDescriptorDto(
+    string Group,
+    string Method,
+    string Path,
+    string Summary,
+    string Scope,
+    bool AnonymousAllowed,
+    string? SampleQueryOrBody = null);
+
+public record ApiPlatformOverviewDto(
+    string ServerName,
+    int Port,
+    IReadOnlyList<string> LanIps,
+    IReadOnlyList<string> BaseUrls,
+    string SwaggerUrl,
+    string OpenApiJsonUrl,
+    string SseStreamUrl,
+    string SignalRHubUrl,
+    long CatalogRevision,
+    int ActiveKeysCount,
+    long TotalApiKeyRequests,
+    int ActiveWebhooksCount,
+    IReadOnlyList<string> AvailableScopes,
+    IReadOnlyList<ApiEndpointDescriptorDto> Endpoints,
+    IReadOnlyList<NetworkEventDto> RecentEvents);
+
+

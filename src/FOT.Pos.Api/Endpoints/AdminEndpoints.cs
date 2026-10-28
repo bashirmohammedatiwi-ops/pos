@@ -964,6 +964,174 @@ public static class AdminEndpoints
         });
         api.MapGet("/discount-qr-people/{id:long}/receipts", async (DiscountQrRepository repo, long id) =>
             Results.Ok(await repo.ListReceiptsAsync(id, default)));
+
+        // ── System Backup & Restore ──────────────────────────────────────────
+        api.MapGet("/backups", (FOT.Pos.Infrastructure.Services.SystemBackupService backups) =>
+            Results.Ok(backups.ListBackups()));
+
+        api.MapGet("/backups/settings", (FOT.Pos.Infrastructure.Services.SystemBackupService backups) =>
+            Results.Ok(backups.GetSettings()));
+
+        api.MapPut("/backups/settings", (FOT.Pos.Infrastructure.Services.SystemBackupService backups, UpdateBackupSettingsRequest req) =>
+            Results.Ok(backups.SaveSettings(req)));
+
+        api.MapPost("/backups/create", async (
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            CreateBackupRequest? req,
+            CancellationToken ct) =>
+        {
+            var created = await backups.CreateBackupAsync(
+                req?.Label,
+                req?.IncludeCatalog ?? true,
+                isAuto: false,
+                ct: ct);
+            return Results.Ok(created);
+        });
+
+        api.MapGet("/backups/{fileName}/download", (
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            string fileName) =>
+        {
+            var path = backups.ResolveBackupFilePath(fileName);
+            if (path is null) return Results.NotFound(new { message = "ملف النسخة الاحتياطية غير موجود" });
+            return Results.File(path, "application/octet-stream", Path.GetFileName(path));
+        });
+
+        api.MapGet("/backups/{fileName}/inspect", (
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            string fileName) =>
+        {
+            try
+            {
+                return Results.Ok(backups.InspectStoredBackup(fileName));
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+
+        api.MapDelete("/backups/{fileName}", (
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            string fileName) =>
+        {
+            return backups.DeleteBackup(fileName)
+                ? Results.NoContent()
+                : Results.NotFound(new { message = "الملف غير موجود" });
+        });
+
+        api.MapPost("/backups/{fileName}/restore", async (
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            string fileName,
+            RestoreBackupRequest? req,
+            IHubContext<PosHub> hub,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await backups.RestoreFromStoredAsync(
+                    fileName,
+                    req ?? new RestoreBackupRequest(),
+                    ct);
+                if (result.Ok)
+                {
+                    await PosHubEvents.NotifyCatalogUpdated(hub);
+                }
+                return Results.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+
+        api.MapPost("/backups/inspect-upload", async (
+            HttpRequest httpReq,
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await using var ms = new MemoryStream();
+                if (httpReq.HasFormContentType)
+                {
+                    var form = await httpReq.ReadFormAsync(ct);
+                    var file = form.Files.FirstOrDefault();
+                    if (file is null) return Results.BadRequest(new { message = "لم يتم إرفاق ملف." });
+                    await file.CopyToAsync(ms, ct);
+                }
+                else
+                {
+                    await httpReq.Body.CopyToAsync(ms, ct);
+                }
+                ms.Position = 0;
+                return Results.Ok(backups.InspectBackupStream(ms));
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        }).DisableAntiforgery();
+
+        api.MapPost("/backups/upload-restore", async (
+            HttpRequest httpReq,
+            FOT.Pos.Infrastructure.Services.SystemBackupService backups,
+            IHubContext<PosHub> hub,
+            string? sections,
+            bool? safety,
+            bool? saveToVault,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await using var ms = new MemoryStream();
+                string uploadedName = $"uploaded-{DateTime.Now:yyyyMMdd-HHmmss}.fotbackup";
+                if (httpReq.HasFormContentType)
+                {
+                    var form = await httpReq.ReadFormAsync(ct);
+                    var file = form.Files.FirstOrDefault();
+                    if (file is null) return Results.BadRequest(new { message = "لم يتم إرفاق ملف." });
+                    if (!string.IsNullOrWhiteSpace(file.FileName)) uploadedName = Path.GetFileName(file.FileName);
+                    await file.CopyToAsync(ms, ct);
+                }
+                else
+                {
+                    await httpReq.Body.CopyToAsync(ms, ct);
+                }
+                ms.Position = 0;
+                // Validate manifest first
+                _ = backups.InspectBackupStream(ms);
+
+                if (saveToVault != false)
+                {
+                    var safeName = Path.GetFileNameWithoutExtension(uploadedName);
+                    var vaultFile = Path.Combine(backups.BackupFolder, $"upload-{DateTime.Now:yyyyMMdd-HHmmss}-{safeName}.fotbackup");
+                    ms.Position = 0;
+                    await using var fs = File.Create(vaultFile);
+                    await ms.CopyToAsync(fs, ct);
+                }
+
+                ms.Position = 0;
+                var secList = string.IsNullOrWhiteSpace(sections)
+                    ? null
+                    : sections.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                var res = await backups.RestoreFromStreamAsync(
+                    ms,
+                    new RestoreBackupRequest(secList, safety ?? true),
+                    ct);
+
+                if (res.Ok)
+                {
+                    await PosHubEvents.NotifyCatalogUpdated(hub);
+                }
+                return Results.Ok(res);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        }).DisableAntiforgery();
     }
 
     private static string BuildEdariLiveMessage(EdariSyncStatusDto status, EdariLiveLinkDto live, bool watching)

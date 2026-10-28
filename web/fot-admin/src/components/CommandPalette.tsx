@@ -5,10 +5,12 @@ import { api, formatNum, receiptDisplayNumber, todayIso } from '@/api/client';
 import { offerTypeLabel } from '@/lib/offers';
 import { NAV_GROUPS } from '@/navigation/routes';
 import { useIncentiveAlerts } from '@/hooks/useIncentiveAlerts';
-import { ICONS, IconClock, IconGrid, IconHelp, IconRefresh, IconSearch, IconX, IconZap, type IconKey } from '@/components/icons';
+import { ICONS, IconClock, IconCloud, IconGrid, IconHelp, IconRefresh, IconSearch, IconUpload, IconX, IconZap, type IconKey } from '@/components/icons';
 import { Kbd } from '@/components/ui';
+import { usePushPosUpdates } from '@/hooks/usePushPosUpdates';
+import { useToast } from '@/components/Toast';
 
-type ActionId = 'help' | 'refresh';
+type ActionId = 'help' | 'refresh' | 'push-pos' | 'pull-edari' | 'sync-edari' | 'create-backup';
 type CmdItem = {
   key: string;
   iconKey: IconKey;
@@ -28,6 +30,10 @@ const ACTION_GROUP = 'إجراءات سريعة';
 const ACTION_ICONS: Record<ActionId, (p: { size?: number }) => ReactNode> = {
   help: IconHelp,
   refresh: IconRefresh,
+  'push-pos': IconUpload,
+  'pull-edari': IconCloud,
+  'sync-edari': IconCloud,
+  'create-backup': ICONS.database,
 };
 
 /** تمييز جزء النص المطابق لكلمة البحث. */
@@ -64,6 +70,8 @@ export function CommandPalette({
 }) {
   const nav = useNavigate();
   const qc = useQueryClient();
+  const toast = useToast();
+  const { push: pushToPos } = usePushPosUpdates();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState('');
@@ -111,6 +119,18 @@ export function CommandPalette({
     enabled: open && term.length >= 2,
     staleTime: 60_000,
   });
+  const terminalsQ = useQuery({
+    queryKey: ['terminals'],
+    queryFn: api.terminals,
+    enabled: open && term.length >= 2,
+    staleTime: 60_000,
+  });
+  const sectionsQ = useQuery({
+    queryKey: ['sections'],
+    queryFn: () => api.sections(false),
+    enabled: open && term.length >= 2,
+    staleTime: 60_000,
+  });
 
   const { atRiskCount } = useIncentiveAlerts();
 
@@ -142,6 +162,7 @@ export function CommandPalette({
       { key: 'w-comm', iconKey: 'commissions', label: 'مجاميع العمولة', group: WORK_GROUP, path: '/commissions' },
       { key: 'w-salesmen', iconKey: 'salesmen', label: 'تقارير البائعين', group: WORK_GROUP, path: '/salesmen?tab=reports' },
       { key: 'w-targets', iconKey: 'targets', label: 'إدارة الأهداف', group: WORK_GROUP, path: '/targets' },
+      { key: 'w-backups', iconKey: 'database', label: 'النسخ الاحتياطي والاستعادة', group: WORK_GROUP, path: '/backups', hint: 'إنشاء وتنزيل ورفع نسخة .fotbackup' },
     ];
     if (atRiskCount > 0) {
       work.unshift({
@@ -153,6 +174,10 @@ export function CommandPalette({
       });
     }
     const actions: CmdItem[] = [
+      { key: 'a-push-pos', iconKey: 'terminals', label: 'رفع التحديثات لنقاط البيع الآن', group: ACTION_GROUP, hint: 'إرسال الكتالوج والعروض والحسابات', path: '', action: 'push-pos' },
+      { key: 'a-pull-edari', iconKey: 'edari', label: 'جلب البيانات من الأداري الآن', group: ACTION_GROUP, hint: 'مزامنة المواد والأسعار من Edari', path: '', action: 'pull-edari' },
+      { key: 'a-sync-edari', iconKey: 'edari', label: 'ترحيل الفواتير المعلقة إلى الأداري', group: ACTION_GROUP, hint: 'تشغيل دفعة ترحيل فورية', path: '', action: 'sync-edari' },
+      { key: 'a-backup', iconKey: 'database', label: 'إنشاء نسخة احتياطية فورية (.fotbackup)', group: ACTION_GROUP, hint: 'حفظ نسخة للنظام في الخزنة', path: '', action: 'create-backup' },
       { key: 'a-refresh', iconKey: 'dashboard', label: 'تحديث بيانات الصفحة', group: ACTION_GROUP, hint: 'إعادة جلب كل البيانات', path: '', action: 'refresh' },
       { key: 'a-help', iconKey: 'dashboard', label: 'اختصارات لوحة المفاتيح', group: ACTION_GROUP, hint: 'F1', path: '', action: 'help' },
     ];
@@ -246,10 +271,36 @@ export function CommandPalette({
         hint: c.sectionName ?? undefined,
         path: `/cashiers?highlight=${c.id}`,
       }));
+    const terminals = (terminalsQ.data ?? [])
+      .filter(t =>
+        (t.name ?? '').toLowerCase().includes(s)
+        || (t.sectionName ?? '').toLowerCase().includes(s)
+        || String(t.id).includes(s),
+      )
+      .slice(0, 5)
+      .map(t => ({
+        key: `term-${t.id}`,
+        iconKey: 'terminals' as const,
+        label: t.name || `نقطة بيع #${t.id}`,
+        group: 'نقاط البيع',
+        hint: t.sectionName ?? undefined,
+        path: '/terminals',
+      }));
+    const sections = (sectionsQ.data ?? [])
+      .filter(sec => sec.name.toLowerCase().includes(s) || String(sec.id).includes(s))
+      .slice(0, 5)
+      .map(sec => ({
+        key: `sec-${sec.id}`,
+        iconKey: 'sections' as const,
+        label: sec.name,
+        group: 'الأقسام',
+        hint: sec.state ? 'نشط' : 'متوقف',
+        path: '/sections',
+      }));
     const workHits = s
       ? work.filter(i => i.label.includes(term) || i.group.includes(term))
       : work;
-    const actionHits = s ? actions.filter(i => i.label.includes(term)) : actions;
+    const actionHits = s ? actions.filter(i => i.label.includes(term) || (i.hint ?? '').includes(term)) : actions;
     const recentHits = s ? [] : recents.map(r => ({ ...r, key: `recent-${r.key}`, group: RECENT_GROUP }));
     return [
       ...recentHits,
@@ -260,11 +311,13 @@ export function CommandPalette({
       ...targets,
       ...salesmen,
       ...cashiers,
+      ...terminals,
+      ...sections,
       ...products,
       ...receipts,
       ...actionHits,
     ];
-  }, [term, recents, productsQ.data, receiptsQ.data, offersQ.data, cashiersQ.data, groupsQ.data, targetsQ.data, salesmenQ.data, atRiskCount]);
+  }, [term, recents, productsQ.data, receiptsQ.data, offersQ.data, cashiersQ.data, groupsQ.data, targetsQ.data, salesmenQ.data, terminalsQ.data, sectionsQ.data, atRiskCount]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -309,7 +362,36 @@ export function CommandPalette({
       onClose();
       setQ('');
       if (item.action === 'help') window.setTimeout(() => window.dispatchEvent(new CustomEvent('fot-admin-help')), 0);
-      if (item.action === 'refresh') void qc.invalidateQueries();
+      if (item.action === 'refresh') {
+        void qc.invalidateQueries();
+        toast.success('تم تحديث البيانات');
+      }
+      if (item.action === 'push-pos') void pushToPos();
+      if (item.action === 'pull-edari') {
+        void api.syncEdariPull(false)
+          .then(r => {
+            void qc.invalidateQueries();
+            toast.success(r.message || 'تم الجلب من الأداري');
+          })
+          .catch(e => toast.error(e instanceof Error ? e.message : 'فشل الجلب من الأداري'));
+      }
+      if (item.action === 'sync-edari') {
+        void api.syncEdariReceipts(true, 50)
+          .then(r => {
+            void qc.invalidateQueries({ queryKey: ['edari-status'] });
+            toast.success(r.message || 'تم ترحيل الفواتير');
+          })
+          .catch(e => toast.error(e instanceof Error ? e.message : 'فشل ترحيل الفواتير'));
+      }
+      if (item.action === 'create-backup') {
+        void api.createBackup({ label: 'نسخة سريعة من البحث', includeCatalog: false })
+          .then(b => {
+            void qc.invalidateQueries({ queryKey: ['system-backups'] });
+            void qc.invalidateQueries({ queryKey: ['system-backup-settings'] });
+            toast.success(`تم حفظ النسخة الاحتياطية (${b.fileName})`);
+          })
+          .catch(e => toast.error(e instanceof Error ? e.message : 'تعذر إنشاء النسخة الاحتياطية'));
+      }
       return;
     }
     if (item.offerId) sessionStorage.setItem('fot_admin_offer', String(item.offerId));

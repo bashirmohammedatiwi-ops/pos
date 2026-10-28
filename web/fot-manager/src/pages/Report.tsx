@@ -2,21 +2,21 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   avgTicket, deltaPct, goalLabel, goalTone, goalValue,
-  groupGoalsByRule, moneyIq, resolveWeekSales, todayKey, weekRange,
+  groupGoalsByRule, moneyIq, resolveWeekSales, weekRange,
 } from '../api';
 import { cashierShares, sellerShares } from '../insights';
 import { ExportMenu } from '../ExportMenu';
 import { useManager, useShopInsights, useWeekCompare } from '../store';
 import {
-  AreaChart, CommandRail, DayStrip, Delta, Empty, ErrorBox, HourBands, Medal,
+  AreaChart, Delta, Empty, ErrorBox, HourBands, Medal, MetricStrip, PageHero,
   Ring, SectionHead, Skeleton, Track,
 } from '../ui';
-import { PeriodBar } from '../week';
+import { PeriodBar } from '../picker';
 
 export function Report() {
   const {
     weekStart, setWeek, dash, prevDash, weeks, scopedSellers, scopedCashiers, paySellers,
-    period, periodKind, setPeriodKind, customFrom, customTo, setCustom,     periodTotals, payTotals, payPeriod, shareBase,
+    period, setPeriodKind, setCustom, periodTotals, payTotals, payPeriod, shareBase,
     err, loading, reload,
   } = useManager();
   const compare = useWeekCompare(weeks, weekStart);
@@ -28,8 +28,6 @@ export function Report() {
   const due = useMemo(() => (dash?.sellers ?? []).filter(s => s.balanceDue > 0).sort((a, b) => b.balanceDue - a.balanceDue), [dash]);
   const prevById = useMemo(() => new Map((prevDash?.sellers ?? []).map(s => [s.salesmanId, s])), [prevDash]);
   const goalRules = useMemo(() => groupGoalsByRule(dash?.goals), [dash]);
-  const todayRow = insights.days.find(d => d.key === todayKey());
-
   if (err) return <ErrorBox message={err} onRetry={() => void reload()} />;
   if (loading || !dash) return <Skeleton rows={7} />;
 
@@ -37,54 +35,30 @@ export function Report() {
   const totalDue = due.reduce((s, x) => s + x.balanceDue, 0);
   return (
     <div className="page-flow fade-up">
-      <PeriodBar
-        weeks={weeks}
-        weekStart={weekStart}
-        setWeek={setWeek}
-        period={period}
-        kind={periodKind}
-        setKind={setPeriodKind}
-        customFrom={customFrom}
-        customTo={customTo}
-        setCustom={setCustom}
-      />
+      <PeriodBar />
 
-      <section className="card home-section surface-hero">
-        <p className="kicker">تقرير المتابعة · {period.label}</p>
-        <h1 className="display text-[28px] font-black">يومي · أسبوعي · دقيق</h1>
-        <p className="mt-2 text-sm font-bold text-muted">أسبوع {weekRange(week.weekStart, week.weekEnd)}</p>
-        <div className="hero-pills">
-          <span className="pill">{moneyIq(periodTotals.sales)}</span>
-          <span className="pill">{periodTotals.receipts} فاتورة</span>
-          <span className="pill">متوسط {moneyIq(periodTotals.ticket)}</span>
-          <span className="pill">عمولات {moneyIq(payTotals.commission)}</span>
-          {compare.prev && <Delta value={compare.salesDelta} />}
-        </div>
-        <div className="toolbar mt-4">
+      <PageHero
+        kicker={`التقرير · ${period.label}`}
+        title="ملخص كامل"
+        value={moneyIq(periodTotals.sales)}
+        hint={`أسبوع ${weekRange(week.weekStart, week.weekEnd)} · مبيعات الأسبوع ${moneyIq(weekSales)}`}
+      >
+        <MetricStrip
+          items={[
+            { label: 'الفواتير', value: String(periodTotals.receipts), tone: 'goal' },
+            { label: 'متوسط الفاتورة', value: moneyIq(periodTotals.ticket), tone: 'ok' },
+            { label: `العمولات (${payPeriod.label})`, value: moneyIq(payTotals.commission), tone: 'gold' },
+          ]}
+        />
+        <div className="hero-actions mt-3">
           <ExportMenu title="تقرير المتابعة" />
+          {compare.prev && <span className="inline-flex items-center gap-1 text-xs font-extrabold text-muted">الأسبوع مقابل السابق <Delta value={compare.salesDelta} /></span>}
         </div>
-      </section>
-
-      <CommandRail items={[
-        { kicker: period.label, value: moneyIq(periodTotals.sales), hint: `${periodTotals.receipts} فاتورة`, tone: 'gold' },
-        { kicker: 'مبيعات الأسبوع', value: moneyIq(weekSales), hint: `${week.receiptCount} فاتورة`, tone: 'goal' },
-        { kicker: 'مبيعات اليوم', value: moneyIq(todayRow?.sales ?? 0), hint: todayRow ? `${todayRow.receipts} فاتورة` : 'لا حركة', tone: 'gold' },
-        { kicker: 'متوسط الفاتورة', value: moneyIq(periodTotals.ticket), hint: period.label, tone: 'ok' },
-        { kicker: 'العمولات', value: moneyIq(payTotals.commission), hint: payPeriod.label, tone: 'amber' },
-      ]} />
+      </PageHero>
 
       {insights.days.length > 0 && (
         <section className="card p-4">
-          <SectionHead title="إحصاء الأيام" kicker="اضغط يوماً للتفاصيل" />
-          <DayStrip
-            days={insights.days}
-            today={todayKey()}
-            active={period.singleDay ? period.from : undefined}
-            onSelect={key => {
-              setCustom(key, key);
-              setPeriodKind('custom');
-            }}
-          />
+          <SectionHead title="الأيام" kicker="اضغط يوماً لعرضه" />
           <div className="mt-3 space-y-1 report-cards">
             {insights.days.map(d => (
               <div key={d.key} className="day-report-actions">

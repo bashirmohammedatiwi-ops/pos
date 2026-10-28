@@ -829,7 +829,7 @@ export function OfferEditorModal({
   }
 
   const saveAll = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (closeAfter: boolean) => {
       const dates = datePayloadFor(dateMode, dateFrom, dateTo);
       const targetType = editType;
       const savingBundle = targetType === OFFER_TYPE.bundle;
@@ -872,7 +872,7 @@ export function OfferEditorModal({
             ...dates,
           });
         }
-        return;
+        return closeAfter;
       }
 
       if (savingBundle) {
@@ -947,16 +947,36 @@ export function OfferEditorModal({
           ...dates,
         });
       }
+      return closeAfter;
     },
-    onSuccess: async () => {
+    onSuccess: async closeAfter => {
       toast.success('حُفظ العرض بالكامل');
-      await qc.invalidateQueries({ queryKey: ['offer-scope', offer.id] });
-      await qc.invalidateQueries({ queryKey: ['offer-details-all', offer.id] });
-      await qc.invalidateQueries({ queryKey: ['offer-period', offer.id] });
-      await qc.invalidateQueries({ queryKey: ['offer-bundle-conditions', offer.id] });
-      await onChanged();
-      leavingRef.current = true;
-      onClose();
+      setScopeOps(emptyOfferScopeOps());
+      setPricedOps(emptyPricedGroupOps());
+      setBundleRequiredOps(emptyBundleRequiredOps());
+      setBundleCondBase(normalizeBundleConditions(bundleCondRef.current));
+      baseline.current = {
+        name: name.trim() || offer.name,
+        priority,
+        enabled,
+        addDiscount,
+        dateMode,
+        dateFrom,
+        dateTo,
+      };
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['offer-scope', offer.id] }),
+        qc.invalidateQueries({ queryKey: ['offer-details-all', offer.id] }),
+        qc.invalidateQueries({ queryKey: ['offer-period', offer.id] }),
+        qc.invalidateQueries({ queryKey: ['offer-bundle-conditions', offer.id] }),
+        detailsQ.refetch(),
+        allDetailsQ.refetch(),
+        onChanged(),
+      ]);
+      if (closeAfter) {
+        leavingRef.current = true;
+        onClose();
+      }
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
   });
@@ -974,7 +994,7 @@ export function OfferEditorModal({
   const loading = detailsQ.isLoading || (!isPricedGroup && allDetailsQ.isLoading);
   const canSave = hasUnsaved && formValid && !bundleCondErr && !loading && !saveAll.isPending;
 
-  function save() {
+  function save(closeAfter = false) {
     if (bundleCondErr) {
       toast.error(bundleCondErr);
       return;
@@ -983,17 +1003,17 @@ export function OfferEditorModal({
       toast.error(datesValid ? 'نسبة الخصم يجب أن تكون بين 0 و 100' : 'تاريخ البداية بعد تاريخ النهاية');
       return;
     }
-    if (canSave) saveAll.mutate();
+    if (canSave) saveAll.mutate(closeAfter);
   }
 
-  // Escape يغلق (مع التأكيد) — Ctrl+S يحفظ
+  // Escape يغلق (مع التأكيد) — Ctrl+S يحفظ ويبقى في النافذة
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyS' || e.key.toLowerCase() === 's')) {
         e.preventDefault();
         if (document.querySelector('[role="alertdialog"]')) return;
-        save();
+        save(false);
         return;
       }
       if (e.key !== 'Escape' || e.defaultPrevented) return;
@@ -1250,8 +1270,11 @@ export function OfferEditorModal({
           <Btn variant="secondary" onClick={() => void tryClose()} disabled={saveAll.isPending}>
             {hasUnsaved ? 'إلغاء' : 'إغلاق'}
           </Btn>
-          <Btn loading={saveAll.isPending} disabled={!canSave} onClick={save} icon={<IconCheck size={15} />}>
+          <Btn variant="outline" loading={saveAll.isPending} disabled={!canSave} onClick={() => save(false)} icon={<IconCheck size={15} />}>
             حفظ التغييرات
+          </Btn>
+          <Btn loading={saveAll.isPending} disabled={!canSave} onClick={() => save(true)} icon={<IconCheck size={15} />}>
+            حفظ وإغلاق
           </Btn>
         </div>
       </footer>

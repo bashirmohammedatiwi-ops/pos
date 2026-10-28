@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api, formatCurrency, formatNum, todayIso } from '@/api/client';
 import {
   IconActivity,
   IconAlert,
@@ -12,12 +14,14 @@ import {
   IconPercent,
   IconReceipt,
   IconSearch,
+  IconStar,
   IconTarget,
   IconTrendUp,
   IconUsers,
   IconX,
 } from '@/components/icons';
 import { Badge, EmptyState, Input, Kbd } from '@/components/ui';
+import { SegmentedFilter, SummaryStrip } from '@/components/listWorkspace';
 import { OfferSalesReportApp } from '@/components/reports/OfferSalesReportApp';
 import { CommissionReportApp } from '@/components/reports/CommissionReportApp';
 import { TargetReportApp } from '@/components/reports/TargetReportApp';
@@ -183,6 +187,22 @@ const REPORTS: ReportDef[] = [
 ];
 
 const RECENT_KEY = 'fot_reports_recent';
+const PINNED_KEY = 'fot_reports_pinned';
+
+function loadPinned(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]') as unknown;
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePinned(list: string[]) {
+  try {
+    localStorage.setItem(PINNED_KEY, JSON.stringify(list));
+  } catch { /* تجاهل */ }
+}
 
 function loadRecent(): Record<string, number> {
   try {
@@ -226,9 +246,48 @@ export function ReportsPage() {
   const app = (params.get('app') as ReportAppId | null)
     ?? (params.get('tab') != null ? 'sales' : null);
   const [query, setQuery] = useState('');
+  const [groupFilter, setGroupFilter] = useState<'all' | GroupId>('all');
   const [recent, setRecent] = useState<Record<string, number>>(loadRecent);
+  const [pinned, setPinned] = useState<string[]>(loadPinned);
   const searchRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const today = todayIso();
+
+  const todayCashQ = useQuery({
+    queryKey: ['reports-hub-cash', today],
+    queryFn: () => api.cashReport(today, today),
+    staleTime: 45_000,
+  });
+
+  const reorderQ = useQuery({
+    queryKey: ['dashboard-reorder'],
+    queryFn: () => api.reorder(30, 7),
+    staleTime: 180_000,
+    retry: 0,
+  });
+
+  const voidsQ = useQuery({
+    queryKey: ['dashboard-voids', today],
+    queryFn: () => api.cashierVoids(today, today),
+    staleTime: 60_000,
+    retry: 0,
+  });
+
+  const commQ = useQuery({
+    queryKey: ['reports-hub-comm', today],
+    queryFn: () => api.commissionSummary(today, today),
+    staleTime: 60_000,
+    retry: 0,
+  });
+
+  function togglePin(id: ReportAppId, e: MouseEvent) {
+    e.stopPropagation();
+    setPinned(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      savePinned(next);
+      return next;
+    });
+  }
 
   function openApp(id: ReportAppId) {
     const next = { ...recent, [id]: Date.now() };
@@ -266,8 +325,18 @@ export function ReportsPage() {
 
   const q = normalize(query);
   const filtered = useMemo(
-    () => (q ? REPORTS.filter(r => normalize(`${r.label} ${r.description} ${r.keywords}`).includes(q)) : REPORTS),
-    [q],
+    () =>
+      REPORTS.filter(r => {
+        if (groupFilter !== 'all' && r.group !== groupFilter) return false;
+        if (!q) return true;
+        return normalize(`${r.label} ${r.description} ${r.keywords}`).includes(q);
+      }),
+    [q, groupFilter],
+  );
+
+  const pinnedList = useMemo(
+    () => REPORTS.filter(r => pinned.includes(r.id)),
+    [pinned],
   );
 
   const recentList = useMemo(
@@ -275,12 +344,22 @@ export function ReportsPage() {
     [recent],
   );
 
+  const commDueTotal = useMemo(
+    () => (commQ.data ?? []).reduce((s, r) => s + Math.max(0, r.balanceDue), 0),
+    [commQ.data],
+  );
+  const commDueCount = useMemo(
+    () => (commQ.data ?? []).filter(r => r.balanceDue > 0).length,
+    [commQ.data],
+  );
+  const voidsTotalCount = (voidsQ.data?.cancelledInvoices ?? 0) + (voidsQ.data?.deletedLines ?? 0);
+
   // تنقل بالأسهم بين البطاقات
   function onGridKey(e: KeyboardEvent<HTMLDivElement>) {
     if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-    const cards = Array.from(gridRef.current?.querySelectorAll<HTMLButtonElement>('[data-report-card]') ?? []);
+    const cards = Array.from(gridRef.current?.querySelectorAll<HTMLElement>('[data-report-card]') ?? []);
     if (!cards.length) return;
-    const idx = cards.indexOf(document.activeElement as HTMLButtonElement);
+    const idx = cards.indexOf(document.activeElement as HTMLElement);
     let next = idx;
     // RTL: السهم الأيسر = التالي
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = idx < 0 ? 0 : Math.min(cards.length - 1, idx + 1);
@@ -300,15 +379,56 @@ export function ReportsPage() {
       openApp(filtered[0].id);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      gridRef.current?.querySelector<HTMLButtonElement>('[data-report-card]')?.focus();
+      gridRef.current?.querySelector<HTMLElement>('[data-report-card]')?.focus();
     }
   }
 
   return (
-    <div className="w-full py-1" dir="rtl">
+    <div className="w-full space-y-2.5 py-1" dir="rtl">
       <section className="card overflow-hidden">
+        <SummaryStrip
+          loading={todayCashQ.isLoading}
+          cells={[
+            {
+              label: 'صافي مبيعات اليوم',
+              value: formatCurrency(todayCashQ.data?.totalSales ?? 0),
+              hint: `${formatNum(todayCashQ.data?.receiptCount ?? 0)} فاتورة · متوسط ${formatNum(Math.round(todayCashQ.data?.averageTicket ?? 0))}`,
+              tone: 'brand',
+              onClick: () => openApp('daily-close'),
+            },
+            {
+              label: 'مرتجعات اليوم',
+              value: formatCurrency(todayCashQ.data?.returnsTotal ?? 0),
+              hint: `${formatNum(todayCashQ.data?.returnsCount ?? 0)} مرتجع`,
+              tone: (todayCashQ.data?.returnsCount ?? 0) > 0 ? 'warn' : undefined,
+              onClick: () => openApp('sales'),
+            },
+            {
+              label: 'أصناف ستنفد قريباً',
+              value: reorderQ.isLoading ? '…' : formatNum((reorderQ.data?.outOfStock ?? 0) + (reorderQ.data?.underWeek ?? 0)),
+              hint: `${formatNum(reorderQ.data?.outOfStock ?? 0)} نافد · ${formatNum(reorderQ.data?.underWeek ?? 0)} أقل من أسبوع`,
+              tone: (reorderQ.data?.outOfStock ?? 0) > 0 ? 'danger' : (reorderQ.data?.underWeek ?? 0) > 0 ? 'warn' : 'ok',
+              onClick: () => openApp('reorder'),
+            },
+            {
+              label: 'عمولات مستحقة للصرف',
+              value: commQ.isLoading ? '…' : formatCurrency(commDueTotal),
+              hint: `${formatNum(commDueCount)} بائع لديه رصيد مستحق`,
+              tone: commDueCount > 0 ? 'ok' : undefined,
+              onClick: () => openApp('settlement'),
+            },
+            {
+              label: 'حذف وإلغاء اليوم',
+              value: voidsQ.isLoading ? '…' : formatNum(voidsTotalCount),
+              hint: `${formatNum(voidsQ.data?.cancelledInvoices ?? 0)} ملغاة · ${formatNum(voidsQ.data?.deletedLines ?? 0)} بند محذوف`,
+              tone: (voidsQ.data?.cancelledInvoices ?? 0) > 0 ? 'warn' : undefined,
+              onClick: () => openApp('cashier-voids'),
+            },
+          ]}
+        />
+
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2 border-b border-slate-200 bg-slate-50/70 px-3 pb-2.5 pt-2">
-          <label className="block min-w-[220px] flex-[1_1_260px] sm:max-w-[420px]">
+          <label className="block min-w-[220px] flex-[1_1_240px] sm:max-w-[360px]">
             <span className="mb-1 block text-[11px] font-semibold text-slate-500">بحث في التقارير</span>
             <span className="relative block">
               <IconSearch size={15} className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -337,11 +457,22 @@ export function ReportsPage() {
               )}
             </span>
           </label>
-          <p className="pb-1.5 text-[11.5px] text-slate-500">
-            <span className="num font-semibold text-slate-700">{filtered.length}</span> تقرير
-            <span className="mx-2 text-slate-300">·</span>
-            الأسهم للتنقل و <Kbd>Enter</Kbd> للفتح
-          </p>
+
+          <div>
+            <span className="mb-1 block text-[11px] font-semibold text-slate-500">القسم</span>
+            <SegmentedFilter<'all' | GroupId>
+              label="قسم التقارير"
+              value={groupFilter}
+              onChange={setGroupFilter}
+              items={[
+                { id: 'all', label: 'الكل', count: REPORTS.length },
+                { id: 'sales', label: 'المبيعات', count: REPORTS.filter(r => r.group === 'sales').length },
+                { id: 'team', label: 'الفريق', count: REPORTS.filter(r => r.group === 'team').length },
+                { id: 'offers', label: 'العروض', count: REPORTS.filter(r => r.group === 'offers').length },
+                { id: 'audit', label: 'الرقابة', count: REPORTS.filter(r => r.group === 'audit').length },
+              ]}
+            />
+          </div>
 
           {!q && recentList.length > 0 && (
             <div className="ms-auto flex flex-wrap items-center gap-1.5 pb-0.5">
@@ -365,6 +496,29 @@ export function ReportsPage() {
         </div>
 
         <div ref={gridRef} onKeyDown={onGridKey}>
+          {!q && groupFilter === 'all' && pinnedList.length > 0 && (
+            <section className="border-b border-amber-100 bg-amber-50/30">
+              <div className="flex items-baseline gap-2 px-3 pb-1 pt-2.5">
+                <span className="inline-flex items-center gap-1 text-[12.5px] font-bold text-amber-800">
+                  <IconStar size={13} fill="currentColor" /> التقارير المثبتة
+                </span>
+                <span className="text-[11.5px] text-slate-400">وصول فوري للتقارير اليومية</span>
+                <span className="ms-auto text-[11px] text-slate-400 num">{pinnedList.length}</span>
+              </div>
+              <div className="grid gap-2 px-3 pb-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                {pinnedList.map(r => (
+                  <ReportCard
+                    key={`pin-${r.id}`}
+                    report={r}
+                    pinned
+                    onTogglePin={e => togglePin(r.id, e)}
+                    lastOpened={recent[r.id]}
+                    onOpen={() => openApp(r.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
           {filtered.length === 0 && (
             <EmptyState
               title="لا يوجد تقرير مطابق"
@@ -384,7 +538,14 @@ export function ReportsPage() {
                 </div>
                 <div className="grid gap-2 px-3 pb-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                   {items.map(r => (
-                    <ReportCard key={r.id} report={r} lastOpened={recent[r.id]} onOpen={() => openApp(r.id)} />
+                    <ReportCard
+                      key={r.id}
+                      report={r}
+                      pinned={pinned.includes(r.id)}
+                      onTogglePin={e => togglePin(r.id, e)}
+                      lastOpened={recent[r.id]}
+                      onOpen={() => openApp(r.id)}
+                    />
                   ))}
                 </div>
               </section>
@@ -415,15 +576,34 @@ export function ReportsPage() {
   );
 }
 
-function ReportCard({ report, lastOpened, onOpen }: { report: ReportDef; lastOpened?: number; onOpen: () => void }) {
+function ReportCard({
+  report,
+  pinned,
+  onTogglePin,
+  lastOpened,
+  onOpen,
+}: {
+  report: ReportDef;
+  pinned?: boolean;
+  onTogglePin?: (e: MouseEvent) => void;
+  lastOpened?: number;
+  onOpen: () => void;
+}) {
   const ago = agoLabel(lastOpened);
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       data-report-card
       onClick={onOpen}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
       title={report.description}
-      className="group flex min-w-0 items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right transition hover:border-brand-300 hover:bg-brand-50/40 focus-visible:border-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+      className="group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right transition hover:border-brand-300 hover:bg-brand-50/40 focus-visible:border-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
     >
       <span className="icon-tile h-8 w-8 shrink-0 rounded-lg bg-brand-50 text-brand-700 transition group-hover:bg-brand-600 group-hover:text-white [&>svg]:h-4 [&>svg]:w-4">
         {report.icon}
@@ -439,10 +619,25 @@ function ReportCard({ report, lastOpened, onOpen }: { report: ReportDef; lastOpe
         </span>
         <span className="block truncate text-[11.5px] leading-5 text-slate-500">{report.description}</span>
       </span>
-      <span className="flex shrink-0 flex-col items-end gap-0.5">
-        <IconChevronLeft size={15} className="text-slate-300 transition group-hover:-translate-x-0.5 group-hover:text-brand-600" />
-        {ago && <span className="text-[10.5px] text-slate-400">{ago}</span>}
+      <span className="flex shrink-0 items-center gap-1">
+        {onTogglePin && (
+          <button
+            type="button"
+            onClick={onTogglePin}
+            title={pinned ? 'إزالة التثبيت' : 'تثبيت التقرير في الأعلى'}
+            aria-label={pinned ? 'إزالة التثبيت' : 'تثبيت التقرير'}
+            className={`rounded-md p-1 transition ${
+              pinned ? 'text-amber-500' : 'text-slate-300 opacity-0 hover:text-amber-500 group-hover:opacity-100'
+            }`}
+          >
+            <IconStar size={13} fill={pinned ? 'currentColor' : 'none'} />
+          </button>
+        )}
+        <span className="flex flex-col items-end gap-0.5">
+          <IconChevronLeft size={15} className="text-slate-300 transition group-hover:-translate-x-0.5 group-hover:text-brand-600" />
+          {ago && <span className="text-[10.5px] text-slate-400">{ago}</span>}
+        </span>
       </span>
-    </button>
+    </div>
   );
 }

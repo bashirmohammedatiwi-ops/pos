@@ -11,6 +11,14 @@ var apply = args.Any(a => string.Equals(a, "--apply", StringComparison.OrdinalIg
 var probeOnly = args.Any(a => string.Equals(a, "--probe", StringComparison.OrdinalIgnoreCase));
 var pullPrices = args.Any(a => string.Equals(a, "--pull", StringComparison.OrdinalIgnoreCase));
 var pushPrices = args.Any(a => string.Equals(a, "--push", StringComparison.OrdinalIgnoreCase));
+// --round 250 → تقريب السعر الجديد لأقرب مضاعف (نصف المضاعف يُقرَّب للأعلى)
+var roundTo = 0.0;
+for (var i = 0; i < args.Length - 1; i++)
+{
+    if (string.Equals(args[i], "--round", StringComparison.OrdinalIgnoreCase)
+        && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out var rv) && rv > 0)
+        roundTo = rv;
+}
 var excelDir = @"C:\Users\Future of Technology\Desktop";
 var skipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 for (var i = 0; i < args.Length - 1; i++)
@@ -163,15 +171,17 @@ foreach (var row in excelRows)
     foreach (var mat in hits)
     {
         var edari = mat.SellPr4;
-        var target = row.ShelfPrice;
+        var target = roundTo > 0 && row.ShelfPrice > 0
+            ? Math.Round(row.ShelfPrice / roundTo, MidpointRounding.AwayFromZero) * roundTo
+            : row.ShelfPrice;
         var name = ResolveName(mat, sqlBySeq);
         var before = edari;
         var needsUpdate = target > 0 && Math.Abs(edari - target) >= 0.009;
         var status = needsUpdate
             ? "يحتاج تحديث في الإداري"
             : target > 0
-                ? "متطابق — سعر الإداري = عمود خاص"
-                : "لا سعر في الملف (عمود خاص)";
+                ? "متطابق — سعر الإداري = سعر الملف"
+                : "لا سعر في الملف";
         report.Add(new ReportRow(row, mat with { Name1 = name }, status, before, target, edari, needsUpdate));
     }
 }
@@ -202,6 +212,7 @@ Console.WriteLine($"سيتم تحديث: {toUpdate.Count}");
 
 var done = 0;
 var errors = 0;
+var appliedSeqs = new HashSet<long>();
 foreach (var row in toUpdate)
 {
     var mat = row.Mat!;
@@ -213,6 +224,7 @@ foreach (var row in toUpdate)
         cmd.CommandTimeout = 120;
         await cmd.ExecuteNonQueryAsync();
         done++;
+        appliedSeqs.Add(mat.Seq);
     }
     catch (Exception ex)
     {
@@ -222,6 +234,14 @@ foreach (var row in toUpdate)
 }
 
 Console.WriteLine($"تم تحديث SellPr4 (سعر المستهلك) في الإداري: {done} | أخطاء: {errors}");
+
+// تقرير ما بعد التغيير: نفس الصفوف مع حالة التنفيذ الفعلية
+var finalReport = report.Select(x =>
+    x.Mat is not null && x.Changed
+        ? x with { Status = appliedSeqs.Contains(x.Mat.Seq) ? "تم التحديث في الإداري" : "فشل التحديث" }
+        : x).ToList();
+WriteReport(reportPath, finalReport);
+Console.WriteLine($"تقرير ما بعد التغيير: {reportPath}");
 
 static string ResolveDatabaseAlias(string[] args)
 {
@@ -632,11 +652,11 @@ static List<ExcelPriceRow> ReadExcel(string path)
     }
 
     var brandCol = TryCol(map, "Brand", "العلامة", "الماركة", "البراند") ?? 0;
-    var nameCol = TryCol(map, "Product name", "الاسم", "المادة", "المنتج", "اسم المنتج", "Product Name", "Description", "الاسم الإنكليزي") ?? 0;
-    var barcodeCol = Col("Barcode", "الباركود", "EAN", "EAN/UPC", "UPC", "كود");
+    var nameCol = TryCol(map, "Product name", "الاسم", "اسم المادة", "المادة", "المنتج", "اسم المنتج", "Product Name", "Description", "الاسم الإنكليزي") ?? 0;
+    var barcodeCol = Col("Barcode", "الباركود", "رمز الباركود", "EAN", "EAN/UPC", "UPC", "كود");
     var priceCol = Col(
-        "خاص", "Shelf price", "سعر الرف", "سعر المستهلك", "سعر الرف الحالي", "Consumer price", "Consumer Price",
-        "Retail price", "Retail Price", "SRP", "سعر البيع", "السعر");
+        "سعر الرف الجديد", "خاص", "المستهلك دينار", "Updated RSP", "New RSP", "RSP", "Shelf price", "سعر الرف", "سعر المستهلك", "سعر الرف الحالي",
+        "Consumer price", "Consumer Price", "Retail price", "Retail Price", "SRP", "سعر البيع", "السعر");
     var source = Path.GetFileNameWithoutExtension(path);
     var rows = new List<ExcelPriceRow>();
     var dataStart = headerRow + 1;
@@ -679,7 +699,7 @@ static (int HeaderRow, Dictionary<string, int> Map) FindHeaderMap(IXLWorksheet w
                 map[name] = cell.Address.ColumnNumber;
         }
         if (map.Keys.Any(k => ContainsAny(k, "barcode", "باركود", "ean", "upc", "كود"))
-            && map.Keys.Any(k => ContainsAny(k, "price", "سعر", "retail", "shelf", "consumer", "رف", "مستهلك", "خاص")))
+            && map.Keys.Any(k => ContainsAny(k, "price", "سعر", "retail", "shelf", "consumer", "رف", "مستهلك", "خاص", "rsp")))
             return (r, map);
     }
 
@@ -702,10 +722,10 @@ static void WriteReport(string path, List<ReportRow> rows)
     var matched = rows.Count(r => r.Mat is not null && r.Status.StartsWith("متطابق", StringComparison.Ordinal));
     var pending = rows.Count(r => r.Changed);
     var missing = rows.Count(r => r.Status.StartsWith("غير موجود", StringComparison.Ordinal));
-    summary.Cell(1, 1).Value = "ملخص مقارنة أسعار بيورنك (عمود خاص ↔ SellPr4 في الإداري)";
+    summary.Cell(1, 1).Value = "ملخص مقارنة الأسعار (سعر الملف ↔ SellPr4 في الإداري)";
     summary.Cell(2, 1).Value = $"متطابق: {matched} | يحتاج تحديث: {pending} | غير موجود في الإداري: {missing}";
     summary.Cell(3, 1).Value = "ورقة «الكل»: كل الأسعار. إذا نُفّذ التحديث سابقاً ستظهر «متطابق» والفرق = 0.";
-    summary.Cell(4, 1).Value = "ورقة «يحتاج تحديث»: فقط ما يختلف سعر الإداري عن عمود خاص.";
+    summary.Cell(4, 1).Value = "ورقة «يحتاج تحديث»: فقط ما يختلف سعر الإداري عن سعر الملف.";
     WriteSheet(wb.AddWorksheet("الكل"), rows);
     WriteSheet(wb.AddWorksheet("غير موجود"), rows.Where(r => r.Status.StartsWith("غير موجود", StringComparison.Ordinal)).ToList(), highlightMissingAll: true);
     WriteSheet(wb.AddWorksheet("يحتاج تحديث"),
@@ -739,7 +759,7 @@ static void WriteSheet(IXLWorksheet ws, List<ReportRow> rows, bool highlightMiss
     var headers = new[]
     {
         "المصدر", "الحالة", "الباركود", "العلامة", "اسم الملف",
-        "Seq", "اسم الإداري", "رقم المادة", "سعر الإداري (SellPr4)", "سعر الملف (خاص)", "الفرق (ملف − إداري)",
+        "Seq", "اسم الإداري", "رقم المادة", "سعر الإداري (SellPr4)", "سعر الملف", "الفرق (ملف − إداري)", "سعر الملف قبل التقريب",
     };
     for (var i = 0; i < headers.Length; i++)
         ws.Cell(1, i + 1).Value = headers[i];
@@ -765,6 +785,7 @@ static void WriteSheet(IXLWorksheet ws, List<ReportRow> rows, bool highlightMiss
         ws.Cell(r, 9).Value = row.Before;
         ws.Cell(r, 10).Value = row.After;
         ws.Cell(r, 11).Value = row.Mat is null ? 0 : row.After - row.Before;
+        ws.Cell(r, 12).Value = row.Excel.ShelfPrice;
         var missing = highlightMissingAll || row.Status.StartsWith("غير موجود", StringComparison.Ordinal);
         var changed = highlightChangedAll
             || (row.Mat is not null && Math.Abs(row.Before - row.After) >= 0.009);

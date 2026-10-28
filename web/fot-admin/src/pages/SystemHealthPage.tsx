@@ -1,13 +1,13 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, formatDate, formatNum } from '@/api/client';
 import type { ClientErrorDto, PosTerminalMonitorDto } from '@/api/types';
 import { useToast } from '@/components/Toast';
-import { Alert, Badge, Btn } from '@/components/ui';
+import { Alert, Badge, Btn, useConfirm } from '@/components/ui';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 import { SegmentedFilter, SummaryStrip, WorkspaceBody, WorkspacePage } from '@/components/listWorkspace';
-import { IconAlert, IconCopy, IconExternal, IconMonitor, IconRefresh } from '@/components/icons';
+import { IconAlert, IconCopy, IconDownload, IconExternal, IconMonitor, IconRefresh, IconTrash } from '@/components/icons';
 import { PulseDot, looksLikeHwId, shortHwId, terminalTitle, timeAgo } from '@/components/system/systemUi';
 import { Clip, CompactSearch, PaneHeader, StatusLine } from '@/components/operations/opsUi';
 import { copyText } from '@/lib/clipboard';
@@ -148,6 +148,7 @@ function errorColumns(onCopy: (e: ClientErrorDto) => void): GridColumn<ClientErr
 
 export function SystemHealthPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [errorFilter, setErrorFilter] = useState<ErrorFilter>('all');
@@ -194,6 +195,32 @@ export function SystemHealthPage() {
     staleTime: 45_000,
   });
 
+  const backupSettingsQ = useQuery({
+    queryKey: ['system-backup-settings'],
+    queryFn: api.backupSettings,
+    staleTime: 60_000,
+    retry: 0,
+  });
+
+  const retryAllDead = useMutation({
+    mutationFn: api.retryAllEdariDeadLetters,
+    onSuccess: res => {
+      void qc.invalidateQueries({ queryKey: ['edari-dead-letters'] });
+      void qc.invalidateQueries({ queryKey: ['edari-status'] });
+      toast.success(res.message || `تمت إعادة ${formatNum(res.count)} فاتورة للطابور`);
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذرت إعادة المحاولة'),
+  });
+
+  const purgeErrors = useMutation({
+    mutationFn: (days: number) => api.purgeClientErrors(days),
+    onSuccess: res => {
+      void qc.invalidateQueries({ queryKey: ['client-errors'] });
+      toast.success(`تم تنظيف ${formatNum(res.purged)} خطأ من السجل`);
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر تنظيف السجل'),
+  });
+
   const refreshing = sqlPing.isFetching || edariQ.isFetching || terminalsQ.isFetching || deadLettersQ.isFetching || clientErrorsQ.isFetching;
 
   async function refreshAll() {
@@ -203,8 +230,41 @@ export function SystemHealthPage() {
       qc.invalidateQueries({ queryKey: ['terminal-monitor'] }),
       qc.invalidateQueries({ queryKey: ['edari-dead-letters'] }),
       qc.invalidateQueries({ queryKey: ['client-errors'] }),
+      qc.invalidateQueries({ queryKey: ['system-backup-settings'] }),
     ]);
     toast.success('تم تحديث صحة النظام');
+  }
+
+  async function handlePurgeErrors() {
+    const ok = await confirm({
+      title: 'مسح سجل أخطاء الواجهات؟',
+      message: 'سيتم حذف جميع الأخطاء المسجلة حتى الآن لبدء متابعة نظيفة.',
+      confirmLabel: 'مسح السجل',
+      danger: true,
+    });
+    if (ok) purgeErrors.mutate(0);
+  }
+
+  function exportDiagnosticBundle() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      sql: { ok: sqlOk, latencyMs: sqlMs != null ? Math.round(sqlMs) : null },
+      edari: edari ?? null,
+      backups: backupSettingsQ.data ?? null,
+      terminals: sortedTerminals,
+      deadLetters: deadLettersQ.data ?? [],
+      clientErrors: errors,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fot-diagnostic-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success('تم تنزيل تقرير التشخيص');
   }
 
   async function copyError(e: ClientErrorDto) {
@@ -263,6 +323,9 @@ export function SystemHealthPage() {
   }[overall];
 
   const errCols = errorColumns(e => void copyError(e));
+  const lastBackupAt = backupSettingsQ.data?.lastBackupAt ?? null;
+  const backupAgeHrs = lastBackupAt ? (Date.now() - new Date(lastBackupAt).getTime()) / 3_600_000 : null;
+  const backupTone: Status = backupAgeHrs == null ? 'warn' : backupAgeHrs >= 48 ? 'danger' : backupAgeHrs >= 24 ? 'warn' : 'ok';
 
   return (
     <WorkspacePage>
@@ -272,11 +335,33 @@ export function SystemHealthPage() {
           tone={initialLoading ? 'off' : overall}
           dot={<PulseDot online={!initialLoading && overall === 'ok'} tone={initialLoading ? 'off' : overall} />}
           title={initialLoading ? 'جاري فحص النظام…' : overallTitle}
-          detail="تحديث تلقائي كل دقيقة · الخادم، الأداري، نقاط البيع، أخطاء الواجهات"
+          detail="تحديث تلقائي كل دقيقة · الخادم، الأداري، نقاط البيع، النسخ الاحتياطي، أخطاء الواجهات"
           actions={
-            <Btn variant="secondary" size="sm" icon={<IconRefresh size={14} className={refreshing ? 'animate-spin' : ''} />} onClick={() => void refreshAll()}>
-              فحص الآن
-            </Btn>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {deadCount > 0 && (
+                <Btn
+                  variant="secondary"
+                  size="sm"
+                  icon={<IconRefresh size={13} />}
+                  loading={retryAllDead.isPending}
+                  onClick={() => retryAllDead.mutate()}
+                >
+                  إعادة محاولة الفواتير المتوقفة ({formatNum(deadCount)})
+                </Btn>
+              )}
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon={<IconDownload size={13} />}
+                onClick={exportDiagnosticBundle}
+                title="تنزيل حزمة تشخيص JSON للدعم الفني"
+              >
+                حزمة التشخيص
+              </Btn>
+              <Btn variant="secondary" size="sm" icon={<IconRefresh size={14} className={refreshing ? 'animate-spin' : ''} />} onClick={() => void refreshAll()}>
+                فحص الآن
+              </Btn>
+            </div>
           }
         />
         {!initialLoading && issues.length > 0 && (
@@ -338,6 +423,15 @@ export function SystemHealthPage() {
               tone: posDead ? 'danger' : offlineActive.length ? 'warn' : 'ok',
               onClick: () => navigate('/terminals'),
             },
+            {
+              label: 'النسخ الاحتياطي',
+              value: lastBackupAt ? timeAgo(lastBackupAt) : 'لا توجد نسخة',
+              hint: backupSettingsQ.data
+                ? `${formatNum(backupSettingsQ.data.storedBackupsCount)} نسخة · ${backupSettingsQ.data.autoBackupEnabled ? `تلقائي كل ${formatNum(backupSettingsQ.data.intervalHours)} س` : 'يدوي'}`
+                : 'إدارة النسخ الاحتياطي',
+              tone: backupTone,
+              onClick: () => navigate('/backups'),
+            },
           ]}
         />
       </section>
@@ -388,9 +482,21 @@ export function SystemHealthPage() {
                 { id: 'pos', label: 'نقاط البيع' },
               ]}
             />
-            <div className="w-56 max-w-full">
+            <div className="w-52 max-w-full">
               <CompactSearch value={errorQuery} onChange={setErrorQuery} placeholder="الرسالة، الجهاز، الإصدار…" />
             </div>
+            {errors.length > 0 && (
+              <Btn
+                size="xs"
+                variant="ghost"
+                icon={<IconTrash size={12} />}
+                loading={purgeErrors.isPending}
+                onClick={() => void handlePurgeErrors()}
+                title="مسح سجل الأخطاء"
+              >
+                مسح السجل
+              </Btn>
+            )}
           </PaneHeader>
           {clientErrorsQ.isError && (
             <div className="shrink-0 p-2">

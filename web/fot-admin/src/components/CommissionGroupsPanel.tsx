@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDateOnly, formatNum } from '@/api/client';
 import type { CommissionGroupDetailDto, CommissionGroupDto } from '@/api/types';
 import {
@@ -42,6 +42,8 @@ import { ScopePickerModal, type ScopePickerOps } from '@/components/scope/ScopeP
 import { FullScreenEditor } from '@/components/scope/FullScreenEditor';
 import {
   IconAlert,
+  IconBanknote,
+  IconChart,
   IconCheck,
   IconCoins,
   IconLayers,
@@ -521,6 +523,16 @@ export function CommissionGroupsPanel() {
                 { id: 'grid', label: <IconViewGrid size={15} />, title: 'بطاقات' },
               ]}
             />
+            <Link to="/reports?app=commissions">
+              <Btn variant="secondary" icon={<IconChart size={15} />} title="تقرير العمولات المفصل">
+                تقرير العمولات
+              </Btn>
+            </Link>
+            <Link to="/reports?app=settlement">
+              <Btn variant="secondary" icon={<IconBanknote size={15} />} title="كشف التسليم الأسبوعي">
+                كشف التسليم
+              </Btn>
+            </Link>
             <Btn variant="secondary" icon={<IconZap size={15} />} onClick={() => openTool(toolTab)} title="بحث عن منتج · محاكاة عمولة · أصناف مكررة">
               أدوات
             </Btn>
@@ -687,6 +699,7 @@ export function CommissionGroupsPanel() {
           groupId={editingId}
           onClose={() => setEditing(null)}
           onChanged={refresh}
+          onOpenGroup={id => setEditing(id)}
         />
       )}
     </WorkspacePage>
@@ -813,10 +826,12 @@ function GroupEditorLoader({
   groupId,
   onClose,
   onChanged,
+  onOpenGroup,
 }: {
   groupId: number;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  onOpenGroup: (id: number) => void;
 }) {
   const detailQ = useQuery({
     queryKey: ['commission-group', groupId],
@@ -860,6 +875,7 @@ function GroupEditorLoader({
       onClose={onClose}
       onChanged={onChanged}
       onDeleted={onClose}
+      onOpenGroup={onOpenGroup}
       allGroups={groupsQ.data ?? []}
     />
   );
@@ -975,6 +991,7 @@ export function GroupEditorModal({
   onClose,
   onChanged,
   onDeleted,
+  onOpenGroup,
   allGroups,
   autoOpenPicker,
 }: {
@@ -983,6 +1000,7 @@ export function GroupEditorModal({
   onClose: () => void;
   onChanged: () => Promise<void>;
   onDeleted: () => void;
+  onOpenGroup?: (id: number) => void;
   allGroups: CommissionGroupDto[];
   autoOpenPicker?: boolean;
 }) {
@@ -1018,6 +1036,40 @@ export function GroupEditorModal({
       onDeleted();
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحذف'),
+  });
+
+  const duplicateGroup = useMutation({
+    mutationFn: async () => {
+      const nextIds = salesmanIds;
+      const created = await api.createCommissionGroup({
+        name: `نسخة من ${name.trim() || detail.name}`,
+        description: detail.description ?? null,
+        commissionType: type,
+        commissionValue: Number(value) || detail.commissionValue,
+        colorHex: color,
+        ...(nextIds.length ? { salesmanId: nextIds[0], salesmanIds: nextIds } : {}),
+      });
+      await api.setCommissionGroupActive(created.id, false).catch(() => undefined);
+      for (const t of detail.trees) {
+        await api.addCommissionGroupTree(created.id, t.treeSeq, t.treeName ?? undefined).catch(() => undefined);
+      }
+      const treeSeqSet = new Set(detail.trees.map(t => t.treeSeq));
+      for (const item of detail.items) {
+        if (item.articleId == null) continue;
+        if (item.sourceTreeSeq != null && treeSeqSet.has(item.sourceTreeSeq)) {
+          if (item.excluded) await api.setCommissionArticleExcluded(created.id, item.articleId, true).catch(() => undefined);
+        } else if (!item.excluded) {
+          await api.addCommissionGroupProduct(created.id, { articleId: item.articleId, barcode: item.barcode ?? undefined }).catch(() => undefined);
+        }
+      }
+      return created.id;
+    },
+    onSuccess: async newId => {
+      toast.success('أُنشئت نسخة متوقفة من المجموعة — راجعها ثم فعّلها');
+      await onChanged();
+      onOpenGroup?.(newId);
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر تكرار المجموعة'),
   });
 
   const saveFields = useMutation({
@@ -1201,6 +1253,14 @@ export function GroupEditorModal({
               onClick={() => void askDelete()}
             >
               حذف
+            </Btn>
+            <Btn
+              variant="secondary"
+              loading={duplicateGroup.isPending}
+              onClick={() => duplicateGroup.mutate()}
+              title="إنشاء نسخة متوقفة بنفس الأشجار والأصناف والبائعين"
+            >
+              تكرار المجموعة
             </Btn>
             <Btn variant="secondary" icon={detail.isActive ? <IconPause size={14} /> : <IconPlay size={14} />} loading={toggleActive.isPending} onClick={() => void askToggleActive()}>
               {detail.isActive ? 'إيقاف' : 'تفعيل'}

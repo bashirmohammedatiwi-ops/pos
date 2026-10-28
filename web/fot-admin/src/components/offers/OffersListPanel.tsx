@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { api, formatNum } from '@/api/client';
 import type { OfferDto } from '@/api/types';
 import { DataGrid, type GridColumn, type GridSort } from '@/components/grid/DataGrid';
@@ -21,6 +22,7 @@ import {
 } from '@/components/offers/offerVisuals';
 import {
   IconCalendar,
+  IconChart,
   IconCopy,
   IconFolderClosed,
   IconGrid,
@@ -32,10 +34,13 @@ import {
   IconRefresh,
   IconSearch,
   IconTrash,
+  IconUpload,
   IconX,
 } from '@/components/icons';
-import { Alert, Btn, EmptyState, IconButton, Input, Kbd, Select, Skeleton, TableSkeleton } from '@/components/ui';
+import { Alert, Btn, EmptyState, IconButton, Input, Kbd, Modal, Select, Skeleton, TableSkeleton } from '@/components/ui';
 import { OfferFoldersSidebar, type OfferFolderFilter } from '@/components/offers/OfferFoldersSidebar';
+import { ProductOfferSearch } from '@/components/offers/ProductOfferSearch';
+import { usePushPosUpdates } from '@/hooks/usePushPosUpdates';
 import {
   FilterActions,
   FilterBar,
@@ -300,6 +305,7 @@ export function OffersListPanel({
   /** العروض الجاري تنفيذ إجراء عليها (نسخ/حذف). */
   busyIds?: ReadonlySet<number>;
 }) {
+  const { push: pushToPos, pushing } = usePushPosUpdates();
   const [view, setView] = useState<ViewMode>(() => readStore(VIEW_KEY, ['cards', 'table'] as const, 'table'));
   const [sort, setSort] = useState<SortMode>(() =>
     readStore(SORT_KEY, ['recent', 'name', 'priority', 'products', 'ending'] as const, 'recent'));
@@ -307,6 +313,7 @@ export function OffersListPanel({
   const [gridSort, setGridSort] = useState<GridSort | null>(null);
   const [foldersCollapsed, setFoldersCollapsed] = useState(() => readLocalFlag(FOLDERS_COLLAPSED_KEY));
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [lookupOpen, setLookupOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const statsQ = useQuery({
@@ -695,6 +702,28 @@ export function OffersListPanel({
           </FilterLabel>
           <FilterActions>
             <ViewToggle value={view} onChange={changeView} />
+            <Btn
+              variant="secondary"
+              icon={<IconSearch size={14} />}
+              onClick={() => setLookupOpen(true)}
+              title="فحص منتج لمعرفة العروض المشمول بها والعرض الفائز"
+            >
+              فحص منتج في العروض
+            </Btn>
+            <Link to="/reports?app=offer-sales">
+              <Btn variant="secondary" icon={<IconChart size={14} />} title="تقرير مبيعات العروض">
+                مبيعات العروض
+              </Btn>
+            </Link>
+            <Btn
+              variant="secondary"
+              icon={<IconUpload size={14} />}
+              loading={pushing}
+              onClick={() => void pushToPos()}
+              title="رفع العروض المفعّلة إلى نقاط البيع"
+            >
+              رفع للكاشير
+            </Btn>
             <IconButton label="تحديث" onClick={onRefresh}>
               <IconRefresh size={15} className={fetching ? 'animate-spin' : ''} />
             </IconButton>
@@ -839,6 +868,17 @@ export function OffersListPanel({
           </div>
         </div>
       </WorkspaceCard>
+
+      <Modal
+        open={lookupOpen}
+        onClose={() => setLookupOpen(false)}
+        size="xl"
+        icon={<IconPercent size={18} />}
+        title="فحص منتج في العروض"
+        subtitle="ابحث بالاسم أو الباركود لمعرفة العروض المشمول بها المنتج والعرض الفائز حالياً"
+      >
+        <ProductOfferSearch />
+      </Modal>
     </WorkspacePage>
   );
 }

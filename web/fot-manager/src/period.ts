@@ -354,7 +354,7 @@ export function mergeScopedCashiers(
   period: PeriodBounds,
   dash: Dashboard | null | undefined,
 ): CashierRow[] {
-  if (Array.isArray(dash?.cashierDays)) return cashiersForPeriod(dash.cashierDays, period.from, period.to);
+  if (dash?.cashierDays?.length) return cashiersForPeriod(dash.cashierDays, period.from, period.to);
   if (period.kind === 'week' && roster.some(c => c.salesAmount > 0 || c.receiptCount > 0)) {
     return roster.filter(c => c.salesAmount > 0 || c.receiptCount > 0);
   }

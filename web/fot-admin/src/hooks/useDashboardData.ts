@@ -22,15 +22,23 @@ export type DashboardTab = 'sales' | 'team' | 'system' | 'reports';
 /** Safety-net interval while the hub is connected (pushes drive freshness). */
 const CONNECTED_SAFETY_MS = 300_000;
 
-export function useDashboardData() {
+function prevDayIso(iso: string) {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dt = new Date(y, m - 1, d - 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+export function useDashboardData(selectedDate?: string) {
   const qc = useQueryClient();
   const toast = useToast();
   const hubConnected = useSyncStatus();
   // Fast polling only when the hub is down; slow safety refresh otherwise.
   const poll = (downMs: number) => (hubConnected ? CONNECTED_SAFETY_MS : downMs);
 
-  const today = todayIso();
-  const yesterday = daysAgoIso(1);
+  const realToday = todayIso();
+  const today = selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? selectedDate : realToday;
+  const isToday = today === realToday;
+  const yesterday = isToday ? daysAgoIso(1) : prevDayIso(today);
   const { settings: periodSettings, periods } = useBusinessPeriod();
   const weekPeriod = periods.currentWeek;
   const prevWeekPeriod = periods.previousWeek;
@@ -131,6 +139,13 @@ export function useDashboardData() {
     retry: 0,
   });
 
+  const slowMoversQ = useQuery({
+    queryKey: ['dashboard-slow-movers'],
+    queryFn: () => api.slowMovers(60, 1),
+    staleTime: 300_000,
+    retry: 0,
+  });
+
   const voidsQ = useQuery({
     queryKey: ['dashboard-voids', today],
     queryFn: () => api.cashierVoids(today, today),
@@ -144,6 +159,28 @@ export function useDashboardData() {
     queryFn: () => api.cashierActivity(today, today),
     staleTime: 45_000,
     refetchInterval: poll(60_000),
+    retry: 0,
+  });
+
+  const cashierPerfQ = useQuery({
+    queryKey: ['dashboard-cashier-perf', today],
+    queryFn: () => api.cashierPerformance(today, today),
+    staleTime: 60_000,
+    refetchInterval: poll(90_000),
+    retry: 0,
+  });
+
+  const offerClosuresQ = useQuery({
+    queryKey: ['offer-sales-closures'],
+    queryFn: api.offerSalesClosures,
+    staleTime: 180_000,
+    retry: 0,
+  });
+
+  const backupSettingsQ = useQuery({
+    queryKey: ['system-backup-settings'],
+    queryFn: api.backupSettings,
+    staleTime: 120_000,
     retry: 0,
   });
 
@@ -336,6 +373,7 @@ export function useDashboardData() {
   const activeOffers = offersStatsQ.data?.enabled ?? 0;
   const inactiveOffers = offersStatsQ.data?.disabled ?? 0;
   const totalOffers = offersStatsQ.data?.total ?? 0;
+  const discountedItemsCount = offersStatsQ.data?.discountedItems ?? 0;
 
   const failedLogs = useMemo(
     () => (failedLogsQ.data ?? []).filter(l => /fail|error|فشل/i.test(l.status || l.errorMessage || '')).slice(0, 3),
@@ -393,8 +431,12 @@ export function useDashboardData() {
       movementQ.refetch(),
       weekMovementQ.refetch(),
       reorderQ.refetch(),
+      slowMoversQ.refetch(),
       voidsQ.refetch(),
       activityQ.refetch(),
+      cashierPerfQ.refetch(),
+      offerClosuresQ.refetch(),
+      backupSettingsQ.refetch(),
       targetsQ.refetch(),
       offersStatsQ.refetch(),
       commWeekQ.refetch(),
@@ -411,6 +453,9 @@ export function useDashboardData() {
 
   return {
     today,
+    realToday,
+    isToday,
+    yesterday,
     periodSettings,
     weekPeriod,
     monthPeriod,
@@ -463,10 +508,18 @@ export function useDashboardData() {
     totalUnitsSoldToday,
     reorder: reorderQ.data ?? null,
     reorderLoading: reorderQ.isLoading && !reorderQ.data,
+    slowMovers: slowMoversQ.data ?? null,
+    slowMoversLoading: slowMoversQ.isLoading && !slowMoversQ.data,
     voids: voidsQ.data ?? null,
     voidsLoading: voidsQ.isLoading && !voidsQ.data,
     cashierActivity: (activityQ.data ?? []).slice(0, 8),
     activityLoading: activityQ.isLoading && !activityQ.data,
+    cashierPerformance: cashierPerfQ.data ?? [],
+    cashierPerfLoading: cashierPerfQ.isLoading && !cashierPerfQ.data,
+    offerClosures: (offerClosuresQ.data ?? []).slice(0, 4),
+    backupSettings: backupSettingsQ.data ?? null,
+    targetBreakdowns: targetsQ.data ?? [],
+    discountedItemsCount,
     commDue,
     commDueCount,
     weekCommission,

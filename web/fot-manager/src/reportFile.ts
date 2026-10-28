@@ -3,6 +3,7 @@ import {
   type CashierRow, type DayRow, type GoalRow, type SellerRow,
 } from './api';
 import type { PeriodBounds, PeriodStats } from './period';
+import { downloadXlsxFile, type XlsxCellInput, type XlsxRowInput } from './xlsxBuilder';
 
 type Person = {
   rank: number;
@@ -241,27 +242,31 @@ function esc(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function cell(value: string | number, style: string, kind: 'String' | 'Number' = typeof value === 'number' ? 'Number' : 'String') {
-  const text = kind === 'Number' ? String(value) : esc(String(value));
-  return `<Cell ss:StyleID="${style}"><Data ss:Type="${kind}">${text}</Data></Cell>`;
+function cell(
+  value: string | number,
+  style: string,
+  kind: 'String' | 'Number' = typeof value === 'number' ? 'Number' : 'String',
+  mergeAcross?: number,
+): XlsxCellInput {
+  return { value, style, type: kind, mergeAcross };
 }
 
-function row(cells: string) {
-  return `<Row>${cells}</Row>`;
+function row(cells: XlsxCellInput[], height?: number): XlsxRowInput {
+  return { cells, height };
 }
 
-function blank() {
-  return row(cell('', 'plain'));
+function blank(): XlsxRowInput {
+  return { cells: [], height: 10 };
 }
 
-export function reportExcel(report: PeriodReport) {
-  const blocks: string[] = [];
-  const pushTitle = (text: string) => blocks.push(row(cell(text, 'section')));
-  const pushHead = (cols: string[]) => blocks.push(row(cols.map(c => cell(c, 'head')).join('')));
+export function downloadManagerExcel(fileName: string, report: PeriodReport) {
+  const blocks: XlsxRowInput[] = [];
+  const pushTitle = (text: string) => blocks.push(row([cell(text, 'section', 'String', 7)], 24));
+  const pushHead = (cols: string[]) => blocks.push(row(cols.map(c => cell(c, 'head', 'String')), 24));
   const shareCell = (share: number) => cell(Math.round(share * 10) / 1000, 'pct', 'Number');
 
-  blocks.push(row(cell('FOT MANAGER', 'kicker') + cell(report.period, 'kicker') + cell(report.printedAt, 'kicker')));
-  blocks.push(row(cell(report.title, 'title') + cell(report.range, 'title')));
+  blocks.push(row([cell('FOT MANAGER', 'kicker', 'String', 1), cell(report.period, 'kicker', 'String', 2), cell(report.printedAt, 'kicker', 'String', 2)], 22));
+  blocks.push(row([cell(report.title, 'title', 'String', 3), cell(report.range, 'sub', 'String', 3)], 28));
   blocks.push(blank());
   pushHead(report.focus === 'commission'
     ? ['العمولات', 'المبيعات', 'الفواتير', 'البائعون']
@@ -272,7 +277,7 @@ export function reportExcel(report: PeriodReport) {
       cell(Math.round(report.sales), 'kpi', 'Number'),
       cell(report.receipts, 'kpi', 'Number'),
       cell(report.sellers.length, 'kpi', 'Number'),
-    ].join('')
+    ]
     : [
       cell(Math.round(report.sales), 'kpi', 'Number'),
       cell(report.receipts, 'kpi', 'Number'),
@@ -280,10 +285,10 @@ export function reportExcel(report: PeriodReport) {
       cell(Math.round(report.pieces), 'kpi', 'Number'),
       cell(Math.round(report.commission), 'kpi', 'Number'),
       cell(report.sellers.length, 'kpi', 'Number'),
-    ].join('')));
+    ], 26));
   blocks.push(blank());
   pushTitle('الخلاصة');
-  for (const line of report.findings) blocks.push(row(cell(line, 'find')));
+  for (const line of report.findings) blocks.push(row([cell(line, 'find', 'String', 7)], 22));
   blocks.push(blank());
 
   if (report.days.length) {
@@ -292,12 +297,12 @@ export function reportExcel(report: PeriodReport) {
     for (const d of report.days) {
       blocks.push(row([
         cell(d.label, 'plain'),
-        cell(Math.round(d.sales), 'num', 'Number'),
+        cell(Math.round(d.sales), 'int', 'Number'),
         shareCell(d.share),
-        cell(d.receipts, 'num', 'Number'),
-        cell(Math.round(d.ticket), 'num', 'Number'),
-        cell(Math.round(d.pieces), 'num', 'Number'),
-      ].join('')));
+        cell(d.receipts, 'int', 'Number'),
+        cell(Math.round(d.ticket), 'int', 'Number'),
+        cell(Math.round(d.pieces), 'int', 'Number'),
+      ]));
     }
     blocks.push(blank());
   }
@@ -310,18 +315,18 @@ export function reportExcel(report: PeriodReport) {
   for (const s of report.sellers) {
     blocks.push(row(report.focus === 'commission'
       ? [
-        cell(s.rank, 'num', 'Number'), cell(s.name, 'plain'),
-        cell(Math.round(s.commission), 'num', 'Number'), shareCell(s.share),
-        cell(Math.round(s.sales), 'num', 'Number'), cell(s.receipts, 'num', 'Number'),
-        cell(s.due > 0 ? Math.round(s.due) : 0, 'num', 'Number'),
-      ].join('')
+        cell(s.rank, 'rank', 'Number'), cell(s.name, 'plain'),
+        cell(Math.round(s.commission), 'int', 'Number'), shareCell(s.share),
+        cell(Math.round(s.sales), 'int', 'Number'), cell(s.receipts, 'int', 'Number'),
+        cell(s.due > 0 ? Math.round(s.due) : 0, 'int', 'Number'),
+      ]
       : [
-        cell(s.rank, 'num', 'Number'), cell(s.name, 'plain'),
-        cell(Math.round(s.sales), 'num', 'Number'), shareCell(s.share),
-        cell(Math.round(s.commission), 'num', 'Number'), cell(s.receipts, 'num', 'Number'),
-        cell(Math.round(s.ticket), 'num', 'Number'), cell(Math.round(s.pieces), 'num', 'Number'),
+        cell(s.rank, 'rank', 'Number'), cell(s.name, 'plain'),
+        cell(Math.round(s.sales), 'int', 'Number'), shareCell(s.share),
+        cell(Math.round(s.commission), 'int', 'Number'), cell(s.receipts, 'int', 'Number'),
+        cell(Math.round(s.ticket), 'int', 'Number'), cell(Math.round(s.pieces), 'int', 'Number'),
         cell(s.goals, 'plain'),
-      ].join('')));
+      ]));
   }
   blocks.push(blank());
 
@@ -330,11 +335,11 @@ export function reportExcel(report: PeriodReport) {
     pushHead(['#', 'الكاشير', 'المبيعات', 'الحصة', 'الفواتير', 'المتوسط', 'القطع']);
     for (const c of report.cashiers) {
       blocks.push(row([
-        cell(c.rank, 'num', 'Number'), cell(c.name, 'plain'),
-        cell(Math.round(c.sales), 'num', 'Number'), shareCell(c.share),
-        cell(c.receipts, 'num', 'Number'), cell(Math.round(c.ticket), 'num', 'Number'),
-        cell(Math.round(c.pieces), 'num', 'Number'),
-      ].join('')));
+        cell(c.rank, 'rank', 'Number'), cell(c.name, 'plain'),
+        cell(Math.round(c.sales), 'int', 'Number'), shareCell(c.share),
+        cell(c.receipts, 'int', 'Number'), cell(Math.round(c.ticket), 'int', 'Number'),
+        cell(Math.round(c.pieces), 'int', 'Number'),
+      ]));
     }
     blocks.push(blank());
   }
@@ -344,44 +349,35 @@ export function reportExcel(report: PeriodReport) {
     pushHead(['المتوسط', 'تحقق', 'قريب', 'تركيز', 'العدد']);
     blocks.push(row([
       cell(Math.round(report.goals.avg * 10) / 1000, 'pct', 'Number'),
-      cell(report.goals.hit, 'num', 'Number'),
-      cell(report.goals.near, 'num', 'Number'),
-      cell(report.goals.focus, 'num', 'Number'),
-      cell(report.goals.total, 'num', 'Number'),
-    ].join('')));
+      cell(report.goals.hit, 'int', 'Number'),
+      cell(report.goals.near, 'int', 'Number'),
+      cell(report.goals.focus, 'int', 'Number'),
+      cell(report.goals.total, 'int', 'Number'),
+    ]));
     if (report.goals.rules.length) {
       pushHead(['هدف يحتاج متابعة', 'المتوسط', 'تحقق', 'العدد']);
       for (const rule of report.goals.rules) {
         blocks.push(row([
           cell(rule.name, 'plain'),
           cell(Math.round(rule.avg * 10) / 1000, 'pct', 'Number'),
-          cell(rule.hit, 'num', 'Number'),
-          cell(rule.total, 'num', 'Number'),
-        ].join('')));
+          cell(rule.hit, 'int', 'Number'),
+          cell(rule.total, 'int', 'Number'),
+        ]));
       }
     }
     blocks.push(blank());
   }
 
-  blocks.push(row(cell(report.note, 'note')));
+  blocks.push(row([cell(report.note, 'note', 'String', 7)], 24));
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Styles>
-<Style ss:ID="kicker"><Font ss:Bold="1" ss:Color="#8A7340" ss:FontName="Tahoma" ss:Size="11"/></Style>
-<Style ss:ID="title"><Font ss:Bold="1" ss:Color="#101628" ss:FontName="Tahoma" ss:Size="16"/></Style>
-<Style ss:ID="section"><Font ss:Bold="1" ss:Color="#101628" ss:FontName="Tahoma" ss:Size="13"/><Interior ss:Color="#F6E7B8" ss:Pattern="Solid"/></Style>
-<Style ss:ID="head"><Font ss:Bold="1" ss:Color="#E4C56A" ss:FontName="Tahoma"/><Interior ss:Color="#101628" ss:Pattern="Solid"/></Style>
-<Style ss:ID="kpi"><Font ss:Bold="1" ss:Color="#101628" ss:FontName="Tahoma" ss:Size="12"/><Interior ss:Color="#F4F1EA" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>
-<Style ss:ID="find"><Font ss:FontName="Tahoma" ss:Color="#101628" ss:Size="11"/></Style>
-<Style ss:ID="plain"><Font ss:FontName="Tahoma" ss:Color="#101628"/></Style>
-<Style ss:ID="num"><Font ss:FontName="Tahoma" ss:Color="#101628"/><NumberFormat ss:Format="#,##0"/></Style>
-<Style ss:ID="pct"><Font ss:FontName="Tahoma" ss:Color="#101628"/><NumberFormat ss:Format="0.0%"/></Style>
-<Style ss:ID="note"><Font ss:FontName="Tahoma" ss:Color="#64748B" ss:Size="10"/></Style>
-</Styles>
-<Worksheet ss:Name="التقرير" ss:RightToLeft="1"><Table ss:DefaultColumnWidth="88">${blocks.join('')}</Table></Worksheet>
-</Workbook>`;
+  downloadXlsxFile(fileName, [
+    {
+      name: 'التقرير',
+      rtl: true,
+      columnWidths: [52, 165, 115, 85, 115, 90, 105, 85, 110],
+      rows: blocks,
+    },
+  ]);
 }
 
 function shareBar(share: number) {

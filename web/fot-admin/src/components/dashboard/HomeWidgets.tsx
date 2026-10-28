@@ -59,7 +59,21 @@ function compact(v: number) {
   return formatNum(v);
 }
 
-export function WeekBarsChart({ days, prev, today, loading }: { days: Day[]; prev: Day[]; today: string; loading?: boolean }) {
+export function WeekBarsChart({
+  days,
+  prev,
+  today,
+  selectedDate,
+  onSelectDay,
+  loading,
+}: {
+  days: Day[];
+  prev: Day[];
+  today: string;
+  selectedDate?: string;
+  onSelectDay?: (iso: string) => void;
+  loading?: boolean;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const max = useMemo(() => niceMax(Math.max(1, ...days.map(d => d.total), ...prev.map(d => d.total))), [days, prev]);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => t * max);
@@ -77,9 +91,12 @@ export function WeekBarsChart({ days, prev, today, loading }: { days: Day[]; pre
   const H = 200;
   return (
     <div className="relative px-4 pb-3">
-      <div className="mb-2 flex items-center gap-4 text-[11.5px] text-slate-600">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-brand-500" />هذا الأسبوع</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-300" />الأسبوع السابق</span>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-slate-600">
+        <div className="flex items-center gap-4">
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-brand-500" />هذا الأسبوع</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-300" />الأسبوع السابق</span>
+        </div>
+        {onSelectDay && <span className="text-[10.5px] text-slate-400">انقر أي يوم لاستعراض تفاصيله</span>}
       </div>
       <div className="flex gap-2">
         {/* محور القيم */}
@@ -98,18 +115,25 @@ export function WeekBarsChart({ days, prev, today, loading }: { days: Day[]; pre
             <div className="absolute inset-0 flex items-end justify-around gap-1">
               {days.map((d, i) => {
                 const p = prev[i];
-                const isToday = d.date.slice(0, 10) === today;
-                const future = d.date.slice(0, 10) > today;
+                const iso = d.date.slice(0, 10);
+                const isToday = iso === today;
+                const isSelected = selectedDate ? iso === selectedDate : isToday;
+                const future = iso > today;
                 return (
                   <div
                     key={d.date}
-                    className={`relative flex h-full flex-1 cursor-default items-end justify-center gap-[3px] rounded-md transition ${hover === i ? 'bg-slate-50' : ''}`}
+                    onClick={!future && onSelectDay ? () => onSelectDay(iso) : undefined}
+                    className={`relative flex h-full flex-1 items-end justify-center gap-[3px] rounded-md transition ${
+                      !future && onSelectDay ? 'cursor-pointer' : 'cursor-default'
+                    } ${hover === i ? 'bg-slate-50' : isSelected ? 'bg-brand-50/40' : ''}`}
                     onMouseEnter={() => setHover(i)}
                     onMouseLeave={() => setHover(null)}
                   >
                     <div className="w-[38%] max-w-[22px] rounded-t-[4px] bg-slate-200" style={{ height: `${((p?.total ?? 0) / max) * 100}%` }} />
                     <div
-                      className={`w-[38%] max-w-[22px] rounded-t-[4px] transition-[height] duration-500 ${isToday ? 'bg-brand-600' : future ? 'bg-brand-200' : 'bg-brand-500'}`}
+                      className={`w-[38%] max-w-[22px] rounded-t-[4px] transition-[height] duration-500 ${
+                        isSelected ? 'bg-brand-600 ring-2 ring-brand-300' : future ? 'bg-brand-200' : 'bg-brand-500'
+                      }`}
                       style={{ height: `${(d.total / max) * 100}%`, minHeight: d.total > 0 ? 2 : 0 }}
                     />
                     {hover === i && (
@@ -127,11 +151,21 @@ export function WeekBarsChart({ days, prev, today, loading }: { days: Day[]; pre
           </div>
           <div className="mt-1.5 flex justify-around gap-1">
             {days.map(d => {
-              const isToday = d.date.slice(0, 10) === today;
+              const iso = d.date.slice(0, 10);
+              const isToday = iso === today;
+              const isSelected = selectedDate ? iso === selectedDate : isToday;
               return (
-                <span key={d.date} className={`flex-1 text-center text-[11px] ${isToday ? 'font-bold text-brand-700' : 'text-slate-500'}`}>
+                <button
+                  key={d.date}
+                  type="button"
+                  disabled={iso > today || !onSelectDay}
+                  onClick={() => onSelectDay?.(iso)}
+                  className={`flex-1 rounded py-0.5 text-center text-[11px] transition ${
+                    isSelected ? 'bg-brand-50 font-bold text-brand-700' : 'text-slate-500 enabled:hover:text-slate-800'
+                  }`}
+                >
                   {isToday ? 'اليوم' : weekdayShort(d.date)}
-                </span>
+                </button>
               );
             })}
           </div>
@@ -350,6 +384,39 @@ export function RecentReceiptsList({
           </tbody>
         </table>
       </div>
+      {filtered.length > 0 && (
+        <div className="mx-3 mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-1.5 text-[11.5px] text-slate-600">
+          <span>
+            المعروض: <b className="num text-header">{formatNum(filtered.length)}</b> فاتورة ·{' '}
+            <b className="num text-header">{formatNum(filtered.reduce((n, r) => n + (r.itemCount ?? 0), 0))}</b> صنف
+          </span>
+          <span className="flex flex-wrap items-center gap-3 num">
+            <span>
+              المبيعات:{' '}
+              <b className="text-emerald-700">
+                {formatNum(filtered.filter(r => (r.kind ?? 0) === 0).reduce((n, r) => n + r.totalAmount, 0))}
+              </b>
+            </span>
+            {filtered.some(r => r.kind === 1) && (
+              <span>
+                المرتجع:{' '}
+                <b className="text-red-600">
+                  {formatNum(filtered.filter(r => r.kind === 1).reduce((n, r) => n + r.totalAmount, 0))}
+                </b>
+              </span>
+            )}
+            <span>
+              الصافي:{' '}
+              <b className="text-header">
+                {formatNum(
+                  filtered.reduce((n, r) => n + (r.kind === 1 ? -r.totalAmount : r.kind === 2 ? 0 : r.totalAmount), 0),
+                )}{' '}
+                IQD
+              </b>
+            </span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -440,6 +507,15 @@ export function HourBarsChart({
     () => niceMax(Math.max(1, ...today.map(h => h.total), ...prev.map(h => h.total))),
     [today, prev],
   );
+  const peakHour = useMemo(() => {
+    const active = today.filter(h => h.total > 0);
+    if (!active.length) return null;
+    return active.reduce((best, h) => (h.total > best.total ? h : best), active[0]).hour;
+  }, [today]);
+  const avgHour = useMemo(() => {
+    const active = today.filter(h => h.total > 0);
+    return active.length ? active.reduce((n, h) => n + h.total, 0) / active.length : 0;
+  }, [today]);
   const ticks = [0, 0.5, 1].map(t => t * max);
   const H = 170;
 
@@ -453,9 +529,15 @@ export function HourBarsChart({
 
   return (
     <div className="relative px-4 pb-3">
-      <div className="mb-2 flex items-center gap-4 text-[11.5px] text-slate-600">
+      <div className="mb-2 flex flex-wrap items-center gap-4 text-[11.5px] text-slate-600">
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-brand-500" />اليوم</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-300" />أمس بنفس الساعة</span>
+        {peakHour != null && (
+          <span className="inline-flex items-center gap-1 text-amber-700 font-semibold">
+            <span className="h-2 w-2 rounded-full bg-amber-400" />
+            الذروة {String(peakHour).padStart(2, '0')}:00
+          </span>
+        )}
       </div>
       <div className="flex gap-2">
         <div className="relative w-10 shrink-0" style={{ height: H }}>
@@ -470,11 +552,15 @@ export function HourBarsChart({
             {ticks.map(t => (
               <div key={t} className={`absolute inset-x-0 border-t ${t === 0 ? 'border-slate-300' : 'border-dashed border-slate-100'}`} style={{ bottom: `${(t / max) * 100}%` }} />
             ))}
+            {avgHour > 0 && (
+              <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-amber-300" style={{ bottom: `${(avgHour / max) * 100}%` }} />
+            )}
             <div className="absolute inset-0 flex items-end justify-around gap-[3px]">
               {hours.map(h => {
                 const d = byHour.get(h);
                 const p = prevByHour.get(h);
                 const future = h > nowHour;
+                const isPeak = peakHour === h;
                 return (
                   <div
                     key={h}
@@ -484,7 +570,9 @@ export function HourBarsChart({
                   >
                     <div className="w-[40%] max-w-[14px] rounded-t-[3px] bg-slate-200" style={{ height: `${((p?.total ?? 0) / max) * 100}%` }} />
                     <div
-                      className={`w-[40%] max-w-[14px] rounded-t-[3px] ${h === nowHour ? 'bg-brand-600' : future ? 'bg-brand-200' : 'bg-brand-500'}`}
+                      className={`relative w-[40%] max-w-[14px] rounded-t-[3px] ${
+                        isPeak ? 'bg-amber-500' : h === nowHour ? 'bg-brand-600' : future ? 'bg-brand-200' : 'bg-brand-500'
+                      }`}
                       style={{ height: `${((d?.total ?? 0) / max) * 100}%`, minHeight: d && d.total > 0 ? 2 : 0 }}
                     />
                     {hover === h && (

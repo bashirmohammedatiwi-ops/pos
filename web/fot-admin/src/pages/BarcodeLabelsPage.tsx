@@ -28,10 +28,22 @@ import { fixEdariName } from '@/lib/text';
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const STORE_KEY = 'fot-labels-v4';
+const QUEUE_KEY = 'fot-labels-queue-v1';
 
 type Prefs = LabelSetup & { printerName: string; defaultCopies: number; instantPrint: boolean };
 
 type QueueItem = { key: string; productId: number; data: LabelData; copies: number };
+
+function loadQueue(): QueueItem[] {
+  try {
+    const raw = sessionStorage.getItem(QUEUE_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as unknown;
+    return Array.isArray(list) ? list.filter((x): x is QueueItem => !!x && typeof x === 'object' && 'key' in x && 'data' in x) : [];
+  } catch {
+    return [];
+  }
+}
 
 const CONTENT_OPTIONS: { key: keyof LabelContent; label: string }[] = [
   { key: 'name', label: 'اسم المادة' },
@@ -120,7 +132,7 @@ export function BarcodeLabelsPage() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
-  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>(loadQueue);
   const [term, setTerm] = useState('');
   const [looking, setLooking] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -142,6 +154,11 @@ export function BarcodeLabelsPage() {
   });
 
   useEffect(() => savePrefs(prefs), [prefs]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    } catch { /* ignore */ }
+  }, [queue]);
 
   const update = (patch: Partial<Prefs>) => setPrefs(p => ({ ...p, ...patch }));
   const setContent = (key: keyof LabelContent, v: boolean) => setPrefs(p => ({ ...p, content: { ...p.content, [key]: v } }));
@@ -244,12 +261,13 @@ export function BarcodeLabelsPage() {
     }
   }
 
-  // ?q= من صفحة المواد
-  const initialQ = params.get('q');
+  // ?q= أو ?barcode= من صفحة المواد أو كاشف السعر
+  const initialQ = params.get('q') || params.get('barcode');
   useEffect(() => {
     if (!initialQ) return;
     const next = new URLSearchParams(params);
     next.delete('q');
+    next.delete('barcode');
     setParams(next, { replace: true });
     void lookup(initialQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -465,9 +483,19 @@ export function BarcodeLabelsPage() {
           </div>
           <div className="ms-auto flex items-center gap-2">
             {queue.length > 0 && (
-              <Btn variant="ghost" size="md" icon={<IconTrash size={15} />} onClick={() => setQueue([])}>
-                تفريغ
-              </Btn>
+              <>
+                <Btn
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setQueue(q => q.map(x => ({ ...x, copies: prefs.defaultCopies })))}
+                  title={`ضبط نسخ كل المواد في القائمة إلى ${prefs.defaultCopies}`}
+                >
+                  توحيد الكل ({prefs.defaultCopies})
+                </Btn>
+                <Btn variant="ghost" size="md" icon={<IconTrash size={15} />} onClick={() => setQueue([])}>
+                  تفريغ
+                </Btn>
+              </>
             )}
             <Btn
               size="lg"

@@ -818,16 +818,16 @@ export function PageHero({
   children?: ReactNode;
 }) {
   return (
-    <section className="card page-hero surface-hero">
-      <div className="page-hero-top">
-        <div>
-          <p className="kicker">{kicker}</p>
-          <h1 className="display page-hero-title">{title}</h1>
-          {hint && <p className="page-hero-hint">{hint}</p>}
+    <section className="s-hero">
+      <div className="s-hero-top">
+        <div className="min-w-0">
+          <p className="s-hero-kicker">{kicker}</p>
+          <h1 className="s-hero-title">{title}</h1>
         </div>
-        {stale != null && <LiveDot stale={stale} />}
+        {stale && <span className="s-sync warn"><i />البيانات قديمة</span>}
       </div>
-      {value && <p className="page-hero-value num">{value}</p>}
+      {value && <p className="s-hero-value num">{value}</p>}
+      {hint && <p className="s-hero-hint">{hint}</p>}
       {children}
     </section>
   );

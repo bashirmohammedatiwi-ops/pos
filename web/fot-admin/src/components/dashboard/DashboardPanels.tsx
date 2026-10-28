@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { formatNum } from '@/api/client';
+import { formatNum, receiptDisplayNumber } from '@/api/client';
 import type {
   CashierActivityDto,
+  CashierPerformanceRowDto,
   CashierVoidReportDto,
+  EdariSyncLogDto,
   HoldReceiptDto,
+  OfferSalesClosureDto,
   PosTerminalMonitorDto,
+  ReceiptSummary,
   ReorderReportDto,
   SalesmanCommissionSummaryDto,
+  SlowMoverReportDto,
+  TargetBreakdownDto,
 } from '@/api/types';
 import { Btn, EmptyState, Skeleton } from '@/components/ui';
 import { IconCheckCircle, IconChevronDown } from '@/components/icons';
@@ -41,7 +47,18 @@ function useNow(intervalMs = 30_000) {
   return now;
 }
 
-/* ── الرأس: مبيعات اليوم الصافية + التوقع + الوتيرة ── */
+const DAILY_TARGET_KEY = 'fot.dashboard.dailyTarget';
+
+function readDailyTarget(): number {
+  try {
+    const v = Number(localStorage.getItem(DAILY_TARGET_KEY) || 0);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/* ── الرأس: مبيعات اليوم الصافية + التوقع + الوتيرة + اختيار التاريخ ── */
 export function DashboardHero({
   greeting,
   dateLabel,
@@ -58,6 +75,12 @@ export function DashboardHero({
   loading,
   refreshing,
   onRefresh,
+  selectedDate,
+  realToday,
+  yesterdayIso,
+  onSelectDate,
+  onExportExcel,
+  onPrintSummary,
 }: {
   greeting: string;
   dateLabel: string;
@@ -75,13 +98,36 @@ export function DashboardHero({
   loading?: boolean;
   refreshing?: boolean;
   onRefresh: () => void;
+  selectedDate?: string;
+  realToday?: string;
+  yesterdayIso?: string;
+  onSelectDate?: (iso: string) => void;
+  onExportExcel?: () => void;
+  onPrintSummary?: () => void;
 }) {
   const now = useNow();
+  const [customTarget, setCustomTarget] = useState<number>(() => readDailyTarget());
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetDraft, setTargetDraft] = useState('');
   const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const paceClamped = Math.max(0, Math.min(160, pace ?? 0));
   const paceTone = pace == null ? 'text-slate-400' : pace >= 100 ? 'text-emerald-300' : pace >= 80 ? 'text-amber-200' : 'text-rose-300';
   const forecastVsY = forecast != null && yesterdayTotal > 0 ? Math.round(((forecast - yesterdayTotal) / yesterdayTotal) * 100) : null;
   const deltaRounded = salesDelta == null ? null : Math.round(salesDelta);
+  const isToday = !selectedDate || !realToday || selectedDate === realToday;
+  const isYesterday = Boolean(selectedDate && yesterdayIso && selectedDate === yesterdayIso);
+  const effectiveTarget = customTarget > 0 ? customTarget : yesterdayTotal > 0 ? yesterdayTotal : 0;
+  const targetPct = effectiveTarget > 0 ? Math.min(100, Math.round((sales / effectiveTarget) * 100)) : null;
+
+  function saveTarget() {
+    const n = Math.round(Number(targetDraft.replace(/[^\d.]/g, '')) || 0);
+    setCustomTarget(n);
+    try {
+      if (n > 0) localStorage.setItem(DAILY_TARGET_KEY, String(n));
+      else localStorage.removeItem(DAILY_TARGET_KEY);
+    } catch { /* ignore */ }
+    setEditingTarget(false);
+  }
 
   return (
     <section
@@ -101,16 +147,70 @@ export function DashboardHero({
             {dateLabel} · <span className="num font-semibold text-slate-200">{time}</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {onSelectDate && realToday && yesterdayIso && (
+            <div className="inline-flex items-center gap-1 rounded-lg bg-white/10 p-0.5 ring-1 ring-inset ring-white/15">
+              <button
+                type="button"
+                onClick={() => onSelectDate(realToday)}
+                className={`rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition ${
+                  isToday ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-200 hover:bg-white/10'
+                }`}
+              >
+                اليوم
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectDate(yesterdayIso)}
+                className={`rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition ${
+                  isYesterday ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-200 hover:bg-white/10'
+                }`}
+              >
+                أمس
+              </button>
+              <input
+                type="date"
+                value={selectedDate || realToday}
+                max={realToday}
+                onChange={e => e.target.value && onSelectDate(e.target.value)}
+                className="h-7 rounded-md bg-transparent px-1.5 text-[11px] font-semibold text-slate-200 outline-none [color-scheme:dark]"
+                title="استعراض يوم محدد"
+              />
+            </div>
+          )}
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${
-              live ? 'bg-emerald-400/10 text-emerald-200 ring-emerald-300/30' : 'bg-amber-400/10 text-amber-200 ring-amber-300/30'
+              !isToday
+                ? 'bg-amber-400/20 text-amber-200 ring-amber-300/40'
+                : live
+                  ? 'bg-emerald-400/10 text-emerald-200 ring-emerald-300/30'
+                  : 'bg-amber-400/10 text-amber-200 ring-amber-300/30'
             }`}
-            title={live ? 'الأرقام تتحدث فوراً عند كل فاتورة' : 'الاتصال اللحظي منقطع — تحديث دوري'}
+            title={!isToday ? `تستعرض بيانات ${selectedDate}` : live ? 'الأرقام تتحدث فوراً عند كل فاتورة' : 'الاتصال اللحظي منقطع — تحديث دوري'}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-emerald-300' : 'bg-amber-300'}`} />
-            {live ? 'مباشر' : 'تحديث دوري'}
+            <span className={`h-1.5 w-1.5 rounded-full ${!isToday ? 'bg-amber-300' : live ? 'animate-pulse bg-emerald-300' : 'bg-amber-300'}`} />
+            {!isToday ? `أرشيف ${selectedDate}` : live ? 'مباشر' : 'تحديث دوري'}
           </span>
+          {onExportExcel && (
+            <button
+              type="button"
+              onClick={onExportExcel}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-[11.5px] font-semibold text-white ring-1 ring-inset ring-white/15 transition hover:bg-white/15"
+              title="تصدير ملخص اليوم إلى Excel"
+            >
+              Excel
+            </button>
+          )}
+          {onPrintSummary && (
+            <button
+              type="button"
+              onClick={onPrintSummary}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-[11.5px] font-semibold text-white ring-1 ring-inset ring-white/15 transition hover:bg-white/15"
+              title="طباعة ملخص اليوم A4"
+            >
+              طباعة
+            </button>
+          )}
           <button
             type="button"
             onClick={onRefresh}
@@ -127,7 +227,9 @@ export function DashboardHero({
 
       <div className="relative mt-5 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div>
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">صافي مبيعات اليوم</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+            {isToday ? 'صافي مبيعات اليوم' : `صافي مبيعات (${selectedDate})`}
+          </p>
           {loading ? (
             <div className="mt-2 h-11 w-60 animate-pulse rounded-lg bg-white/10" />
           ) : (
@@ -149,6 +251,54 @@ export function DashboardHero({
             ) : null}
             <span className="text-slate-300">{salesDeltaLabel}</span>
           </div>
+          {effectiveTarget > 0 && !editingTarget && (
+            <div className="mt-3 max-w-md rounded-xl bg-white/[0.06] px-3 py-2 ring-1 ring-inset ring-white/10">
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-slate-300">
+                  هدف اليوم: <b className="num text-white">{formatNum(effectiveTarget)}</b> IQD
+                  {customTarget === 0 && <span className="ms-1 text-slate-400">(مبيعات أمس)</span>}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-emerald-300 num">{targetPct}%</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetDraft(String(customTarget || effectiveTarget));
+                      setEditingTarget(true);
+                    }}
+                    className="text-[10.5px] font-semibold text-slate-400 underline hover:text-white"
+                  >
+                    تعديل الهدف
+                  </button>
+                </div>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-amber-300 transition-[width] duration-700"
+                  style={{ width: `${targetPct ?? 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {editingTarget && (
+            <div className="mt-3 flex max-w-md items-center gap-2 rounded-xl bg-white/10 p-2 ring-1 ring-inset ring-white/20">
+              <input
+                type="number"
+                value={targetDraft}
+                onChange={e => setTargetDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveTarget(); if (e.key === 'Escape') setEditingTarget(false); }}
+                placeholder="هدف مبيعات اليوم (IQD)…"
+                className="h-7 flex-1 rounded bg-slate-900/70 px-2 text-[12px] font-bold text-white outline-none num"
+                autoFocus
+              />
+              <button type="button" onClick={saveTarget} className="rounded bg-emerald-500 px-2.5 py-1 text-[11px] font-bold text-white">
+                حفظ
+              </button>
+              <button type="button" onClick={() => setEditingTarget(false)} className="rounded px-2 py-1 text-[11px] text-slate-300">
+                إلغاء
+              </button>
+            </div>
+          )}
           {updatedAt && <p className="mt-2 text-[11px] text-slate-500">آخر تحديث <span className="num">{updatedAt}</span></p>}
         </div>
 
@@ -211,6 +361,9 @@ export type AttentionItem = {
   detail: ReactNode;
   to: string;
   action?: string;
+  onQuickAction?: () => void;
+  quickActionLabel?: string;
+  quickActionLoading?: boolean;
 };
 
 const ATTN_TONE = {
@@ -247,16 +400,30 @@ export function AttentionCenter({ items, loading }: { items: AttentionItem[]; lo
           const t = ATTN_TONE[it.tone];
           const phoneHidden = !showAll && i >= PHONE_ATTENTION_LIMIT ? 'hidden sm:flex' : 'flex';
           return (
-            <Link key={it.id} to={it.to} className={`group ${phoneHidden} items-center gap-3 rounded-xl border px-3 py-2.5 transition ${t.box}`}>
-              <span className={`icon-tile h-9 w-9 rounded-xl ${t.tile}`}>{it.icon}</span>
-              <span className="min-w-0 flex-1">
-                <span className={`block truncate text-[12.5px] font-bold ${t.title}`}>{it.title}</span>
-                <span className="block truncate text-[11.5px] text-slate-600">{it.detail}</span>
-              </span>
-              <span className="shrink-0 text-[11px] font-semibold text-slate-500 transition group-hover:text-slate-800">
-                {it.action ?? 'فتح'} ←
-              </span>
-            </Link>
+            <div key={it.id} className={`group ${phoneHidden} items-center gap-2.5 rounded-xl border px-3 py-2.5 transition ${t.box}`}>
+              <Link to={it.to} className="flex min-w-0 flex-1 items-center gap-3">
+                <span className={`icon-tile h-9 w-9 rounded-xl ${t.tile}`}>{it.icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate text-[12.5px] font-bold ${t.title}`}>{it.title}</span>
+                  <span className="block truncate text-[11.5px] text-slate-600">{it.detail}</span>
+                </span>
+              </Link>
+              {it.onQuickAction && it.quickActionLabel ? (
+                <Btn
+                  size="xs"
+                  variant={it.tone === 'bad' ? 'danger' : 'secondary'}
+                  loading={it.quickActionLoading}
+                  onClick={it.onQuickAction}
+                  className="shrink-0"
+                >
+                  {it.quickActionLabel}
+                </Btn>
+              ) : (
+                <Link to={it.to} className="shrink-0 text-[11px] font-semibold text-slate-500 transition group-hover:text-slate-800">
+                  {it.action ?? 'فتح'} ←
+                </Link>
+              )}
+            </div>
           );
         })}
       </div>
@@ -567,7 +734,19 @@ export function PeriodProgress({
 }
 
 /* ── أعمدة أيام الشهر ── */
-export function MonthDailyBars({ days, today, loading }: { days: { date: string; total: number; receiptCount?: number }[]; today: string; loading?: boolean }) {
+export function MonthDailyBars({
+  days,
+  today,
+  selectedDate,
+  onSelectDay,
+  loading,
+}: {
+  days: { date: string; total: number; receiptCount?: number }[];
+  today: string;
+  selectedDate?: string;
+  onSelectDay?: (iso: string) => void;
+  loading?: boolean;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const max = useMemo(() => Math.max(1, ...days.map(d => d.total)), [days]);
   const avg = useMemo(() => {
@@ -591,17 +770,19 @@ export function MonthDailyBars({ days, today, loading }: { days: { date: string;
           {days.map((d, i) => {
             const key = d.date.slice(0, 10);
             const isToday = key === today;
+            const isSelected = selectedDate ? key === selectedDate : isToday;
             const future = key > today;
             return (
               <div
                 key={d.date}
-                className="relative flex h-full flex-1 items-end"
+                onClick={!future && onSelectDay ? () => onSelectDay(key) : undefined}
+                className={`relative flex h-full flex-1 items-end ${!future && onSelectDay ? 'cursor-pointer' : ''}`}
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover(null)}
               >
                 <div
                   className={`w-full rounded-t-[3px] transition-[height] duration-500 ${
-                    isToday ? 'bg-brand-600' : future ? 'bg-slate-100' : d.total >= avg ? 'bg-brand-400' : 'bg-brand-200'
+                    isSelected ? 'bg-brand-600 ring-1 ring-brand-400' : future ? 'bg-slate-100' : d.total >= avg ? 'bg-brand-400' : 'bg-brand-200'
                   } ${hover === i ? 'opacity-80' : ''}`}
                   style={{ height: future ? '4%' : `${(d.total / max) * 100}%`, minHeight: d.total > 0 ? 2 : 0 }}
                 />
@@ -817,6 +998,8 @@ export function StorePulseStrip({
   largestReceipt,
   discountsRecent,
   activeOffers,
+  lastBackupAt,
+  storedBackupsCount,
 }: {
   peakHour: { hour: number; total: number; count: number } | null;
   unitsSold: number;
@@ -824,6 +1007,8 @@ export function StorePulseStrip({
   largestReceipt: { number: string; amount: number } | null;
   discountsRecent: number;
   activeOffers: number;
+  lastBackupAt?: string | null;
+  storedBackupsCount?: number;
 }) {
   const pills = [
     {
@@ -850,9 +1035,15 @@ export function StorePulseStrip({
       sub: discountsRecent > 0 ? `خصم حديث ${compact(discountsRecent)} IQD` : 'خصومات تلقائية على الكاشير',
       to: '/offers',
     },
+    {
+      label: 'النسخ الاحتياطي',
+      value: lastBackupAt ? timeAgo(lastBackupAt) : 'أنشئ نسخة الآن',
+      sub: storedBackupsCount ? `${formatNum(storedBackupsCount)} نسخة في الخزنة` : 'حفظ ورفع شامل (.fotbackup)',
+      to: '/backups',
+    },
   ];
   return (
-    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
       {pills.map(p => (
         <Link
           key={p.label}
@@ -1018,6 +1209,162 @@ export function CashierActivityFeed({
   );
 }
 
+/* ── أداء الكاشير ── */
+export function CashierPerformanceCard({
+  rows,
+  loading,
+}: {
+  rows: CashierPerformanceRowDto[];
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2.5 px-4 pb-4">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+      </div>
+    );
+  }
+  const active = rows.filter(r => r.receiptCount > 0 || r.netSales > 0);
+  if (!active.length) return <EmptyState compact title="لا مبيعات كاشير مسجّلة في هذا اليوم" />;
+  const max = Math.max(1, ...active.map(r => r.netSales));
+  return (
+    <ul className="space-y-2.5 px-4 pb-4">
+      {active.slice(0, 5).map(c => {
+        const avg = c.receiptCount > 0 ? Math.round(c.netSales / c.receiptCount) : 0;
+        const cardPct = c.netSales > 0 ? Math.round((c.cardTotal / c.netSales) * 100) : 0;
+        return (
+          <li key={c.cashierId} className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+            <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
+              <span className="truncate font-bold text-slate-800">
+                {c.name || `كاشير #${c.cashierId}`}
+                {c.sectionName && <span className="ms-1.5 text-[11px] font-normal text-slate-400">({c.sectionName})</span>}
+              </span>
+              <span className="shrink-0 font-bold text-header num">
+                {formatNum(c.netSales)} <span className="text-[10px] font-normal text-slate-400">IQD</span>
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${(Math.max(0, c.netSales) / max) * 100}%` }} />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] text-slate-500 num">
+              <span>{formatNum(c.receiptCount)} فاتورة</span>
+              <span>متوسط {compact(avg)}</span>
+              {cardPct > 0 && <span className="text-sky-700">بطاقة {cardPct}%</span>}
+              {c.returnsCount > 0 && <span className="text-red-600">مرتجع {formatNum(c.returnsCount)}</span>}
+              {c.manualDiscount > 0 && <span className="text-amber-700">خصم يدوي {compact(c.manualDiscount)}</span>}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/* ── نظرة عامة على العروض وتقارير العروض المنتهية ── */
+export function OffersOverviewCard({
+  activeOffers,
+  inactiveOffers,
+  discountedItems,
+  closures,
+}: {
+  activeOffers: number;
+  inactiveOffers: number;
+  discountedItems: number;
+  closures: OfferSalesClosureDto[];
+}) {
+  return (
+    <div className="px-4 pb-4">
+      <div className="grid grid-cols-3 gap-2">
+        <Link to="/offers" className="rounded-lg bg-violet-50 px-3 py-2 transition hover:bg-violet-100/70">
+          <p className="text-[11px] text-violet-800/80">عروض مفعّلة</p>
+          <p className="text-[17px] font-bold text-violet-900 num">{formatNum(activeOffers)}</p>
+        </Link>
+        <Link to="/offers" className="rounded-lg bg-emerald-50 px-3 py-2 transition hover:bg-emerald-100/70">
+          <p className="text-[11px] text-emerald-800/80">أصناف مخفّضة</p>
+          <p className="text-[17px] font-bold text-emerald-800 num">{formatNum(discountedItems)}</p>
+        </Link>
+        <Link to="/offers" className="rounded-lg bg-slate-50 px-3 py-2 transition hover:bg-slate-100">
+          <p className="text-[11px] text-slate-500">متوقفة</p>
+          <p className="text-[17px] font-bold text-header num">{formatNum(inactiveOffers)}</p>
+        </Link>
+      </div>
+      {closures.length > 0 ? (
+        <div className="mt-3">
+          <p className="mb-1.5 text-[11px] font-semibold text-slate-400">آخر تقارير العروض المنتهية</p>
+          <ul className="divide-y divide-slate-100">
+            {closures.slice(0, 3).map(c => (
+              <li key={c.id} className="flex items-center justify-between gap-2 py-1.5 text-[12px]">
+                <Link to="/reports?app=offer-sales" className="min-w-0 flex-1 truncate font-semibold text-slate-700 hover:text-brand-700">
+                  {c.offerName}
+                </Link>
+                <span className="shrink-0 text-[11px] text-slate-500 num">
+                  <b className="text-header">{compact(c.totalAmount)}</b> · {formatNum(c.totalQuantity)} قطعة
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="mt-3 text-center text-[11.5px] text-slate-400">تُحفظ تقارير مبيعات العروض تلقائياً عند انتهاء مدتها</p>
+      )}
+    </div>
+  );
+}
+
+/* ── المواد الراكدة والمخزون المجمّد ── */
+export function SlowMoversCard({
+  report,
+  loading,
+}: {
+  report: SlowMoverReportDto | null;
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2.5 px-4 pb-4">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+      </div>
+    );
+  }
+  if (!report) return <EmptyState compact title="لا بيانات مواد راكدة" />;
+  const top = (report.rows ?? []).slice(0, 4);
+  return (
+    <div className="px-4 pb-4">
+      <div className="grid grid-cols-3 gap-2">
+        <Link to="/reports?app=slow-movers" className="rounded-lg bg-orange-50 px-3 py-2 transition hover:bg-orange-100/70">
+          <p className="text-[11px] text-orange-800/80">راكد (60+ يوم)</p>
+          <p className="text-[17px] font-bold text-orange-800 num">{formatNum(report.totalCount)}</p>
+        </Link>
+        <Link to="/reports?app=slow-movers" className="rounded-lg bg-amber-50 px-3 py-2 transition hover:bg-amber-100/70">
+          <p className="text-[11px] text-amber-800/80">قيمة مجمّدة</p>
+          <p className="text-[17px] font-bold text-amber-900 num">{compact(report.totalValue)}</p>
+        </Link>
+        <Link to="/reports?app=slow-movers" className="rounded-lg bg-slate-50 px-3 py-2 transition hover:bg-slate-100">
+          <p className="text-[11px] text-slate-500">لم تُبع أبداً</p>
+          <p className="text-[17px] font-bold text-header num">{formatNum(report.neverSoldCount)}</p>
+        </Link>
+      </div>
+      {top.length > 0 ? (
+        <ul className="mt-3 divide-y divide-slate-100">
+          {top.map(r => (
+            <li key={r.articleId} className="flex items-center justify-between gap-2 py-1.5 text-[12px]">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-slate-800" title={r.name ?? ''}>{r.name || r.barcode || `#${r.articleId}`}</p>
+                <p className="text-[10.5px] text-slate-400 num">
+                  رصيد {formatNum(r.stock)} · {r.lastSaleDate ? `آخر بيع ${r.lastSaleDate.slice(0, 10)}` : 'لم يُبع من قبل'}
+                </p>
+              </div>
+              <span className="shrink-0 font-bold text-orange-800 num">{compact(r.stockValue)} IQD</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-center text-[11.5px] text-emerald-700">✓ لا توجد أصناف راكدة منذ 60 يوماً</p>
+      )}
+    </div>
+  );
+}
+
 /* ── بطاقة إجراء مزامنة مضغوطة ── */
 export function SyncTile({
   icon,
@@ -1059,3 +1406,122 @@ export function SyncTile({
     </div>
   );
 }
+
+/* ── تقدم قواعد الأهداف النشطة ── */
+export function ActiveTargetsOverviewCard({
+  rules,
+  loading,
+}: {
+  rules: TargetBreakdownDto[];
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2.5 px-4 pb-4">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+      </div>
+    );
+  }
+  if (!rules.length) {
+    return <EmptyState compact title="لا توجد قواعد أهداف منشأة بعد" />;
+  }
+  return (
+    <ul className="space-y-2.5 px-4 pb-4">
+      {rules.slice(0, 5).map(b => {
+        const assigned = b.salesmen.filter(s => s.weeklyTarget > 0);
+        const avgPct = assigned.length
+          ? Math.round(assigned.reduce((n, s) => n + Math.min(150, s.weeklyPercent), 0) / assigned.length)
+          : 0;
+        const onTrack = assigned.filter(s => s.weeklyPercent >= 70).length;
+        const isAmount = b.targetType === 'amount';
+        return (
+          <li key={b.ruleId} className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+            <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
+              <Link to={`/targets?id=${b.ruleId}`} className="truncate font-bold text-slate-800 hover:text-brand-700">
+                {b.ruleName}
+              </Link>
+              <span className={`shrink-0 font-bold num ${avgPct >= 80 ? 'text-emerald-700' : avgPct >= 50 ? 'text-amber-700' : 'text-red-600'}`}>
+                {formatNum(avgPct)}%
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+              <div
+                className={`h-full rounded-full ${avgPct >= 80 ? 'bg-emerald-500' : avgPct >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                style={{ width: `${Math.min(100, avgPct)}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-slate-500 num">
+              <span>
+                المتحقق:{' '}
+                <b className="text-header">
+                  {isAmount ? `${compact(b.totalAmount ?? 0)} IQD` : `${formatNum(b.totalQuantity)} قطعة`}
+                </b>
+              </span>
+              <span>
+                {formatNum(onTrack)}/{formatNum(assigned.length)} بائع على المسار
+              </span>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/* ── طابور الفواتير غير المرحّلة وسجل أخطاء الترحيل ── */
+export function UnsyncedQueueCard({
+  unsynced,
+  failedLogs,
+  onSelectReceipt,
+}: {
+  unsynced: ReceiptSummary[];
+  failedLogs: EdariSyncLogDto[];
+  onSelectReceipt?: (r: ReceiptSummary) => void;
+}) {
+  if (unsynced.length === 0 && failedLogs.length === 0) {
+    return (
+      <EmptyState
+        compact
+        icon={<IconCheckCircle size={18} />}
+        title="جميع الفواتير مرحّلة إلى الإداري"
+        description="لا توجد فواتير معلّقة في طابور الترحيل ولا أخطاء مسجّلة."
+      />
+    );
+  }
+  return (
+    <div className="space-y-2.5 px-4 pb-4">
+      {failedLogs.length > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50/70 p-2.5">
+          <p className="text-[11px] font-bold text-red-800">آخر أخطاء الترحيل ({formatNum(failedLogs.length)})</p>
+          <ul className="mt-1 space-y-1 text-[11.5px] text-red-700">
+            {failedLogs.map(l => (
+              <li key={l.id} className="truncate" title={l.errorMessage || l.status}>
+                • {l.errorMessage || l.status}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {unsynced.length > 0 && (
+        <ul className="max-h-[200px] divide-y divide-slate-100 overflow-y-auto">
+          {unsynced.slice(0, 8).map(r => (
+            <li
+              key={r.id}
+              onClick={onSelectReceipt ? () => onSelectReceipt(r) : undefined}
+              className={`flex items-center justify-between gap-2 py-1.5 text-[12px] ${onSelectReceipt ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+            >
+              <div className="min-w-0 flex-1">
+                <span className="font-bold text-slate-800 num">#{receiptDisplayNumber(r)}</span>
+                <span className="mx-1.5 text-slate-300">·</span>
+                <span className="text-slate-600">{r.cashierName || prettyPos(r.posName, r.sectionName)}</span>
+              </div>
+              <span className="shrink-0 font-bold text-header num">{formatNum(r.totalAmount)}</span>
+              <span className="shrink-0 text-[11px] text-slate-400">{timeAgo(r.creationDate)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+

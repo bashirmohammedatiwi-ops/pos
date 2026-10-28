@@ -84,6 +84,44 @@ async function downloadQrPng(name: string, code: string) {
   a.remove();
 }
 
+async function printAllActiveQrSheet(people: DiscountQrPersonDto[]) {
+  const active = people.filter(p => p.active);
+  if (!active.length) return false;
+  const items = await Promise.all(
+    active.map(async p => ({
+      name: p.name,
+      code: p.code,
+      src: await discountQrDataUrl(p.code, 360),
+    })),
+  );
+  const w = window.open('', '_blank', 'width=840,height=720');
+  if (!w) return false;
+  const esc = (s: string) => s.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] ?? ch));
+  const cards = items
+    .map(
+      it => `<div class="card"><img src="${it.src}" alt="${esc(it.code)}" /><h2>${esc(it.name)}</h2><p class="code">${esc(it.code)}</p><p class="hint">رمز اعتماد الخصم · FOT POS</p></div>`,
+    )
+    .join('');
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>رموز الخصم</title>
+<style>
+  @page{size:A4;margin:10mm}
+  body{font-family:Tahoma,Arial,sans-serif;margin:0;color:#0f172a}
+  h1{font-size:16px;margin:0 0 12px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10mm}
+  .card{border:1px solid #cbd5e1;border-radius:12px;padding:10px;text-align:center;break-inside:avoid}
+  .card img{width:140px;height:140px;display:block;margin:0 auto 6px}
+  .card h2{font-size:14px;margin:4px 0}
+  .code{font-family:Consolas,monospace;font-size:10.5px;color:#475569;direction:ltr;margin:2px 0}
+  .hint{font-size:10px;color:#0f766e;font-weight:700;margin:4px 0 0}
+</style></head><body>
+<h1>بطاقات رموز الخصم الفعّالة (${items.length})</h1>
+<div class="grid">${cards}</div>
+<script>Promise.all([...document.images].map(i=>i.decode().catch(()=>{}))).then(()=>{window.print();})</script>
+</body></html>`);
+  w.document.close();
+  return true;
+}
+
 export function DiscountQrPage() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -497,6 +535,15 @@ export function DiscountQrPage() {
             </FilterLabel>
             <Btn icon={<IconQr size={15} />} loading={createM.isPending} disabled={!name.trim()} onClick={create}>
               توليد الرمز
+            </Btn>
+            <Btn
+              variant="secondary"
+              icon={<IconPrinter size={15} />}
+              disabled={!activeCount}
+              onClick={() => void printAllActiveQrSheet(filtered.some(p => p.active) ? filtered : people)}
+              title="طباعة كل الرموز الفعّالة في ورقة A4 واحدة"
+            >
+              طباعة الرموز الفعّالة ({formatNum(activeCount)})
             </Btn>
             <IconButton label="تحديث" onClick={() => void peopleQ.refetch()}>
               <IconRefresh size={15} className={peopleQ.isFetching ? 'animate-spin' : ''} />

@@ -54,10 +54,14 @@ public static class PosHubEvents
         var version = CatalogVersionHolder.State.Bump();
         await CatalogVersionPersistence.RecordAsync(version, scope);
         await hub.Clients.All.SendAsync(CatalogUpdated, version, scope);
+        NetworkEventBus.Instance?.Publish("catalog.updated", new { version, scope });
     }
 
-    public static async Task NotifyReceiptCreated(IHubContext<PosHub> hub, long receiptId, long number) =>
+    public static async Task NotifyReceiptCreated(IHubContext<PosHub> hub, long receiptId, long number)
+    {
         await hub.Clients.Group("admin").SendAsync(ReceiptCreated, receiptId, number);
+        NetworkEventBus.Instance?.Publish("receipt.created", new { receiptId, number });
+    }
 
     public static async Task NotifyEdariUpdated(IHubContext<PosHub> hub, string message, bool dataChanged)
     {
@@ -68,6 +72,7 @@ public static class PosHubEvents
             await hub.Clients.All.SendAsync(CatalogUpdated, version, CatalogScopes.All);
         }
         await hub.Clients.Group("admin").SendAsync(EdariUpdated, message, dataChanged);
+        NetworkEventBus.Instance?.Publish("edari.synced", new { message, dataChanged });
     }
 }
 

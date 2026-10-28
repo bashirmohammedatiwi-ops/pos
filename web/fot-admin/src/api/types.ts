@@ -13,6 +13,67 @@ export interface PortalSellerAccountDto {
   pinDisplay?: string | null;
   lastLoginAt?: string | null;
   createdAt?: string | null;
+  /** أوقات فتح الويب بتوقيت العراق (دقائق من بداية اليوم) — null = بلا تقييد. */
+  accessFromMin?: number | null;
+  accessToMin?: number | null;
+  /** بت 0 = السبت … بت 6 = الجمعة (127 = كل الأيام). */
+  accessDays?: number;
+}
+
+/* ── تطبيق الفريق ── */
+export interface StaffDto {
+  id: number;
+  code: string;
+  name: string;
+  kind: 'seller' | 'cashier' | 'supervisor' | 'other' | string;
+  jobTitle?: string | null;
+  phone?: string | null;
+  photoUrl?: string | null;
+  salesmanId?: number | null;
+  cashierId?: number | null;
+  sectionId?: number | null;
+  sectionName?: string | null;
+  pinDisplay?: string | null;
+  hasPin: boolean;
+  isActive: boolean;
+  hireDate?: string | null;
+  notes?: string | null;
+  lastLoginAt?: string | null;
+  createdAt: string;
+}
+
+export interface StaffSaveRequest {
+  code: string | null;
+  name: string | null;
+  kind: string | null;
+  jobTitle: string | null;
+  phone: string | null;
+  salesmanId: number | null;
+  cashierId: number | null;
+  sectionId: number | null;
+  hireDate: string | null;
+  notes: string | null;
+  isActive: boolean | null;
+}
+
+export interface TeamHubStatusDto {
+  staffCount: number;
+  devices: { staffId: number; label?: string | null; platform?: string | null; appVersion?: string | null; boundAt: string; lastSeen: string }[];
+  push: { staffId: number; n: number }[];
+  serverTime: string;
+}
+
+export interface SellerBrandLinkDto {
+  salesmanId: number;
+  treeSeq: number;
+  treeName?: string | null;
+  sortOrder: number;
+}
+
+export interface SellerAccessRequest {
+  fromMin: number | null;
+  toMin: number | null;
+  days: number;
 }
 
 export interface PortalManagerAccountDto {
@@ -564,6 +625,21 @@ export interface OfferSalesProductRowDto {
   listAmount: number;
   discountAmount: number;
   sharePercent: number;
+  firstSoldDate?: string | null;
+  lastSoldDate?: string | null;
+  activeDaysCount?: number;
+}
+
+export interface OfferSalesProductDayRowDto {
+  date: string;
+  articleSeq: number;
+  barcode?: string | null;
+  name?: string | null;
+  quantity: number;
+  amount: number;
+  listAmount: number;
+  discountAmount: number;
+  receiptCount: number;
 }
 
 export interface OfferSalesDailyRowDto {
@@ -601,6 +677,7 @@ export interface OfferSalesReportDto {
   daily: OfferSalesDailyRowDto[];
   products: OfferSalesProductRowDto[];
   unsoldSamples: OfferSalesUnsoldRowDto[];
+  productDaily?: OfferSalesProductDayRowDto[];
 }
 
 export interface CashierVoidEventDto {
@@ -1856,3 +1933,91 @@ export interface ProductInquiryDto {
   receiptsTruncated: boolean;
   commissionsTruncated: boolean;
 }
+
+// ── System Backup & Restore ─────────────────────────────────────────────────
+
+export interface BackupSummaryCountsDto {
+  offersCount: number;
+  commissionGroupsCount: number;
+  targetsCount: number;
+  cashiersCount: number;
+  salesmenCount: number;
+  sectionsCount: number;
+  receiptsCount: number;
+  articlesCount: number;
+  tablesCount: number;
+  totalRows: number;
+}
+
+export interface BackupSectionInfoDto {
+  id: string;
+  label: string;
+  tableCount: number;
+  rowCount: number;
+}
+
+export interface BackupTableInfoDto {
+  name: string;
+  section: string;
+  rowCount: number;
+  hasIdentity: boolean;
+}
+
+export interface BackupManifestDto {
+  formatVersion: number;
+  createdAt: string;
+  appVersion: string;
+  label: string;
+  includeCatalog: boolean;
+  summary: BackupSummaryCountsDto;
+  sections: BackupSectionInfoDto[];
+  tables: BackupTableInfoDto[];
+}
+
+export interface BackupFileItemDto {
+  fileName: string;
+  label: string;
+  createdAt: string;
+  sizeBytes: number;
+  includeCatalog: boolean;
+  isAuto: boolean;
+  summary?: BackupSummaryCountsDto | null;
+}
+
+export interface BackupSettingsDto {
+  autoBackupEnabled: boolean;
+  intervalHours: number;
+  retainCount: number;
+  includeCatalogInAuto: boolean;
+  backupFolder: string;
+  lastAutoBackupAt?: string | null;
+  lastBackupAt?: string | null;
+  storedBackupsCount: number;
+  totalStorageBytes: number;
+}
+
+export interface UpdateBackupSettingsRequest {
+  autoBackupEnabled: boolean;
+  intervalHours: number;
+  retainCount: number;
+  includeCatalogInAuto: boolean;
+}
+
+export interface CreateBackupRequest {
+  label?: string | null;
+  includeCatalog?: boolean;
+}
+
+export interface RestoreBackupRequest {
+  sections?: string[] | null;
+  createSafetyBackup?: boolean;
+}
+
+export interface RestoreBackupResultDto {
+  ok: boolean;
+  message: string;
+  restoredTables: number;
+  restoredRows: number;
+  safetyBackupFileName?: string | null;
+}
+

@@ -165,7 +165,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Server installer build failed" }
 
     foreach ($sub in @("cashier", "admin", "server")) {
-        $dir = Join-Path $desktopDir "dist-out82\$sub"
+        $dir = Join-Path $desktopDir "dist-out84\$sub"
         if (Test-Path $dir) {
             Get-ChildItem $dir -Filter "FOT-POS-*-Setup.exe" | Copy-Item -Destination $installerOut -Force
         }

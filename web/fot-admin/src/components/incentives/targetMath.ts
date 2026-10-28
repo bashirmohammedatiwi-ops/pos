@@ -20,7 +20,7 @@ export interface RuleProgress {
 }
 
 export function rowMetric(row: TargetSalesmanRowDto, targetType?: string | null) {
-  return targetType === 'amount' ? (row.amount ?? 0) : row.quantity;
+  return targetType === 'amount' ? (row.amount ?? 0) : (row.quantity ?? 0);
 }
 
 export function ruleWeekProgress(rule: TargetRuleDto, bd?: TargetBreakdownDto): RuleProgress | null {
@@ -32,21 +32,22 @@ export function ruleWeekProgress(rule: TargetRuleDto, bd?: TargetBreakdownDto): 
   let target = 0;
   let reached = 0;
   let top: RuleProgress['top'] = null;
-  for (const a of weekly.values()) target += a.weeklyTarget;
+  for (const a of weekly.values()) target += Number(a.weeklyTarget) || 0;
   for (const row of bd.salesmen ?? []) {
     const a = weekly.get(row.salesmanId);
     if (!a) continue;
-    const m = rowMetric(row, rule.targetType);
+    const m = Number(rowMetric(row, rule.targetType)) || 0;
     achieved += m;
     const pct = a.weeklyTarget > 0 ? (m / a.weeklyTarget) * 100 : 0;
     if (pct >= 100) reached++;
     if (!top || pct > top.pct) top = { name: row.salesmanName ?? a.salesmanName ?? `#${row.salesmanId}`, pct };
   }
-  const totalSold = rule.targetType === 'amount' ? (bd.totalAmount ?? 0) : bd.totalQuantity;
+  const totalSold = rule.targetType === 'amount' ? (Number(bd.totalAmount) || 0) : (Number(bd.totalQuantity) || 0);
+  const pctVal = target > 0 ? (achieved / target) * 100 : 0;
   return {
     achieved,
     target,
-    pct: target > 0 ? (achieved / target) * 100 : 0,
+    pct: Number.isFinite(pctVal) ? pctVal : 0,
     assigned: weekly.size,
     reached,
     totalSold,

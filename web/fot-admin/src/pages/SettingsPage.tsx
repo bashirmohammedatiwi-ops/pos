@@ -16,7 +16,8 @@ import { printHtmlDoc } from '@/lib/print';
 import { CashBoxPicker } from '@/components/CashBoxPicker';
 import { useToast } from '@/components/Toast';
 import { Alert, Badge, Btn, Field, FieldRow, Select, Skeleton } from '@/components/ui';
-import { IconCalendar, IconCopy, IconEye, IconPrinter, IconWallet, IconWifi } from '@/components/icons';
+import { IconCalendar, IconCopy, IconDatabase, IconEye, IconPrinter, IconWallet, IconWifi } from '@/components/icons';
+import { BackupCenterPanel } from '@/components/system/BackupCenterPanel';
 import { SettingsCard, StickySaveBar, readLocal, writeLocal } from '@/components/system/systemUi';
 import { copyText } from '@/lib/clipboard';
 import { getApiBase } from '@/lib/apiBase';
@@ -27,8 +28,8 @@ import { businessWeekLabel, dayNameAr, weekEndDay } from '@/lib/businessPeriod';
 const WEEK_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const CATEGORY_KEY = 'fot_admin_settings_category';
 
-type Category = 'cash' | 'print' | 'period' | 'network';
-const CATEGORIES: readonly Category[] = ['cash', 'print', 'period', 'network'];
+type Category = 'cash' | 'print' | 'period' | 'network' | 'backup';
+const CATEGORIES: readonly Category[] = ['cash', 'print', 'period', 'network', 'backup'];
 
 function toForm(s: PrintSettingsDto): UpdatePrintSettingsRequest {
   try {
@@ -286,6 +287,7 @@ export function SettingsPage() {
     { id: 'print', label: 'الفاتورة الحرارية', description: 'النموذج والطباعة', icon: <IconPrinter size={16} />, dirty: printDirty },
     { id: 'period', label: 'فترة العمل', description: 'أسبوع العمولات والأهداف', icon: <IconCalendar size={16} />, dirty: periodDirty },
     { id: 'network', label: 'أجهزة الشبكة', description: 'عناوين الاتصال بالخادم', icon: <IconWifi size={16} /> },
+    { id: 'backup', label: 'النسخ الاحتياطي', description: 'جدولة واستعادة .fotbackup', icon: <IconDatabase size={16} /> },
   ];
 
   const dirtyLabels = [
@@ -512,6 +514,12 @@ export function SettingsPage() {
           {category === 'network' && (
             <div className="max-w-4xl space-y-3">
               <LanShareSection />
+            </div>
+          )}
+
+          {category === 'backup' && (
+            <div className="space-y-3">
+              <BackupCenterPanel />
             </div>
           )}
           </div>

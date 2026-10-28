@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatNum } from '@/api/client';
 import type { TargetBreakdownDto, TargetRuleDto } from '@/api/types';
 import { Alert, Badge, Btn, EmptyState, IconButton, Input, Kbd, Select, Skeleton, TableSkeleton, useConfirm } from '@/components/ui';
 import { useToast } from '@/components/Toast';
 import {
   IconCalendar,
+  IconChart,
   IconCopy,
   IconPencil,
   IconPlus,
@@ -105,7 +106,8 @@ export function TargetsPage() {
 
   const breakdownById = useMemo(() => {
     const m = new Map<number, TargetBreakdownDto>();
-    for (const b of weekQ.data ?? []) m.set(b.ruleId, b);
+    const list = Array.isArray(weekQ.data) ? weekQ.data : [];
+    for (const b of list) m.set(b.ruleId, b);
     return m;
   }, [weekQ.data]);
 
@@ -580,6 +582,11 @@ export function TargetsPage() {
             </Select>
           </FilterLabel>
           <FilterActions>
+            <Link to="/reports?app=targets">
+              <Btn variant="secondary" icon={<IconChart size={15} />} title="تقرير الأهداف المفصل لكل بائع">
+                تقرير الأهداف
+              </Btn>
+            </Link>
             <IconButton label="تحديث" onClick={() => void invalidateAll()}>
               <IconRefresh size={15} className={rulesQ.isFetching || weekQ.isFetching ? 'animate-spin' : ''} />
             </IconButton>

@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { downloadText } from './api';
-import { buildPeriodReport, reportExcel, reportHtml } from './reportFile';
+import { buildPeriodReport, downloadManagerExcel, reportHtml } from './reportFile';
 import { useManager } from './store';
 import { Sheet, useToast } from './ui';
 
@@ -29,8 +28,8 @@ export function ExportMenu({ title = 'تقرير المدير', pay = false }: {
 
   function excel() {
     const file = report();
-    downloadText(`تقرير-${bounds.from}.xls`, reportExcel(file), 'application/vnd.ms-excel;charset=utf-8');
-    toast('تم تنزيل ملف إكسل');
+    downloadManagerExcel(`تقرير-${bounds.from}`, file);
+    toast('تم تنزيل ملف إكسل (.xlsx)');
     setOpen(false);
   }
 

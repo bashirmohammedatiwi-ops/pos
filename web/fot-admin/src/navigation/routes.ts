@@ -59,6 +59,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'team-app',
+    label: 'تطبيق الفريق',
+    icon: '📱',
+    items: [
+      { path: '/team/staff', label: 'الموظفون', icon: '👤', iconKey: 'salesmen', hint: 'حسابات التطبيق والهواتف المربوطة' },
+    ],
+  },
+  {
     id: 'system',
     label: 'النظام والربط',
     icon: '⚙',
@@ -67,6 +75,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/price-checker', label: 'كاشف السعر', icon: '▣', iconKey: 'price', hint: 'أجهزة أندرويد ورمز الإعدادات' },
       { path: '/sections', label: 'الأقسام', icon: '▣', iconKey: 'sections', hint: 'الربط مع الإداري' },
       { path: '/edari', label: 'الأداري', icon: '☁', iconKey: 'edari', hint: 'الجلب والترحيل' },
+      { path: '/developer', label: 'بوابة الـ API', icon: '⚡', iconKey: 'key', hint: 'مفاتيح الـ API والربط الشبكي' },
+      { path: '/backups', label: 'النسخ الاحتياطي', icon: '⛁', iconKey: 'database', hint: 'إنشاء ورفع واستعادة' },
       { path: '/system', label: 'صحة النظام', icon: '❤', iconKey: 'shield', hint: 'تشخيص وأخطاء' },
       { path: '/settings', label: 'الإعدادات', icon: '✉', iconKey: 'settings', hint: 'الطباعة والشبكة' },
     ],
@@ -87,6 +97,7 @@ export const PAGE_META: Record<
   '/activity': { title: 'حركات الكاشير', subtitle: 'السجل · حسب الكاشير · مقارنة الفترات', iconKey: 'activity' },
   '/reports': { title: 'التقارير', subtitle: 'تطبيقات التقارير', iconKey: 'reports' },
   '/salesmen': { title: 'البائعون', subtitle: 'القائمة · التقارير · عمولات الفترة', iconKey: 'salesmen' },
+  '/team/staff': { title: 'الموظفون', subtitle: 'تطبيق الفريق · الحسابات والرموز والهواتف المربوطة', iconKey: 'salesmen' },
   '/portal-accounts': { title: 'حسابات الويب', subtitle: 'رموز البائعين · حسابات المدراء · محفوظة على السيرفر', iconKey: 'key' },
   '/cashiers': { title: 'الكاشير', subtitle: 'الحسابات والصلاحيات', iconKey: 'cashiers' },
   '/discount-qr': { title: 'رموز الخصم', subtitle: 'توليد QR لكل شخص وربطه بفواتير الخصم', iconKey: 'qr' },
@@ -97,6 +108,8 @@ export const PAGE_META: Record<
   '/price-checker': { title: 'كاشف السعر', subtitle: 'تطبيق الأندرويد · رمز إعدادات الأجهزة', iconKey: 'price' },
   '/settings': { title: 'الإعدادات', subtitle: 'نماذج الفاتورة · الشعار · الصناديق', iconKey: 'settings' },
   '/edari': { title: 'الأداري', subtitle: 'الارتباط الحي · الجلب · الترحيل', iconKey: 'edari' },
+  '/developer': { title: 'بوابة الـ API والربط الشبكي', subtitle: 'مفاتيح الـ API · مستكشف النقاط التفاعلي · البث اللحظي والويب هوك', iconKey: 'key' },
+  '/backups': { title: 'النسخ الاحتياطي والاستعادة', subtitle: 'نسخة كاملة للنظام · رفع واستعادة انتقائية أو شاملة · جدولة تلقائية', iconKey: 'database' },
   '/system': { title: 'صحة النظام', subtitle: 'التشخيص · نقاط البيع · أخطاء الواجهات', iconKey: 'shield' },
 };
 
@@ -116,6 +129,7 @@ export const DENSE_LIST_PATHS = new Set([
   '/edari',
   '/salesmen',
   '/portal-accounts',
+  '/team/staff',
   '/groups',
   '/system',
   '/offers',

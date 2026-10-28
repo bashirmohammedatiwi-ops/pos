@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   api,
   formatCurrency,
@@ -48,8 +49,39 @@ function Money({ value, className = '' }: { value: number; className?: string })
 
 const itemColumns: GridColumn<ReceiptItemDto>[] = [
   { key: 'idx', header: '#', width: 42, align: 'center', sortable: false, exportable: false, render: (_r, i) => formatNum(i + 1) },
-  { key: 'name', header: 'المادة', width: 220, render: r => <span className="font-semibold text-header">{r.name ?? `#${r.articleId}`}</span> },
-  { key: 'barcode', header: 'الباركود', width: 124, mono: true },
+  {
+    key: 'name',
+    header: 'المادة',
+    width: 220,
+    render: r => (
+      <Link
+        to={`/products?search=${encodeURIComponent(r.barcode || r.name || String(r.articleId))}`}
+        onClick={e => e.stopPropagation()}
+        className="font-semibold text-header hover:text-brand-700 hover:underline"
+      >
+        {r.name ?? `#${r.articleId}`}
+      </Link>
+    ),
+  },
+  {
+    key: 'barcode',
+    header: 'الباركود',
+    width: 124,
+    mono: true,
+    render: r =>
+      r.barcode ? (
+        <Link
+          to={`/barcode-labels?barcode=${encodeURIComponent(r.barcode)}`}
+          onClick={e => e.stopPropagation()}
+          title="طباعة ملصق باركود"
+          className="font-mono text-[12px] text-slate-600 hover:text-brand-700 hover:underline"
+        >
+          {r.barcode}
+        </Link>
+      ) : (
+        <span className="text-slate-300">—</span>
+      ),
+  },
   { key: 'quantity', header: 'الكمية', width: 72, mono: true, align: 'center', footer: 'sum' },
   {
     key: 'originalPrice',
@@ -117,11 +149,31 @@ export function ReceiptDetailSheet({
   const linkedPrinted = detail?.printedNumber ?? receipt.printedNumber ?? null;
   const [printedDraft, setPrintedDraft] = useState(linkedPrinted ? String(linkedPrinted) : '');
   const [savingPrinted, setSavingPrinted] = useState(false);
+  const [retryingSync, setRetryingSync] = useState(false);
   const [printing, setPrinting] = useState<'thermal' | 'a4' | null>(null);
   const isHold = receipt.number === 0;
   const edited = receipt.wasEdited || detail?.wasEdited;
   const qrPerson = receipt.discountQrPersonName || detail?.discountQrPersonName;
   const number = isHold && !receipt.displayNumber ? `#${receipt.id}` : receiptDisplayNumber(receipt);
+
+  async function retrySyncNow() {
+    setRetryingSync(true);
+    try {
+      const r = await api.retryEdariDeadLetter(receipt.id);
+      toast.success(r.message || 'أُعيدت الفاتورة إلى طابور ترحيل الأداري');
+      onChanged?.();
+    } catch {
+      try {
+        const r2 = await api.syncEdariReceipts(true, 10);
+        toast.success(r2.message || 'تم تشغيل دفعة ترحيل الأداري');
+        onChanged?.();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'تعذر ترحيل الفاتورة');
+      }
+    } finally {
+      setRetryingSync(false);
+    }
+  }
 
   useEffect(() => {
     setPrintedDraft(linkedPrinted ? String(linkedPrinted) : '');
@@ -222,6 +274,18 @@ export function ReceiptDetailSheet({
             {onComplete && (
               <Btn size="sm" icon={<IconCheckCircle size={14} />} onClick={onComplete}>
                 إكمال الفاتورة المعلّقة
+              </Btn>
+            )}
+            {!receipt.synced && !isHold && (
+              <Btn
+                size="sm"
+                variant="secondary"
+                icon={<IconCloud size={14} />}
+                loading={retryingSync}
+                onClick={() => void retrySyncNow()}
+                title="إرسال الفاتورة إلى طابور ترحيل الأداري الآن"
+              >
+                ترحيل للأداري
               </Btn>
             )}
             <Btn size="sm" variant="ghost" icon={<IconCopy size={14} />} onClick={() => void copy(number, 'تم نسخ رقم الفاتورة')}>

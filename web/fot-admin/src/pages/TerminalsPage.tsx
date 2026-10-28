@@ -349,7 +349,12 @@ export function TerminalsPage() {
     const pending = terminals.reduce((a, t) => a + t.pending, 0);
     const dead = terminals.reduce((a, t) => a + t.dead, 0);
     const attention = terminals.filter(needsAttention).length;
-    return { total: terminals.length, online, offline: terminals.length - online, sales, receipts, pending, dead, attention };
+    const versions = new Set(terminals.map(t => t.exeVersion).filter((v): v is string => !!v));
+    const latestVersion = [...versions].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] ?? null;
+    const outdated = latestVersion
+      ? terminals.filter(t => t.exeVersion && t.exeVersion !== latestVersion).length
+      : 0;
+    return { total: terminals.length, online, offline: terminals.length - online, sales, receipts, pending, dead, attention, latestVersion, outdated };
   }, [terminals]);
 
   const remove = useMutation({
@@ -470,6 +475,16 @@ export function TerminalsPage() {
           <span className="font-bold text-red-800">{formatNum(stats.dead)} فاتورة أوفلاين متوقفة على الأجهزة</span>
           <span className="text-red-700/80">فشل رفعها بعد عدة محاولات — تأكد من اتصال الجهاز بالخادم ثم راجع الفواتير.</span>
           <Btn size="xs" variant="secondary" className="ms-auto" onClick={() => setFilter('attention')}>عرض الأجهزة</Btn>
+        </div>
+      )}
+
+      {!loading && stats.outdated > 0 && stats.latestVersion && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-1.5 text-[12.5px]">
+          <IconAlert size={15} className="text-amber-600" />
+          <span className="font-bold text-amber-900">
+            {formatNum(stats.outdated)} نقطة بيع تعمل بإصدار أقدم من أحدث إصدار متصل (<span className="num">v{stats.latestVersion}</span>)
+          </span>
+          <span className="text-amber-800/80">يُنصح بتحديث ملف تثبيت الكاشير على جميع الأجهزة لضمان تطابق الميزات.</span>
         </div>
       )}
 

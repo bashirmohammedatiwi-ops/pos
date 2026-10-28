@@ -12,6 +12,7 @@ import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { ProductOfferSearch } from '@/components/offers/ProductOfferSearch';
 import { CompleteHoldDialog, type HoldTarget } from '@/components/CompleteHoldDialog';
 import { ReceiptDetailSheet } from '@/components/receipts/ReceiptDetailSheet';
+import { BackupCenterPanel } from '@/components/system/BackupCenterPanel';
 import {
   forecastDay,
   forecastPeriod,
@@ -33,8 +34,10 @@ import {
   WeekBarsChart,
 } from '@/components/dashboard/HomeWidgets';
 import {
+  ActiveTargetsOverviewCard,
   AttentionCenter,
   CashierActivityFeed,
+  CashierPerformanceCard,
   CashierVoidsCard,
   CommissionDueList,
   DashboardHero,
@@ -42,13 +45,16 @@ import {
   HoldsList,
   InventoryRadarCard,
   MonthDailyBars,
+  OffersOverviewCard,
   PaymentMix,
   PeriodProgress,
   SectionNav,
+  SlowMoversCard,
   StorePulseStrip,
   SyncTile,
   TargetRiskList,
   TerminalGrid,
+  UnsyncedQueueCard,
   type AttentionItem,
 } from '@/components/dashboard/DashboardPanels';
 import {
@@ -60,6 +66,7 @@ import {
   IconChart,
   IconClock,
   IconCloud,
+  IconDatabase,
   IconDownload,
   IconInfo,
   IconMonitor,
@@ -77,6 +84,8 @@ import {
   IconZap,
 } from '@/components/icons';
 import { fixEdariName, userDisplayLabel } from '@/lib/text';
+import { downloadReportExcel } from '@/lib/reportExcel';
+import { printTable } from '@/lib/tablePrint';
 
 function fmtTime(value?: string | null) {
   if (!value) return null;
@@ -94,7 +103,7 @@ const QUICK_ACTIONS = [
   { to: '/reports?app=compare', label: 'مقارنة فترتين', icon: IconTrendUp, tone: 'bg-indigo-50 text-indigo-700' },
   { to: '/reports?app=peak-hours', label: 'أوقات الذروة', icon: IconClock, tone: 'bg-emerald-50 text-emerald-700' },
   { to: '/reports?app=reorder', label: 'ستنفد قريباً', icon: IconAlert, tone: 'bg-rose-50 text-rose-700' },
-  { to: '/reports?app=slow-movers', label: 'المواد الراكدة', icon: IconPackage, tone: 'bg-orange-50 text-orange-700' },
+  { to: '/backups', label: 'نسخة احتياطية', icon: IconDatabase, tone: 'bg-emerald-50 text-emerald-700' },
 ];
 
 type BreakdownTab = 'section' | 'pos' | 'cashier';
@@ -110,7 +119,8 @@ export function DashboardPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const { online } = useLanConnection();
-  const d = useDashboardData();
+  const [focusDate, setFocusDate] = useState<string | undefined>();
+  const d = useDashboardData(focusDate);
   const hubConnected = useSyncStatus();
   const { edariQ, pullFromEdari, syncReceipts, pushToPos } = useHomeStatus();
   const [serverHost, setServerHost] = useState(false);
@@ -162,12 +172,12 @@ export function DashboardPage() {
   const cashTotal = Math.max(0, d.sales - cardTotal);
   const cardShare = d.sales > 0 ? (cardTotal / d.sales) * 100 : 0;
 
-  // مقارنة عادلة: مبيعات أمس حتى نفس الساعة
-  const nowHour = new Date().getHours();
+  // مقارنة عادلة: مبيعات أمس حتى نفس الساعة (أو كامل اليوم عند استعراض تاريخ سابق)
+  const nowHour = d.isToday ? new Date().getHours() : 23;
   const yToNow = (day?.prevHourly ?? []).filter(h => h.hour <= nowHour).reduce((n, h) => n + h.total, 0);
   const yHourlyTotal = (day?.prevHourly ?? []).reduce((n, h) => n + h.total, 0);
   const salesDelta = hasDay ? pctChange(d.sales, yToNow) : pctChange(d.sales, d.ySales);
-  const dayForecast = hasDay ? forecastDay(d.sales, yToNow, yHourlyTotal || d.ySales) : null;
+  const dayForecast = d.isToday && hasDay ? forecastDay(d.sales, yToNow, yHourlyTotal || d.ySales) : null;
   const pace = hasDay ? (yToNow > 0 ? (d.sales / yToNow) * 100 : null) : d.ySales > 0 ? d.pace : null;
 
   const weekForecast = forecastPeriod(d.weekTotal, d.weekProgressInfo.elapsed, d.weekProgressInfo.total);
@@ -229,6 +239,7 @@ export function DashboardPage() {
         label: fixEdariName(s.name) || `بائع #${s.salesmanId}`,
         value: s.total,
         sub: `${formatNum(s.count ?? 0)} فاتورة`,
+        to: '/reports?app=seller-receipts',
       }));
   }, [sellersRange, d.topSalesmen, d.weekTopSalesmen]);
 
@@ -260,6 +271,9 @@ export function DashboardPage() {
         detail: d.failedLogs[0]?.errorMessage || 'راجع سجل الترحيل وأعد المحاولة',
         to: '/edari',
         action: 'السجل',
+        onQuickAction: () => syncReceipts.mutate(),
+        quickActionLabel: 'إعادة الترحيل',
+        quickActionLoading: syncReceipts.isPending,
       });
     }
     if (deadOnTerminals > 0) {
@@ -273,6 +287,7 @@ export function DashboardPage() {
       });
     }
     if (d.holdCount > 0) {
+      const firstHold = d.holds[0];
       items.push({
         id: 'holds',
         tone: 'warn',
@@ -281,6 +296,17 @@ export function DashboardPage() {
         detail: `بقيمة ${formatNum(d.holds.reduce((n, h) => n + h.totalAmount, 0))} IQD`,
         to: '/receipts?hold=1',
         action: 'إكمال',
+        onQuickAction: firstHold
+          ? () =>
+              setHoldTarget({
+                id: firstHold.id,
+                totalAmount: firstHold.totalAmount,
+                cashierName: firstHold.cashierName,
+                salesmanName: firstHold.salesmanName,
+                itemCount: firstHold.itemCount,
+              })
+          : undefined,
+        quickActionLabel: firstHold ? 'إكمال فوراً' : undefined,
       });
     }
     if (d.unsynced > 0) {
@@ -293,6 +319,9 @@ export function DashboardPage() {
           ? `أقدمها منذ ${formatNum(edari.oldestUnsyncedMinutes)} دقيقة`
           : 'تُرحَّل تلقائياً للأداري',
         to: '/edari',
+        onQuickAction: () => syncReceipts.mutate(),
+        quickActionLabel: 'ترحيل الآن',
+        quickActionLoading: syncReceipts.isPending,
       });
     }
     if (pendingOnTerminals > 0) {
@@ -348,8 +377,23 @@ export function DashboardPage() {
         action: 'الرقابة',
       });
     }
+    if (d.backupSettings) {
+      const lastAt = d.backupSettings.lastBackupAt ? new Date(d.backupSettings.lastBackupAt).getTime() : 0;
+      const hoursSince = lastAt > 0 ? (Date.now() - lastAt) / 3_600_000 : 999;
+      if (hoursSince >= 24) {
+        items.push({
+          id: 'backup-due',
+          tone: hoursSince >= 72 ? 'warn' : 'info',
+          icon: <IconDatabase size={17} />,
+          title: lastAt > 0 ? 'مضى أكثر من 24 ساعة على آخر نسخة احتياطية' : 'لم تُنشأ نسخة احتياطية بعد',
+          detail: 'احفظ نسخة احتياطية شاملة لتأمين العروض والعمولات والفواتير',
+          to: '/backups',
+          action: 'النسخ الاحتياطي',
+        });
+      }
+    }
     return items;
-  }, [edari, edariOk, lastPull, d.failed, dead, d.failedLogs, deadOnTerminals, d.holdCount, d.holds, d.unsynced, pendingOnTerminals, d.terminals.length, offlineTerminals, d.atRiskCount, d.atRiskTargets, outOfStockCount, d.reorder?.underWeek, cancelledTodayCount, deletedTodayCount, d.voids?.cancelledAmount, d.voids?.deletedAmount]);
+  }, [edari, edariOk, lastPull, d.failed, dead, d.failedLogs, deadOnTerminals, d.holdCount, d.holds, d.unsynced, pendingOnTerminals, d.terminals.length, offlineTerminals, d.atRiskCount, d.atRiskTargets, outOfStockCount, d.reorder?.underWeek, cancelledTodayCount, deletedTodayCount, d.voids?.cancelledAmount, d.voids?.deletedAmount, d.backupSettings, syncReceipts]);
 
   const systemIssues = attention.filter(a => ['edari', 'failed', 'dead-pos', 'offline', 'pending-pos', 'unsynced'].includes(a.id)).length;
   const auditIssues = (outOfStockCount > 0 ? 1 : 0) + (cancelledTodayCount > 0 ? 1 : 0);
@@ -361,18 +405,174 @@ export function DashboardPage() {
       { id: 'team', label: 'الفريق', badge: d.atRiskCount || undefined },
       { id: 'inventory', label: 'المخزون والرقابة', badge: auditIssues || undefined },
       { id: 'system', label: 'الأجهزة والمزامنة', badge: systemIssues || undefined },
+      { id: 'backup', label: 'النسخ الاحتياطي' },
       { id: 'receipts', label: 'الفواتير', badge: d.holdCount || undefined },
     ],
     [d.atRiskCount, auditIssues, systemIssues, d.holdCount],
   );
+
+  function selectDate(iso: string) {
+    setFocusDate(iso === d.realToday ? undefined : iso);
+  }
 
   function refreshAll() {
     void d.refetchAll();
     void dayQ.refetch();
   }
 
+  function exportDashboardExcel() {
+    downloadReportExcel(`ملخص-لوحة-التحكم-${d.today}`, [
+      {
+        name: 'ملخص اليوم',
+        title: `ملخص لوحة التحكم — ${d.today}`,
+        subtitle: `صافي المبيعات: ${formatNum(d.sales)} IQD · الفواتير: ${formatNum(d.receipts)}`,
+        headers: ['المؤشر', 'القيمة', 'ملاحظات'],
+        columnWidths: [160, 130, 220],
+        rows: [
+          ['صافي المبيعات (IQD)', d.sales, salesDelta != null ? `${salesDelta >= 0 ? '+' : ''}${salesDelta.toFixed(1)}% عن اليوم السابق` : ''],
+          ['عدد الفواتير', d.receipts, `أمس: ${formatNum(d.yReceipts)}`],
+          ['متوسط الفاتورة (IQD)', d.average, ''],
+          ['مبيعات نقدي (IQD)', cashTotal, hasDay ? `${formatNum(100 - cardShare, 0)}%` : ''],
+          ['مبيعات بطاقة (IQD)', cardTotal, hasDay ? `${formatNum(day!.cardCount)} فاتورة (${formatNum(cardShare, 0)}%)` : ''],
+          ['المرتجعات (IQD)', d.returnsTotal ?? 0, `${formatNum(d.returnsCount)} فاتورة (${formatNum(d.returnRate, 1)}%)`],
+          ['القطع المباعة اليوم', d.totalUnitsSoldToday, `${formatNum(d.uniqueSoldToday)} صنف مختلف`],
+          ['مبيعات الأسبوع (IQD)', d.weekTotal, `${formatNum(d.weekReceipts)} فاتورة`],
+          ['مبيعات الشهر (IQD)', d.monthTotal, `${formatNum(d.monthReceipts)} فاتورة`],
+        ],
+      },
+      {
+        name: 'المبيعات بالساعة',
+        title: `المبيعات بالساعة — ${d.today}`,
+        headers: ['الساعة', 'مبيعات اليوم (IQD)', 'عدد الفواتير', 'مبيعات اليوم السابق (IQD)'],
+        columnWidths: [90, 140, 110, 150],
+        rows: (day?.hourly ?? []).map(h => {
+          const prevH = (day?.prevHourly ?? []).find(p => p.hour === h.hour);
+          return [`${String(h.hour).padStart(2, '0')}:00`, h.total, h.count, prevH?.total ?? 0];
+        }),
+      },
+      {
+        name: 'التوزيع',
+        title: `توزيع المبيعات — ${d.today}`,
+        headers: ['الفئة', 'الاسم', 'المبيعات (IQD)', 'عدد الفواتير'],
+        columnWidths: [100, 180, 140, 110],
+        rows: [
+          ...(day?.bySection ?? []).map(r => ['القسم', r.name, r.total, r.count]),
+          ...(day?.byPos ?? []).map(r => ['نقطة البيع', prettyPos(r.name, r.sub ?? undefined), r.total, r.count]),
+          ...(day?.byCashier ?? []).map(r => ['الكاشير', r.name, r.total, r.count]),
+        ],
+      },
+      {
+        name: 'الأكثر مبيعاً',
+        title: `حركة المواد — ${d.today}`,
+        headers: ['المادة', 'الباركود', 'الكمية المباعة', 'إجمالي المبيعات (IQD)'],
+        columnWidths: [240, 130, 110, 150],
+        rows: d.todayMovement.slice(0, 50).map(p => [p.name || `#${p.articleId}`, p.barcode ?? '', p.soldQty, p.soldAmount]),
+      },
+      {
+        name: 'البائعون',
+        title: `مبيعات البائعين — ${d.today}`,
+        headers: ['البائع', 'المبيعات (IQD)', 'عدد الفواتير'],
+        columnWidths: [200, 140, 110],
+        rows: [...d.topSalesmen]
+          .filter(s => s.total > 0)
+          .sort((a, b) => b.total - a.total)
+          .map(s => [fixEdariName(s.name) || `#${s.salesmanId}`, s.total, s.count ?? 0]),
+      },
+    ]);
+  }
+
+  function printDashboardSummary() {
+    void printTable({
+      title: `ملخص لوحة التحكم — ${d.today}`,
+      subtitle: `صافي المبيعات: ${formatNum(d.sales)} IQD · الفواتير: ${formatNum(d.receipts)} · متوسط الفاتورة: ${formatNum(d.average)} IQD`,
+      headers: ['البند', 'التفصيل', 'العدد / الفواتير', 'المبلغ (IQD)'],
+      rows: [
+        ['ملخص اليوم', 'صافي مبيعات اليوم', d.receipts, d.sales],
+        ['طرق الدفع', 'مبيعات نقدي', '', cashTotal],
+        ['طرق الدفع', 'مبيعات بطاقة', day?.cardCount ?? 0, cardTotal],
+        ['المرتجعات', 'مرتجعات مطروحة', d.returnsCount, d.returnsTotal ?? 0],
+        ['الفترات', 'إجمالي الأسبوع الحالي', d.weekReceipts, d.weekTotal],
+        ['الفترات', 'إجمالي الشهر الحالي', d.monthReceipts, d.monthTotal],
+        ...(day?.bySection ?? []).map(s => ['القسم', s.name, s.count, s.total]),
+        ...[...d.topSalesmen]
+          .filter(s => s.total > 0)
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10)
+          .map(s => ['البائع', fixEdariName(s.name) || `#${s.salesmanId}`, s.count ?? 0, s.total]),
+      ],
+    });
+  }
+
+  // اختصارات لوحة المفاتيح: R للتحديث · T لليوم · Y لأمس · 1-6 للأقسام
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea, select, [contenteditable]')) return;
+      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'r') {
+        e.preventDefault();
+        refreshAll();
+      } else if (k === 't') {
+        e.preventDefault();
+        setFocusDate(undefined);
+      } else if (k === 'y') {
+        e.preventDefault();
+        setFocusDate(d.yesterday);
+      } else if (k >= '1' && k <= '7') {
+        const sec = sections[Number(k) - 1];
+        if (sec) {
+          e.preventDefault();
+          document.getElementById(`dash-${sec.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="space-y-5 pb-8" dir="rtl">
+      {/* أزرار المزامنة الرئيسية — في بداية الصفحة الرئيسية */}
+      <div className="grid gap-3 md:grid-cols-3">
+        <SyncTile
+          icon={<IconDownload size={18} />}
+          title="جلب من الأداري"
+          detail={
+            edari
+              ? <>آخر جلب <b className="num">{lastPull ?? '—'}</b> · {edari.autoSyncEnabled ? `تلقائي كل ${formatNum(pullMinutes)} د` : 'التلقائي متوقف'}</>
+              : 'جاري قراءة الحالة…'
+          }
+          statusTone={edariOk ? 'ok' : edari ? 'bad' : 'idle'}
+          statusText={edariOk ? 'متصل' : edari ? 'غير متصل' : '…'}
+          actionLabel="جلب الآن"
+          loading={pullFromEdari.isPending}
+          onAction={() => pullFromEdari.mutate()}
+        />
+        <SyncTile
+          icon={<IconUpload size={18} />}
+          title="رفع لنقاط البيع"
+          detail={<><b className="num">{formatNum(d.onlineTerminals)}</b> من <span className="num">{formatNum(d.terminals.length)}</span> نقطة متصلة</>}
+          statusTone={d.onlineTerminals > 0 ? 'ok' : d.terminals.length ? 'bad' : 'idle'}
+          statusText={d.onlineTerminals > 0 ? 'جاهز' : 'لا أجهزة متصلة'}
+          actionLabel="رفع الآن"
+          loading={pushToPos.isPending}
+          disabled={!online}
+          onAction={() => pushToPos.mutate()}
+        />
+        <SyncTile
+          icon={<IconSend size={18} />}
+          title="ترحيل الفواتير"
+          detail={<>بانتظار <b className="num">{formatNum(d.unsynced)}</b> · فشل <b className="num">{formatNum(d.failed)}</b>{dead ? <> · متوقفة <b className="num">{formatNum(dead)}</b></> : null}</>}
+          statusTone={d.failed > 0 || dead > 0 ? 'bad' : d.unsynced > 0 ? 'warn' : 'ok'}
+          statusText={d.failed > 0 || dead > 0 ? 'يحتاج متابعة' : d.unsynced > 0 ? 'بانتظار' : 'مكتمل'}
+          actionLabel={d.unsynced > 0 ? `ترحيل (${formatNum(d.unsynced)})` : 'ترحيل الآن'}
+          loading={syncReceipts.isPending}
+          onAction={() => syncReceipts.mutate()}
+        />
+      </div>
+
       <DashboardHero
         greeting={`${greeting()}${name ? `، ${name}` : ''}`}
         dateLabel={todayLabel()}
@@ -381,7 +581,11 @@ export function DashboardPage() {
         sales={d.sales}
         salesDelta={salesDelta}
         salesDeltaLabel={
-          salesDelta == null ? 'لا مبيعات أمس للمقارنة' : hasDay ? `عن أمس حتى نفس الساعة (${formatNum(yToNow)})` : `عن أمس (${formatNum(d.ySales)})`
+          salesDelta == null
+            ? 'لا مبيعات لليوم السابق للمقارنة'
+            : d.isToday && hasDay
+              ? `عن أمس حتى نفس الساعة (${formatNum(yToNow)})`
+              : `عن اليوم السابق (${formatNum(hasDay ? yToNow : d.ySales)})`
         }
         receipts={d.receipts}
         average={d.average}
@@ -391,6 +595,12 @@ export function DashboardPage() {
         loading={cashLoading}
         refreshing={d.isRefreshing || dayQ.isFetching}
         onRefresh={refreshAll}
+        selectedDate={d.today}
+        realToday={d.realToday}
+        yesterdayIso={d.yesterday}
+        onSelectDate={selectDate}
+        onExportExcel={exportDashboardExcel}
+        onPrintSummary={printDashboardSummary}
       />
 
       <StorePulseStrip
@@ -400,6 +610,8 @@ export function DashboardPage() {
         largestReceipt={largestRecent}
         discountsRecent={discountsRecent}
         activeOffers={d.activeOffers}
+        lastBackupAt={d.backupSettings?.lastBackupAt}
+        storedBackupsCount={d.backupSettings?.storedBackupsCount}
       />
 
       <AttentionCenter items={attention} loading={cashLoading} />
@@ -542,7 +754,14 @@ export function DashboardPage() {
             subtitle="هذا الأسبوع مقابل الأسبوع السابق يوماً بيوم"
             action={<CardLink to="/reports?app=sales">تقرير المبيعات</CardLink>}
           >
-            <WeekBarsChart days={d.weekDays} prev={d.prevDays} today={d.today} loading={cashLoading} />
+            <WeekBarsChart
+              days={d.weekDays}
+              prev={d.prevDays}
+              today={d.realToday}
+              selectedDate={d.today}
+              onSelectDay={selectDate}
+              loading={cashLoading}
+            />
           </HomeCard>
           <div className="grid gap-3">
             <PeriodProgress
@@ -570,8 +789,14 @@ export function DashboardPage() {
             />
           </div>
         </div>
-        <HomeCard title="أيام الشهر" subtitle="الخط المتقطع = متوسط اليوم في هذا الشهر · الأغمق فوق المتوسط">
-          <MonthDailyBars days={d.monthDays} today={d.today} loading={d.monthLoading} />
+        <HomeCard title="أيام الشهر" subtitle="الخط المتقطع = متوسط اليوم في هذا الشهر · انقر أي يوم لاستعراض تفاصيله">
+          <MonthDailyBars
+            days={d.monthDays}
+            today={d.realToday}
+            selectedDate={d.today}
+            onSelectDay={selectDate}
+            loading={d.monthLoading}
+          />
         </HomeCard>
       </DashSection>
 
@@ -627,15 +852,39 @@ export function DashboardPage() {
             />
           </HomeCard>
         </div>
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[12px] text-slate-600">
-          <IconPercent size={15} className="text-violet-600" />
-          <span>
-            العروض: <b className="num text-header">{formatNum(d.activeOffers)}</b> مفعّل
-            {d.inactiveOffers > 0 && <> · <span className="num">{formatNum(d.inactiveOffers)}</span> متوقف</>}
-          </span>
-          <span className="flex-1" />
-          <CardLink to="/reports?app=offer-sales">مبيعات العروض</CardLink>
-          <CardLink to="/offers">إدارة العروض</CardLink>
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <HomeCard
+            title="قواعد الأهداف النشطة"
+            subtitle="متوسط إنجاز الفريق هذا الأسبوع"
+            action={<CardLink to="/targets">إدارة الأهداف</CardLink>}
+          >
+            <ActiveTargetsOverviewCard rules={d.targetBreakdowns} loading={d.targetsLoading} />
+          </HomeCard>
+          <HomeCard
+            title="أداء الكاشير"
+            subtitle={d.isToday ? 'نشاط الكاشيرات اليوم' : `نشاط الكاشيرات (${d.today})`}
+            action={<CardLink to="/reports?app=cashier-performance">تقرير الأداء</CardLink>}
+          >
+            <CashierPerformanceCard rows={d.cashierPerformance} loading={d.cashierPerfLoading} />
+          </HomeCard>
+          <HomeCard
+            title="العروض والتخفيضات"
+            subtitle="العروض المفعّلة وتقارير العروض المنتهية"
+            className="lg:col-span-2 xl:col-span-1"
+            action={
+              <div className="flex items-center gap-1">
+                <CardLink to="/reports?app=offer-sales">مبيعات العروض</CardLink>
+                <CardLink to="/offers">إدارة العروض</CardLink>
+              </div>
+            }
+          >
+            <OffersOverviewCard
+              activeOffers={d.activeOffers}
+              inactiveOffers={d.inactiveOffers}
+              discountedItems={d.discountedItemsCount}
+              closures={d.offerClosures}
+            />
+          </HomeCard>
         </div>
       </DashSection>
 
@@ -643,18 +892,27 @@ export function DashboardPage() {
       <DashSection
         id="inventory"
         title="المخزون والرقابة"
-        subtitle="الأصناف الحرجة · حذف وإلغاء الكاشير · حركات الصندوق"
+        subtitle="الأصناف الحرجة · المواد الراكدة · حذف وإلغاء الكاشير · حركات الصندوق"
         icon={<IconShield size={16} />}
         action={<CardLink to="/reports?app=reorder">تقرير النواقص</CardLink>}
       >
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2">
           <HomeCard
-            title="رادار المخزون"
+            title="رادار المخزون والنواقص"
             subtitle="معدل السحب في آخر 30 يوماً مقابل الرصيد"
             action={<CardLink to="/reports?app=reorder">كل النواقص</CardLink>}
           >
             <InventoryRadarCard reorder={d.reorder} loading={d.reorderLoading} />
           </HomeCard>
+          <HomeCard
+            title="المواد الراكدة والمخزون المجمّد"
+            subtitle="أصناف في المخزن بلا بيع منذ 60 يوماً"
+            action={<CardLink to="/reports?app=slow-movers">تقرير الراكد</CardLink>}
+          >
+            <SlowMoversCard report={d.slowMovers} loading={d.slowMoversLoading} />
+          </HomeCard>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
           <HomeCard
             title="رقابة الحذف والإلغاء"
             subtitle="عمليات اليوم على نقاط البيع"
@@ -665,7 +923,6 @@ export function DashboardPage() {
           <HomeCard
             title="حركات الكاشير اليوم"
             subtitle="الفتح والإغلاق والدخول"
-            className="lg:col-span-2 xl:col-span-1"
             action={<CardLink to="/activity">كل الحركات</CardLink>}
           >
             <CashierActivityFeed rows={d.cashierActivity} loading={d.activityLoading} />
@@ -676,48 +933,10 @@ export function DashboardPage() {
       {/* ═══ الأجهزة والمزامنة ═══ */}
       <DashSection
         id="system"
-        title="الأجهزة والمزامنة"
-        subtitle="الأداري · نقاط البيع · ترحيل الفواتير"
+        title="الأجهزة وحالة النظام"
+        subtitle="نقاط البيع · صحة النظام · طابور الترحيل"
         icon={<IconMonitor size={16} />}
       >
-        <div className="grid gap-3 md:grid-cols-3">
-          <SyncTile
-            icon={<IconDownload size={18} />}
-            title="جلب من الأداري"
-            detail={
-              edari
-                ? <>آخر جلب <b className="num">{lastPull ?? '—'}</b> · {edari.autoSyncEnabled ? `تلقائي كل ${formatNum(pullMinutes)} د` : 'التلقائي متوقف'}</>
-                : 'جاري قراءة الحالة…'
-            }
-            statusTone={edariOk ? 'ok' : edari ? 'bad' : 'idle'}
-            statusText={edariOk ? 'متصل' : edari ? 'غير متصل' : '…'}
-            actionLabel="جلب الآن"
-            loading={pullFromEdari.isPending}
-            onAction={() => pullFromEdari.mutate()}
-          />
-          <SyncTile
-            icon={<IconUpload size={18} />}
-            title="رفع لنقاط البيع"
-            detail={<><b className="num">{formatNum(d.onlineTerminals)}</b> من <span className="num">{formatNum(d.terminals.length)}</span> نقطة متصلة</>}
-            statusTone={d.onlineTerminals > 0 ? 'ok' : d.terminals.length ? 'bad' : 'idle'}
-            statusText={d.onlineTerminals > 0 ? 'جاهز' : 'لا أجهزة متصلة'}
-            actionLabel="رفع الآن"
-            loading={pushToPos.isPending}
-            disabled={!online}
-            onAction={() => pushToPos.mutate()}
-          />
-          <SyncTile
-            icon={<IconSend size={18} />}
-            title="ترحيل الفواتير"
-            detail={<>بانتظار <b className="num">{formatNum(d.unsynced)}</b> · فشل <b className="num">{formatNum(d.failed)}</b>{dead ? <> · متوقفة <b className="num">{formatNum(dead)}</b></> : null}</>}
-            statusTone={d.failed > 0 || dead > 0 ? 'bad' : d.unsynced > 0 ? 'warn' : 'ok'}
-            statusText={d.failed > 0 || dead > 0 ? 'يحتاج متابعة' : d.unsynced > 0 ? 'بانتظار' : 'مكتمل'}
-            actionLabel={d.unsynced > 0 ? `ترحيل (${formatNum(d.unsynced)})` : 'ترحيل الآن'}
-            loading={syncReceipts.isPending}
-            onAction={() => syncReceipts.mutate()}
-          />
-        </div>
-
         <div className="grid gap-4 xl:grid-cols-3">
           <HomeCard
             className="xl:col-span-2"
@@ -757,6 +976,13 @@ export function DashboardPage() {
                 }
               />
               <StatusLine
+                to="/backups"
+                icon={<IconDatabase size={16} />}
+                label="النسخ الاحتياطي"
+                tone="ok"
+                value="إنشاء وتنزيل ورفع واستعادة شاملة"
+              />
+              <StatusLine
                 to="/system"
                 icon={<IconChart size={16} />}
                 label="تشخيص كامل"
@@ -767,11 +993,36 @@ export function DashboardPage() {
           </HomeCard>
         </div>
 
+        {(d.unsyncedReceipts.length > 0 || d.failedLogs.length > 0) && (
+          <HomeCard
+            title="طابور ترحيل الفواتير وسجل الأخطاء"
+            subtitle="الفواتير التي تنتظر الترحيل إلى الإداري وآخر رسائل الخطأ"
+            action={<CardLink to="/edari">صفحة الإداري</CardLink>}
+          >
+            <UnsyncedQueueCard
+              unsynced={d.unsyncedReceipts}
+              failedLogs={d.failedLogs}
+              onSelectReceipt={r => setPreviewReceipt(r)}
+            />
+          </HomeCard>
+        )}
+
         {serverHost && (
           <p className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-[12px] leading-6 text-slate-600">
             الخادم يعمل في الخلفية مع ويندوز حتى لو أغلقت هذه النافذة — افتح لوحة التحكم من الاختصار عندما تحتاجها.
           </p>
         )}
+      </DashSection>
+
+      {/* ═══ النسخ الاحتياطي والاستعادة ═══ */}
+      <DashSection
+        id="backup"
+        title="النسخ الاحتياطي والاستعادة"
+        subtitle="نسخة شاملة لكل شيء في التطبيق (.fotbackup) · رفع واستعادة انتقائية أو كاملة · جدولة تلقائية"
+        icon={<IconDatabase size={16} />}
+        action={<CardLink to="/backups">صفحة النسخ الاحتياطي</CardLink>}
+      >
+        <BackupCenterPanel compact />
       </DashSection>
 
       {/* ═══ الفواتير ═══ */}
@@ -828,8 +1079,10 @@ export function DashboardPage() {
             </div>
           </HomeCard>
         </div>
-        <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-          <IconInfo size={12} /> اضغط عنوان أي قسم لطيّه — يُحفظ ترتيبك على هذا الجهاز
+        <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+          <span className="inline-flex items-center gap-1"><IconInfo size={12} /> اضغط عنوان أي قسم لطيّه</span>
+          <span>·</span>
+          <span>اختصارات: <b className="num text-slate-500">R</b> تحديث · <b className="num text-slate-500">T</b> اليوم · <b className="num text-slate-500">Y</b> أمس · <b className="num text-slate-500">1–7</b> الأقسام</span>
         </p>
       </DashSection>
 

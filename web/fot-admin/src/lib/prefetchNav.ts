@@ -21,6 +21,7 @@ const ROUTE_CHUNKS: Record<string, () => Promise<unknown>> = {
   '/terminals': () => import('@/pages/TerminalsPage'),
   '/settings': () => import('@/pages/SettingsPage'),
   '/edari': () => import('@/pages/EdariPage'),
+  '/developer': () => import('@/pages/ApiPlatformPage'),
   '/': () => import('@/pages/DashboardPage'),
 };
 

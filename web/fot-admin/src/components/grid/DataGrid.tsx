@@ -213,6 +213,7 @@ export function DataGrid<T>({
   const sort = sortProp !== undefined ? sortProp : internalSort;
   const [filtersOn, setFiltersOn] = useState(() => loadStore().filtersOn ?? filters);
   const [filterTexts, setFilterTexts] = useState<Record<string, string>>(() => loadStore().filterTexts ?? {});
+  const [quickFind, setQuickFind] = useState('');
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState<{ rowId: string | number; key: string; draft: string } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -254,12 +255,28 @@ export function DataGrid<T>({
   };
 
   // ── الفلترة السريعة ──
+  const activeColFilterCount = useMemo(
+    () => (filtersOn ? Object.values(filterTexts).filter(v => v.trim()).length : 0),
+    [filtersOn, filterTexts],
+  );
   const filtered = useMemo(() => {
+    let base = rows;
+    const q = quickFind.trim().toLowerCase();
+    if (q) {
+      base = base.filter(row =>
+        visibleColumns.some(col => {
+          const hay = col.filterValue
+            ? col.filterValue(row)
+            : String(gridExportRaw(col, row) ?? '');
+          return hay.toLowerCase().includes(q);
+        }),
+      );
+    }
     // صف الفلاتر مخفي → لا فلترة خفية تُسقط صفوفاً دون أن يراها المستخدم
-    if (!filtersOn) return rows;
+    if (!filtersOn) return base;
     const active = Object.entries(filterTexts).filter(([, v]) => v.trim());
-    if (!active.length) return rows;
-    return rows.filter(row =>
+    if (!active.length) return base;
+    return base.filter(row =>
       active.every(([key, needle]) => {
         const col = columns.find(c => c.key === key);
         if (!col) return true;
@@ -267,7 +284,7 @@ export function DataGrid<T>({
         return hay.toLowerCase().includes(needle.trim().toLowerCase());
       }),
     );
-  }, [rows, filterTexts, columns, filtersOn]);
+  }, [rows, quickFind, visibleColumns, filterTexts, columns, filtersOn]);
 
   // ── الفرز ──
   const sorted = useMemo(() => {
@@ -561,9 +578,52 @@ export function DataGrid<T>({
       >
         <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 num">
           {loading ? '…' : formatNum(sorted.length)} {counterLabel}
+          {!loading && sorted.length !== rows.length && (
+            <span className="ms-1 font-normal text-slate-400">/ {formatNum(rows.length)}</span>
+          )}
         </span>
+        {(activeColFilterCount > 0 || quickFind.trim()) && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilterTexts({});
+              setQuickFind('');
+            }}
+            className="inline-flex h-6 items-center gap-1 rounded-full bg-amber-50 px-2 text-[11px] font-bold text-amber-800 ring-1 ring-inset ring-amber-200 hover:bg-amber-100"
+            title="مسح تصفية الجدول"
+          >
+            مسح تصفية الجدول ✕
+          </button>
+        )}
         {badge}
         <div className="flex-1" />
+        {(rows.length > 5 || quickFind) && (
+          <div className="relative">
+            <input
+              value={quickFind}
+              onChange={e => setQuickFind(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape' && quickFind) {
+                  e.stopPropagation();
+                  setQuickFind('');
+                }
+              }}
+              placeholder="تصفية سريعة في الجدول…"
+              aria-label="تصفية سريعة في الجدول"
+              className="h-7 w-40 rounded-md border border-slate-200 bg-slate-50/70 pe-6 ps-2 text-[11.5px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:w-52 focus:border-brand-400 focus:bg-white sm:w-44"
+            />
+            {quickFind && (
+              <button
+                type="button"
+                onClick={() => setQuickFind('')}
+                className="absolute inset-y-0 end-1.5 flex items-center text-slate-400 hover:text-slate-700"
+                aria-label="مسح"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
         {exportButtons && (
           <>
             <button
@@ -605,12 +665,12 @@ export function DataGrid<T>({
         <button
           type="button"
           onClick={() => setFiltersOn(f => !f)}
-          title="فلاتر سريعة"
+          title="فلاتر الأعمدة"
           className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11.5px] font-semibold transition ${
             filtersOn ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
           }`}
         >
-          فلترة
+          فلترة{activeColFilterCount > 0 ? ` (${formatNum(activeColFilterCount)})` : ''}
         </button>
         <div ref={columnsRef} className="relative">
           <button

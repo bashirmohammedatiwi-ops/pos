@@ -24,6 +24,7 @@ import {
 } from '@/components/listWorkspace';
 import {
   IconBarcode,
+  IconCloud,
   IconCopy,
   IconExternal,
   IconPackage,
@@ -32,8 +33,10 @@ import {
   IconRefresh,
   IconSearch,
   IconTag,
+  IconUpload,
   IconX,
 } from '@/components/icons';
+import { usePushPosUpdates } from '@/hooks/usePushPosUpdates';
 
 const PAGE_SIZES = [50, 100, 200] as const;
 const PAGE_SIZE_KEY = 'fot_admin_product_page';
@@ -326,6 +329,7 @@ function ProductEditModal({
 export function ProductsPage() {
   const qc = useQueryClient();
   const toast = useToast();
+  const { push: pushToPos, pushing } = usePushPosUpdates();
   const [params] = useSearchParams();
   const savedUi = loadProductsUi();
   const initialSearch = params.get('search') ?? '';
@@ -396,6 +400,17 @@ export function ProductsPage() {
     queryKey: ['catalog-info'],
     queryFn: api.catalogInfo,
     staleTime: 120_000,
+  });
+
+  const syncArticles = useMutation({
+    mutationFn: api.syncEdariArticles,
+    onSuccess: res => {
+      void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['catalog-info'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast.success(res.message || `تم تحديث ${formatNum(res.updated)} مادة من الأداري`);
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر جلب المواد من الأداري'),
   });
 
   const barcodeLookup = useMutation({
@@ -519,8 +534,8 @@ export function ProductsPage() {
   const stripCells: SummaryCell[] = [
     {
       label: 'أصناف الكتالوج',
-      value: catalogQ.data ? formatNum(catalogQ.data.totalProducts) : '—',
-      hint: catalogQ.data ? `آخر Seq ${formatNum(catalogQ.data.maxSeq)}` : undefined,
+      value: catalogQ.data?.totalProducts != null ? formatNum(catalogQ.data.totalProducts) : '—',
+      hint: catalogQ.data?.maxSeq != null ? `آخر Seq ${formatNum(catalogQ.data.maxSeq)}` : undefined,
       tone: 'brand',
     },
     {
@@ -648,6 +663,24 @@ export function ProductsPage() {
                 مسح
               </Btn>
             )}
+            <Btn
+              variant="secondary"
+              icon={<IconCloud size={14} />}
+              loading={syncArticles.isPending}
+              onClick={() => syncArticles.mutate()}
+              title="جلب أحدث أسعار وأرصدة المواد من الأداري"
+            >
+              جلب من الأداري
+            </Btn>
+            <Btn
+              variant="secondary"
+              icon={<IconUpload size={14} />}
+              loading={pushing}
+              onClick={() => void pushToPos()}
+              title="إرسال الأسعار والعروض المحدثة إلى نقاط البيع"
+            >
+              رفع للكاشير
+            </Btn>
             <IconButton label="تحديث" onClick={() => { void q.refetch(); void catalogQ.refetch(); }}>
               <IconRefresh size={15} className={q.isFetching ? 'animate-spin' : ''} />
             </IconButton>

@@ -8,15 +8,15 @@ import { groupReceipts, linesForSeller } from '../insights';
 import { LineSheet, MoveList, ReceiptList } from '../lines';
 import { useManager } from '../store';
 import {
-  Badge, Empty, ErrorBox, MetricStrip, PageHero, Ring, SearchField, SectionCard, Sheet, Skeleton, Track,
+  Badge, Empty, ErrorBox, PageHero, Ring, SearchField, Sheet, Skeleton, Track,
 } from '../ui';
-import { WeekStepper, WeekTimeline } from '../week';
+import { WeekPicker } from '../picker';
 
 type Filter = 'all' | 'done' | 'near' | 'late';
 type View = 'by-goal' | 'by-seller';
 
 export function Goals() {
-  const { weekStart, setWeek, dash, weeks, lines, err, loading, reload } = useManager();
+  const { dash, lines, err, loading, reload } = useManager();
   const [params, setParams] = useSearchParams();
   const [view, setView] = useState<View>('by-goal');
   const [filter, setFilter] = useState<Filter>('all');
@@ -87,36 +87,16 @@ export function Goals() {
 
   return (
     <div className="page-flow fade-up">
-      <WeekStepper weeks={weeks} weekStart={weekStart} setWeek={setWeek} kicker="أهداف الأسبوع" />
-
-      <SectionCard kicker="تصفح" title="الأسابيع" className="week-timeline-wrap">
-        <WeekTimeline weeks={weeks} weekStart={weekStart} setWeek={setWeek} />
-      </SectionCard>
+      <WeekPicker title="أهداف أسبوع" />
 
       <PageHero
         kicker="التاركت الأسبوعي"
         title="الأهداف"
         value={rules.length ? `${Math.round(view === 'by-goal' ? (activeRule?.avg ?? avg) : avg)}٪` : '—'}
-        hint={rules.length ? `${rules.length} هدف · ${groups.length} بائع` : 'اربط التاركت من لوحة التحكم'}
-      >
-        {rules.length > 0 && (
-          <>
-            <MetricStrip
-              items={[
-                { label: 'تحقق', value: String(hit), tone: 'ok' },
-                { label: 'قريب', value: String(near), tone: 'gold' },
-                { label: 'تركيز', value: String(late), tone: 'warn' },
-                { label: 'متوسط', value: `${Math.round(avg)}٪`, tone: 'goal' },
-              ]}
-            />
-            <div className="goals-summary-grid mt-3">
-              <div className="goals-summary-cell ok"><strong className="num">{hit}</strong><span>تحقق</span></div>
-              <div className="goals-summary-cell"><strong className="num">{near}</strong><span>قريب</span></div>
-              <div className="goals-summary-cell warn"><strong className="num">{late}</strong><span>تركيز</span></div>
-            </div>
-          </>
-        )}
-      </PageHero>
+        hint={rules.length
+          ? `متوسط الإنجاز · ${rules.length} هدف · ${hit} حققوا · ${near} قريبون · ${late} يحتاجون متابعة`
+          : 'لا أهداف هذا الأسبوع — تُضاف من لوحة التحكم'}
+      />
 
       <div className="view-toggle">
         <button type="button" className={view === 'by-goal' ? 'on' : ''} onClick={() => setView('by-goal')}>حسب الهدف</button>

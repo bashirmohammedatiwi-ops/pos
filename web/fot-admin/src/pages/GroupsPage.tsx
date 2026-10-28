@@ -17,8 +17,9 @@ import {
   WorkspacePage,
   type SummaryCell,
 } from '@/components/listWorkspace';
-import { IconGrid, IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash, IconX } from '@/components/icons';
+import { IconGrid, IconPencil, IconPlus, IconRefresh, IconSearch, IconSend, IconTrash, IconX } from '@/components/icons';
 import { ScopePickerModal, type ScopePickerOps } from '@/components/scope/ScopePickerModal';
+import { usePushPosUpdates } from '@/hooks/usePushPosUpdates';
 
 const GROUP_KEY = 'fot_admin_group';
 const GROUP_COLORS = ['#0f9f76', '#0ea5e9', '#7c3aed', '#d97706', '#e11d48', '#db2777', '#475569', '#0f172a'];
@@ -168,6 +169,7 @@ export function GroupsPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const qc = useQueryClient();
+  const { push: pushToPos, pushing } = usePushPosUpdates();
   const [selectedId, setSelectedId] = useState<number | null>(() => {
     const n = Number(ssGet(GROUP_KEY) || 0);
     return n || null;
@@ -492,6 +494,15 @@ export function GroupsPage() {
                   <FilterActions>
                     <Btn icon={<IconPlus size={14} />} onClick={() => setPickerOpen(true)}>إضافة منتجات</Btn>
                     <Btn variant="secondary" icon={<IconPencil size={13} />} onClick={() => setEditor('edit')}>تعديل</Btn>
+                    <Btn
+                      variant="secondary"
+                      icon={<IconSend size={13} />}
+                      loading={pushing}
+                      onClick={() => void pushToPos()}
+                      title="إرسال مجموعات الأزرار إلى نقاط البيع"
+                    >
+                      رفع لنقاط البيع
+                    </Btn>
                     <IconButton label="تحديث" onClick={() => { void groupsQ.refetch(); void itemsQ.refetch(); }}>
                       <IconRefresh size={15} className={groupsQ.isFetching || itemsQ.isFetching ? 'animate-spin' : ''} />
                     </IconButton>

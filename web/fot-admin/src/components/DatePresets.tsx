@@ -20,13 +20,13 @@ function buildPresets(mode: DatePresetMode, periodSettings?: BusinessPeriodSetti
   const weekLen = periodSettings?.weekLengthDays ?? 7;
   const weekLabel = businessWeekLabel(periodSettings);
 
-  const currentWeek = periodSettings
+  const currentWeek = periodSettings?.currentWeekStart && periodSettings?.currentWeekEnd
     ? { from: periodSettings.currentWeekStart.slice(0, 10), to: periodSettings.currentWeekEnd.slice(0, 10) }
     : currentWeekIso(weekStart, weekLen);
-  const previousWeek = periodSettings
+  const previousWeek = periodSettings?.previousWeekStart && periodSettings?.previousWeekEnd
     ? { from: periodSettings.previousWeekStart.slice(0, 10), to: periodSettings.previousWeekEnd.slice(0, 10) }
     : previousWeekIso(weekStart, weekLen);
-  const currentMonth = periodSettings
+  const currentMonth = periodSettings?.currentMonthStart && periodSettings?.currentMonthEnd
     ? { from: periodSettings.currentMonthStart.slice(0, 10), to: periodSettings.currentMonthEnd.slice(0, 10) }
     : currentMonthIso();
   const prevMonth = previousMonthIso();

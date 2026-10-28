@@ -15,7 +15,10 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
                 sm.name AS Name,
                 a.pin_hash AS PinHash,
                 CAST(COALESCE(a.is_active, 0) AS bit) AS IsActive,
-                CAST(COALESCE(a.must_change_pin, 0) AS bit) AS MustChangePin
+                CAST(COALESCE(a.must_change_pin, 0) AS bit) AS MustChangePin,
+                CAST(a.access_from_min AS int) AS AccessFromMin,
+                CAST(a.access_to_min AS int) AS AccessToMin,
+                CAST(COALESCE(a.access_days, 127) AS int) AS AccessDays
             FROM salesmen sm
             INNER JOIN ext_seller_accounts a ON a.salesman_id = sm.id
             WHERE sm.name IS NOT NULL AND LTRIM(RTRIM(sm.name)) <> N''
@@ -35,7 +38,10 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
                 CAST(COALESCE(a.is_active, 0) AS bit) AS IsActive,
                 a.pin_display AS PinDisplay,
                 a.last_login_at AS LastLoginAt,
-                a.created_at AS CreatedAt
+                a.created_at AS CreatedAt,
+                CAST(a.access_from_min AS int) AS AccessFromMin,
+                CAST(a.access_to_min AS int) AS AccessToMin,
+                CAST(COALESCE(a.access_days, 127) AS int) AS AccessDays
             FROM salesmen sm
             LEFT JOIN ext_seller_accounts a ON a.salesman_id = sm.id
             WHERE sm.name IS NOT NULL AND LTRIM(RTRIM(sm.name)) <> N''
@@ -77,6 +83,28 @@ public sealed class PortalAccountRepository(ISqlConnectionFactory db)
         foreach (var id in missing)
             await IssueSellerPinAsync(id, ct);
         return new PortalBulkIssueResult(missing.Count, await ListSellersAsync(ct));
+    }
+
+    /// <summary>أوقات فتح الويب لبائع (أو لكل البائعين الذين لهم حساب عند salesmanId = null).</summary>
+    public async Task<int> SetSellerAccessAsync(long? salesmanId, int? fromMin, int? toMin, int days, CancellationToken ct)
+    {
+        int? Clamp(int? v) => v is null ? null : Math.Clamp(v.Value, 0, 1439);
+        var from = Clamp(fromMin);
+        var to = Clamp(toMin);
+        // نصف نافذة غير مقبول: إما الاثنان أو لا تقييد
+        if (from is null || to is null || from == to)
+        {
+            from = null;
+            to = null;
+        }
+        var mask = Math.Clamp(days, 0, 127);
+        if (mask == 0) mask = 127;
+        var sql = """
+            UPDATE ext_seller_accounts
+            SET access_from_min = @from, access_to_min = @to, access_days = @mask
+            """ + (salesmanId is null ? "" : " WHERE salesman_id = @salesmanId");
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(sql, new { from, to, mask, salesmanId }, cancellationToken: ct));
     }
 
     public async Task<PortalSellerAccountDto?> SetSellerActiveAsync(long salesmanId, bool active, CancellationToken ct)

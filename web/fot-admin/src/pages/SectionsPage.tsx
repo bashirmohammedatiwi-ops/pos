@@ -51,10 +51,12 @@ import {
   IconRefresh,
   IconSearch,
   IconTrash,
+  IconUpload,
   IconWallet,
 } from '@/components/icons';
 import { HwIdLabel, PulseDot, SearchBox, readLocal, terminalTitle, timeAgo, writeLocal } from '@/components/system/systemUi';
 import { downloadCsv } from '@/utils/exportCsv';
+import { usePushPosUpdates } from '@/hooks/usePushPosUpdates';
 
 type View = 'table' | 'cards';
 type Quick = 'all' | 'active' | 'inactive' | 'noBox';
@@ -231,6 +233,7 @@ export function SectionsPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const confirm = useConfirm();
+  const { push: pushToPos, pushing } = usePushPosUpdates();
   const saved = readLocal<{ view?: View; selectedId?: number | null; expandedId?: number | null; query?: string; quick?: Quick }>(SECTIONS_KEY, 'session');
   const [view, setView] = useState<View>(saved?.view ?? 'table');
   const savedTable = (saved?.view ?? 'table') === 'table';
@@ -354,6 +357,18 @@ export function SectionsPage() {
       toast.success('تم حذف القسم');
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'فشل الحذف'),
+  });
+
+  const syncBranches = useMutation({
+    mutationFn: api.syncEdariBranches,
+    onSuccess: r => {
+      void qc.invalidateQueries({ queryKey: ['sections-summary'] });
+      void qc.invalidateQueries({ queryKey: ['sections'] });
+      void qc.invalidateQueries({ queryKey: ['edari-branches'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast[r.success ? 'success' : 'error'](r.message);
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر جلب الفروع من الأداري'),
   });
 
   function openEdit(d: SectionDetailDto) {
@@ -519,6 +534,24 @@ export function SectionsPage() {
             <Link to="/terminals">
               <Btn variant="ghost" icon={<IconMonitor size={15} />}>نقاط البيع</Btn>
             </Link>
+            <Btn
+              variant="secondary"
+              icon={<IconCloud size={15} />}
+              loading={syncBranches.isPending}
+              onClick={() => syncBranches.mutate()}
+              title="مزامنة الفروع والأقسام من الأداري"
+            >
+              مزامنة فروع الأداري
+            </Btn>
+            <Btn
+              variant="secondary"
+              icon={<IconUpload size={15} />}
+              loading={pushing}
+              onClick={() => void pushToPos()}
+              title="رفع إعدادات الأقسام والصناديق إلى نقاط البيع"
+            >
+              رفع للأجهزة
+            </Btn>
             <Btn variant="secondary" icon={<IconDownload size={15} />} disabled={!sections.length} onClick={exportCsv}>
               CSV
             </Btn>

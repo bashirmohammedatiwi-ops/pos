@@ -392,6 +392,7 @@ export function ActivityPage() {
   };
   const { draft, patchDraft, applied, apply, clear } = useClassicFilters(filterDefaults);
   const [eventType, setEventType] = useState(saved?.eventType ?? '');
+  const [severity, setSeverity] = useState<'all' | 'sensitive'>('all');
   const [nameFilter, setNameFilter] = useState('');
   const [limit, setLimit] = useState(PAGE);
 
@@ -466,8 +467,22 @@ export function ActivityPage() {
     let list = q.data ?? [];
     if (eventType) list = list.filter(a => a.eventType === eventType);
     if (nameFilter) list = list.filter(a => (a.cashierName ?? '—') === nameFilter);
+    if (severity === 'sensitive') {
+      list = list.filter(a => {
+        const t = eventTone(a.eventType, a.eventLabel);
+        return t === 'danger' || t === 'warn';
+      });
+    }
     return [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
-  }, [eventType, nameFilter, q.data]);
+  }, [eventType, nameFilter, severity, q.data]);
+
+  const sensitiveCount = useMemo(
+    () => (q.data ?? []).filter(a => {
+      const t = eventTone(a.eventType, a.eventLabel);
+      return t === 'danger' || t === 'warn';
+    }).length,
+    [q.data],
+  );
 
   const withReceipt = rows.filter(a => a.receiptId).length;
   const uniqueCashiers = new Set(rows.map(a => a.cashierName).filter(Boolean)).size;
@@ -547,6 +562,7 @@ export function ActivityPage() {
   function clearAll() {
     clear(defaultActivityFilters());
     setEventType('');
+    setSeverity('all');
     setNameFilter('');
   }
 
@@ -611,6 +627,14 @@ export function ActivityPage() {
       tone: 'brand',
     },
     { label: 'مرتبطة بفاتورة', value: formatNum(withReceipt), hint: rows.length ? `${((withReceipt / rows.length) * 100).toFixed(0)}% من الأحداث` : undefined },
+    {
+      label: 'أحداث حساسة (حذف/مرتجع/تعليق)',
+      value: formatNum(sensitiveCount),
+      hint: severity === 'sensitive' ? 'معروضة الآن — انقر للإلغاء' : 'انقر لعرض الحساسة فقط',
+      tone: sensitiveCount > 0 ? 'warn' : undefined,
+      onClick: () => setSeverity(s => (s === 'sensitive' ? 'all' : 'sensitive')),
+      active: severity === 'sensitive',
+    },
     { label: 'كاشير نشِط', value: formatNum(uniqueCashiers), onClick: () => setSubTab(1), active: subTab === 1 },
     { label: 'أنواع الأحداث', value: formatNum(byEvent.length), onClick: () => setSubTab(2), active: subTab === 2 },
     { label: 'ساعة الذروة', value: rows.length ? `${peakHour}:00` : '—', hint: rows.length ? `${formatNum(byHour[peakHour])} حدث` : undefined, onClick: () => setSubTab(3), active: subTab === 3 },
@@ -657,7 +681,7 @@ export function ActivityPage() {
                   ))}
                 </div>
               )}
-              {(nameFilter || eventType) && (
+              {(nameFilter || eventType || severity === 'sensitive') && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {nameFilter && <FilterTag onClear={() => setNameFilter('')}>الكاشير: {nameFilter}</FilterTag>}
                   {eventType && (
@@ -665,8 +689,17 @@ export function ActivityPage() {
                       الحدث: {eventOptions.find(([id]) => id === eventType)?.[1] ?? eventType}
                     </FilterTag>
                   )}
+                  {severity === 'sensitive' && (
+                    <FilterTag onClear={() => setSeverity('all')}>أحداث حساسة فقط</FilterTag>
+                  )}
                 </div>
               )}
+              <Link
+                to="/reports?app=cashier-voids"
+                className="inline-flex h-7 items-center gap-1 rounded-lg bg-amber-50 px-2.5 text-[11.5px] font-bold text-amber-800 ring-1 ring-inset ring-amber-200 hover:bg-amber-100"
+              >
+                تقرير الحذف والإلغاء ←
+              </Link>
               <span className="ms-auto text-[11px] text-slate-400 num">
                 {applied.from} — {applied.to}
               </span>

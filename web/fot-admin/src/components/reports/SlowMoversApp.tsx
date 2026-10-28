@@ -4,8 +4,8 @@ import { Link } from 'react-router-dom';
 import { api, formatCurrency, formatNum } from '@/api/client';
 import type { SlowMoverRowDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
-import { IconPackage, IconSearch } from '@/components/icons';
-import { Input, Select } from '@/components/ui';
+import { IconPackage, IconPercent, IconSearch } from '@/components/icons';
+import { Btn, Input, Select } from '@/components/ui';
 import { SummaryStrip } from '@/components/listWorkspace';
 import type { ReportExcelSheet } from '@/lib/reportExcel';
 import { fixEdariName } from '@/lib/text';
@@ -191,6 +191,11 @@ export function SlowMoversApp({ onClose }: { onClose: () => void }) {
       }
       actions={
         <>
+          <Link to="/offers?new=1">
+            <Btn size="sm" variant="secondary" icon={<IconPercent size={14} />}>
+              إنشاء عرض ترويجي
+            </Btn>
+          </Link>
           <ExcelBtn fileName={`مواد-راكدة-${days}-يوم`} getSheets={sheets} disabled={!rows.length} />
           <PrintBtn title={`المواد الراكدة — بلا بيع منذ ${days} يوماً`} getSheets={sheets} disabled={!rows.length} />
         </>

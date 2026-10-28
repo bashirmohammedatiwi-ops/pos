@@ -119,8 +119,8 @@ export function WeeklySettlementApp({ onClose }: { onClose: () => void }) {
   }, [alignedStart]);
 
   useEffect(() => {
-    if (reportQ.isSuccess && (data?.salesmanIds.length ?? 0) === 0) setSettingsOpen(true);
-  }, [reportQ.isSuccess, data?.salesmanIds.length]);
+    if (reportQ.isSuccess && (data?.salesmanIds?.length ?? 0) === 0) setSettingsOpen(true);
+  }, [reportQ.isSuccess, data?.salesmanIds?.length]);
 
   const salesmenQ = useQuery({
     queryKey: ['salesmen', true],
@@ -161,11 +161,11 @@ export function WeeklySettlementApp({ onClose }: { onClose: () => void }) {
       }),
   });
 
-  const pinned = data?.salesmanIds ?? [];
+  const pinned = Array.isArray(data?.salesmanIds) ? data.salesmanIds : [];
   const canDeliver = data?.canDeliver ?? false;
   const isCurrent = data?.isCurrentWeek ?? alignedStart === periods.currentWeek.from;
-  const rows = data?.rows ?? [];
-  const targetColumns = data?.targetColumns ?? [];
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const targetColumns = Array.isArray(data?.targetColumns) ? data.targetColumns : [];
   const hasRows = rows.length > 0;
 
   const deduction = useMemo(() => {
@@ -186,6 +186,7 @@ export function WeeklySettlementApp({ onClose }: { onClose: () => void }) {
 
   /** صفوف بلا مبلغ ولم تُسلَّم — تصلح للتعبئة السريعة. */
   const fillable = rows.filter(r => !r.delivered && !(r.amount > 0) && r.afterDeduction > 0 && drafts[r.salesmanId] === undefined);
+  const deliverable = rows.filter(r => !r.delivered && canDeliver && (r.amount > 0 || parseAmount(drafts[r.salesmanId] ?? '') > 0));
 
   function persistSettings(ids: number[], percent = deduction) {
     saveSettings.mutate({ salesmanIds: ids, deductionPercent: percent });
@@ -276,6 +277,25 @@ export function WeeklySettlementApp({ onClose }: { onClose: () => void }) {
     }
     setFilling(false);
     toast.success(`عُبّئت مبالغ ${formatNum(done)} بائع`);
+  }
+
+  async function deliverAllReady() {
+    if (!deliverable.length) return;
+    const sum = deliverable.reduce((s, r) => s + (parseAmount(amountDisplay(r, drafts[r.salesmanId])) || r.amount), 0);
+    const ok = await confirm({
+      title: `تأشير تسليم ${formatNum(deliverable.length)} بائع؟`,
+      message: `سيتم تأشير استلام جميع البائعين الذين لديهم مبلغ تسليم محدد بمجموع ${money(sum)}.`,
+      confirmLabel: 'تأشير الكل',
+    });
+    if (!ok) return;
+    setFilling(true);
+    let done = 0;
+    for (const r of deliverable) {
+      const amount = parseAmount(amountDisplay(r, drafts[r.salesmanId])) || r.amount;
+      if (amount > 0 && await putRow(r, { amount, delivered: true })) done++;
+    }
+    setFilling(false);
+    toast.success(`تم تأشير تسليم ${formatNum(done)} بائع`);
   }
 
   function settlementTable() {
@@ -467,6 +487,11 @@ export function WeeklySettlementApp({ onClose }: { onClose: () => void }) {
                     تعبئة المبالغ الفارغة ({formatNum(fillable.length)})
                   </Btn>
                 )}
+                {deliverable.length > 1 && (
+                  <Btn size="sm" icon={<IconCheck size={14} />} loading={filling} onClick={() => void deliverAllReady()} title="تأشير استلام كل البائعين الذين حُدد مبلغهم">
+                    تأشير تسليم الكل ({formatNum(deliverable.length)})
+                  </Btn>
+                )}
               </div>
             )}
 
@@ -527,7 +552,7 @@ export function WeeklySettlementApp({ onClose }: { onClose: () => void }) {
                           </td>
                           {targetColumns.map(col => {
                             const cell = byId.get(col.targetId);
-                            const isAmount = col.targetType.toLowerCase() === 'amount';
+                            const isAmount = (col.targetType ?? '').toLowerCase() === 'amount';
                             const unit = isAmount ? ` ${DINAR}` : '';
                             return (
                               <td key={col.targetId} className="px-3 py-3 align-middle">

@@ -14,9 +14,13 @@ import {
   WorkspacePage,
 } from '@/components/listWorkspace';
 import { useToast } from '@/components/Toast';
+import { SellerAccessModal, accessSummary } from '@/components/people/SellerAccessModal';
+import { TreeMultiPickerDialog } from '@/components/TreeMultiPickerDialog';
+import type { SellerBrandLinkDto, TargetTreeLinkDto } from '@/api/types';
 import {
   IconCheckCircle,
   IconClock,
+  IconTag,
   IconCopy,
   IconExternal,
   IconPencil,
@@ -96,6 +100,46 @@ function accessMessage(kind: 'بائع' | 'مدير', name: string, login: strin
   return `مرحباً ${name}\nرابط ${kind === 'بائع' ? 'ويب البائعين' : 'ويب المدراء'}: ${url}\nالدخول: ${login}\nالرمز: ${secret}`;
 }
 
+function printAllAccessCardsSheet(
+  kind: 'بائع' | 'مدير',
+  rows: { name: string; login: string; secret: string }[],
+  url: string,
+) {
+  if (!rows.length) return false;
+  const w = window.open('', '_blank', 'width=840,height=720');
+  if (!w) return false;
+  const cards = rows
+    .map(
+      r => `<div class="card">
+        <div class="k">FOT ${kind}</div>
+        <h2>${escapeHtml(r.name)}</h2>
+        <div class="meta">الدخول: <b>${escapeHtml(r.login)}</b></div>
+        <div class="pin">${escapeHtml(r.secret)}</div>
+        <p class="url">${escapeHtml(url)}</p>
+      </div>`,
+    )
+    .join('');
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>بطاقات دخول ${kind}</title>
+<style>
+  @page{size:A4;margin:10mm}
+  body{font-family:Tahoma,Arial,sans-serif;margin:0;color:#0f172a}
+  h1{font-size:15px;margin:0 0 10px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8mm}
+  .card{border:1px solid #cbd5e1;border-radius:12px;padding:12px;break-inside:avoid}
+  .k{font-size:10px;letter-spacing:.18em;color:#0f766e;font-weight:800}
+  .card h2{margin:6px 0 2px;font-size:14px}
+  .meta{color:#475569;font-size:11.5px}
+  .pin{margin:10px 0 6px;padding:8px;border-radius:8px;background:#fffbeb;text-align:center;font-size:20px;letter-spacing:.22em;font-weight:800;font-family:Consolas,monospace}
+  .url{direction:ltr;font-family:Consolas,monospace;font-size:10px;color:#64748b;margin:0;text-align:center}
+</style></head><body>
+<h1>بطاقات الدخول — ويب ${kind === 'بائع' ? 'البائعين' : 'المدراء'} (${rows.length})</h1>
+<div class="grid">${cards}</div>
+<script>window.onload=()=>{window.print();}</script>
+</body></html>`);
+  w.document.close();
+  return true;
+}
+
 function SecretBox({ value, label, onCopy }: { value?: string | null; label: string; onCopy: (v: string) => void }) {
   if (!value) {
     return (
@@ -169,6 +213,33 @@ export function PortalAccountsPage() {
   const [freshManagers, setFreshManagers] = useState<Set<number>>(new Set());
 
   const sellersQ = useQuery({ queryKey: ['portal-sellers'], queryFn: api.portalSellers });
+  // undefined = مغلقة، null = لكل البائعين، صف = بائع واحد
+  const [accessFor, setAccessFor] = useState<PortalSellerAccountDto | null | undefined>(undefined);
+  // براندات البائع: شجرة مواد لكل براند — تظهر في ويب الموظف مع كشوفات Excel و PDF
+  const brandsQ = useQuery({ queryKey: ['seller-brand-links'], queryFn: api.sellerBrandLinks });
+  const brandsBySeller = useMemo(() => {
+    const m = new Map<number, SellerBrandLinkDto[]>();
+    for (const l of brandsQ.data ?? []) {
+      const list = m.get(l.salesmanId) ?? [];
+      list.push(l);
+      m.set(l.salesmanId, list);
+    }
+    return m;
+  }, [brandsQ.data]);
+  const [brandsFor, setBrandsFor] = useState<PortalSellerAccountDto | null>(null);
+  const brandsSelected = useMemo<TargetTreeLinkDto[]>(
+    () => (brandsFor ? brandsBySeller.get(brandsFor.salesmanId) ?? [] : []).map(x => ({ treeSeq: x.treeSeq, treeName: x.treeName ?? undefined })),
+    [brandsFor, brandsBySeller],
+  );
+  const saveBrands = useMutation({
+    mutationFn: ({ id, trees }: { id: number; trees: TargetTreeLinkDto[] }) =>
+      api.setSellerBrands(id, trees.map(t => ({ treeSeq: t.treeSeq, treeName: t.treeName ?? null }))),
+    onSuccess: (_rows, v) => {
+      void qc.invalidateQueries({ queryKey: ['seller-brand-links'] });
+      toast.success(v.trees.length ? `رُبط ${v.trees.length} براند — يظهر في ويب الموظف خلال دقيقة` : 'أُزيلت البراندات من حساب الموظف');
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذّر حفظ البراندات'),
+  });
   const managersQ = useQuery({ queryKey: ['portal-managers'], queryFn: api.portalManagers });
   const webQ = useQuery({
     queryKey: ['portal-web-status'],
@@ -458,6 +529,64 @@ export function PortalAccountsPage() {
       render: s => <SellerBadge s={s} />,
     },
     {
+      key: 'brands',
+      header: 'البراندات',
+      width: 200,
+      sortValue: s => brandsBySeller.get(s.salesmanId)?.length ?? 0,
+      filterValue: s => (brandsBySeller.get(s.salesmanId) ?? []).map(b => b.treeName).join(' '),
+      exportValue: s => (brandsBySeller.get(s.salesmanId) ?? []).map(b => b.treeName).join('، '),
+      render: s => {
+        if (!s.hasAccount) return <span className="text-slate-300">—</span>;
+        const list = brandsBySeller.get(s.salesmanId) ?? [];
+        return (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              setBrandsFor(s);
+            }}
+            title="ربط الموظف بشجرات البراندات"
+            className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset transition hover:brightness-95 ${list.length ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-slate-50 text-slate-400 ring-slate-200'}`}
+          >
+            <IconTag size={12} />
+            <span className="truncate">{list.length ? list.map(b => b.treeName).join('، ') : 'ربط براند'}</span>
+          </button>
+        );
+      },
+    },
+    {
+      key: 'access',
+      header: 'أوقات الويب',
+      width: 200,
+      sortValue: s => (accessSummary(s) ? 1 : 0),
+      filterValue: s => {
+        const a = accessSummary(s);
+        return a ? `${a.time} ${a.days}` : 'دائماً';
+      },
+      exportValue: s => {
+        const a = accessSummary(s);
+        return a ? `${a.time} · ${a.days}` : 'دائماً';
+      },
+      render: s => {
+        if (!s.hasAccount) return <span className="text-slate-300">—</span>;
+        const a = accessSummary(s);
+        return (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              setAccessFor(s);
+            }}
+            title="تعديل أوقات فتح الويب"
+            className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset transition hover:brightness-95 ${a ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-slate-50 text-slate-500 ring-slate-200'}`}
+          >
+            <IconClock size={12} />
+            <span className="truncate">{a ? `${a.time} · ${a.days}` : 'دائماً'}</span>
+          </button>
+        );
+      },
+    },
+    {
       key: 'lastLoginAt',
       header: 'آخر دخول',
       width: 150,
@@ -509,6 +638,8 @@ export function PortalAccountsPage() {
               s.pinDisplay
                 ? { label: 'طباعة بطاقة الدخول', icon: <IconPrinter size={15} />, onClick: () => printCard('بائع', s.name, String(s.salesmanId), s.pinDisplay!) }
                 : null,
+              s.hasAccount ? { label: 'ربط البراندات (الشجرات)', icon: <IconTag size={15} />, onClick: () => setBrandsFor(s) } : null,
+              s.hasAccount ? { label: 'أوقات فتح الويب', icon: <IconClock size={15} />, onClick: () => setAccessFor(s) } : null,
               s.hasAccount
                 ? s.isActive
                   ? { label: 'إيقاف الحساب', icon: <IconPower size={15} />, danger: true, onClick: () => void toggleSeller(s) }
@@ -596,6 +727,14 @@ export function PortalAccountsPage() {
           <InfoTile label="دخول باسم" value={<span className="num">{s.salesmanId}</span>} icon={<IconKey size={11} />} />
           <InfoTile label="آخر دخول" value={s.lastLoginAt ? formatDate(s.lastLoginAt) : 'لم يدخل'} icon={<IconClock size={11} />} />
           <InfoTile
+            label="أوقات الويب (بتوقيت العراق)"
+            value={(() => {
+              const a = accessSummary(s);
+              return a ? `${a.time} · ${a.days}` : 'مفتوح دائماً';
+            })()}
+            icon={<IconClock size={11} />}
+          />
+          <InfoTile
             label="على السيرفر"
             value={s.createdAt ? `منذ ${formatDateOnly(s.createdAt)}` : s.hasAccount ? 'محفوظ' : 'غير منشأ'}
           />
@@ -624,6 +763,16 @@ export function PortalAccountsPage() {
                 البطاقة
               </Btn>
             </div>
+          )}
+          {s.hasAccount && (
+            <Btn size="sm" variant="secondary" icon={<IconTag size={14} />} onClick={() => setBrandsFor(s)}>
+              البراندات ({brandsBySeller.get(s.salesmanId)?.length ?? 0})
+            </Btn>
+          )}
+          {s.hasAccount && (
+            <Btn size="sm" variant="secondary" icon={<IconClock size={14} />} onClick={() => setAccessFor(s)}>
+              أوقات فتح الويب
+            </Btn>
           )}
           {s.hasAccount && (
             <Btn
@@ -817,9 +966,43 @@ export function PortalAccountsPage() {
                 <SearchBox value={search} onChange={setSearch} placeholder="اكتب للبحث…" />
               </FilterLabel>
               <FilterActions>
+                <Btn
+                  variant="secondary"
+                  icon={<IconCopy size={14} />}
+                  disabled={!sellers.some(s => s.pinDisplay && s.isActive)}
+                  onClick={() => {
+                    const list = sellers.filter(s => s.pinDisplay && s.isActive);
+                    const text = list
+                      .map(s => `${s.name} — الدخول: ${s.salesmanId} — الرمز: ${s.pinDisplay}`)
+                      .join('\n');
+                    void copy(`رابط ويب البائعين: ${sellerWebUrl}\n\n${text}`, `بيانات ${list.length} بائع`);
+                  }}
+                  title="نسخ قائمة الدخول والرموز لكل البائعين النشطين"
+                >
+                  نسخ كل الرموز
+                </Btn>
+                <Btn
+                  variant="secondary"
+                  icon={<IconPrinter size={14} />}
+                  disabled={!sellers.some(s => s.pinDisplay && s.isActive)}
+                  onClick={() => {
+                    const list = sellers
+                      .filter(s => s.pinDisplay && s.isActive)
+                      .map(s => ({ name: s.name, login: String(s.salesmanId), secret: s.pinDisplay! }));
+                    if (!printAllAccessCardsSheet('بائع', list, sellerWebUrl)) {
+                      toast.error('تعذّر فتح نافذة الطباعة — اسمح بالنوافذ المنبثقة');
+                    }
+                  }}
+                  title="طباعة بطاقات دخول كل البائعين النشطين في ورقة A4"
+                >
+                  طباعة البطاقات
+                </Btn>
                 <IconButton label="تحديث" onClick={() => { void sellersQ.refetch(); void webQ.refetch(); }}>
                   <IconRefresh size={15} className={sellersQ.isFetching || webQ.isFetching ? 'animate-spin' : ''} />
                 </IconButton>
+                <Btn variant="secondary" icon={<IconClock size={15} />} onClick={() => setAccessFor(null)} disabled={withAccount === 0}>
+                  أوقات الويب للجميع
+                </Btn>
                 <Btn icon={<IconKey size={15} />} onClick={() => void askBulk()} loading={issueMissing.isPending} disabled={withoutAccount === 0}>
                   توليد لمن بلا حساب ({formatNum(withoutAccount)})
                 </Btn>
@@ -916,6 +1099,22 @@ export function PortalAccountsPage() {
                 <SearchBox value={mgrSearch} onChange={setMgrSearch} placeholder="اكتب للبحث…" />
               </FilterLabel>
               <FilterActions>
+                <Btn
+                  variant="secondary"
+                  icon={<IconPrinter size={14} />}
+                  disabled={!filteredManagers.some(m => m.passwordDisplay && m.isActive)}
+                  onClick={() => {
+                    const list = filteredManagers
+                      .filter(m => m.passwordDisplay && m.isActive)
+                      .map(m => ({ name: m.displayName, login: m.username, secret: m.passwordDisplay! }));
+                    if (!printAllAccessCardsSheet('مدير', list, MANAGER_WEB_URL)) {
+                      toast.error('تعذّر فتح نافذة الطباعة — اسمح بالنوافذ المنبثقة');
+                    }
+                  }}
+                  title="طباعة بطاقات دخول المدراء النشطين في ورقة A4"
+                >
+                  طباعة البطاقات
+                </Btn>
                 <IconButton label="تحديث" onClick={() => void managersQ.refetch()}>
                   <IconRefresh size={15} className={managersQ.isFetching ? 'animate-spin' : ''} />
                 </IconButton>
@@ -1019,6 +1218,25 @@ export function PortalAccountsPage() {
             </p>
           </form>
         </Modal>
+      )}
+
+      <TreeMultiPickerDialog
+        open={brandsFor != null}
+        onClose={() => setBrandsFor(null)}
+        selected={brandsSelected}
+        onChange={trees => {
+          if (brandsFor) saveBrands.mutate({ id: brandsFor.salesmanId, trees });
+        }}
+      />
+
+      {accessFor !== undefined && (
+        <SellerAccessModal
+          seller={accessFor}
+          onClose={() => setAccessFor(undefined)}
+          onSaved={() => {
+            void qc.invalidateQueries({ queryKey: ['portal-sellers'] });
+          }}
+        />
       )}
     </WorkspacePage>
   );

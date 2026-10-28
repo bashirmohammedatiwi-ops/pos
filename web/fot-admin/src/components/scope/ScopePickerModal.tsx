@@ -191,15 +191,15 @@ export function ScopePickerModal({
   // ── حالات الصفوف ──
   function treeState(seq: number): RowState {
     if (removeTrees.has(seq)) return 'staged-remove';
-    if (inScope.treeSeqs.has(seq)) return 'in-scope';
     if (addTrees.has(seq)) return 'staged-add';
+    if (inScope.treeSeqs.has(seq)) return 'in-scope';
     return 'normal';
   }
 
   function productState(seq: number): RowState {
     if (removeRows.has(seq) || excludeSeqs.has(seq)) return 'staged-remove';
-    if (inScope.seqRowIds.has(seq) || inScope.treeSeqs.has(seq)) return 'in-scope';
     if (addProducts.has(seq)) return 'staged-add';
+    if (inScope.seqRowIds.has(seq) || inScope.treeSeqs.has(seq)) return 'in-scope';
     return 'normal';
   }
 
@@ -602,6 +602,47 @@ export function ScopePickerModal({
 
             {/* تمرير مستقل — المحتوى */}
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {/* مؤشَّرات الإضافة — تظهر في الأعلى فوراً */}
+              {addTrees.size > 0 && (
+                <div className="overflow-hidden rounded-xl border border-emerald-300 bg-emerald-50/70">
+                  <p className="border-b border-emerald-200 bg-emerald-100/70 px-3 py-1.5 text-[11px] font-bold text-emerald-900">
+                    أُضيف الآن — أشجار ({formatNum(addTrees.size)})
+                  </p>
+                  {[...addTrees.values()].reverse().map(t => (
+                    <div key={t.seq} className="flex items-center gap-2 px-3 py-1.5">
+                      <span className="icon-tile h-7 w-7 bg-emerald-200 text-emerald-800"><IconFolderClosed size={13} /></span>
+                      <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-emerald-950">{t.name}</span>
+                      <span className="text-[11px] text-emerald-700">بكامل منتجاتها</span>
+                      <button type="button" onClick={() => toggleTree(t.seq, t.name)} className="rounded-lg p-1 text-emerald-700 transition hover:bg-emerald-200 hover:text-red-600">
+                        <IconX size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {addProducts.size > 0 && (
+                <div className="overflow-hidden rounded-xl border border-emerald-300 bg-emerald-50/70">
+                  <p className="border-b border-emerald-200 bg-emerald-100/70 px-3 py-1.5 text-[11px] font-bold text-emerald-900">
+                    أُضيف الآن — منتجات ({formatNum(addProducts.size)})
+                  </p>
+                  {[...addProducts.values()].reverse().map(p => (
+                    <div key={p.seq} className="flex items-center gap-2 px-3 py-1.5">
+                      <span className="icon-tile h-7 w-7 bg-emerald-200 text-emerald-800"><IconPackage size={13} /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12.5px] font-semibold text-emerald-950">{p.name}</span>
+                        {p.barcode && <span className="block font-mono text-[11px] text-emerald-700/80">{p.barcode}</span>}
+                      </span>
+                      {(p.price ?? 0) > 0 && (
+                        <span className="shrink-0 text-[12px] font-bold tabular-nums text-emerald-900">{formatNum(p.price ?? 0)}</span>
+                      )}
+                      <button type="button" onClick={() => toggleProduct(p.seq, p.name, p.barcode, p.price)} className="rounded-lg p-1 text-emerald-700 transition hover:bg-emerald-200 hover:text-red-600">
+                        <IconX size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* الأشجار الحالية */}
               {trees.map(t => {
                 const st = removeTrees.has(t.treeSeq) ? 'staged-remove' : 'in-scope';
@@ -666,47 +707,6 @@ export function ScopePickerModal({
                   </div>
                 );
               })}
-
-              {/* مؤشَّرات الإضافة */}
-              {addTrees.size > 0 && (
-                <div className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50/70">
-                  <p className="border-b border-amber-200 bg-amber-100/70 px-3 py-1.5 text-[11px] font-bold text-amber-800">
-                    سيُضاف — أشجار ({formatNum(addTrees.size)})
-                  </p>
-                  {[...addTrees.values()].map(t => (
-                    <div key={t.seq} className="flex items-center gap-2 px-3 py-1.5">
-                      <span className="icon-tile h-7 w-7 bg-amber-200 text-amber-800"><IconFolderClosed size={13} /></span>
-                      <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-amber-900">{t.name}</span>
-                      <span className="text-[11px] text-slate-400">بكامل منتجاتها</span>
-                      <button type="button" onClick={() => toggleTree(t.seq, t.name)} className="rounded-lg p-1 text-amber-600 transition hover:bg-amber-200 hover:text-amber-900">
-                        <IconX size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {addProducts.size > 0 && (
-                <div className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50/70">
-                  <p className="border-b border-amber-200 bg-amber-100/70 px-3 py-1.5 text-[11px] font-bold text-amber-800">
-                    سيُضاف — منتجات ({formatNum(addProducts.size)})
-                  </p>
-                  {[...addProducts.values()].map(p => (
-                    <div key={p.seq} className="flex items-center gap-2 px-3 py-1.5">
-                      <span className="icon-tile h-7 w-7 bg-amber-200 text-amber-800"><IconPackage size={13} /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12.5px] font-semibold text-amber-900">{p.name}</span>
-                        {p.barcode && <span className="block font-mono text-[11px] text-amber-700/70">{p.barcode}</span>}
-                      </span>
-                      {(p.price ?? 0) > 0 && (
-                        <span className="shrink-0 text-[12px] font-bold tabular-nums text-amber-900">{formatNum(p.price ?? 0)}</span>
-                      )}
-                      <button type="button" onClick={() => toggleProduct(p.seq, p.name, p.barcode, p.price)} className="rounded-lg p-1 text-amber-600 transition hover:bg-amber-200 hover:text-amber-900">
-                        <IconX size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
 
               {trees.length === 0 && standalone.length === 0 && addTrees.size === 0 && addProducts.size === 0 && (
                 <p className="p-8 text-center text-[12.5px] text-slate-400">

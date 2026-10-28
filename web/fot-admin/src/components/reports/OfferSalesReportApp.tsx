@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { api, formatCurrency, formatNum } from '@/api/client';
-import type { OfferSalesDailyRowDto, OfferSalesProductRowDto } from '@/api/types';
+import type { OfferSalesDailyRowDto, OfferSalesProductDayRowDto, OfferSalesProductRowDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 import {
   IconCalendar,
@@ -33,15 +33,17 @@ import {
   useChartDock,
 } from './ReportKit';
 
-type TabId = 'products' | 'daily' | 'unsold';
+type TabId = 'products' | 'product-dates' | 'daily';
 
-function fmtDate(iso: string) {
+function fmtDate(iso?: string | null) {
+  if (!iso) return '—';
   const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
   return d.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function shortDay(iso: string) {
+function shortDay(iso?: string | null) {
+  if (!iso) return '—';
   const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
   return d.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'numeric' });
@@ -56,17 +58,68 @@ function pct(n: number, digits = 1) {
   return `${n.toFixed(digits)}%`;
 }
 
-type ProductRow = OfferSalesProductRowDto & { rank: number };
+function productSoldDateText(p: OfferSalesProductRowDto): string {
+  const f = p.firstSoldDate ? p.firstSoldDate.slice(0, 10) : null;
+  const l = p.lastSoldDate ? p.lastSoldDate.slice(0, 10) : null;
+  const days = p.activeDaysCount ?? 0;
+  if (!f && !l) return '—';
+  if (!l || f === l) return fmtDate(f);
+  return `${shortDay(f)} ← ${shortDay(l)}${days > 1 ? ` (${formatNum(days)} أيام)` : ''}`;
+}
+
+type ProductRow = OfferSalesProductRowDto & { rank: number; soldDatesText: string };
 
 const productColumns: GridColumn<ProductRow>[] = [
   { key: 'rank', header: '#', width: 52, align: 'center', mono: true },
-  { key: 'barcode', header: 'الباركود', width: 140, mono: true, render: p => p.barcode ?? '—' },
-  { key: 'name', header: 'المادة', width: 260, sortValue: p => fixEdariName(p.name ?? ''), exportValue: p => fixEdariName(p.name ?? ''), render: p => <span className="font-medium text-header">{fixEdariName(p.name ?? '')}</span> },
-  { key: 'quantity', header: 'الكمية', width: 100, mono: true, footer: 'sum' },
-  { key: 'listAmount', header: 'قبل الخصم', width: 130, mono: true, footer: 'sum', render: p => formatCurrency(p.listAmount) },
-  { key: 'amount', header: 'الصافي', width: 130, mono: true, footer: 'sum', render: p => <span className="font-semibold text-header">{formatCurrency(p.amount)}</span> },
-  { key: 'discountAmount', header: 'الخصم', width: 120, mono: true, footer: 'sum', render: p => <span className="text-amber-700">{formatCurrency(p.discountAmount)}</span> },
-  { key: 'sharePercent', header: 'الحصة', width: 90, mono: true, render: p => <span className="text-slate-500">{pct(p.sharePercent)}</span> },
+  { key: 'barcode', header: 'الباركود', width: 135, mono: true, render: p => p.barcode ?? '—' },
+  {
+    key: 'name',
+    header: 'المادة',
+    width: 250,
+    sortValue: p => fixEdariName(p.name ?? ''),
+    exportValue: p => fixEdariName(p.name ?? ''),
+    render: p => <span className="font-medium text-header">{fixEdariName(p.name ?? '')}</span>,
+  },
+  {
+    key: 'soldDatesText',
+    header: 'تواريخ البيع',
+    width: 155,
+    sortValue: p => p.lastSoldDate ?? p.firstSoldDate ?? '',
+    exportValue: p => p.soldDatesText,
+    render: p => <span className="num text-[12px] text-slate-600">{p.soldDatesText}</span>,
+  },
+  { key: 'quantity', header: 'الكمية', width: 95, mono: true, footer: 'sum' },
+  { key: 'listAmount', header: 'قبل الخصم', width: 125, mono: true, footer: 'sum', render: p => formatCurrency(p.listAmount) },
+  { key: 'amount', header: 'الصافي', width: 125, mono: true, footer: 'sum', render: p => <span className="font-semibold text-header">{formatCurrency(p.amount)}</span> },
+  { key: 'discountAmount', header: 'الخصم', width: 115, mono: true, footer: 'sum', render: p => <span className="text-amber-700">{formatCurrency(p.discountAmount)}</span> },
+  { key: 'sharePercent', header: 'الحصة', width: 85, mono: true, render: p => <span className="text-slate-500">{pct(p.sharePercent)}</span> },
+];
+
+type ProductDayGridRow = OfferSalesProductDayRowDto & { rowKey: string; rank: number };
+
+const productDayColumns: GridColumn<ProductDayGridRow>[] = [
+  { key: 'rank', header: '#', width: 52, align: 'center', mono: true },
+  {
+    key: 'date',
+    header: 'تاريخ البيع',
+    width: 135,
+    sortValue: d => d.date,
+    exportValue: d => d.date.slice(0, 10),
+    render: d => <span className="num font-semibold text-slate-700">{fmtDate(d.date)}</span>,
+  },
+  { key: 'barcode', header: 'الباركود', width: 135, mono: true, render: d => d.barcode ?? '—' },
+  {
+    key: 'name',
+    header: 'المادة',
+    width: 250,
+    sortValue: d => fixEdariName(d.name ?? ''),
+    exportValue: d => fixEdariName(d.name ?? ''),
+    render: d => <span className="font-medium text-header">{fixEdariName(d.name ?? '')}</span>,
+  },
+  { key: 'quantity', header: 'الكمية', width: 95, mono: true, footer: 'sum' },
+  { key: 'listAmount', header: 'قبل الخصم', width: 125, mono: true, footer: 'sum', render: d => formatCurrency(d.listAmount) },
+  { key: 'amount', header: 'الصافي', width: 125, mono: true, footer: 'sum', render: d => <span className="font-semibold text-header">{formatCurrency(d.amount)}</span> },
+  { key: 'discountAmount', header: 'الخصم', width: 115, mono: true, footer: 'sum', render: d => <span className="text-amber-700">{formatCurrency(d.discountAmount)}</span> },
 ];
 
 const dailyColumns: GridColumn<OfferSalesDailyRowDto>[] = [
@@ -74,14 +127,6 @@ const dailyColumns: GridColumn<OfferSalesDailyRowDto>[] = [
   { key: 'quantity', header: 'الكمية', width: 110, mono: true, footer: 'sum' },
   { key: 'amount', header: 'المبيعات', width: 150, mono: true, footer: 'sum', render: d => <span className="font-semibold">{formatCurrency(d.amount)}</span> },
   { key: 'receiptCount', header: 'العمليات', width: 110, mono: true, footer: 'sum' },
-];
-
-type UnsoldRow = { idx: number; barcode: string; name: string };
-
-const unsoldColumns: GridColumn<UnsoldRow>[] = [
-  { key: 'idx', header: '#', width: 52, align: 'center', mono: true },
-  { key: 'barcode', header: 'الباركود', width: 160, mono: true },
-  { key: 'name', header: 'المادة', width: 360, render: u => <span className="font-medium text-header">{u.name}</span> },
 ];
 
 export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
@@ -96,8 +141,9 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
     queryFn: () => api.offerSalesClosures(),
   });
 
-  const closures = closuresQ.data ?? [];
+  const closures = Array.isArray(closuresQ.data) ? closuresQ.data : [];
   const [offerId, setOfferId] = useState<number | null>(null);
+  const activeOfferId = offerId ?? closures[0]?.offerId ?? null;
 
   const filteredClosures = useMemo(() => {
     const q = listQuery.trim().toLowerCase();
@@ -109,31 +155,37 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
   }, [closures, listQuery]);
 
   const selectedClosure = useMemo(
-    () => closures.find(c => c.offerId === offerId) ?? null,
-    [closures, offerId],
+    () => closures.find(c => c.offerId === activeOfferId) ?? null,
+    [closures, activeOfferId],
   );
 
   const reportQ = useQuery({
-    queryKey: ['offer-sales-report', offerId],
-    queryFn: () => api.offerSalesReport(offerId!),
-    enabled: offerId != null,
+    queryKey: ['offer-sales-report', activeOfferId],
+    queryFn: () => api.offerSalesReport(activeOfferId!),
+    enabled: activeOfferId != null,
   });
 
   const report = reportQ.data;
 
   const productRows: ProductRow[] = useMemo(
-    () => (report?.products ?? []).map((p, i) => ({ ...p, rank: i + 1 })),
+    () =>
+      (report?.products ?? []).map((p, i) => ({
+        ...p,
+        rank: i + 1,
+        soldDatesText: productSoldDateText(p),
+      })),
     [report],
   );
 
-  const unsoldRows: UnsoldRow[] = useMemo(
-    () => (report?.unsoldSamples ?? []).map((u, i) => ({ idx: i + 1, barcode: u.barcode ?? '—', name: fixEdariName(u.name ?? '') })),
+  const productDayRows: ProductDayGridRow[] = useMemo(
+    () =>
+      (report?.productDaily ?? []).map((pd, i) => ({
+        ...pd,
+        rank: i + 1,
+        rowKey: `${pd.date.slice(0, 10)}-${pd.articleSeq}-${i}`,
+      })),
     [report],
   );
-
-  const coverage = report && report.scopeProductCount > 0
-    ? (report.soldProductCount / report.scopeProductCount) * 100
-    : 0;
 
   function selectOffer(id: number) {
     setOfferId(id);
@@ -155,27 +207,37 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
     const sub = `${fixEdariName(report.offerName)} · ${periodLabel(report.periodFrom, report.periodTo)}`;
     return [
       {
-        name: 'الملخص',
-        title: 'مبيعات العرض — الملخص',
+        name: 'المواد المباعة',
+        title: 'مبيعات العرض — المواد المباعة',
         subtitle: sub,
-        headers: ['المؤشر', 'القيمة'],
-        rows: [
-          ['صافي المبيعات', report.totalAmount],
-          ['إجمالي الكمية', report.totalQuantity],
-          ['قيمة قبل الخصم', report.totalListAmount],
-          ['إجمالي الخصم', report.totalDiscountAmount],
-          ['عمليات البيع', report.receiptCount],
-          ['متوسط يومي', report.averageDailyAmount],
-          ['متوسط العملية', report.averageTicketAmount],
-          ['تغطية المواد', `${formatNum(report.soldProductCount)} / ${formatNum(report.scopeProductCount)}`],
-        ],
+        headers: ['#', 'الباركود', 'المادة', 'تواريخ البيع', 'الكمية', 'قبل الخصم', 'الصافي', 'الخصم', 'الحصة %'],
+        rows: productRows.map(p => [
+          p.rank,
+          p.barcode ?? '',
+          fixEdariName(p.name ?? ''),
+          p.soldDatesText,
+          p.quantity,
+          p.listAmount,
+          p.amount,
+          p.discountAmount,
+          Number(p.sharePercent.toFixed(1)),
+        ]),
       },
       {
-        name: 'المواد',
-        title: 'مبيعات العرض — المواد',
+        name: 'مبيعات المواد بالتاريخ',
+        title: 'مبيعات العرض — تفصيل المواد بالتاريخ',
         subtitle: sub,
-        headers: ['#', 'الباركود', 'المادة', 'الكمية', 'قبل الخصم', 'الصافي', 'الخصم', 'الحصة %'],
-        rows: report.products.map((p, i) => [i + 1, p.barcode ?? '', fixEdariName(p.name ?? ''), p.quantity, p.listAmount, p.amount, p.discountAmount, Number(p.sharePercent.toFixed(1))]),
+        headers: ['#', 'التاريخ', 'الباركود', 'المادة', 'الكمية', 'قبل الخصم', 'الصافي', 'الخصم'],
+        rows: productDayRows.map(pd => [
+          pd.rank,
+          pd.date.slice(0, 10),
+          pd.barcode ?? '',
+          fixEdariName(pd.name ?? ''),
+          pd.quantity,
+          pd.listAmount,
+          pd.amount,
+          pd.discountAmount,
+        ]),
       },
     ];
   }
@@ -191,7 +253,7 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
             onKeyDown={e => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                e.stopPropagation(); // لا يصل إلى onListKey فيتخطى العرض الأول
+                e.stopPropagation();
                 listRef.current?.querySelector<HTMLButtonElement>('button[data-offer]')?.focus();
               }
             }}
@@ -225,7 +287,7 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
         )}
         <ul ref={listRef} className="divide-y divide-slate-100">
           {filteredClosures.map(c => {
-            const active = c.offerId === offerId;
+            const active = c.offerId === activeOfferId;
             return (
               <li key={c.id}>
                 <button
@@ -319,22 +381,22 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
       aside={aside}
       onClose={onClose}
     >
-      {offerId == null && (
+      {activeOfferId == null && (
         <ReportCenter>
           <EmptyState
             icon={<IconTag size={24} />}
             title="اختر عرضاً من القائمة"
-            description="ستظهر مؤشرات الأداء، المبيعات اليومية، تفاصيل المواد، ومواد العرض التي لم تُبَع — مع تصدير إكسل واحد جاهز للإرسال."
+            description="ستظهر مؤشرات الأداء، المبيعات اليومية، وتفاصيل المواد المباعة وتواريخ بيعها — مع تصدير إكسل شامل مزوّد بمنحنى المبيعات."
           />
         </ReportCenter>
       )}
-      {offerId != null && reportQ.isLoading && (
+      {activeOfferId != null && reportQ.isLoading && (
         <ReportFill>
-          <SummaryStrip loading cells={[{ label: 'صافي المبيعات', value: '' }, { label: 'الخصم', value: '' }, { label: 'الكمية', value: '' }, { label: 'تغطية المواد', value: '' }]} />
+          <SummaryStrip loading cells={[{ label: 'صافي المبيعات', value: '' }, { label: 'الخصم', value: '' }, { label: 'الكمية', value: '' }, { label: 'المواد المباعة', value: '' }]} />
           <ReportCenter><Loading /></ReportCenter>
         </ReportFill>
       )}
-      {offerId != null && reportQ.isError && (
+      {activeOfferId != null && reportQ.isError && (
         <ReportBanner>
           <ReportError error={reportQ.error} onRetry={() => void reportQ.refetch()} />
         </ReportBanner>
@@ -362,22 +424,22 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
               },
               { label: 'الكمية المباعة', value: formatNum(report.totalQuantity), hint: `${formatNum(report.receiptCount)} عملية بيع` },
               {
-                label: 'تغطية المواد',
-                value: pct(coverage),
-                tone: coverage >= 50 ? 'ok' : undefined,
-                hint: `${formatNum(report.soldProductCount)} / ${formatNum(report.scopeProductCount)} مادة`,
+                label: 'المواد المباعة',
+                value: formatNum(report.products.length),
+                tone: 'ok',
+                hint: 'مادة مباعة خلال العرض',
               },
               { label: 'متوسط يومي', value: <Money value={report.averageDailyAmount} /> },
-              { label: 'متوسط العملية', value: <Money value={report.averageTicketAmount} />, hint: 'بدون أرقام فواتير' },
+              { label: 'متوسط العملية', value: <Money value={report.averageTicketAmount} />, hint: 'داخل التطبيق فقط' },
             ]}
           />
 
           <div className="shrink-0 bg-white px-2">
             <Tabs
               items={[
-                { id: 'products' as TabId, label: 'المواد', count: report.products.length },
-                { id: 'daily' as TabId, label: 'يومي', count: report.daily.length },
-                { id: 'unsold' as TabId, label: 'بدون مبيعات', count: report.unsoldProductCount },
+                { id: 'products' as TabId, label: 'المواد المباعة', count: report.products.length },
+                { id: 'product-dates' as TabId, label: 'مبيعات المواد بالتاريخ', count: productDayRows.length },
+                { id: 'daily' as TabId, label: 'منحنى الأيام', count: report.daily.length },
               ]}
               value={tab}
               onChange={setTab}
@@ -394,10 +456,27 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
                 rows={productRows}
                 getRowId={p => p.articleSeq}
                 filters
-                storageKey="offer-sales-products"
+                storageKey="offer-sales-products-v2"
                 exportName={`مواد-العرض-${report.offerId}`}
                 counterLabel="مادة"
                 emptyText="لا مبيعات لمواد هذا العرض"
+                toolbar={chartToggle}
+              />
+            )}
+
+            {tab === 'product-dates' && (
+              <DataGrid
+                variant="sheet"
+                embedded
+                fillHeight
+                columns={productDayColumns}
+                rows={productDayRows}
+                getRowId={d => d.rowKey}
+                filters
+                storageKey="offer-sales-product-dates"
+                exportName={`مواد-العرض-بالتاريخ-${report.offerId}`}
+                counterLabel="سطر"
+                emptyText="لا توجد تفاصيل يومية للمواد"
                 toolbar={chartToggle}
               />
             )}
@@ -414,28 +493,6 @@ export function OfferSalesReportApp({ onClose }: { onClose: () => void }) {
                 exportName={`يومي-العرض-${report.offerId}`}
                 counterLabel="يوم"
                 emptyText="لا بيانات يومية"
-                toolbar={chartToggle}
-              />
-            )}
-
-            {tab === 'unsold' && (
-              <DataGrid
-                variant="sheet"
-                embedded
-                fillHeight
-                columns={unsoldColumns}
-                rows={unsoldRows}
-                getRowId={u => u.idx}
-                filters
-                storageKey="offer-sales-unsold"
-                exportName={`غير-المبيعة-${report.offerId}`}
-                counterLabel="مادة"
-                emptyText={report.unsoldProductCount === 0 ? 'كل مواد العرض لها مبيعات' : 'لا عينات'}
-                badge={report.unsoldSamples.length < report.unsoldProductCount ? (
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
-                    يعرض أول {formatNum(report.unsoldSamples.length)} من {formatNum(report.unsoldProductCount)}
-                  </span>
-                ) : undefined}
                 toolbar={chartToggle}
               />
             )}

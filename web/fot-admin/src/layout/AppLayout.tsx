@@ -8,7 +8,8 @@ import { ShortcutsHelp } from '@/components/ShortcutsHelp';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { WorkPills } from '@/components/WorkPills';
 import { isDenseListPage, NAV_GROUPS, PAGE_META } from '@/navigation/routes';
-import { ICONS, IconMaximize, IconMenu, IconMinimize, IconRefresh, IconUpload } from '@/components/icons';
+import { ICONS, IconHelp, IconMaximize, IconMenu, IconMinimize, IconRefresh, IconSearch, IconUpload } from '@/components/icons';
+import { Kbd } from '@/components/ui';
 import { usePosHub } from '@/hooks/usePosHub';
 import { useEdariAutoRefresh } from '@/hooks/useEdariAutoRefresh';
 import { useLanConnection } from '@/hooks/useLanConnection';
@@ -166,9 +167,22 @@ export function AppLayout() {
                 )}
               </nav>
               <h1 className="truncate text-[15px] font-bold text-header" title={meta.subtitle}>{meta.title}</h1>
+              {meta.subtitle && (
+                <p className="hidden truncate text-[11px] text-slate-400 2xl:block">{meta.subtitle}</p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCmdOpen(true)}
+              className="hidden h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-[12px] text-slate-500 transition hover:border-brand-300 hover:bg-white hover:text-slate-800 md:inline-flex"
+              title="بحث وانتقال سريع (Ctrl+K)"
+            >
+              <IconSearch size={14} />
+              <span className="hidden lg:inline">بحث…</span>
+              <Kbd>Ctrl K</Kbd>
+            </button>
             <WorkPills className="hidden xl:flex" />
             <span
               className={`hidden h-9 items-center gap-2 rounded-lg border px-2.5 text-[11.5px] font-semibold md:inline-flex ${statusBox}`}
@@ -191,6 +205,15 @@ export function AppLayout() {
               aria-label="تحديث البيانات"
             >
               <IconRefresh size={16} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('fot-admin-help'))}
+              className="hidden h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 lg:inline-flex"
+              title="اختصارات لوحة المفاتيح (F1)"
+              aria-label="اختصارات لوحة المفاتيح"
+            >
+              <IconHelp size={16} />
             </button>
             <button
               type="button"

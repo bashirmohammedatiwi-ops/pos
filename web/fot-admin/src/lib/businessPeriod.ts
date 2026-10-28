@@ -9,9 +9,13 @@ export function dayNameAr(day: number) {
   return DAY_NAMES[day] ?? '—';
 }
 
-export function isoDate(d: Date | string) {
+export function isoDate(d?: Date | string | null) {
+  if (!d) return isoDate(new Date());
   if (typeof d === 'string') return d.slice(0, 10);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (typeof d.getFullYear === 'function') {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return isoDate(new Date());
 }
 
 export function getWeekBounds(
@@ -87,6 +91,15 @@ export function businessWeekLabel(settings?: BusinessPeriodSettingsDto | null) {
 }
 
 export function periodsFromSettings(settings: BusinessPeriodSettingsDto) {
+  const weekStart = settings?.weekStartDay ?? DEFAULT_WEEK_START;
+  const weekLen = settings?.weekLengthDays ?? DEFAULT_WEEK_LENGTH;
+  if (!settings?.currentWeekStart || !settings?.currentWeekEnd) {
+    return {
+      currentWeek: currentWeekIso(weekStart, weekLen),
+      previousWeek: previousWeekIso(weekStart, weekLen),
+      currentMonth: currentMonthIso(),
+    };
+  }
   return {
     currentWeek: { from: isoDate(settings.currentWeekStart), to: isoDate(settings.currentWeekEnd) },
     previousWeek: { from: isoDate(settings.previousWeekStart), to: isoDate(settings.previousWeekEnd) },

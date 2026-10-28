@@ -582,6 +582,19 @@ export function LoginPage() {
                   </button>
                 ))}
               </div>
+              {lanUrls[0] && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5">
+                  <span className="text-[11px] font-semibold text-slate-500">روابط سريعة:</span>
+                  <a
+                    href={`${lanUrls[0]}/price/`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-6 items-center gap-1 rounded-md bg-emerald-50 px-2 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100"
+                  >
+                    كاشف السعر (/price/)
+                  </a>
+                </div>
+              )}
               {isServerEdition && (
                 <p className="mt-2 text-[11.5px] text-slate-400">ثبّت لوحة الإدارة أو الكاشير على الأجهزة الأخرى واختر هذا العنوان</p>
               )}

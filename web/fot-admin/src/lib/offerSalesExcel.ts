@@ -1,310 +1,735 @@
-import { formatCurrency, formatNum } from '@/api/client';
-import type { OfferSalesReportDto } from '@/api/types';
+import { formatNum } from '@/api/client';
+import type { OfferSalesDailyRowDto, OfferSalesProductDayRowDto, OfferSalesProductRowDto, OfferSalesReportDto } from '@/api/types';
 import { offerTypeLabel } from '@/lib/offers';
 import { fixEdariName } from '@/lib/text';
+import {
+  downloadXlsxFile,
+  type XlsxCellInput,
+  type XlsxImageInput,
+  type XlsxRowInput,
+  type XlsxSheetInput,
+} from './xlsxBuilder';
 
-const COLS = 10;
-const widths = [34, 92, 200, 58, 72, 72, 72, 56, 48, 48];
-
-function esc(s: string) {
-  return s
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function num(value: number) {
-  return Number.isFinite(value) ? value : 0;
-}
-
-function cell(
+function c(
   value: string | number,
   style: string,
   type?: 'String' | 'Number',
   opts?: { mergeAcross?: number; mergeDown?: number },
-) {
-  const t = type ?? (typeof value === 'number' ? 'Number' : 'String');
-  const merge =
-    (opts?.mergeAcross ? ` ss:MergeAcross="${opts.mergeAcross}"` : '')
-    + (opts?.mergeDown ? ` ss:MergeDown="${opts.mergeDown}"` : '');
-  if (t === 'Number') {
-    return `<Cell ss:StyleID="${style}"${merge}><Data ss:Type="Number">${num(typeof value === 'number' ? value : Number(value))}</Data></Cell>`;
-  }
-  return `<Cell ss:StyleID="${style}"${merge}><Data ss:Type="String">${esc(String(value ?? ''))}</Data></Cell>`;
+): XlsxCellInput {
+  return {
+    value,
+    style,
+    type: type ?? (typeof value === 'number' ? 'Number' : 'String'),
+    mergeAcross: opts?.mergeAcross,
+    mergeDown: opts?.mergeDown,
+  };
 }
 
-function row(cells: string, height?: number) {
-  return `<Row${height ? ` ss:Height="${height}"` : ''}>${cells}</Row>`;
+function r(cells: XlsxCellInput[], height?: number): XlsxRowInput {
+  return { cells, height };
 }
 
-function blank(h?: number) {
-  return row('', h);
+function blank(height = 10): XlsxRowInput {
+  return { cells: [], height };
 }
 
 function shortDate(value?: string | null) {
   if (!value) return '—';
   const d = new Date(`${value.slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return value.slice(0, 10);
-  return d.toLocaleDateString('ar-IQ', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  return d.toLocaleDateString('en-CA'); // YYYY-MM-DD clean date
+}
+
+function shortDayMonth(value?: string | null) {
+  if (!value) return '';
+  const d = new Date(`${value.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
+  return `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
 function weekday(value?: string | null) {
   if (!value) return '';
   const d = new Date(`${value.slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('ar-IQ', { weekday: 'short' });
+  return d.toLocaleDateString('ar-IQ', { weekday: 'long' });
 }
 
-const bordersLight = `
-<Borders>
-<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-</Borders>`;
+function soldDatesLabel(p: OfferSalesProductRowDto): string {
+  const f = p.firstSoldDate ? shortDate(p.firstSoldDate) : null;
+  const l = p.lastSoldDate ? shortDate(p.lastSoldDate) : null;
+  const days = p.activeDaysCount ?? 0;
+  if (!f && !l) return '—';
+  if (f === l || !l) return f ?? '—';
+  return days > 1 ? `${f} ← ${l} (${days} أيام)` : `${f} ← ${l}`;
+}
 
-const bordersTopBold = `
-<Borders>
-<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#312E81"/>
-</Borders>`;
+function visualShareBar(ratio0to1: number, maxBlocks = 14): string {
+  const clamped = Math.max(0, Math.min(1, Number.isFinite(ratio0to1) ? ratio0to1 : 0));
+  const filled = Math.max(clamped > 0 ? 1 : 0, Math.round(clamped * maxBlocks));
+  return '█'.repeat(filled) + '░'.repeat(Math.max(0, maxBlocks - filled));
+}
 
-const styles = `<Styles>
-<Style ss:ID="hero"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Tahoma" ss:Size="14"/>${bordersLight}<Interior ss:Color="#4338CA" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
-<Style ss:ID="heroSub"><Font ss:Color="#E0E7FF" ss:FontName="Tahoma" ss:Size="10"/>${bordersLight}<Interior ss:Color="#4338CA" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/></Style>
-<Style ss:ID="lbl"><Font ss:Bold="1" ss:Color="#64748B" ss:FontName="Tahoma" ss:Size="9"/>${bordersLight}<Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-<Style ss:ID="val"><Font ss:Bold="1" ss:Color="#0F172A" ss:FontName="Tahoma" ss:Size="10"/>${bordersLight}<Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-<Style ss:ID="section"><Font ss:Bold="1" ss:Color="#312E81" ss:FontName="Tahoma" ss:Size="11"/>${bordersLight}<Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-<Style ss:ID="head"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Tahoma" ss:Size="10"/>${bordersLight}<Interior ss:Color="#312E81" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/></Style>
-<Style ss:ID="kpiL"><Font ss:Bold="1" ss:Color="#64748B" ss:FontName="Tahoma" ss:Size="9"/>${bordersLight}<Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/></Style>
-<Style ss:ID="kpiV"><Font ss:Bold="1" ss:Color="#0F172A" ss:FontName="Tahoma" ss:Size="15"/>${bordersLight}<Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0.00"/></Style>
-<Style ss:ID="kpiI"><Font ss:Bold="1" ss:Color="#0F172A" ss:FontName="Tahoma" ss:Size="15"/>${bordersLight}<Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0"/></Style>
-<Style ss:ID="kpiP"><Font ss:Bold="1" ss:Color="#4338CA" ss:FontName="Tahoma" ss:Size="15"/>${bordersLight}<Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><NumberFormat ss:Format="0.0%"/></Style>
-<Style ss:ID="plain"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Alignment ss:Vertical="Center"/></Style>
-<Style ss:ID="plainWrap"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-<Style ss:ID="zebra"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-<Style ss:ID="zebraWrap"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-<Style ss:ID="rank"><Font ss:Bold="1" ss:Color="#64748B" ss:FontName="Tahoma" ss:Size="10"/>${bordersLight}<Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
-<Style ss:ID="num"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0.00"/></Style>
-<Style ss:ID="numZ"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0.00"/></Style>
-<Style ss:ID="int"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0.##"/></Style>
-<Style ss:ID="intZ"><Font ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersLight}<Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0.##"/></Style>
-<Style ss:ID="pct"><Font ss:FontName="Tahoma" ss:Color="#475569" ss:Size="10"/>${bordersLight}<Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="0.0%"/></Style>
-<Style ss:ID="pctZ"><Font ss:FontName="Tahoma" ss:Color="#475569" ss:Size="10"/>${bordersLight}<Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="0.0%"/></Style>
-<Style ss:ID="total"><Font ss:Bold="1" ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersTopBold}<Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-<Style ss:ID="totalN"><Font ss:Bold="1" ss:FontName="Tahoma" ss:Color="#0F172A" ss:Size="10"/>${bordersTopBold}<Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="#,##0.00"/></Style>
-<Style ss:ID="note"><Font ss:FontName="Tahoma" ss:Color="#57534E" ss:Size="9"/>${bordersLight}<Interior ss:Color="#FFFBEB" ss:Pattern="Solid"/><Alignment ss:WrapText="1"/></Style>
-<Style ss:ID="foot"><Font ss:FontName="Tahoma" ss:Color="#94A3B8" ss:Size="9"/><Alignment ss:Horizontal="Center"/></Style>
-</Styles>`;
+function dataUrlToBytes(dataUrl: string): Uint8Array | null {
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) return null;
+  try {
+    const b64 = dataUrl.slice(comma + 1);
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
 
-function infoPair(rows: string[], label: string, value: string, mergeLabel = 1, mergeVal = 3) {
-  rows.push(row(
-    cell(label, 'lbl', 'String', { mergeAcross: mergeLabel })
-    + cell(value, 'val', 'String', { mergeAcross: mergeVal }),
-    20,
-  ));
+/**
+ * Renders a high-resolution visual dashboard banner PNG (Daily Sales Trend Curve + Top Products Horizontal Bars)
+ * using HTML5 Canvas so it embeds natively into the Excel worksheet via DrawingML.
+ */
+function renderOfferChartsPng(
+  offerName: string,
+  periodLabel: string,
+  daily: OfferSalesDailyRowDto[],
+  products: OfferSalesProductRowDto[],
+): Uint8Array | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  const W = 1360;
+  const H = 430;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const font = (weight: string | number, size: number) => `${weight} ${size}px Tahoma, "Segoe UI", Arial, sans-serif`;
+
+  // Background
+  ctx.fillStyle = '#F8FAFC';
+  ctx.fillRect(0, 0, W, H);
+
+  // Outer border
+  ctx.strokeStyle = '#CBD5E1';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+
+  // Top Header Strip
+  const gradHeader = ctx.createLinearGradient(0, 0, W, 0);
+  gradHeader.addColorStop(0, '#312E81');
+  gradHeader.addColorStop(0.5, '#4338CA');
+  gradHeader.addColorStop(1, '#6D28D9');
+  ctx.fillStyle = gradHeader;
+  ctx.fillRect(2, 2, W - 4, 52);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = font('bold', 19);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`لوحة المؤشرات والرسوم البيانية — ${offerName}`, W - 24, 28);
+
+  ctx.fillStyle = '#E0E7FF';
+  ctx.font = font('bold', 14);
+  ctx.textAlign = 'left';
+  ctx.fillText(periodLabel, 24, 28);
+
+  // ── Left Card: Top Products Horizontal Bar Chart ──
+  const leftCard = { x: 20, y: 68, w: 620, h: 344 };
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(leftCard.x, leftCard.y, leftCard.w, leftCard.h);
+  ctx.strokeStyle = '#E2E8F0';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(leftCard.x, leftCard.y, leftCard.w, leftCard.h);
+
+  ctx.fillStyle = '#1E1B4B';
+  ctx.font = font('bold', 16);
+  ctx.textAlign = 'right';
+  ctx.fillText('أعلى المواد مبيعاً (صافي المبيعات والكمية)', leftCard.x + leftCard.w - 18, leftCard.y + 26);
+
+  const topProds = products.slice(0, 7);
+  const maxProdAmount = Math.max(1, ...topProds.map(p => p.amount));
+  const barAreaTop = leftCard.y + 52;
+  const rowH = 40;
+
+  topProds.forEach((p, idx) => {
+    const y = barAreaTop + idx * rowH;
+    const rawName = fixEdariName(p.name ?? '') || p.barcode || `#${p.articleSeq}`;
+    const label = rawName.length > 34 ? `${rawName.slice(0, 33)}…` : rawName;
+    const ratio = Math.max(0.04, Math.min(1, p.amount / maxProdAmount));
+    const maxBarW = 195;
+    const barW = Math.round(ratio * maxBarW);
+
+    // Product label on the right side of the card (260px dedicated width)
+    ctx.fillStyle = '#0F172A';
+    ctx.font = font('bold', 11.5);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${idx + 1}. ${label}`, leftCard.x + leftCard.w - 14, y + 14, 255);
+
+    // Bar track in the middle
+    const barRight = leftCard.x + leftCard.w - 278;
+    ctx.fillStyle = '#F1F5F9';
+    ctx.fillRect(barRight - maxBarW, y + 4, maxBarW, 20);
+
+    // Filled bar (growing RTL from barRight leftward)
+    const barGrad = ctx.createLinearGradient(barRight - barW, y, barRight, y);
+    barGrad.addColorStop(0, '#6366F1');
+    barGrad.addColorStop(1, '#4338CA');
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(barRight - barW, y + 4, barW, 20);
+
+    // Value label on the left
+    ctx.fillStyle = '#312E81';
+    ctx.font = font('bold', 11.5);
+    ctx.textAlign = 'left';
+    ctx.fillText(`${formatNum(Math.round(p.amount))} د.ع (${formatNum(p.quantity)})`, leftCard.x + 12, y + 14, 130);
+  });
+
+  // ── Right Card: Daily Sales Curve (Smooth Area + Line + Points) ──
+  const rightCard = { x: 660, y: 68, w: 680, h: 344 };
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(rightCard.x, rightCard.y, rightCard.w, rightCard.h);
+  ctx.strokeStyle = '#E2E8F0';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(rightCard.x, rightCard.y, rightCard.w, rightCard.h);
+
+  ctx.fillStyle = '#1E1B4B';
+  ctx.font = font('bold', 16);
+  ctx.textAlign = 'right';
+  ctx.fillText('منحنى المبيعات اليومية خلال فترة العرض', rightCard.x + rightCard.w - 18, rightCard.y + 26);
+
+  const plot = {
+    x: rightCard.x + 74,
+    y: rightCard.y + 58,
+    w: rightCard.w - 104,
+    h: rightCard.h - 108,
+  };
+
+  const ptsData = daily.length > 0 ? daily : [{ date: '', amount: 0, quantity: 0, receiptCount: 0 }];
+  const maxDayVal = Math.max(1, ...ptsData.map(d => d.amount));
+
+  // Horizontal grid lines + Y-axis labels
+  const gridSteps = 4;
+  for (let g = 0; g <= gridSteps; g++) {
+    const gy = plot.y + (plot.h * g) / gridSteps;
+    const val = Math.round(maxDayVal * (1 - g / gridSteps));
+    ctx.strokeStyle = g === gridSteps ? '#94A3B8' : '#E2E8F0';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(plot.x, gy);
+    ctx.lineTo(plot.x + plot.w, gy);
+    ctx.stroke();
+
+    ctx.fillStyle = '#64748B';
+    ctx.font = font('normal', 11);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatNum(val), plot.x - 8, gy);
+  }
+
+  // Compute coordinates for daily points
+  const coords = ptsData.map((d, i) => {
+    const x =
+      ptsData.length === 1
+        ? plot.x + plot.w / 2
+        : plot.x + (i / (ptsData.length - 1)) * plot.w;
+    const y = plot.y + plot.h - (Math.max(0, d.amount) / maxDayVal) * (plot.h - 18);
+    return { x, y, d };
+  });
+
+  // Area fill under the curve
+  if (coords.length >= 2) {
+    const areaGrad = ctx.createLinearGradient(0, plot.y, 0, plot.y + plot.h);
+    areaGrad.addColorStop(0, 'rgba(79, 70, 229, 0.34)');
+    areaGrad.addColorStop(1, 'rgba(79, 70, 229, 0.02)');
+    ctx.fillStyle = areaGrad;
+    ctx.beginPath();
+    ctx.moveTo(coords[0].x, plot.y + plot.h);
+    coords.forEach(pt => ctx.lineTo(pt.x, pt.y));
+    ctx.lineTo(coords[coords.length - 1].x, plot.y + plot.h);
+    ctx.closePath();
+    ctx.fill();
+
+    // Curve stroke
+    ctx.strokeStyle = '#4F46E5';
+    ctx.lineWidth = 3.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    coords.forEach((pt, idx) => {
+      if (idx === 0) ctx.moveTo(pt.x, pt.y);
+      else ctx.lineTo(pt.x, pt.y);
+    });
+    ctx.stroke();
+  } else if (coords.length === 1) {
+    // Single day bar + point
+    const pt = coords[0];
+    const bw = 56;
+    const bh = Math.max(6, plot.y + plot.h - pt.y);
+    ctx.fillStyle = 'rgba(79, 70, 229, 0.25)';
+    ctx.fillRect(pt.x - bw / 2, pt.y, bw, bh);
+  }
+
+  // Draw data points, value badges, and X-axis date labels
+  const labelStep = Math.max(1, Math.ceil(coords.length / 10));
+  coords.forEach((pt, idx) => {
+    // Outer white ring + inner indigo circle
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#4338CA';
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (idx % labelStep === 0 || idx === coords.length - 1) {
+      // Value above point
+      if (pt.d.amount > 0) {
+        ctx.fillStyle = '#1E1B4B';
+        ctx.font = font('bold', 11);
+        ctx.textAlign = 'center';
+        ctx.fillText(formatNum(Math.round(pt.d.amount)), pt.x, Math.max(plot.y - 6, pt.y - 12));
+      }
+
+      // Date label on X-axis
+      ctx.fillStyle = '#334155';
+      ctx.font = font('bold', 11);
+      ctx.textAlign = 'center';
+      ctx.fillText(shortDayMonth(pt.d.date), pt.x, plot.y + plot.h + 18);
+    }
+  });
+
+  return dataUrlToBytes(canvas.toDataURL('image/png'));
 }
 
 export function downloadOfferSalesExcel(report: OfferSalesReportDto) {
   const printedAt = new Date().toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' });
-  const period = `${shortDate(report.periodFrom)} — ${shortDate(report.periodTo)}`;
+  const offerTitle = fixEdariName(report.offerName);
+  const period = `${shortDate(report.periodFrom)} ← ${shortDate(report.periodTo)}`;
   const store = report.storeLabel ? fixEdariName(report.storeLabel) : '—';
   const typeLabel = offerTypeLabel(report.offerType);
-  const discountNote = report.offerType === 0 && report.discountPercent > 0
-    ? `خصم العرض ${formatNum(report.discountPercent)}%`
-    : typeLabel;
-  const coverage = report.scopeProductCount > 0 ? report.soldProductCount / report.scopeProductCount : 0;
-  const activeDays = report.daily.filter(d => d.amount > 0 || d.quantity > 0).length;
-  const merge = COLS - 1;
+  const discountNote =
+    report.offerType === 0 && report.discountPercent > 0
+      ? `خصم العرض ${formatNum(report.discountPercent)}%`
+      : typeLabel;
 
-  const rows: string[] = [];
+  const COLS = 10;
+  const mergeAll = COLS - 1;
+  const widths = [44, 128, 250, 145, 76, 82, 108, 108, 100, 125];
 
-  rows.push(row(cell('FOT POS', 'hero', 'String', { mergeAcross: 2 }) + cell('تقرير مبيعات عرض — للشركة الأم', 'hero', 'String', { mergeAcross: merge - 2 }), 32));
-  rows.push(row(
-    cell(fixEdariName(report.offerName), 'heroSub', 'String', { mergeAcross: 5 })
-    + cell(`رقم العرض: ${report.offerId}`, 'heroSub', 'String', { mergeAcross: 2 })
-    + cell(`طُبع: ${printedAt}`, 'heroSub', 'String', { mergeAcross: merge - 7 }),
-  ));
-  rows.push(blank(10));
+  // Generate embedded high-resolution chart banner PNG
+  const chartPng = renderOfferChartsPng(offerTitle, period, report.daily ?? [], report.products ?? []);
 
-  rows.push(row(cell('بيانات التقرير', 'section', 'String', { mergeAcross: merge })));
-  infoPair(rows, 'الفرع / المنفذ', store, 1, 3);
-  infoPair(rows, 'نوع العرض', discountNote, 1, 3);
-  infoPair(rows, 'فترة العرض', `${period} (${report.periodDays} يوم)`, 1, 3);
-  infoPair(rows, 'نطاق المواد', `${formatNum(report.scopeProductCount)} مادة · مباعة ${formatNum(report.soldProductCount)} · بدون مبيعات ${formatNum(report.unsoldProductCount)}`, 1, 3);
-  infoPair(rows, 'عمليات البيع', `${formatNum(report.receiptCount)} (بدون أرقام فواتير)`, 1, 3);
+  // ── Sheet 1: التقرير التنفيذي ومنحنى المبيعات والمواد المباعة ─────────────
+  const rows: XlsxRowInput[] = [];
+
+  // 1. Header Banner
+  rows.push(
+    r(
+      [
+        c('FOT POS', 'hero', 'String', { mergeAcross: 1 }),
+        c(`تقرير مبيعات العرض — ${offerTitle}`, 'hero', 'String', { mergeAcross: mergeAll - 2 }),
+      ],
+      32,
+    ),
+  );
+  rows.push(
+    r(
+      [
+        c(`الفرع: ${store}`, 'heroSub', 'String', { mergeAcross: 2 }),
+        c(`نوع العرض: ${discountNote}`, 'heroSub', 'String', { mergeAcross: 2 }),
+        c(`فترة العرض: ${period}`, 'heroSub', 'String', { mergeAcross: 2 }),
+        c(`تاريخ التصدير: ${printedAt}`, 'heroSub', 'String', { mergeAcross: 1 }),
+      ],
+      24,
+    ),
+  );
   rows.push(blank(8));
 
-  rows.push(row(cell('ملخص الأداء المالي', 'section', 'String', { mergeAcross: merge })));
-  rows.push(row(
-    cell('صافي المبيعات', 'kpiL', 'String', { mergeAcross: 1 })
-    + cell('إجمالي الكمية', 'kpiL', 'String', { mergeAcross: 1 })
-    + cell('قيمة قبل الخصم', 'kpiL', 'String', { mergeAcross: 1 })
-    + cell('إجمالي الخصم', 'kpiL', 'String', { mergeAcross: 1 })
-    + cell('متوسط يومي', 'kpiL', 'String', { mergeAcross: 1 })
-    + cell('متوسط العملية', 'kpiL', 'String', { mergeAcross: merge - 5 }),
-    18,
-  ));
-  rows.push(row(
-    cell(report.totalAmount, 'kpiV', 'Number', { mergeAcross: 1 })
-    + cell(report.totalQuantity, 'kpiI', 'Number', { mergeAcross: 1 })
-    + cell(report.totalListAmount, 'kpiV', 'Number', { mergeAcross: 1 })
-    + cell(report.totalDiscountAmount, 'kpiV', 'Number', { mergeAcross: 1 })
-    + cell(report.averageDailyAmount, 'kpiV', 'Number', { mergeAcross: 1 })
-    + cell(report.averageTicketAmount, 'kpiV', 'Number', { mergeAcross: merge - 5 }),
-    28,
-  ));
-  rows.push(row(
-    cell('تغطية المواد المباعة', 'kpiL', 'String', { mergeAcross: 2 })
-    + cell('أيام بمبيعات', 'kpiL', 'String', { mergeAcross: 2 })
-    + cell('', 'kpiL', 'String', { mergeAcross: merge - 4 }),
-    16,
-  ));
-  rows.push(row(
-    cell(coverage, 'kpiP', 'Number', { mergeAcross: 2 })
-    + cell(activeDays, 'kpiI', 'Number', { mergeAcross: 2 })
-    + cell('', 'plain', 'String', { mergeAcross: merge - 4 }),
-    26,
-  ));
+  // 2. Clean Financial Totals ONLY (No averages, no unsold counts)
+  rows.push(r([c('إجماليات مبيعات العرض', 'section', 'String', { mergeAcross: mergeAll })], 24));
+  rows.push(
+    r(
+      [
+        c('صافي مبيعات العرض (د.ع)', 'kpiL', 'String', { mergeAcross: 1 }),
+        c('القيمة قبل الخصم (د.ع)', 'kpiL', 'String', { mergeAcross: 1 }),
+        c('إجمالي الخصم الممنوح (د.ع)', 'kpiL', 'String', { mergeAcross: 1 }),
+        c('إجمالي الكمية المباعة', 'kpiL', 'String', { mergeAcross: 1 }),
+        c('عدد المواد المباعة', 'kpiL', 'String', { mergeAcross: 1 }),
+      ],
+      20,
+    ),
+  );
+  rows.push(
+    r(
+      [
+        c(report.totalAmount, 'kpiV', 'Number', { mergeAcross: 1 }),
+        c(report.totalListAmount, 'kpiV', 'Number', { mergeAcross: 1 }),
+        c(report.totalDiscountAmount, 'kpiV', 'Number', { mergeAcross: 1 }),
+        c(report.totalQuantity, 'kpiI', 'Number', { mergeAcross: 1 }),
+        c(report.products.length, 'kpiI', 'Number', { mergeAcross: 1 }),
+      ],
+      28,
+    ),
+  );
   rows.push(blank(10));
 
-  if (report.daily.length > 0) {
-    rows.push(row(cell('المبيعات اليومية', 'section', 'String', { mergeAcross: merge })));
-    rows.push(row(
-      cell('التاريخ', 'head')
-      + cell('اليوم', 'head')
-      + cell('الكمية', 'head')
-      + cell('صافي المبيعات', 'head')
-      + cell('عمليات', 'head')
-      + cell('', 'head', 'String', { mergeAcross: merge - 4 }),
-      22,
-    ));
-    report.daily.forEach((d, i) => {
-      const z = i % 2 === 1;
-      rows.push(row(
-        cell(shortDate(d.date), z ? 'zebra' : 'plain')
-        + cell(weekday(d.date), z ? 'zebra' : 'plain')
-        + cell(d.quantity, z ? 'intZ' : 'int', 'Number')
-        + cell(d.amount, z ? 'numZ' : 'num', 'Number')
-        + cell(d.receiptCount, z ? 'intZ' : 'int', 'Number')
-        + cell('', z ? 'zebra' : 'plain', 'String', { mergeAcross: merge - 4 }),
-      ));
+  // 3. Space reserved for the embedded Chart Image (if available in browser)
+  const sheet1Images: XlsxImageInput[] = [];
+  if (chartPng) {
+    rows.push(
+      r(
+        [
+          c(
+            'منحنى المبيعات اليومية وأعلى المواد مبيعاً خلال فترة العرض',
+            'section',
+            'String',
+            { mergeAcross: mergeAll },
+          ),
+        ],
+        24,
+      ),
+    );
+    const chartStartRow0 = rows.length; // 0-based row where chart starts
+    const chartRowCount = 16;
+    for (let i = 0; i < chartRowCount; i++) {
+      rows.push(blank(22));
+    }
+    sheet1Images.push({
+      pngBytes: chartPng,
+      fromCol: 0,
+      fromRow: chartStartRow0,
+      toCol: COLS,
+      toRow: chartStartRow0 + chartRowCount,
+      title: `منحنى مبيعات العرض - ${offerTitle}`,
     });
     rows.push(blank(10));
   }
 
-  const productHeaderRow = rows.length + 1;
-  rows.push(row(cell('المواد المباعة خلال العرض', 'section', 'String', { mergeAcross: merge })));
-  rows.push(row(
-    cell('م', 'head')
-    + cell('الباركود', 'head')
-    + cell('اسم المادة', 'head')
-    + cell('الكمية', 'head')
-    + cell('قبل الخصم', 'head')
-    + cell('صافي المبيعات', 'head')
-    + cell('الخصم', 'head')
-    + cell('الحصة', 'head')
-    + cell('', 'head', 'String', { mergeAcross: merge - 7 }),
-    24,
-  ));
+  // 4. Sold Products Table (with Sales Dates per product + visual share bar)
+  const maxProdAmount = Math.max(1, ...report.products.map(p => p.amount));
+  rows.push(
+    r(
+      [
+        c(
+          `جدول المواد المباعة وتواريخ البيع خلال العرض (${formatNum(report.products.length)} مادة)`,
+          'section',
+          'String',
+          { mergeAcross: mergeAll },
+        ),
+      ],
+      24,
+    ),
+  );
+  rows.push(
+    r(
+      [
+        c('م', 'head'),
+        c('الباركود', 'head'),
+        c('اسم المادة', 'head'),
+        c('تواريخ البيع', 'head'),
+        c('أيام البيع', 'head'),
+        c('الكمية المباعة', 'head'),
+        c('القيمة قبل الخصم', 'head'),
+        c('صافي المبيعات', 'head'),
+        c('قيمة الخصم', 'head'),
+        c('الحصة والمؤشر', 'head'),
+      ],
+      25,
+    ),
+  );
 
   report.products.forEach((p, i) => {
     const z = i % 2 === 1;
-    rows.push(row(
-      cell(i + 1, 'rank')
-      + cell(p.barcode ?? '', z ? 'zebra' : 'plain')
-      + cell(fixEdariName(p.name ?? ''), z ? 'zebraWrap' : 'plainWrap')
-      + cell(p.quantity, z ? 'intZ' : 'int', 'Number')
-      + cell(p.listAmount, z ? 'numZ' : 'num', 'Number')
-      + cell(p.amount, z ? 'numZ' : 'num', 'Number')
-      + cell(p.discountAmount, z ? 'numZ' : 'num', 'Number')
-      + cell(p.sharePercent / 100, z ? 'pctZ' : 'pct', 'Number')
-      + cell('', z ? 'zebra' : 'plain', 'String', { mergeAcross: merge - 7 }),
-    ));
+    const bar = visualShareBar(p.amount / maxProdAmount, 10);
+    const shareText = `${bar} ${p.sharePercent.toFixed(1)}%`;
+    rows.push(
+      r(
+        [
+          c(i + 1, 'rank', 'Number'),
+          c(p.barcode ?? '', z ? 'zebraC' : 'plainC', 'String'),
+          c(fixEdariName(p.name ?? ''), z ? 'zebraWrap' : 'plainWrap', 'String'),
+          c(soldDatesLabel(p), z ? 'zebraC' : 'plainC', 'String'),
+          c(p.activeDaysCount || 1, z ? 'intZ' : 'int', 'Number'),
+          c(p.quantity, z ? 'intZ' : 'int', 'Number'),
+          c(p.listAmount, z ? 'numZ' : 'num', 'Number'),
+          c(p.amount, z ? 'moneyZ' : 'money', 'Number'),
+          c(p.discountAmount, z ? 'numZ' : 'num', 'Number'),
+          c(shareText, z ? 'barCellZ' : 'barCell', 'String'),
+        ],
+        21,
+      ),
+    );
   });
 
-  rows.push(row(
-    cell('الإجمالي', 'total', 'String', { mergeAcross: 2 })
-    + cell(report.totalQuantity, 'totalN', 'Number')
-    + cell(report.totalListAmount, 'totalN', 'Number')
-    + cell(report.totalAmount, 'totalN', 'Number')
-    + cell(report.totalDiscountAmount, 'totalN', 'Number')
-    + cell('', 'total', 'String', { mergeAcross: merge - 5 }),
-  ));
-
-  rows.push(blank(8));
-  rows.push(row(
-    cell(
-      `ملخص نصي: صافي المبيعات ${formatCurrency(report.totalAmount)} · الكمية ${formatNum(report.totalQuantity)} · متوسط يومي ${formatCurrency(report.averageDailyAmount)}.`,
-      'note',
-      'String',
-      { mergeAcross: merge },
+  rows.push(
+    r(
+      [
+        c('الإجمالي العام للمواد المباعة', 'total', 'String', { mergeAcross: 4 }),
+        c(report.totalQuantity, 'totalInt', 'Number'),
+        c(report.totalListAmount, 'totalN', 'Number'),
+        c(report.totalAmount, 'totalN', 'Number'),
+        c(report.totalDiscountAmount, 'totalN', 'Number'),
+        c('100.0%', 'total', 'String'),
+      ],
+      25,
     ),
-  ));
-  rows.push(row(
-    cell(
-      'تنويه: لا يتضمن التقرير أرقام الفواتير أو أسماء البائعين. الأرقام من مواد نطاق العرض فقط خلال فترة العرض.',
-      'note',
-      'String',
-      { mergeAcross: merge },
-    ),
-  ));
+  );
 
-  if (report.unsoldProductCount > 0 && report.unsoldSamples.length > 0) {
-    rows.push(blank(6));
-    rows.push(row(
-      cell(
-        `مواد العرض بدون مبيعات (${formatNum(report.unsoldProductCount)}) — عينة (${report.unsoldSamples.length})`,
-        'section',
-        'String',
-        { mergeAcross: merge },
+  // 5. Daily Sales Table with visual curve bar on Sheet 1
+  if (report.daily.length > 0) {
+    const maxDailyAmt = Math.max(1, ...report.daily.map(d => d.amount));
+    rows.push(blank(12));
+    rows.push(
+      r([c('جدول ومنحنى المبيعات اليومية بالتاريخ', 'section', 'String', { mergeAcross: mergeAll })], 24),
+    );
+    rows.push(
+      r(
+        [
+          c('م', 'head'),
+          c('التاريخ', 'head'),
+          c('اليوم', 'head'),
+          c('الكمية المباعة', 'head'),
+          c('صافي المبيعات (د.ع)', 'head', 'String', { mergeAcross: 1 }),
+          c('عدد الفواتير/العمليات', 'head'),
+          c('نسبة اليوم', 'head'),
+          c('منحنى اليوم البصري', 'head', 'String', { mergeAcross: 1 }),
+        ],
+        24,
       ),
-    ));
-    report.unsoldSamples.forEach((u, i) => {
+    );
+    report.daily.forEach((d, i) => {
       const z = i % 2 === 1;
-      rows.push(row(
-        cell(u.barcode ?? '—', z ? 'zebra' : 'plain')
-        + cell(fixEdariName(u.name ?? ''), z ? 'zebraWrap' : 'plainWrap', 'String', { mergeAcross: merge - 1 }),
-      ));
+      const dayShare = report.totalAmount > 0 ? d.amount / report.totalAmount : 0;
+      const curveBar = visualShareBar(d.amount / maxDailyAmt, 18);
+      rows.push(
+        r(
+          [
+            c(i + 1, 'rank', 'Number'),
+            c(shortDate(d.date), z ? 'zebraC' : 'plainC', 'String'),
+            c(weekday(d.date), z ? 'zebraC' : 'plainC', 'String'),
+            c(d.quantity, z ? 'intZ' : 'int', 'Number'),
+            c(d.amount, z ? 'moneyZ' : 'money', 'Number', { mergeAcross: 1 }),
+            c(d.receiptCount, z ? 'intZ' : 'int', 'Number'),
+            c(dayShare, z ? 'pctZ' : 'pct', 'Number'),
+            c(curveBar, z ? 'barCellZ' : 'barCell', 'String', { mergeAcross: 1 }),
+          ],
+          21,
+        ),
+      );
+    });
+    rows.push(
+      r(
+        [
+          c('مجموع الأيام', 'total', 'String', { mergeAcross: 2 }),
+          c(report.totalQuantity, 'totalInt', 'Number'),
+          c(report.totalAmount, 'totalN', 'Number', { mergeAcross: 1 }),
+          c(report.receiptCount, 'totalInt', 'Number'),
+          c(report.totalAmount > 0 ? 1 : 0, 'pct', 'Number'),
+          c('', 'total', 'String', { mergeAcross: 1 }),
+        ],
+        24,
+      ),
+    );
+  }
+
+  // ── Sheet 2: سجل مبيعات المواد بالتاريخ (Product Sales by Date) ────────────
+  const productDailyList: OfferSalesProductDayRowDto[] = report.productDaily ?? [];
+  const byDateRows: XlsxRowInput[] = [
+    r(
+      [
+        c(
+          `تفصيل مبيعات المواد بالتاريخ — ${offerTitle} (${period})`,
+          'brand',
+          'String',
+          { mergeAcross: 8 },
+        ),
+      ],
+      28,
+    ),
+    r(
+      [
+        c('م', 'head'),
+        c('تاريخ البيع', 'head'),
+        c('اليوم', 'head'),
+        c('الباركود', 'head'),
+        c('اسم المادة', 'head'),
+        c('الكمية المباعة', 'head'),
+        c('القيمة قبل الخصم', 'head'),
+        c('صافي المبيعات', 'head'),
+        c('قيمة الخصم', 'head'),
+      ],
+      24,
+    ),
+  ];
+
+  if (productDailyList.length > 0) {
+    productDailyList.forEach((pd, i) => {
+      const z = i % 2 === 1;
+      byDateRows.push(
+        r(
+          [
+            c(i + 1, 'rank', 'Number'),
+            c(shortDate(pd.date), z ? 'zebraC' : 'plainC', 'String'),
+            c(weekday(pd.date), z ? 'zebraC' : 'plainC', 'String'),
+            c(pd.barcode ?? '', z ? 'zebraC' : 'plainC', 'String'),
+            c(fixEdariName(pd.name ?? ''), z ? 'zebraWrap' : 'plainWrap', 'String'),
+            c(pd.quantity, z ? 'intZ' : 'int', 'Number'),
+            c(pd.listAmount, z ? 'numZ' : 'num', 'Number'),
+            c(pd.amount, z ? 'moneyZ' : 'money', 'Number'),
+            c(pd.discountAmount, z ? 'numZ' : 'num', 'Number'),
+          ],
+          20,
+        ),
+      );
+    });
+  } else {
+    // Fallback if server hasn't populated productDaily yet: use products with their date range
+    report.products.forEach((p, i) => {
+      const z = i % 2 === 1;
+      byDateRows.push(
+        r(
+          [
+            c(i + 1, 'rank', 'Number'),
+            c(soldDatesLabel(p), z ? 'zebraC' : 'plainC', 'String'),
+            c(p.firstSoldDate ? weekday(p.firstSoldDate) : '—', z ? 'zebraC' : 'plainC', 'String'),
+            c(p.barcode ?? '', z ? 'zebraC' : 'plainC', 'String'),
+            c(fixEdariName(p.name ?? ''), z ? 'zebraWrap' : 'plainWrap', 'String'),
+            c(p.quantity, z ? 'intZ' : 'int', 'Number'),
+            c(p.listAmount, z ? 'numZ' : 'num', 'Number'),
+            c(p.amount, z ? 'moneyZ' : 'money', 'Number'),
+            c(p.discountAmount, z ? 'numZ' : 'num', 'Number'),
+          ],
+          20,
+        ),
+      );
     });
   }
 
-  rows.push(blank(6));
-  rows.push(row(cell('وثيقة مُولَّدة آلياً من FOT POS — للاستخدام الداخلي والشركة الأم', 'foot', 'String', { mergeAcross: merge })));
+  byDateRows.push(
+    r(
+      [
+        c('الإجمالي العام', 'total', 'String', { mergeAcross: 4 }),
+        c(report.totalQuantity, 'totalInt', 'Number'),
+        c(report.totalListAmount, 'totalN', 'Number'),
+        c(report.totalAmount, 'totalN', 'Number'),
+        c(report.totalDiscountAmount, 'totalN', 'Number'),
+      ],
+      24,
+    ),
+  );
 
-  const colXml = widths.map(w => `<Column ss:Width="${w}"/>`).join('');
-  const productEndRow = rows.length;
-  const sheet = `<Worksheet ss:Name="تقرير العرض" ss:RightToLeft="1">
-<Table ss:DefaultColumnWidth="72">${colXml}${rows.join('')}</Table>
-<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-<FreezePanes/>
-<FrozenNoSplit/>
-<SplitHorizontal>${productHeaderRow + 1}</SplitHorizontal>
-<TopRowBottomPane>${productHeaderRow + 1}</TopRowBottomPane>
-</WorksheetOptions>
-<AutoFilter x:Range="R${productHeaderRow + 1}C1:R${productEndRow}C8" xmlns:x="urn:schemas-microsoft-com:office:excel"/>
-</Worksheet>`;
+  // ── Sheet 3: مصفوفة المواد × الأيام (Products × Days Matrix) ──────────────
+  const sortedDates = Array.from(
+    new Set([
+      ...report.daily.map(d => shortDate(d.date)),
+      ...productDailyList.map(pd => shortDate(pd.date)),
+    ]),
+  )
+    .filter(d => d && d !== '—')
+    .sort();
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
-${styles}
-${sheet}
-</Workbook>`;
+  const sheets: XlsxSheetInput[] = [
+    {
+      name: 'تقرير العرض والمنحنى',
+      rtl: true,
+      columnWidths: widths,
+      rows,
+      images: sheet1Images,
+    },
+    {
+      name: 'مبيعات المواد بالتاريخ',
+      rtl: true,
+      columnWidths: [44, 110, 95, 130, 260, 95, 115, 115, 105],
+      rows: byDateRows,
+    },
+  ];
 
-  const blob = new Blob(['\uFEFF', xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const base = `مبيعات-عرض-${report.offerName}`.replace(/[^\w\u0600-\u06FF.-]+/g, '_').replace(/_+/g, '_');
-  a.download = `${base}.xls`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  if (sortedDates.length > 0 && productDailyList.length > 0) {
+    const qtyMap = new Map<string, number>();
+    for (const pd of productDailyList) {
+      const k = `${pd.articleSeq}|${shortDate(pd.date)}`;
+      qtyMap.set(k, (qtyMap.get(k) ?? 0) + pd.quantity);
+    }
+
+    const matrixCols = 3 + sortedDates.length + 2;
+    const matrixRows: XlsxRowInput[] = [
+      r(
+        [
+          c(
+            `مصفوفة الكميات المباعة يومياً لكل مادة — ${offerTitle}`,
+            'brand',
+            'String',
+            { mergeAcross: matrixCols - 1 },
+          ),
+        ],
+        28,
+      ),
+      r(
+        [
+          c('م', 'head'),
+          c('الباركود', 'head'),
+          c('اسم المادة', 'head'),
+          ...sortedDates.map(d => c(shortDayMonth(d), 'head', 'String')),
+          c('مجموع الكمية', 'head'),
+          c('صافي المبيعات', 'head'),
+        ],
+        24,
+      ),
+    ];
+
+    report.products.forEach((p, idx) => {
+      const z = idx % 2 === 1;
+      const dayCells = sortedDates.map(d => {
+        const q = qtyMap.get(`${p.articleSeq}|${d}`) ?? 0;
+        return q > 0
+          ? c(q, z ? 'intZ' : 'int', 'Number')
+          : c('—', z ? 'zebraC' : 'plainC', 'String');
+      });
+      matrixRows.push(
+        r(
+          [
+            c(idx + 1, 'rank', 'Number'),
+            c(p.barcode ?? '', z ? 'zebraC' : 'plainC', 'String'),
+            c(fixEdariName(p.name ?? ''), z ? 'zebraWrap' : 'plainWrap', 'String'),
+            ...dayCells,
+            c(p.quantity, 'totalInt', 'Number'),
+            c(p.amount, 'money', 'Number'),
+          ],
+          20,
+        ),
+      );
+    });
+
+    const dayTotals = sortedDates.map(d => {
+      let sum = 0;
+      for (const pd of productDailyList) {
+        if (shortDate(pd.date) === d) sum += pd.quantity;
+      }
+      return c(sum, 'totalInt', 'Number');
+    });
+
+    matrixRows.push(
+      r(
+        [
+          c('إجمالي اليوم', 'total', 'String', { mergeAcross: 2 }),
+          ...dayTotals,
+          c(report.totalQuantity, 'totalInt', 'Number'),
+          c(report.totalAmount, 'totalN', 'Number'),
+        ],
+        24,
+      ),
+    );
+
+    sheets.push({
+      name: 'مصفوفة الأيام والمواد',
+      rtl: true,
+      columnWidths: [42, 125, 240, ...sortedDates.map(() => 68), 95, 115],
+      rows: matrixRows,
+    });
+  }
+
+  const base = `مبيعات-عرض-${offerTitle}`
+    .replace(/[^\w\u0600-\u06FF.-]+/g, '_')
+    .replace(/_+/g, '_');
+  downloadXlsxFile(base, sheets);
 }

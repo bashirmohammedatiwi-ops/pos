@@ -12,15 +12,14 @@ import {
   Delta, Empty, ErrorBox, HourBands, LeaderCard, Medal, MetricStrip, PageHero, Podium, RecentFeed,
   SearchField, SectionCard, Sheet, Skeleton, StatGrid,
 } from '../ui';
-import { PeriodBar } from '../week';
+import { PeriodBar } from '../picker';
 
 type Sort = 'sales' | 'receipts';
 type Tab = 'overview' | 'sellers' | 'products' | 'invoices';
 
 export function Cashiers() {
   const {
-    weekStart, setWeek, dash, prevDash, weeks, activityLines, scopedCashiers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom, periodTotals, shareBase,
+    dash, prevDash, activityLines, scopedCashiers, period, periodTotals, shareBase,
     err, loading, reload,
   } = useManager();
   const insights = useShopInsights();
@@ -46,6 +45,7 @@ export function Cashiers() {
   const salesTotal = periodTotals.sales || shareBase;
   const todayRow = insights.days.find(d => d.key === todayKey());
   const todayKey_ = todayKey();
+  const isToday = period.singleDay && period.from === todayKey_;
 
   const todayCashiers = useMemo(() => {
     return (dash?.cashierDays ?? [])
@@ -73,21 +73,7 @@ export function Cashiers() {
 
   return (
     <div className="page-flow fade-up people-page">
-      <PeriodBar
-        weeks={weeks}
-        weekStart={weekStart}
-        setWeek={setWeek}
-        period={period}
-        kind={periodKind}
-        setKind={setPeriodKind}
-        customFrom={customFrom}
-        customTo={customTo}
-        setCustom={setCustom}
-        days={insights.days}
-        activeDay={period.singleDay ? period.from : undefined}
-        today={todayKey()}
-        onDaySelect={key => { setCustom(key, key); setPeriodKind('custom'); }}
-      />
+      <PeriodBar />
 
       <PageHero
         kicker={`أرض المحل · ${period.label}`}
@@ -98,16 +84,15 @@ export function Cashiers() {
       >
         <MetricStrip
           items={[
-            { label: 'اليوم', value: moneyIq(todayRow?.sales ?? 0), tone: 'gold' },
-            { label: 'فواتير', value: String(todayRow?.receipts ?? todayCashiers.reduce((s, c) => s + c.receipts, 0)), tone: 'goal' },
-            { label: 'متوسط', value: moneyIq(avgTicket(salesTotal, periodTotals.receipts)), tone: 'ok' },
-            { label: 'كاشير اليوم', value: String(todayCashiers.length), tone: 'gold' },
+            { label: 'الفواتير', value: String(periodTotals.receipts), tone: 'goal' },
+            { label: 'متوسط الفاتورة', value: moneyIq(avgTicket(salesTotal, periodTotals.receipts)), tone: 'ok' },
+            ...(isToday ? [] : [{ label: 'مبيعات اليوم', value: moneyIq(todayRow?.sales ?? 0), tone: 'gold' as const }]),
           ]}
         />
         <div className="mt-3"><ExportMenu title="تقرير الكاشير" /></div>
       </PageHero>
 
-      {todayCashiers.length > 0 && (
+      {todayCashiers.length > 0 && !isToday && (
         <section className="card home-section today-live">
           <p className="kicker mb-2">مبيعات اليوم · مباشر</p>
           <div className="today-live-grid">

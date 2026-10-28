@@ -1,24 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dayLabel, moneyIq, todayKey, type LineRow } from '../api';
+import { dayLabel, moneyIq, type LineRow } from '../api';
 import { groupReceipts, lineCashier, rankProducts } from '../insights';
 import { LineSheet, MoveList, PhoneTable, ReceiptList } from '../lines';
 import { ExportMenu } from '../ExportMenu';
-import { useManager, useShopInsights } from '../store';
-import {
-  DayStrip, Empty, ErrorBox, MetricStrip, PageHero, RecentFeed, SearchField, Skeleton,
-} from '../ui';
-import { PeriodBar } from '../week';
+import { useManager } from '../store';
+import { Empty, ErrorBox, PageHero, SearchField, Skeleton } from '../ui';
+import { PeriodBar } from '../picker';
 
 type Mode = 'invoices' | 'lines' | 'products' | 'sellers' | 'cashiers';
 
 export function Moves() {
   const {
-    weekStart, setWeek, dash, weeks, lines, scopedLines, activityLines, scopedCashiers, period, periodKind,
-    setPeriodKind, customFrom, customTo, setCustom, periodTotals,
+    dash, lines, scopedLines, activityLines, scopedCashiers, period, periodTotals,
     err, loading, reload,
   } = useManager();
-  const insights = useShopInsights();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
   useEffect(() => { setQ(params.get('q') ?? ''); }, [params]);
@@ -100,83 +96,46 @@ export function Moves() {
 
   return (
     <div className="page-flow fade-up">
-      <PeriodBar
-        weeks={weeks}
-        weekStart={weekStart}
-        setWeek={setWeek}
-        period={period}
-        kind={periodKind}
-        setKind={setPeriodKind}
-        customFrom={customFrom}
-        customTo={customTo}
-        setCustom={setCustom}
-      />
+      <PeriodBar />
       <PageHero
         kicker={day ? `فواتير ${dayLabel(day)}` : `فواتير ${period.label}`}
-        title="كل التفاصيل"
+        title="الفواتير"
         value={moneyIq(totalSales || periodTotals.sales)}
-        hint={`${receipts.length} فاتورة · ${filtered.length} حركة${widened ? ' · حركات الأسبوع' : ''}`}
+        hint={`${receipts.length} فاتورة${seller || cashier || q.trim() ? ' بعد التصفية' : ''}${widened ? ' · حركات الأسبوع' : ''}`}
       >
-        <MetricStrip
-          items={[
-            { label: 'فواتير', value: String(receipts.length), tone: 'goal' },
-            { label: 'حركات', value: String(filtered.length), tone: 'ok' },
-            { label: 'بائعون', value: String(sellerNames.length), tone: 'gold' },
-            { label: 'كاشير', value: String(cashierNames.length), tone: 'warn' },
-          ]}
-        />
         <div className="hero-actions mt-3">
           <ExportMenu title="تقرير الفواتير" />
         </div>
       </PageHero>
-      {mode === 'invoices' && receipts.length > 0 && (
-        <RecentFeed receipts={receipts} limit={5} title="آخر الفواتير المفلترة" to="/moves" />
-      )}
-      {insights.days.length > 0 && (
-        <section className="card p-4">
-          <DayStrip
-            days={insights.days}
-            today={todayKey()}
-            active={day || (period.singleDay ? period.from : undefined)}
-            onSelect={key => {
-              if (day === key) {
-                setDay();
-                return;
-              }
-              setDay(key);
-              setCustom(key, key);
-              setPeriodKind('custom');
-            }}
-          />
-        </section>
-      )}
-      <SearchField value={q} onChange={setQ} placeholder="ابحث بالمنتج أو البائع أو الكاشير أو رقم الفاتورة" />
+      <section className="s-card s-filter">
+        <SearchField value={q} onChange={setQ} placeholder="رقم الفاتورة أو اسم منتج" />
+        <div className="s-filter-row">
+          <label>
+            <span>البائع</span>
+            <select value={seller} onChange={e => setSeller(e.target.value)}>
+              <option value="">الكل</option>
+              {sellerNames.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>الكاشير</span>
+            <select value={cashier} onChange={e => setCashier(e.target.value)}>
+              <option value="">الكل</option>
+              {cashierNames.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        </div>
+        {(seller || cashier || q.trim() || day) && (
+          <button type="button" className="s-back" onClick={() => { setSeller(''); setCashier(''); setQ(''); if (day) setDay(); }}>
+            مسح التصفية
+          </button>
+        )}
+      </section>
       <div className="view-toggle">
-        {([['invoices', 'الفواتير'], ['lines', 'الحركات'], ['products', 'المنتجات'], ['sellers', 'البائع'], ['cashiers', 'الكاشير']] as const).map(([k, label]) => (
+        {([['invoices', 'الفواتير'], ['products', 'المنتجات'], ['lines', 'كل الحركات']] as const).map(([k, label]) => (
           <button key={k} type="button" className={mode === k ? 'on' : ''} onClick={() => setMode(k)}>{label}</button>
         ))}
       </div>
-      {day && (
-        <button type="button" className="pill mt-2" onClick={() => setDay()}>
-          إلغاء فلتر {dayLabel(day)}
-        </button>
-      )}
-      {(sellerNames.length > 1 || cashierNames.length > 1) && (
-        <div className="toolbar">
-          <button type="button" className={`chip ${!seller ? 'chip-on' : ''}`} onClick={() => setSeller('')}>كل البائعين</button>
-          {sellerNames.map(n => (
-            <button key={n} type="button" className={`chip ${seller === n ? 'chip-on' : ''}`} onClick={() => setSeller(s => s === n ? '' : n)}>{n}</button>
-          ))}
-        </div>
-      )}
-      {cashierNames.length > 0 && (
-        <div className="toolbar">
-          <button type="button" className={`chip ${!cashier ? 'chip-on' : ''}`} onClick={() => setCashier('')}>كل الكاشير</button>
-          {cashierNames.map(n => (
-            <button key={n} type="button" className={`chip ${cashier === n ? 'chip-on' : ''}`} onClick={() => setCashier(s => s === n ? '' : n)}>{n}</button>
-          ))}
-        </div>
-      )}
       {widened && <p className="data-note">لا حركات بتاريخ هذه المدة، لذلك تُعرض فواتير الأسبوع.</p>}
       {loading && !activityLines.length && <Skeleton />}
 

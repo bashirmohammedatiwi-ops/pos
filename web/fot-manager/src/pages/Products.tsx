@@ -8,7 +8,7 @@ import { useManager } from '../store';
 import {
   Empty, ErrorBox, MetricStrip, PageHero, SearchField, SectionCard, Sheet, Skeleton,
 } from '../ui';
-import { PeriodBar } from '../week';
+import { PeriodBar } from '../picker';
 import type { LineRow } from '../api';
 
 type Sort = 'sales' | 'qty';
@@ -16,8 +16,7 @@ type Tab = 'sellers' | 'cashiers' | 'invoices';
 
 export function Products() {
   const {
-    weekStart, setWeek, dash, weeks, activityLines, period, periodKind, setPeriodKind,
-    customFrom, customTo, setCustom, periodTotals, err, loading, reload,
+    dash, activityLines, period, periodTotals, err, loading, reload,
   } = useManager();
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -50,17 +49,7 @@ export function Products() {
 
   return (
     <div className="page-flow fade-up">
-      <PeriodBar
-        weeks={weeks}
-        weekStart={weekStart}
-        setWeek={setWeek}
-        period={period}
-        kind={periodKind}
-        setKind={setPeriodKind}
-        customFrom={customFrom}
-        customTo={customTo}
-        setCustom={setCustom}
-      />
+      <PeriodBar />
       <PageHero
         kicker={`منتجات · ${period.label}`}
         title="ماذا يُباع"

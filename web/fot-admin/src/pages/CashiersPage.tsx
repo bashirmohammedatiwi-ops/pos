@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, formatNum, todayIso } from '@/api/client';
-import type { CashierDto, SectionSummaryDto } from '@/api/types';
+import { api, formatCurrency, formatNum, todayIso } from '@/api/client';
+import type { CashierDto, CashierPerformanceRowDto, SectionSummaryDto } from '@/api/types';
 import { DataGrid, type GridColumn, type GridSort } from '@/components/grid/DataGrid';
 import {
   FilterActions,
@@ -89,11 +89,46 @@ export function CashiersPage() {
 
   const q = useQuery({ queryKey: ['cashiers'], queryFn: () => api.cashiers() });
   const sectionsQ = useQuery({ queryKey: ['sections'], queryFn: () => api.sections(true) });
+  const today = todayIso();
+  const perfQ = useQuery({
+    queryKey: ['cashiers-today-perf', today],
+    queryFn: () => api.cashierPerformance(today, today),
+    staleTime: 30_000,
+  });
+  const voidsQ = useQuery({
+    queryKey: ['cashiers-today-voids', today],
+    queryFn: () => api.cashierVoids(today, today),
+    staleTime: 45_000,
+  });
   // تحميل مسبق لما يحتاجه محرر الكاشير
   useQuery({ queryKey: ['permissions'], queryFn: api.permissions, staleTime: 120_000 });
   useQuery({ queryKey: ['salesmen'], queryFn: () => api.salesmen(true), staleTime: 120_000 });
 
-  const items = useMemo(() => q.data?.items ?? [], [q.data]);
+  const items = useMemo(() => (Array.isArray(q.data?.items) ? q.data.items : []), [q.data]);
+  const perfList = useMemo(
+    () => (Array.isArray(perfQ.data) ? perfQ.data : []),
+    [perfQ.data],
+  );
+  const perfById = useMemo(
+    () => new Map<number, CashierPerformanceRowDto>(perfList.map(p => [p.cashierId, p])),
+    [perfList],
+  );
+  const voidsById = useMemo(
+    () => new Map((Array.isArray(voidsQ.data?.cashiers) ? voidsQ.data.cashiers : []).map(v => [v.cashierId, v])),
+    [voidsQ.data],
+  );
+  const todaySalesTotal = useMemo(
+    () => perfList.reduce((s, r) => s + r.netSales, 0),
+    [perfList],
+  );
+  const todayReceiptsTotal = useMemo(
+    () => perfList.reduce((s, r) => s + r.receiptCount, 0),
+    [perfList],
+  );
+  const activeTodayCount = useMemo(
+    () => perfList.filter(r => r.receiptCount > 0 || r.netSales > 0).length,
+    [perfList],
+  );
   const sections = (sectionsQ.data ?? []) as SectionSummaryDto[];
   const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections]);
   const lacksBox = (c: CashierDto) => {
@@ -225,6 +260,41 @@ export function CashiersPage() {
         : <Badge>مخصّصة</Badge>),
     },
     {
+      key: 'todaySales',
+      header: 'مبيعات اليوم',
+      width: 145,
+      mono: true,
+      sortValue: c => perfById.get(c.id)?.netSales ?? 0,
+      render: c => {
+        const p = perfById.get(c.id);
+        if (!p || (p.netSales === 0 && p.receiptCount === 0)) return <span className="text-slate-300">—</span>;
+        return <span className="font-bold text-header num">{formatCurrency(p.netSales)}</span>;
+      },
+    },
+    {
+      key: 'todayReceipts',
+      header: 'فواتير اليوم',
+      width: 125,
+      mono: true,
+      sortValue: c => perfById.get(c.id)?.receiptCount ?? 0,
+      render: c => {
+        const p = perfById.get(c.id);
+        const v = voidsById.get(c.id);
+        const voidCount = (v?.cancelledInvoices ?? 0) + (v?.deletedLines ?? 0);
+        if (!p && !voidCount) return <span className="text-slate-300">—</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="font-semibold text-slate-700 num">{formatNum(p?.receiptCount ?? 0)}</span>
+            {voidCount > 0 && (
+              <span title={`${formatNum(v?.cancelledInvoices ?? 0)} فاتورة ملغاة · ${formatNum(v?.deletedLines ?? 0)} بند محذوف اليوم`}>
+                <Badge tone="warn" className="num">حذف {formatNum(voidCount)}</Badge>
+              </span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
       key: 'active',
       header: 'الحالة',
       width: 96,
@@ -351,6 +421,13 @@ export function CashiersPage() {
               tone: noBoxCount ? 'warn' : undefined,
               onClick: noBoxCount ? () => { setNoBoxOnly(v => !v); setStatus('all'); } : undefined,
               active: noBoxOnly,
+            },
+            {
+              label: 'مبيعات الكاشير اليوم',
+              value: perfQ.isLoading ? '…' : formatCurrency(todaySalesTotal),
+              hint: `${formatNum(todayReceiptsTotal)} فاتورة · ${formatNum(activeTodayCount)} باعوا اليوم`,
+              tone: todaySalesTotal > 0 ? 'ok' : undefined,
+              onClick: () => navigate('/reports?app=cashier-performance'),
             },
             {
               label: 'المعروض',

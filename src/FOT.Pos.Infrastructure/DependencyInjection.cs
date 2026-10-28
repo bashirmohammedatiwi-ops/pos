@@ -43,7 +43,10 @@ public static class DependencyInjection
 
         services.AddScoped<ProductRepository>();
         services.AddScoped<StoreCatalogRepository>();
+        services.AddScoped<ApiPlatformRepository>();
         services.AddScoped<ArticleTreeRepository>();
+        services.AddScoped<SellerBrandRepository>();
+        services.AddScoped<StaffRepository>();
         services.AddScoped<OfferRepository>();
         services.AddScoped<OfferFolderRepository>();
         services.AddSingleton<ReceiptSchemaService>();
@@ -82,6 +85,7 @@ public static class DependencyInjection
         services.AddScoped<ClientErrorRepository>();
         services.AddScoped<CatalogVersionRepository>();
         services.AddScoped<TreeMembershipRefresher>();
+        services.AddSingleton<SystemBackupService>();
         return services;
     }
 

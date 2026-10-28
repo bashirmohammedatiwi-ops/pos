@@ -197,6 +197,21 @@ export function SalesmenPage() {
   };
 
   const columns = useMemo<GridColumn<Row>[]>(() => [
+    {
+      key: 'rank',
+      header: 'الرتبة',
+      width: 68,
+      align: 'center',
+      sortable: false,
+      exportable: false,
+      render: (_s, i) => {
+        const rank = i + 1;
+        if (rank === 1) return <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-full bg-amber-100 px-1.5 text-[11px] font-extrabold text-amber-800 num">🥇 1</span>;
+        if (rank === 2) return <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-extrabold text-slate-700 num">🥈 2</span>;
+        if (rank === 3) return <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-full bg-orange-100 px-1.5 text-[11px] font-extrabold text-orange-800 num">🥉 3</span>;
+        return <span className="text-[11.5px] font-semibold text-slate-400 num">{rank}</span>;
+      },
+    },
     { key: 'id', header: '#', width: 60, mono: true, footer: 'text', footerText: 'المجموع' },
     {
       key: 'name',
@@ -369,11 +384,11 @@ export function SalesmenPage() {
               {hasFilters && (
                 <Btn size="xs" variant="ghost" onClick={clearFilters}>مسح الفلاتر</Btn>
               )}
-              <p className="ms-auto hidden text-[11.5px] text-slate-500 lg:block">
-                الأسماء من الأداري — إن ظهرت خاطئة نفّذ «مزامنة الأداري».
-                <Link to="/commissions" className="mx-1 font-semibold text-brand-700 hover:underline">العمولات</Link>·
-                <Link to="/targets" className="mx-1 font-semibold text-brand-700 hover:underline">الأهداف</Link>·
-                <Link to="/portal-accounts" className="ms-1 font-semibold text-brand-700 hover:underline">حسابات الويب</Link>
+              <p className="ms-auto hidden items-center gap-1.5 text-[11.5px] text-slate-500 lg:flex">
+                <Link to="/reports?app=settlement" className="rounded-md bg-brand-50 px-2 py-0.5 font-bold text-brand-700 hover:bg-brand-100">كشف التسليم الأسبوعي</Link>·
+                <Link to="/commissions" className="font-semibold text-brand-700 hover:underline">العمولات</Link>·
+                <Link to="/targets" className="font-semibold text-brand-700 hover:underline">الأهداف</Link>·
+                <Link to="/portal-accounts" className="font-semibold text-brand-700 hover:underline">حسابات الويب</Link>
               </p>
             </>
           }

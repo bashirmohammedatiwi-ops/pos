@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatNum } from '@/api/client';
 import type { OfferDetailDto, ProductOfferLookupDto } from '@/api/types';
 import { DISCOUNT_TYPE, OFFER_PRICE_STEP, offerPercent, offerSalePrice } from '@/lib/offers';
@@ -140,6 +140,17 @@ export function OfferPricedGroupEditor({
   const [removeRowIds, setRemoveRowIds] = useState<Set<number>>(new Set());
   const [edits, setEdits] = useState<Map<number, { mode: Mode; value: string }>>(new Map());
   const [drafts, setDrafts] = useState<Map<number, { mode: Mode; value: string }>>(new Map());
+
+  const prevStamp = useRef('');
+  useEffect(() => {
+    const stamp = standalone.map(d => `${d.id}:${d.discount}:${d.discountType}`).join('|');
+    if (prevStamp.current && prevStamp.current !== stamp) {
+      setAddProducts(new Map());
+      setRemoveRowIds(new Set());
+      setEdits(new Map());
+    }
+    prevStamp.current = stamp;
+  }, [standalone]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebounced(search.trim()), 280);
@@ -307,6 +318,30 @@ export function OfferPricedGroupEditor({
             </h3>
           </div>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+            {[...addProducts.values()].reverse().map(p => (
+              <article key={`new-${p.seq}`} className="rounded-lg border border-emerald-300 bg-emerald-50/80 px-2.5 py-2">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] font-semibold text-emerald-950">{p.name}</p>
+                    <p className="text-[11.5px] text-emerald-700">
+                      {p.barcode ? `${p.barcode} · ` : ''}سعر {formatNum(p.originalPrice)} · أُضيف الآن
+                    </p>
+                  </div>
+                  <Btn size="sm" variant="ghost" className="!text-red-600" onClick={() => setAddProducts(m => { const n = new Map(m); n.delete(p.seq); return n; })}>
+                    <IconX size={12} /> إلغاء
+                  </Btn>
+                </div>
+                <div className="mt-1.5">
+                  <ProductPriceFields
+                    original={p.originalPrice}
+                    mode={modeOf(p.discountType)}
+                    value={valueOf(p.originalPrice, p.discount, p.discountType)}
+                    onChange={(mode, value) => updateStaged(p.seq, mode, value, p.originalPrice)}
+                  />
+                </div>
+              </article>
+            ))}
+
             {keepStandalone.map(d => {
               const fields = existingFields(d);
               return (
@@ -334,30 +369,6 @@ export function OfferPricedGroupEditor({
                 </article>
               );
             })}
-
-            {[...addProducts.values()].map(p => (
-              <article key={`new-${p.seq}`} className="rounded-lg border border-amber-300 bg-amber-50/80 px-2.5 py-2">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-semibold text-amber-900">{p.name}</p>
-                    <p className="text-[11.5px] text-amber-700">
-                      {p.barcode ? `${p.barcode} · ` : ''}سعر {formatNum(p.originalPrice)} · سيُضاف
-                    </p>
-                  </div>
-                  <Btn size="sm" variant="ghost" onClick={() => setAddProducts(m => { const n = new Map(m); n.delete(p.seq); return n; })}>
-                    <IconX size={12} />
-                  </Btn>
-                </div>
-                <div className="mt-1.5">
-                  <ProductPriceFields
-                    original={p.originalPrice}
-                    mode={modeOf(p.discountType)}
-                    value={valueOf(p.originalPrice, p.discount, p.discountType)}
-                    onChange={(mode, value) => updateStaged(p.seq, mode, value, p.originalPrice)}
-                  />
-                </div>
-              </article>
-            ))}
 
             {removedRows.length > 0 && (
               <div className="overflow-hidden rounded-lg border border-red-200 bg-red-50/60">
