@@ -8,7 +8,7 @@ import { useToast } from '@/components/Toast';
 import { IconPlus, IconRefresh } from '@/components/icons';
 import { Badge, Btn, Field, IconButton, Input, Modal, Select, Switch, TableSkeleton, useConfirm } from '@/components/ui';
 import { ErrorBlock, SearchBox } from '@/components/people/PeopleKit';
-import { WifiScanModal } from './TeamWifiScan';
+import { WifiScanModal, saveNetworkSmart } from './TeamWifiScan';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق الفريق ← الحضور: اللوحة الحيّة، السجل والتصدير، التصحيح والإضافة اليدوية،
@@ -347,9 +347,9 @@ export function TeamRulesPage() {
   });
   const saveNet = useMutation({
     mutationFn: () =>
-      api.saveTeamNetwork(
-        { name: net?.name, ssid: net?.ssid ?? null, bssids: splitBssids(net?.bssidText ?? ''), ip: net?.ip?.trim() || null, isActive: net?.isActive !== false },
-        net?.id,
+      saveNetworkSmart(
+        { name: net?.name ?? '', ssid: net?.ssid ?? null, bssids: splitBssids(net?.bssidText ?? ''), ip: net?.ip?.trim() || null, isActive: net?.isActive !== false },
+        { id: net?.id, legacy: legacyHub, known: legacyHub ? new Set(nets.filter(n => n.id !== net?.id).flatMap(n => n.bssids ?? (n.bssid ? [n.bssid] : []))) : undefined },
       ),
     onSuccess: () => {
       toast.success('حُفظت الشبكة');
@@ -386,6 +386,8 @@ export function TeamRulesPage() {
   });
 
   const nets = setQ.data?.networks ?? [];
+  // خادم فريق قديم على الـ VPS لا يرسل عنوان المحل المتعلَّم ولا يفهم عدة نقاط بث للشبكة
+  const legacyHub = !!setQ.data && !('shopIp' in setQ.data);
   const shiftOf = useMemo(() => new Map((boardQ.data?.rows ?? []).map(r => [r.staffId, r.shift])), [boardQ.data]);
   const f = form;
   const num = (k: keyof TeamAttendSettingsDto, v: string) => setForm(x => (x ? { ...x, [k]: Number(v.replace(/\D/g, '') || 0) } : x));
@@ -417,8 +419,10 @@ export function TeamRulesPage() {
               </span>
               <span className="text-[11.5px] opacity-75">يتحدث تلقائياً · آخر تأكيد {formatDate(setQ.data.shopIp.at)}</span>
             </>
+          ) : legacyHub ? (
+            <span>خادم الفريق على الـ VPS بنسخة قديمة — حدّثه ليُعرف العنوان تلقائياً وتُحفظ كل شبكة بكل نقاط بثها</span>
           ) : (
-            <span>لم يُعرف بعد — يُتعلَّم تلقائياً خلال دقيقة من اتصال سيرفر المحل بخادم الفريق المحدَّث</span>
+            <span>لم يُعرف بعد — يُتعلَّم تلقائياً خلال دقيقة من اتصال سيرفر المحل بخادم الفريق</span>
           )}
         </div>
         {setQ.isLoading ? (
@@ -433,7 +437,7 @@ export function TeamRulesPage() {
                   <div className="font-semibold text-slate-800">
                     {n.name} {!n.isActive && <Badge>متوقفة</Badge>}{' '}
                     {(n.bssids?.length ?? (n.bssid ? 1 : 0)) > 0 && <Badge tone="info">{n.bssids?.length ?? 1} نقطة بث</Badge>}{' '}
-                    {n.ip ? <Badge>عنوان ثابت</Badge> : <Badge tone="ok">عنوان المحل تلقائياً</Badge>}
+                    {n.ip ? <Badge>عنوان ثابت</Badge> : legacyHub ? <Badge>بلا عنوان</Badge> : <Badge tone="ok">عنوان المحل تلقائياً</Badge>}
                   </div>
                   <div className="num text-[11.5px] leading-5 text-slate-500" dir="ltr" style={{ textAlign: 'right' }}>
                     {[...(n.bssids ?? (n.bssid ? [n.bssid] : [])), n.ip && `IP ${n.ip}`].filter(Boolean).join(' · ')}
@@ -634,7 +638,7 @@ export function TeamRulesPage() {
         )}
       </Modal>
 
-      <WifiScanModal open={scanOpen} onClose={() => setScanOpen(false)} existing={nets} shopIp={setQ.data?.shopIp?.ip ?? null} onAdded={() => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] })} />
+      <WifiScanModal open={scanOpen} onClose={() => setScanOpen(false)} existing={nets} shopIp={setQ.data?.shopIp?.ip ?? null} legacy={legacyHub} onAdded={() => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] })} />
 
       <Modal
         open={!!shiftEdit}

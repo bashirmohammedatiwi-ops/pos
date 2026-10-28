@@ -26,6 +26,41 @@ function SignalBars({ value }: { value?: number | null }) {
   );
 }
 
+const PRIVATE_IP = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+
+/**
+ * يحفظ شبكة بكل نقاط بثها. خادم فريق قديم على الـ VPS (قبل دعم عدة نقاط بث) يفهم BSSID واحداً
+ * لكل شبكة ويشترط عنوان الإنترنت: فتُحفظ كل نقطة بث سطراً منفصلاً مع عنوان المحل — حتى يُحدَّث الـ VPS.
+ */
+export async function saveNetworkSmart(
+  body: { name: string; ssid?: string | null; bssids: string[]; ip?: string | null; isActive?: boolean },
+  opts: { id?: number; legacy: boolean; known?: Set<string> },
+): Promise<number> {
+  if (!opts.legacy) {
+    await api.saveTeamNetwork(body, opts.id);
+    return body.bssids.length || 1;
+  }
+  let ip = body.ip?.trim() || null;
+  if (!ip) {
+    const w = await api.teamShopIp().catch(() => null);
+    if (w?.ip && !PRIVATE_IP.test(w.ip)) ip = w.ip;
+  }
+  const list = body.bssids.filter(b => !opts.known?.has(b));
+  const label = (b: string) => (body.bssids.length > 1 || opts.id ? `${body.name} · ${b.slice(-5)}` : body.name);
+  if (!list.length && !opts.id) {
+    if (!ip) throw new Error('تعذر معرفة عنوان إنترنت المحل — حدّث الـ VPS أو أدخل العنوان يدوياً');
+    await api.saveTeamNetwork({ name: body.name, ip, ssid: body.ssid ?? null, isActive: body.isActive !== false });
+    return 1;
+  }
+  let saved = 0;
+  for (const [i, b] of list.entries()) {
+    const isFirstEdit = !!opts.id && i === 0;
+    await api.saveTeamNetwork({ name: isFirstEdit ? body.name : label(b), bssid: b, ip, ssid: body.ssid ?? null, isActive: body.isActive !== false }, isFirstEdit ? opts.id : undefined);
+    saved++;
+  }
+  return saved;
+}
+
 async function scan(): Promise<WifiScanDto> {
   // لوحة التحكم المكتبية تبحث من جهازها (بصلاحيات المستخدم)؛ وإلا — أو إن لم يكن فيه واي فاي — يبحث سيرفر المحل
   const local = await window.fotDesktop?.wifiScan?.().catch(() => null);
@@ -44,12 +79,15 @@ export function WifiScanModal({
   onClose,
   existing,
   shopIp,
+  legacy = false,
   onAdded,
 }: {
   open: boolean;
   onClose: () => void;
   existing: TeamNetworkDto[];
   shopIp?: string | null;
+  /** خادم الفريق على الـ VPS قديم: كل نقطة بث تُحفظ منفصلة */
+  legacy?: boolean;
   onAdded: () => void;
 }) {
   const toast = useToast();
@@ -142,16 +180,18 @@ export function WifiScanModal({
     const errors: string[] = [];
     for (const r of chosen) {
       try {
-        if (r.existing) {
+        const known = new Set(existingRef.current.flatMap(e => e.bssids ?? (e.bssid ? [e.bssid] : [])));
+        if (r.existing && !legacy) {
           const before = r.existing.bssids ?? (r.existing.bssid ? [r.existing.bssid] : []);
-          await api.saveTeamNetwork(
+          await saveNetworkSmart(
             { name: r.existing.name, ssid: r.existing.ssid ?? r.ssid, bssids: [...before, ...r.aps.map(a => a.bssid)], ip: r.existing.ip ?? null, isActive: r.existing.isActive },
-            r.existing.id,
+            { id: r.existing.id, legacy },
           );
           updated++;
         } else {
-          await api.saveTeamNetwork({ name: r.ssid || 'شبكة مخفية', ssid: r.ssid || null, bssids: r.aps.map(a => a.bssid), ip: null, isActive: true });
-          added++;
+          await saveNetworkSmart({ name: r.existing?.name ?? (r.ssid || 'شبكة مخفية'), ssid: r.ssid || null, bssids: r.aps.map(a => a.bssid), ip: null, isActive: true }, { legacy, known });
+          if (r.existing) updated++;
+          else added++;
         }
       } catch (e) {
         errors.push(`${r.ssid || 'شبكة مخفية'}: ${e instanceof Error ? e.message : 'تعذر الحفظ'}`);
@@ -191,15 +231,22 @@ export function WifiScanModal({
       }
     >
       <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
-          <span className="font-semibold">عنوان الإنترنت:</span>
-          <span>يتبع عنوان المحل تلقائياً{shopIp ? ' — الحالي ' : ''}</span>
-          {shopIp && (
-            <span className="num font-bold text-slate-800" dir="ltr">
-              {shopIp}
-            </span>
+        {legacy && (
+          <div className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] font-semibold leading-6 text-amber-800">
+            خادم الفريق على الـ VPS بنسخة قديمة: ستُحفظ كل نقطة بث كشبكة منفصلة مع عنوان المحل الحالي. حدّث الـ VPS لتُحفظ الشبكة كوحدة واحدة ويتبع العنوان المحل تلقائياً.
+          </div>
+        )}
+        {!legacy && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
+            <span className="font-semibold">عنوان الإنترنت:</span>
+            <span>يتبع عنوان المحل تلقائياً{shopIp ? ' — الحالي ' : ''}</span>
+            {shopIp && (
+              <span className="num font-bold text-slate-800" dir="ltr">
+                {shopIp}
+              </span>
+            )}
+          </div>
           )}
-        </div>
 
         {/* ارتفاع ثابت: لا قفز بين البحث والنتائج */}
         <div className="h-[min(56vh,460px)] overflow-y-auto rounded-lg border border-slate-200">

@@ -347,7 +347,25 @@ export function AttendSummary() {
 /* ═════════════ شبكات المحل ═════════════ */
 /* البحث عن الشبكات القريبة من هاتف المدير وإضافة شبكة المحل بكل نقاط بثها */
 const signalPct = (dbm: number) => Math.max(0, Math.min(100, Math.round((dbm + 100) * 2)));
-function NetScanSheet({ open, networks, current, onClose, onSaved }: { open: boolean; networks: ShopNetwork[]; current?: string | null; onClose: () => void; onSaved: () => void }) {
+function NetScanSheet({
+  open,
+  networks,
+  current,
+  legacy,
+  ip,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  networks: ShopNetwork[];
+  current?: string | null;
+  /** خادم الفريق على الـ VPS قديم: كل نقطة بث تُحفظ منفصلة مع عنوان المحل */
+  legacy: boolean;
+  /** عنوان إنترنت المحل كما يراه الخادم من هاتف المدير */
+  ip?: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [res, setRes] = useState<WifiScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState('');
@@ -380,7 +398,13 @@ function NetScanSheet({ open, networks, current, onClose, onSaved }: { open: boo
     setSaving(g.ssid);
     try {
       const bssids = g.aps.map(a => a.bssid);
-      if (g.existing) {
+      if (legacy) {
+        // الخادم القديم يفهم BSSID واحداً لكل شبكة: نقطة بث = سطر، مع عنوان المحل
+        const fresh = bssids.filter(b => !known.has(b));
+        for (const b of fresh) {
+          await managerAttendApi.saveNetwork({ name: bssids.length > 1 || g.existing ? `${g.ssid} · ${b.slice(-5)}` : g.ssid, ssid: g.ssid, bssid: b, ip: ip ?? null });
+        }
+      } else if (g.existing) {
         const before = g.existing.bssids ?? (g.existing.bssid ? [g.existing.bssid] : []);
         await managerAttendApi.saveNetwork({ name: g.existing.name, ssid: g.ssid, bssids: [...before, ...bssids], ip: g.existing.ip ?? null, isActive: g.existing.isActive }, g.existing.id);
       } else {
@@ -602,7 +626,7 @@ export function MNetworks() {
           </div>
         </section>
       )}
-      <NetScanSheet open={scanOpen} networks={data?.networks ?? []} current={wifi?.ssid} onClose={() => setScanOpen(false)} onSaved={() => { void reload(); void scan(); }} />
+      <NetScanSheet open={scanOpen} networks={data?.networks ?? []} current={wifi?.ssid} legacy={!!data && !('shopIp' in data)} ip={probe?.ip} onClose={() => setScanOpen(false)} onSaved={() => { void reload(); void scan(); }} />
     </Screen>
   );
 }

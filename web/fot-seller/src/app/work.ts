@@ -354,11 +354,11 @@ export const attendApi = {
 export const managerAttendApi = {
   board: () => call<Board>('manager', '/api/team/m/attend/board'),
   log: (from: string, to: string, staffId?: number) => call<AttendRec[]>('manager', `/api/team/m/attend/log?from=${from}&to=${to}${staffId ? `&staffId=${staffId}` : ''}`),
-  settings: () => call<{ settings: AttendSettings; networks: ShopNetwork[] }>('manager', '/api/team/m/attend/settings'),
+  settings: () => call<{ settings: AttendSettings; networks: ShopNetwork[]; shopIp?: { ip: string; at: string } | null }>('manager', '/api/team/m/attend/settings'),
   capture: (b: { bssid?: string | null; ssid?: string | null; name?: string; ipOnly?: boolean; withIp?: boolean }) => call<ShopNetwork>('manager', '/api/team/m/networks/capture', { method: 'POST', body: b }),
   probe: (bssid?: string | null) => call<{ ok: boolean; ip: string; bssid?: string | null; network: string | null; error: string | null }>('manager', `/api/team/m/networks/probe${bssid ? `?bssid=${encodeURIComponent(bssid)}` : ''}`),
   deleteNetwork: (id: number) => call<{ ok: true }>('manager', `/api/team/m/networks/${id}`, { method: 'DELETE' }),
-  saveNetwork: (b: { name: string; ssid?: string | null; bssids: string[]; ip?: string | null; isActive?: boolean }, id?: number) =>
+  saveNetwork: (b: { name: string; ssid?: string | null; bssids?: string[]; bssid?: string | null; ip?: string | null; isActive?: boolean }, id?: number) =>
     call<ShopNetwork>('manager', id ? `/api/team/m/networks/${id}` : '/api/team/m/networks', { method: id ? 'PUT' : 'POST', body: b }),
   correct: (id: number, b: { checkIn?: string; checkOut?: string | null; note?: string }) => call<AttendRec>('manager', `/api/team/m/attend/${id}`, { method: 'PUT', body: b }),
   setShift: (staffId: number, b: Partial<Shift> & { reset?: boolean }) => call<Shift>('manager', `/api/team/m/staff/${staffId}/shift`, { method: 'PUT', body: b }),
