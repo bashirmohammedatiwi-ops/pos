@@ -111,6 +111,11 @@ import type {
   TeamBoardDto,
   TeamNetworkDto,
   TeamShiftDto,
+  TeamSummaryDto,
+  TeamRosterDto,
+  TeamAppReleaseDto,
+  TeamPushStatusDto,
+  WifiScanDto,
   TeamBroadcastDto,
   TeamDirStaffDto,
   TeamLeaveDto,
@@ -604,6 +609,21 @@ export const api = {
     request<TeamAttendDto>('/api/team/hub/attend/manual', { method: 'POST', body: JSON.stringify(body) }),
   setTeamShift: (staffId: number, body: Partial<TeamShiftDto> & { reset?: boolean }) =>
     request<TeamShiftDto>(`/api/team/hub/staff/${staffId}/shift`, { method: 'PUT', body: JSON.stringify(body) }),
+  setTeamOvertime: (staffId: number, enabled: boolean, rate: number | null) =>
+    request<TeamShiftDto>(`/api/team/hub/staff/${staffId}/overtime`, { method: 'PUT', body: JSON.stringify({ enabled, rate }) }),
+  /** شبكات الواي فاي المرئية من جهاز السيرفر في المحل */
+  teamWifiScan: () => request<WifiScanDto>('/api/team/wifi-scan', { timeoutMs: 40_000 }),
+  /** عنوان الإنترنت العام للمحل كما يراه خادم الفريق */
+  teamShopIp: () => request<{ ip: string }>('/api/team/hub/whoami'),
+  teamAttendSummary: (from: string, to: string) => request<TeamSummaryDto>(`/api/team/hub/attend/summary?from=${from}&to=${to}`),
+  teamRoster: (from: string, days = 7) => request<TeamRosterDto>(`/api/team/hub/roster?from=${from}&days=${days}`),
+  teamAppReleases: () => request<TeamAppReleaseDto[]>('/api/team/hub/app-releases'),
+  uploadTeamAppRelease: (body: { version: string; notes?: string; required: boolean; data: string }) =>
+    request<TeamAppReleaseDto>('/api/team/hub/app-releases', { method: 'POST', body: JSON.stringify(body), timeoutMs: 300_000 }),
+  deleteTeamAppRelease: (id: number) => request<{ ok: boolean }>(`/api/team/hub/app-releases/${id}`, { method: 'DELETE' }),
+  teamPushStatus: () => request<TeamPushStatusDto>('/api/team/hub/push/status'),
+  teamPushTest: (kind: 'staff' | 'manager', id: number) =>
+    request<TeamPushStatusDto>('/api/team/hub/push/test', { method: 'POST', body: JSON.stringify({ kind, id }) }),
   teamManagers: () => request<{ managers: TeamManagerPermsDto[]; sections: { id: number; name: string; staffCount: number }[] }>('/api/team/hub/managers'),
   saveTeamManagerPerms: (id: number, body: { perms: Record<string, boolean>; sections: number[] }) =>
     request<{ id: number }>(`/api/team/hub/managers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),

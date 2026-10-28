@@ -8,6 +8,7 @@ import { useToast } from '@/components/Toast';
 import { IconPlus, IconRefresh } from '@/components/icons';
 import { Badge, Btn, Field, IconButton, Input, Modal, Select, Switch, TableSkeleton, useConfirm } from '@/components/ui';
 import { ErrorBlock, SearchBox } from '@/components/people/PeopleKit';
+import { WifiScanModal } from './TeamWifiScan';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق الفريق ← الحضور: اللوحة الحيّة، السجل والتصدير، التصحيح والإضافة اليدوية،
@@ -79,6 +80,7 @@ export function TeamAttendPage() {
       worked: rows.reduce((s, r) => s + r.workedMinutes, 0),
       late: rows.filter(r => r.lateMinutes > 0).length,
       over: rows.reduce((s, r) => s + r.overMinutes, 0),
+      ot: rows.reduce((s, r) => s + (r.overtimeMinutes ?? 0), 0),
       auto: rows.filter(r => r.autoClosed).length,
     };
   }, [logRows]);
@@ -90,6 +92,13 @@ export function TeamAttendPage() {
     { key: 'checkIn', header: 'الحضور', width: 90, exportValue: r => clock(r.checkIn), render: r => clock(r.checkIn) },
     { key: 'checkOut', header: 'الانصراف', width: 90, exportValue: r => clock(r.checkOut), render: r => (r.checkOut ? clock(r.checkOut) : <Badge tone="ok">مستمر</Badge>) },
     { key: 'workedMinutes', header: 'ساعات العمل', width: 100, exportValue: r => hm(r.workedMinutes), render: r => <span className="num font-semibold">{hm(r.workedMinutes)}</span> },
+    {
+      key: 'overtimeMinutes',
+      header: 'أوفر تايم',
+      width: 90,
+      exportValue: r => (r.overtimeMinutes ? hm(r.overtimeMinutes) : ''),
+      render: r => (r.overtimeMinutes ? <Badge tone="info">{hm(r.overtimeMinutes)}</Badge> : '—'),
+    },
     { key: 'breakMinutes', header: 'الاستراحة', width: 90, exportValue: r => r.breakMinutes, render: r => `${r.breakMinutes} د` },
     { key: 'lateMinutes', header: 'التأخير', width: 90, exportValue: r => r.lateMinutes, render: r => (r.lateMinutes ? <Badge tone="warn">{dur(r.lateMinutes)}</Badge> : '—') },
     { key: 'overMinutes', header: 'تجاوز الاستراحة', width: 110, exportValue: r => r.overMinutes, render: r => (r.overMinutes ? <Badge tone="danger">{r.overMinutes} د</Badge> : '—') },
@@ -173,6 +182,7 @@ export function TeamAttendPage() {
               { label: 'ساعات العمل', value: hm(totals.worked) },
               { label: 'أيام تأخير', value: formatNum(totals.late), tone: totals.late ? 'warn' : undefined },
               { label: 'تجاوز الاستراحات', value: `${formatNum(totals.over)} د`, tone: totals.over ? 'danger' : undefined },
+              { label: 'أوفر تايم', value: hm(totals.ot), tone: totals.ot ? 'brand' : undefined },
               { label: 'إغلاق تلقائي', value: formatNum(totals.auto) },
             ]}
           />
@@ -317,7 +327,8 @@ export function TeamRulesPage() {
   const boardQ = useQuery({ queryKey: ['team-board'], queryFn: api.teamBoard, retry: 0 });
   const [form, setForm] = useState<TeamAttendSettingsDto | null>(null);
   const [net, setNet] = useState<Partial<TeamNetworkDto> | null>(null);
-  const [shiftEdit, setShiftEdit] = useState<{ id: number; name: string; start: string; end: string; breakMinutes: string; maxBreaks: string } | null>(null);
+  const [shiftEdit, setShiftEdit] = useState<{ id: number; name: string; start: string; end: string; breakMinutes: string; maxBreaks: string; overtime: boolean; overtimeRate: string } | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
 
   useEffect(() => {
     if (setQ.data && !form) setForm(setQ.data.settings);
@@ -346,11 +357,23 @@ export function TeamRulesPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] }),
   });
   const saveShift = useMutation({
-    mutationFn: (reset?: boolean) =>
-      api.setTeamShift(shiftEdit!.id, reset ? { reset: true } : { start: shiftEdit!.start, end: shiftEdit!.end, breakMinutes: Number(shiftEdit!.breakMinutes), maxBreaks: Number(shiftEdit!.maxBreaks) }),
+    mutationFn: async (reset?: boolean) => {
+      const e = shiftEdit!;
+      await api.setTeamShift(e.id, reset ? { reset: true } : { start: e.start, end: e.end, breakMinutes: Number(e.breakMinutes), maxBreaks: Number(e.maxBreaks) });
+      return api.setTeamOvertime(e.id, e.overtime, e.overtimeRate ? Number(e.overtimeRate) : null);
+    },
     onSuccess: () => {
       toast.success('حُفظت وردية الموظف');
       setShiftEdit(null);
+      void qc.invalidateQueries({ queryKey: ['team-board'] });
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
+  });
+
+  const quickOvertime = useMutation({
+    mutationFn: ({ id, on, rate }: { id: number; on: boolean; rate: number | null }) => api.setTeamOvertime(id, on, rate),
+    onSuccess: (_, v) => {
+      toast.success(v.on ? 'فُعّل الأوفر تايم — يُحتسب من اليوم' : 'أُوقف الأوفر تايم');
       void qc.invalidateQueries({ queryKey: ['team-board'] });
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
@@ -367,12 +390,17 @@ export function TeamRulesPage() {
       <section className="card space-y-3 p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-[15px] font-bold text-slate-800">شبكات المحل المسموحة</h2>
-          <Btn size="sm" icon={<IconPlus size={14} />} onClick={() => setNet({ name: '', bssid: '', ip: '', isActive: true })}>
-            شبكة
-          </Btn>
+          <div className="flex gap-1.5">
+            <Btn size="sm" icon={<IconRefresh size={14} />} onClick={() => setScanOpen(true)}>
+              البحث عن الشبكات
+            </Btn>
+            <Btn size="sm" variant="secondary" icon={<IconPlus size={14} />} onClick={() => setNet({ name: '', bssid: '', ip: '', isActive: true })}>
+              يدوياً
+            </Btn>
+          </div>
         </div>
         <p className="text-[12.5px] leading-6 text-slate-500">
-          البصمة تُقبل فقط من هذه الشبكات. الأسهل: من تطبيق المدير ← المزيد ← شبكات المحل ← «التقاط هذه الشبكة» وأنت متصل بواي فاي المحل. القاعدة تطابق حين يتطابق كل ما حُدّد فيها (BSSID و/أو IP، ويقبل IP نطاقاً مثل 1.2.3.0/24).
+          البصمة تُقبل فقط من هذه الشبكات. الأسهل: «البحث عن الشبكات» يعرض شبكات الواي فاي حول جهاز السيرفر في المحل فتختارها وتُملأ بياناتها تلقائياً، أو من تطبيق المدير ← شبكات المحل ← «التقاط هذه الشبكة». القاعدة تطابق حين يتطابق كل ما حُدّد فيها (BSSID و/أو IP، ويقبل IP نطاقاً مثل 1.2.3.0/24).
         </p>
         {setQ.isLoading ? (
           <TableSkeleton rows={3} />
@@ -384,7 +412,8 @@ export function TeamRulesPage() {
               <div key={n.id} className="flex items-center gap-3 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-slate-800">
-                    {n.name} {!n.isActive && <Badge>متوقفة</Badge>}
+                    {n.name} {!n.isActive && <Badge>متوقفة</Badge>}{' '}
+                    {!n.ip && f?.requireIp !== false && <Badge tone="warn">بلا عنوان — لا تُقبل</Badge>}
                   </div>
                   <div className="num text-[11.5px] text-slate-500" dir="ltr" style={{ textAlign: 'right' }}>
                     {[n.bssid && `BSSID ${n.bssid}`, n.ip && `IP ${n.ip}`].filter(Boolean).join(' · ')}
@@ -419,6 +448,13 @@ export function TeamRulesPage() {
         ) : (
           <>
             <Switch label="إلزام البصمة من شبكة المحل" checked={f.enforceNetwork} onChange={v => setForm({ ...f, enforceNetwork: v })} />
+            <Switch
+              label="اشتراط عنوان إنترنت المحل"
+              description="BSSID وحده يمكن تزويره من خارج المحل؛ مع العنوان لا تُقبل البصمة إلا من إنترنت المحل نفسه"
+              checked={f.requireIp !== false}
+              disabled={!f.enforceNetwork}
+              onChange={v => setForm({ ...f, requireIp: v })}
+            />
             <div className="grid grid-cols-2 gap-3">
               <Field label="بداية الدوام الافتراضي">
                 <Input type="time" value={f.shiftStart} onChange={e => setForm({ ...f, shiftStart: e.target.value })} />
@@ -445,6 +481,21 @@ export function TeamRulesPage() {
                 <Input inputMode="numeric" value={f.autoCloseHours} onChange={e => num('autoCloseHours', e.target.value)} />
               </Field>
             </div>
+            <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+              <div>
+                <div className="text-[13.5px] font-bold text-slate-800">الأوفر تايم</div>
+                <p className="text-[11.5px] leading-5 text-slate-500">يُحتسب فقط للموظفين المفعّل لهم (من جدول الورديات أدناه): وقت العمل الفعلي بعد خصم الاستراحة ناقص الدوام الصافي.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="أقل مدة تُحتسب (دقيقة)" hint="أقل من ذلك = لا أوفر تايم">
+                  <Input inputMode="numeric" value={f.otMinMinutes ?? 15} onChange={e => num('otMinMinutes', e.target.value)} />
+                </Field>
+                <Field label="التقريب لأقرب (دقيقة)" hint="للأسفل، مثلاً كل 15 دقيقة">
+                  <Input inputMode="numeric" value={f.otRoundMinutes ?? 15} onChange={e => num('otRoundMinutes', e.target.value)} />
+                </Field>
+              </div>
+              <Switch label="العمل في يوم العطلة كله أوفر تايم" checked={f.otCountDayOff !== false} onChange={v => setForm({ ...f, otCountDayOff: v })} />
+            </div>
             <Btn loading={saveSettings.isPending} onClick={() => saveSettings.mutate()}>
               حفظ القواعد
             </Btn>
@@ -462,6 +513,7 @@ export function TeamRulesPage() {
                 <th className="px-3 py-2 text-right">الموظف</th>
                 <th className="px-3 py-2 text-right">الوردية</th>
                 <th className="px-3 py-2 text-right">الاستراحة</th>
+                <th className="px-3 py-2 text-right">الأوفر تايم</th>
                 <th />
               </tr>
             </thead>
@@ -479,12 +531,39 @@ export function TeamRulesPage() {
                         {sh ? `${sh.start} – ${sh.end}` : '…'} {sh?.custom && <Badge tone="info">خاصة</Badge>}
                       </td>
                       <td className="px-3 py-1.5">{sh ? `${sh.breakMinutes} د · ${sh.maxBreaks} مرات` : '…'}</td>
+                      <td className="px-3 py-1.5">
+                        {sh && (
+                          <span className="flex items-center gap-2">
+                            <Switch
+                              label=""
+                              checked={!!sh.overtime}
+                              disabled={quickOvertime.isPending}
+                              onChange={v => quickOvertime.mutate({ id: s.id, on: v, rate: sh.overtimeRate ?? null })}
+                            />
+                            {sh.overtime && (
+                              <span className="num text-[11.5px] text-slate-500">{sh.overtimeRate ? `${formatNum(sh.overtimeRate)} د.ع/ساعة` : 'بلا سعر'}</span>
+                            )}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-1.5 text-left">
                         <Btn
                           size="xs"
                           variant="ghost"
                           disabled={!sh}
-                          onClick={() => sh && setShiftEdit({ id: s.id, name: s.name, start: sh.start, end: sh.end, breakMinutes: String(sh.breakMinutes), maxBreaks: String(sh.maxBreaks) })}
+                          onClick={() =>
+                            sh &&
+                            setShiftEdit({
+                              id: s.id,
+                              name: s.name,
+                              start: sh.start,
+                              end: sh.end,
+                              breakMinutes: String(sh.breakMinutes),
+                              maxBreaks: String(sh.maxBreaks),
+                              overtime: !!sh.overtime,
+                              overtimeRate: sh.overtimeRate ? String(sh.overtimeRate) : '',
+                            })
+                          }
                         >
                           تعديل
                         </Btn>
@@ -524,9 +603,14 @@ export function TeamRulesPage() {
               <Input dir="ltr" value={net.ip ?? ''} onChange={e => setNet({ ...net, ip: e.target.value })} />
             </Field>
             <Switch label="مفعّلة" checked={net.isActive !== false} onChange={v => setNet({ ...net, isActive: v })} />
+            {!net.ip && f?.requireIp !== false && (
+              <div className="rounded-lg bg-amber-50 p-2.5 text-[12px] font-semibold text-amber-800">«اشتراط عنوان الإنترنت» مفعّل — شبكة بلا عنوان IP لن تُقبل.</div>
+            )}
           </div>
         )}
       </Modal>
+
+      <WifiScanModal open={scanOpen} onClose={() => setScanOpen(false)} existing={nets} onAdded={() => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] })} />
 
       <Modal
         open={!!shiftEdit}
@@ -560,6 +644,19 @@ export function TeamRulesPage() {
             <Field label="عدد الاستراحات">
               <Input inputMode="numeric" value={shiftEdit.maxBreaks} onChange={e => setShiftEdit({ ...shiftEdit, maxBreaks: e.target.value.replace(/\D/g, '') })} />
             </Field>
+            <div className="col-span-2 space-y-3 rounded-lg border border-slate-200 p-3">
+              <Switch
+                label="احتساب الأوفر تايم لهذا الموظف"
+                description="الوقت الزائد على دوامه الصافي يُسجَّل أوفر تايم ويظهر في الملخص الشهري وفي تطبيقه"
+                checked={shiftEdit.overtime}
+                onChange={v => setShiftEdit({ ...shiftEdit, overtime: v })}
+              />
+              {shiftEdit.overtime && (
+                <Field label="أجر ساعة الأوفر تايم (دينار) — اختياري" hint="لحساب مبلغ الأوفر تايم في الملخص الشهري">
+                  <Input inputMode="numeric" value={shiftEdit.overtimeRate} onChange={e => setShiftEdit({ ...shiftEdit, overtimeRate: e.target.value.replace(/\D/g, '') })} placeholder="مثال: 5000" />
+                </Field>
+              )}
+            </div>
           </div>
         )}
       </Modal>

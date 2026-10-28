@@ -852,9 +852,9 @@ export function FieldRow({ children }: { children: ReactNode }) {
   return <div className="grid gap-4 sm:grid-cols-2">{children}</div>;
 }
 
-export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: ReactNode }) {
+export function Field({ label, children, hint, className }: { label: string; children: ReactNode; hint?: ReactNode; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <Label>{label}</Label>
       {children}
       {hint && <p className="mt-1 text-[11.5px] text-slate-500">{hint}</p>}

@@ -24,12 +24,15 @@ const Managers = lz(() => import('./TeamManagersPage'), 'TeamManagersPage');
 const Rules = lz(() => import('./TeamAttendPages'), 'TeamRulesPage');
 const Accounts = lz(() => import('../PortalAccountsPage'), 'PortalAccountsPage');
 const Audit = lz(() => import('./TeamAttendPages'), 'TeamAuditPage');
+const Report = lz(() => import('./TeamReportPages'), 'TeamReportPage');
+const AppPage = lz(() => import('./TeamReportPages'), 'TeamAppPage');
 
 type Tab = { id: string; label: string; icon: string; hint: string };
 const TEAM_TABS: Tab[] = [
   { id: 'overview', label: 'نظرة عامة', icon: '◉', hint: 'الفريق اليوم وما يحتاج انتباهك' },
   { id: 'staff', label: 'الموظفون', icon: '👤', hint: 'الحسابات والرموز والهواتف المربوطة' },
   { id: 'attend', label: 'الحضور', icon: '⏱', hint: 'اللوحة الحيّة والسجل والتصحيح' },
+  { id: 'report', label: 'الملخص والأوفر تايم', icon: '📊', hint: 'ملخص شهري لكل موظف، الأوفر تايم ومبلغه، وجدول الفريق' },
   { id: 'leave', label: 'الإجازات والعطل', icon: '📅', hint: 'الطلبات والموافقات والعطل الأسبوعية' },
   { id: 'posts', label: 'الإعلانات', icon: '📣', hint: 'أخبار وعروض بالصور' },
   { id: 'notify', label: 'التبليغات', icon: '🔔', hint: 'رسائل فورية للهواتف' },
@@ -37,6 +40,7 @@ const TEAM_TABS: Tab[] = [
   { id: 'rules', label: 'الشبكات وقواعد الدوام', icon: '📶', hint: 'شبكات المحل والورديات والاستراحة' },
   { id: 'managers', label: 'صلاحيات المدراء', icon: '🛡', hint: 'ما يستطيعه كل مدير والأقسام التي يديرها' },
   { id: 'accounts', label: 'حسابات المدراء والويب', icon: '🔑', hint: 'دخول المدراء وأوقات فتح الويب' },
+  { id: 'app', label: 'التحديثات والإشعارات', icon: '📲', hint: 'رفع إصدار جديد للتطبيق وحالة إشعارات الهواتف' },
   { id: 'audit', label: 'سجل التدقيق', icon: '🧾', hint: 'كل إجراء في التطبيق' },
 ];
 
@@ -86,6 +90,12 @@ export function TeamHubPage() {
       break;
     case 'audit':
       body = <Audit />;
+      break;
+    case 'report':
+      body = <Report />;
+      break;
+    case 'app':
+      body = <AppPage />;
       break;
     default:
       body = <Overview go={go} />;

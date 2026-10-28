@@ -108,6 +108,8 @@ export const PAGE_META: Record<
   '/team/rules': { title: 'تطبيق الفريق', subtitle: 'الشبكات وقواعد الدوام · شبكات المحل والورديات والاستراحة', iconKey: 'salesmen' },
   '/team/managers': { title: 'تطبيق الفريق', subtitle: 'صلاحيات المدراء · ما يستطيعه كل مدير وأقسامه', iconKey: 'salesmen' },
   '/team/accounts': { title: 'تطبيق الفريق', subtitle: 'حسابات المدراء والويب · الدخول وأوقات الفتح', iconKey: 'salesmen' },
+  '/team/report': { title: 'تطبيق الفريق', subtitle: 'الملخص والأوفر تايم · ملخص شهري لكل موظف وجدول الفريق', iconKey: 'salesmen' },
+  '/team/app': { title: 'تطبيق الفريق', subtitle: 'التحديثات والإشعارات · إصدارات التطبيق وإشعارات الهواتف', iconKey: 'salesmen' },
   '/team/audit': { title: 'تطبيق الفريق', subtitle: 'سجل التدقيق · كل إجراء في التطبيق', iconKey: 'salesmen' },
   '/portal-accounts': { title: 'حسابات الويب', subtitle: 'رموز البائعين · حسابات المدراء · محفوظة على السيرفر', iconKey: 'key' },
   '/cashiers': { title: 'الكاشير', subtitle: 'الحسابات والصلاحيات', iconKey: 'cashiers' },

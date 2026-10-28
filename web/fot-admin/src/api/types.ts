@@ -160,6 +160,8 @@ export interface TeamShiftDto {
   breakMinutes: number;
   maxBreaks: number;
   custom?: boolean;
+  overtime?: boolean;
+  overtimeRate?: number | null;
 }
 export interface TeamBreakDto {
   id: number;
@@ -179,6 +181,7 @@ export interface TeamAttendDto {
   edited: boolean;
   note?: string | null;
   workedMinutes: number;
+  overtimeMinutes?: number;
   breakMinutes: number;
   overMinutes: number;
   breaks: TeamBreakDto[];
@@ -218,6 +221,76 @@ export interface TeamAttendSettingsDto {
   earlyMinutes: number;
   autoCloseHours: number;
   breakWarnMinutes: number;
+  requireIp: boolean;
+  otMinMinutes: number;
+  otRoundMinutes: number;
+  otCountDayOff: boolean;
+}
+export interface WifiAccessPointDto {
+  bssid: string;
+  signal?: number | null;
+  channel?: number | null;
+  band?: string | null;
+}
+export interface WifiScanDto {
+  networks: { ssid: string; auth?: string | null; accessPoints: WifiAccessPointDto[] }[];
+  current?: { ssid?: string | null; bssid?: string | null; signal?: number | null } | null;
+  error?: string | null;
+}
+export interface TeamSummaryRowDto {
+  staffId: number;
+  name: string;
+  kind: string;
+  sectionName?: string | null;
+  scheduledDays: number;
+  presentDays: number;
+  absentDays: number;
+  offDays: number;
+  leaveDays: number;
+  workedMinutes: number;
+  avgMinutes: number;
+  lateDays: number;
+  lateMinutes: number;
+  breakMinutes: number;
+  overMinutes: number;
+  overtimeEnabled: boolean;
+  overtimeRate?: number | null;
+  overtimeMinutes: number;
+  overtimeDays: number;
+  overtimePay?: number | null;
+  autoClosed: number;
+  edited: number;
+  attendanceRate: number | null;
+}
+export interface TeamSummaryDto {
+  from: string;
+  to: string;
+  days: number;
+  rows: TeamSummaryRowDto[];
+}
+export interface TeamRosterDto {
+  from: string;
+  dates: string[];
+  rows: { staffId: number; name: string; kind: string; sectionName?: string | null; cells: { date: string; off: boolean; reason?: string | null }[] }[];
+  working: number[];
+  staffCount: number;
+}
+export interface TeamAppReleaseDto {
+  id: number;
+  version: string;
+  notes?: string | null;
+  required: boolean;
+  size: number;
+  sha256?: string | null;
+  url: string;
+  createdBy?: string | null;
+  createdAt: string;
+}
+export interface TeamPushStatusDto {
+  configured: boolean;
+  projectId?: string | null;
+  tokens: { kind: string; n: number }[];
+  log: { at: string; kind: string; count: number; ok: number; title: string; error?: string }[];
 }
 export interface TeamManagerPermsDto {
   id: number;
