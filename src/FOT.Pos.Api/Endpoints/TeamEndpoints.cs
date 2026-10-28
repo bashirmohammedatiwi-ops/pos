@@ -66,6 +66,30 @@ public static class TeamEndpoints
             return Results.Ok(new { added, staff = await repo.ListAsync(ct) });
         });
 
+        // شبكات الواي فاي المرئية من جهاز السيرفر (في المحل) — لاختيار شبكات المحل وملء BSSID تلقائياً
+        g.MapGet("/wifi-scan", async (HttpContext http, CancellationToken ct) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            if (!OperatingSystem.IsWindows())
+                return Results.Json(new { error = "البحث عن الشبكات متاح على سيرفر ويندوز فقط" }, statusCode: 501);
+            var (networksOut, code1) = await RunNetshAsync("wlan show networks mode=bssid", ct);
+            var (ifaceOut, _) = await RunNetshAsync("wlan show interfaces", ct);
+            var networks = WifiScan.ParseNetworks(networksOut);
+            var current = WifiScan.ParseInterface(ifaceOut);
+            if (networks.Count == 0)
+            {
+                var lower = networksOut.ToLowerInvariant();
+                string error =
+                    lower.Contains("location") || lower.Contains("الموقع")
+                        ? "ويندوز يمنع قراءة شبكات الواي فاي — فعّل «الموقع» من الإعدادات ← الخصوصية والأمان ← الموقع، واسمح للتطبيقات المكتبية بالوصول إليه"
+                    : lower.Contains("wlansvc") || lower.Contains("wireless autoconfig") || lower.Contains("no wireless interface") || lower.Contains("لا توجد واجهة") || code1 != 0
+                        ? "جهاز السيرفر لا يحتوي بطاقة واي فاي (أو أنها متوقفة) — استخدم «التقاط من التطبيق» من هاتف داخل المحل"
+                    : "لم تُعثر على شبكات — تأكد أن الواي فاي مفعّل على جهاز السيرفر";
+                return Results.Ok(new { networks, current, error, raw = networksOut.Length > 600 ? networksOut[..600] : networksOut });
+            }
+            return Results.Ok(new { networks, current, error = (string?)null, raw = (string?)null });
+        });
+
         // وكيل خادم الفريق: GET/POST/PUT/DELETE /api/team/hub/<path> → {hub}/api/admin/team/<path>
         g.Map("/hub/{**path}", async (HttpContext http, string? path, IHttpClientFactory factory, IConfiguration config, CancellationToken ct) =>
         {
@@ -105,6 +129,35 @@ public static class TeamEndpoints
                 return Results.Json(new { error = "تعذر الوصول لخادم الفريق — تحقق من الإنترنت" }, statusCode: 502);
             }
         }).DisableAntiforgery();
+    }
+
+    /// <summary>تشغيل netsh بترميز UTF-8 (chcp 65001) لقراءة أسماء الشبكات العربية بشكل صحيح.</summary>
+    private static async Task<(string Output, int Code)> RunNetshAsync(string args, CancellationToken ct)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c chcp 65001 >nul & netsh {args}")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null) return ("", -1);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            var outTask = p.StandardOutput.ReadToEndAsync(timeout.Token);
+            var errTask = p.StandardError.ReadToEndAsync(timeout.Token);
+            await p.WaitForExitAsync(timeout.Token);
+            return ((await outTask) + (await errTask), p.ExitCode);
+        }
+        catch (Exception ex)
+        {
+            return (ex.Message, -1);
+        }
     }
 
     private static void Push(ISellerHubSync sync) =>
