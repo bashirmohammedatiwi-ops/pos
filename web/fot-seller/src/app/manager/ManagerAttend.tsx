@@ -143,7 +143,12 @@ export function MAttend() {
 }
 
 const toLocalInput = (iso?: string | null) => (iso ? new Date(Date.parse(iso) + 3 * 3600e3).toISOString().slice(11, 16) : '');
-const fromLocal = (date: string, hm: string) => new Date(`${date}T${hm}:00+03:00`).toISOString();
+const iraqDay = (ms: number) => new Date(ms + 3 * 3600e3).toISOString().slice(0, 10);
+const atHm = (ms: number, hm: string) => Date.parse(`${iraqDay(ms)}T${hm}:00+03:00`);
+/** الساعة hm الأقرب إلى الحضور الأصلي (حضور 23:45 لوردية 00:30 يبقى في يومه) */
+const nearestHm = (ref: number, hm: string) => [-86_400_000, 0, 86_400_000].map(d => atHm(ref, hm) + d).reduce((a, b) => (Math.abs(b - ref) < Math.abs(a - ref) ? b : a));
+/** أول hm بعد الحضور: انصراف بعد منتصف الليل في الوردية الليلية = اليوم التالي */
+const afterHm = (ref: number, hm: string) => (atHm(ref, hm) > ref ? atHm(ref, hm) : atHm(ref, hm) + 86_400_000);
 
 function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; onClose: () => void; onChanged: () => void }) {
   const perms = usePerms();
@@ -178,8 +183,12 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
     if (!row?.attendance) return;
     setBusy('fix');
     try {
-      const date = row.attendance.date;
-      await managerAttendApi.correct(row.attendance.id, { checkIn: fix.in ? fromLocal(date, fix.in) : undefined, checkOut: fix.out ? fromLocal(date, fix.out) : undefined, note: fix.note || 'تصحيح من المدير' });
+      const inMs = fix.in ? nearestHm(Date.parse(row.attendance.checkIn), fix.in) : Date.parse(row.attendance.checkIn);
+      await managerAttendApi.correct(row.attendance.id, {
+        checkIn: fix.in ? new Date(inMs).toISOString() : undefined,
+        checkOut: fix.out ? new Date(afterHm(inMs, fix.out)).toISOString() : undefined,
+        note: fix.note || 'تصحيح من المدير',
+      });
       haptic('success');
       toast('صُحّح السجل — يظهر «معدّل» للموظف');
       onChanged();

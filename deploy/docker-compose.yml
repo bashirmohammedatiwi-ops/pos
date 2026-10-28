@@ -10,9 +10,11 @@ services:
       - "4705:4705"
     environment:
       PORT: 4705
-      FOT_HUB_SYNC_KEY: ${FOT_HUB_SYNC_KEY:-fot-hub-sync-e7Kq9mN2pL4xW8vR}
-      FOT_HUB_JWT_KEY: ${FOT_HUB_JWT_KEY:-FOT-HUB-JWT-CHANGE-THIS-SECRET-MIN-32-CHARS}
-      FOT_HUB_JWT_HOURS: ${FOT_HUB_JWT_HOURS:-87600}
+      # Secrets come from deploy/.env only (see README) — no defaults here.
+      FOT_HUB_SYNC_KEY: ${FOT_HUB_SYNC_KEY:?set FOT_HUB_SYNC_KEY in deploy/.env}
+      FOT_HUB_JWT_KEY: ${FOT_HUB_JWT_KEY:?set FOT_HUB_JWT_KEY in deploy/.env}
+      FOT_HUB_JWT_HOURS: ${FOT_HUB_JWT_HOURS:-720}
+      FOT_HUB_REFRESH_DAYS: ${FOT_HUB_REFRESH_DAYS:-30}
       FOT_HUB_DATA: /data
     volumes:
       - hub-data:/data

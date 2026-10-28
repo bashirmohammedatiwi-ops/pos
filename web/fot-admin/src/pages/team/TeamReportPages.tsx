@@ -415,6 +415,7 @@ export function TeamAppPage() {
 
   return (
     <div className="grid min-h-0 flex-1 gap-3 overflow-auto lg:grid-cols-[1.3fr_1fr]">
+      <SyncKeyCard />
       <section className="card space-y-3 p-4">
         <div>
           <h2 className="text-[15px] font-bold text-slate-800">إصدارات التطبيق</h2>
@@ -575,6 +576,56 @@ export function TeamAppPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/** مفتاح الربط مع خادم الفريق: يُنسخ من رسالة تحديث الـ VPS ويُحفظ على سيرفر المحل (يبقى بعد تحديث المثبّت) */
+function SyncKeyCard() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['team-sync-key'], queryFn: api.teamSyncKey, retry: 0 });
+  const [key, setKey] = useState('');
+  const [open, setOpen] = useState(false);
+  const save = useMutation({
+    mutationFn: () => api.saveTeamSyncKey(key.trim()),
+    onSuccess: () => {
+      toast.success('حُفظ مفتاح الربط — عادت المزامنة مع خادم الفريق');
+      setKey('');
+      setOpen(false);
+      void qc.invalidateQueries();
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
+  });
+  const s = q.data;
+  const ok = !!s?.configured;
+  return (
+    <section className={`card space-y-2 p-4 lg:col-span-2 ${!ok && s ? 'ring-2 ring-amber-300' : ''}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-[15px] font-bold text-slate-800">الربط مع خادم الفريق</h2>
+        {s && (ok ? <Badge tone="ok">مربوط</Badge> : <Badge tone="warn">المفتاح غير مضبوط — المزامنة متوقفة</Badge>)}
+        {ok && (
+          <span className="num text-[12px] text-slate-400" dir="ltr">
+            {s.masked}
+          </span>
+        )}
+        {s?.source !== 'settings' && (
+          <Btn size="xs" variant="ghost" className="ms-auto" onClick={() => setOpen(o => !o)}>
+            {ok ? 'تغيير المفتاح' : 'إدخال المفتاح'}
+          </Btn>
+        )}
+      </div>
+      {(open || (s && !ok)) && s?.source !== 'settings' && (
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="مفتاح المزامنة (FOT_HUB_SYNC_KEY)" hint="يظهر عند تشغيل التحديث على الـ VPS، أو في ملف deploy/.env هناك" className="min-w-[260px] flex-1">
+            <Input dir="ltr" value={key} onChange={e => setKey(e.target.value)} placeholder="الصق المفتاح هنا" autoComplete="off" />
+          </Field>
+          <Btn loading={save.isPending} disabled={key.trim().length < 24} onClick={() => save.mutate()}>
+            تجربة وحفظ
+          </Btn>
+        </div>
+      )}
+      {s?.source === 'settings' && <p className="text-[12px] text-slate-500">المفتاح مضبوط في appsettings.json على سيرفر المحل.</p>}
+    </section>
   );
 }
 

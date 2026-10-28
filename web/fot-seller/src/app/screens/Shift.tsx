@@ -448,7 +448,7 @@ function RequestSheet({ open, days, today, onClose, onDone }: { open: boolean; d
         {type === 'sick' && (
           <div className="t-field">
             <span>صورة التقرير الطبي (اختياري)</span>
-            <ImagePicker value={files} onChange={setFiles} upload={staffApi.upload} max={1} />
+            <ImagePicker value={files} onChange={setFiles} upload={staffApi.uploadLeave} max={1} />
           </div>
         )}
 

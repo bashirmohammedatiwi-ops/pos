@@ -4,7 +4,7 @@
  * تطبيق الفريق — وحدات العمل على خادم الـ VPS (SQLite نفسها):
  *   · التبليغات: مركز تبليغات لكل مستخدم (موظف/مدير) + قناة حية SSE.
  *   · الإعلانات والعروض: منشورات بصور، جمهور محدد، تثبيت، تأكيد اطلاع، إحصاءات القراءة.
- *   · الوسائط: رفع الصور (مدير/إدارة/تقرير مرضي) وتقديمها بأسماء عشوائية.
+ *   · الوسائط: رفع الصور (مدير/إدارة) وتقديمها علناً بأسماء عشوائية؛ التقارير المرضية خاصة (رابط موقّع أو رمز).
  *   · الدوام والإجازات: عطلة أسبوعية لكل موظف، طلبات (تبديل/إجازة/مرضية/طارئة/استئذان)، موافقات.
  * المسارات: موظف /api/team/* ، مدير /api/team/m/* ، إدارة /api/admin/team/*
  */
@@ -24,6 +24,10 @@ const LEAVE_TYPES = {
 };
 const POST_KINDS = ['news', 'offer', 'instruction', 'congrats', 'alert'];
 const MEDIA_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif)$/;
+const PRIVATE_PREFIX = '/api/team/private/';
+const PRIVATE_NAME_RE = /^[a-f0-9]{32}\.(jpg|png|webp)$/;
+// الرابط المخزّن بلا توقيع؛ ما يصل من التطبيق قد يحمل ?exp=&sig=
+const PRIVATE_RE = /^\/api\/team\/private\/([a-f0-9]{32}\.(?:jpg|png|webp))(?:\?.*)?$/;
 const MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
 const EXT_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 
@@ -104,10 +108,23 @@ function createWork({ db, ctx, now, audit, getStaff }) {
 
   const mediaDir = path.join(ctx.dataDir, 'media');
   fs.mkdirSync(mediaDir, { recursive: true });
+  // مرفقات الإجازات (تقارير طبية): مجلد منفصل لا يُقدَّم إلا برابط موقّع قصير العمر أو برمز صاحب الطلب/المدير
+  const privateDir = path.join(ctx.dataDir, 'media-private');
+  fs.mkdirSync(privateDir, { recursive: true });
+  const keyFile = path.join(ctx.dataDir, 'media.key');
+  if (!fs.existsSync(keyFile)) fs.writeFileSync(keyFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
+  const signKey = fs.readFileSync(keyFile, 'utf8').trim();
 
   /* ═════════════ القناة الحية (SSE) ═════════════ */
   const streams = new Map(); // "staff:12" | "manager:3" → Set(res)
-  function openStream(req, res, key) {
+  const streamChecks = new WeakMap(); // res → دالة تعيد المصادقة (false = أغلق القناة)
+  function dropStream(key, res) {
+    const set = streams.get(key);
+    set?.delete(res);
+    if (set && !set.size) streams.delete(key);
+  }
+  /** check: يُستدعى مع كل نبضة وعند المزامنة — حساب موقوف أو رمز ساقط يغلق القناة */
+  function openStream(req, res, key, check) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -118,13 +135,32 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     res.write('retry: 3000\n\n');
     if (!streams.has(key)) streams.set(key, new Set());
     streams.get(key).add(res);
+    if (check) streamChecks.set(res, check);
     const [kind, id] = key.split(':');
     res.write(`event: hello\ndata: ${JSON.stringify({ unread: unreadCount(kind, Number(id)) })}\n\n`);
-    req.on('close', () => {
-      const set = streams.get(key);
-      set?.delete(res);
-      if (set && !set.size) streams.delete(key);
-    });
+    req.on('close', () => dropStream(key, res));
+  }
+  /** يعيد مصادقة القنوات المفتوحة (كلها أو ما يبدأ بـ prefix) ويغلق ما لم يعد صالحاً */
+  function recheckStreams(prefix = '') {
+    for (const [key, set] of [...streams]) {
+      if (!key.startsWith(prefix)) continue;
+      for (const res of [...set]) {
+        const check = streamChecks.get(res);
+        let valid = true;
+        try {
+          valid = !check || check();
+        } catch {
+          valid = false;
+        }
+        if (valid) continue;
+        dropStream(key, res);
+        try {
+          res.end();
+        } catch {
+          /* مغلق */
+        }
+      }
+    }
   }
   function emit(key, event, data) {
     const set = streams.get(key);
@@ -142,6 +178,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     for (const key of streams.keys()) if (key.startsWith('manager:')) emit(key, event, data);
   }
   setInterval(() => {
+    recheckStreams();
     for (const set of streams.values()) for (const res of set) {
       try {
         res.write(': ping\n\n');
@@ -281,7 +318,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ الوسائط ═════════════ */
-  function saveMedia(body, maxBytes) {
+  function saveMedia(body, maxBytes, priv = false) {
     let data = String(body.data || '');
     let mime = String(body.mime || '');
     const m = data.match(/^data:([\w/+.-]+);base64,(.*)$/s);
@@ -302,9 +339,87 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       buf.subarray(0, 4).toString('latin1') === 'GIF8';
     if (!isImg) return { status: 400, body: { error: 'الملف ليس صورة صالحة' } };
     const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
-    fs.writeFileSync(path.join(mediaDir, name), buf);
-    return { status: 200, body: { url: `/api/team/media/${name}`, name, size: buf.length } };
+    fs.writeFileSync(path.join(priv ? privateDir : mediaDir, name), buf);
+    return { status: 200, body: { url: priv ? signPrivate(`${PRIVATE_PREFIX}${name}`) : `/api/team/media/${name}`, name, size: buf.length } };
   }
+
+  /* ── المرفقات الخاصة ── */
+  const sigOf = (name, exp) => crypto.createHmac('sha256', signKey).update(`${name}.${exp}`).digest('hex').slice(0, 32);
+  /** رابط موقّع صالح 60–90 دقيقة؛ ثابت لنصف ساعة كي يبقى مخزّناً في ذاكرة المتصفح. */
+  function signPrivate(url) {
+    const m = PRIVATE_RE.exec(url || '');
+    if (!m) return url;
+    const exp = Math.ceil((Date.now() / 1000 + 3600) / 1800) * 1800;
+    return `${PRIVATE_PREFIX}${m[1]}?exp=${exp}&sig=${sigOf(m[1], exp)}`;
+  }
+  function signedOk(name, url) {
+    const exp = Number(url.searchParams.get('exp') || 0);
+    const sig = String(url.searchParams.get('sig') || '');
+    if (!(exp * 1000 > Date.now()) || sig.length !== 32) return false;
+    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(sigOf(name, exp)));
+  }
+  /** صاحب الطلب الذي يحمل هذا المرفق (للتحقق برمز الموظف أو نطاق المدير) */
+  const privateOwner = name => db.prepare('SELECT staff_id FROM leave_requests WHERE attachment = ?').get(`${PRIVATE_PREFIX}${name}`)?.staff_id ?? null;
+  function servePrivate(res, name) {
+    const file = PRIVATE_NAME_RE.test(name) ? path.join(privateDir, name) : null;
+    if (!file || !fs.existsSync(file)) {
+      ctx.sendOpen(res, 404, { error: 'not found' });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': EXT_MIME[name.split('.').pop()],
+      'Cache-Control': 'private, max-age=3600',
+      'Access-Control-Allow-Origin': '*',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    fs.createReadStream(file).pipe(res);
+  }
+  /** هل الملف العام مستعمل في إعلان/صورة منتج/محادثة/تبليغ؟ (لا يُنقل حينها بل يُنسخ) */
+  function mediaInUse(name) {
+    const like = `%${name}%`;
+    const q = sql => {
+      try {
+        return !!db.prepare(sql).get(like);
+      } catch {
+        return false; // جدول المحادثات قد لا يكون أُنشئ بعد
+      }
+    };
+    return (
+      q('SELECT 1 FROM posts WHERE images LIKE ?') ||
+      q('SELECT 1 FROM product_images WHERE url LIKE ?') ||
+      q('SELECT 1 FROM messages WHERE image LIKE ?') ||
+      q('SELECT 1 FROM notifications WHERE image LIKE ?') ||
+      q('SELECT 1 FROM broadcasts WHERE image LIKE ?')
+    );
+  }
+  /**
+   * مرفق مرفوع للمجلد العام (إصدارات تطبيق أقدم) ← المجلد الخاص.
+   * يُنقل فيختفي رابطه العام؛ وإن كان الملف مستعملاً علناً يُنسخ باسم جديد.
+   */
+  function privatize(publicUrl) {
+    const m = /^\/api\/team\/media\/([a-f0-9]{32}\.(?:jpg|png|webp))$/.exec(publicUrl || '');
+    const src = m && path.join(mediaDir, m[1]);
+    if (!src || !fs.existsSync(src)) return null;
+    if (mediaInUse(m[1])) {
+      const name = `${crypto.randomBytes(16).toString('hex')}.${m[1].split('.').pop()}`;
+      fs.copyFileSync(src, path.join(privateDir, name));
+      return `${PRIVATE_PREFIX}${name}`;
+    }
+    fs.renameSync(src, path.join(privateDir, m[1]));
+    return `${PRIVATE_PREFIX}${m[1]}`;
+  }
+  // مرفقات قديمة حُفظت علناً: تُنقل مرة واحدة عند التشغيل
+  const moved = new Map();
+  for (const r of db.prepare("SELECT id, attachment FROM leave_requests WHERE attachment LIKE '/api/team/media/%'").all()) {
+    try {
+      if (!moved.has(r.attachment)) moved.set(r.attachment, privatize(r.attachment));
+      const url = moved.get(r.attachment);
+      if (url) db.prepare('UPDATE leave_requests SET attachment = ? WHERE id = ?').run(url, r.id);
+    } catch (err) {
+      console.error('leave attachment migration failed', r.id, err.message);
+    }
+  }
+
   function serveMedia(res, name) {
     if (!MEDIA_RE.test(name)) {
       ctx.sendOpen(res, 404, { error: 'not found' });
@@ -426,7 +541,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       timeFrom: r.time_from,
       timeTo: r.time_to,
       reason: r.reason,
-      attachment: r.attachment,
+      attachment: r.attachment ? signPrivate(r.attachment) : null,
       status: r.status,
       decidedBy: r.decided_by,
       decidedNote: r.decided_note,
@@ -482,7 +597,9 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (!LEAVE_TYPES[type]) return { status: 400, body: { error: 'نوع الطلب غير معروف' } };
     const today = iraqDate();
     const reason = clip(body.reason, 500);
-    const attachment = typeof body.attachment === 'string' && /^\/api\/team\/media\/[a-f0-9]{32}\.(jpg|png|webp)$/.test(body.attachment) ? body.attachment : null;
+    // المرفق خاص دائماً: مرفوع خاصاً (التطبيق الجديد) أو يُنقل من المجلد العام (إصدارات أقدم) عند الحفظ
+    const pm = typeof body.attachment === 'string' ? PRIVATE_RE.exec(body.attachment) : null;
+    const attachment = pm && fs.existsSync(path.join(privateDir, pm[1])) ? `${PRIVATE_PREFIX}${pm[1]}` : null;
     let row = { date_from: null, date_to: null, swap_from: null, swap_to: null, time_from: null, time_to: null };
     if (type === 'swap') {
       if (!isDate(body.swapFrom) || !isDate(body.swapTo)) return { status: 400, body: { error: 'اختر يوم العطلة واليوم البديل' } };
@@ -522,7 +639,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (clash) return { status: 409, body: { error: `لديك طلب ${clash.status === 'pending' ? 'معلّق' : 'مقبول'} لنفس اليوم (${LEAVE_TYPES[clash.type]})` } };
     const r = db.prepare(`INSERT INTO leave_requests (staff_id, type, date_from, date_to, swap_from, swap_to, time_from, time_to, reason, attachment, status, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`)
-      .run(s.id, type, row.date_from, row.date_to, row.swap_from, row.swap_to, row.time_from, row.time_to, reason, attachment, now());
+      .run(s.id, type, row.date_from, row.date_to, row.swap_from, row.swap_to, row.time_from, row.time_to, reason, attachment || (!pm && typeof body.attachment === 'string' ? privatize(body.attachment) : null), now());
     const id = Number(r.lastInsertRowid);
     const full = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(id);
     audit(`staff:${s.id}`, 'leave.request', id, { type });
@@ -769,8 +886,9 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (req.method === 'POST' && p === '/api/team/media') {
       const body = await json(req);
       if (!body) return ctx.send(res, 400, { error: 'طلب غير صالح' }), true;
-      const out = saveMedia(body, 6 * 1048576);
-      if (out.status === 200) audit(`staff:${s.id}`, 'media.upload', out.body.name, { size: out.body.size });
+      // purpose=leave: تقرير طبي ← المجلد الخاص (رابط موقّع)
+      const out = saveMedia(body, 6 * 1048576, body.purpose === 'leave');
+      if (out.status === 200) audit(`staff:${s.id}`, 'media.upload', out.body.name, { size: out.body.size, private: body.purpose === 'leave' });
       reply(res, out);
       return true;
     }
@@ -853,7 +971,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
   const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
 
-  return { permsOf, scopeOf, handleStaff, handleManage, openStream, serveMedia, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
+  return { permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
 }
 
 module.exports = { createWork };

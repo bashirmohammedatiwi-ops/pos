@@ -66,6 +66,39 @@ public static class TeamEndpoints
             return Results.Ok(new { added, staff = await repo.ListAsync(ct) });
         });
 
+        // مفتاح الربط مع خادم الفريق: حالته، وحفظه من لوحة التحكم (يبقى بعد تحديث المثبّت)
+        g.MapGet("/sync-key", (HttpContext http, IConfiguration config) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var key = HubSyncKeyStore.ReadConfigured(config);
+            return Results.Ok(new { configured = key is not null, source = HubSyncKeyStore.Source(config), masked = HubSyncKeyStore.Mask(key) });
+        });
+        g.MapPut("/sync-key", async (HttpContext http, SyncKeyRequest req, IConfiguration config, IHttpClientFactory factory, ISellerHubSync sync, CancellationToken ct) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var key = (req.Key ?? "").Trim();
+            if (key.Length < 24) return Results.BadRequest(new { error = "المفتاح قصير — انسخه كاملاً من رسالة تحديث الـ VPS" });
+            if (HubSyncKeyStore.Source(config) == "settings")
+                return Results.BadRequest(new { error = "المفتاح مضبوط في appsettings.json على سيرفر المحل — عدّله هناك أو احذفه منه أولاً" });
+            // تجربة المفتاح قبل حفظه
+            var baseUrl = (config["SellerWeb:SyncUrl"] ?? "http://187.124.23.65:4705").TrimEnd('/');
+            try
+            {
+                using var test = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/admin/team/whoami");
+                test.Headers.TryAddWithoutValidation("X-Fot-Sync-Key", key);
+                using var res = await factory.CreateClient(HubClientName).SendAsync(test, ct);
+                if (res.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                    return Results.BadRequest(new { error = "خادم الفريق رفض المفتاح — تأكد أنه نفس FOT_HUB_SYNC_KEY في ملف .env على الـ VPS" });
+            }
+            catch
+            {
+                return Results.Json(new { error = "تعذر الوصول لخادم الفريق لتجربة المفتاح — تحقق من الإنترنت" }, statusCode: 502);
+            }
+            HubSyncKeyStore.Save(key);
+            Push(sync);
+            return Results.Ok(new { configured = true, source = "file", masked = HubSyncKeyStore.Mask(key) });
+        });
+
         // شبكات الواي فاي المرئية من جهاز السيرفر (في المحل) — لاختيار شبكات المحل وملء BSSID تلقائياً
         g.MapGet("/wifi-scan", async (HttpContext http, CancellationToken ct) =>
         {
@@ -95,7 +128,9 @@ public static class TeamEndpoints
         {
             if (!IsAdmin(http)) return Results.Forbid();
             var baseUrl = (config["SellerWeb:SyncUrl"] ?? "http://187.124.23.65:4705").TrimEnd('/');
-            var key = config["SellerWeb:SyncKey"] ?? "fot-hub-sync-e7Kq9mN2pL4xW8vR";
+            // المفتاح سري في إعدادات سيرفر المحل فقط (لا قيمة افتراضية في الكود)
+            if (SellerHubSyncService.ReadSyncKey(config) is not { } key)
+                return Results.Json(new { error = "مفتاح المزامنة مع خادم الفريق غير مضبوط — أضف SellerWeb:SyncKey في appsettings.json على سيرفر المحل" }, statusCode: 503);
             var target = $"{baseUrl}/api/admin/team/{path}{http.Request.QueryString}";
             using var req = new HttpRequestMessage(new HttpMethod(http.Request.Method), target);
             req.Headers.TryAddWithoutValidation("X-Fot-Sync-Key", key);
@@ -167,3 +202,5 @@ public static class TeamEndpoints
         http.User.IsInRole("admin") || http.User.HasClaim("role", "admin")
         || string.Equals(http.User.FindFirstValue(ClaimTypes.Role), "admin", StringComparison.OrdinalIgnoreCase);
 }
+
+public sealed record SyncKeyRequest(string? Key);

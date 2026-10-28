@@ -42,7 +42,7 @@ public sealed class SellerHubSyncService(
 
     public async Task<bool> PushAccountsNowAsync(CancellationToken ct)
     {
-        if (!Enabled) return false;
+        if (!Ready) return false;
         await _quickGate.WaitAsync(ct);
         try
         {
@@ -94,7 +94,7 @@ public sealed class SellerHubSyncService(
 
     public async Task<bool> PushBrandPacksForAsync(long salesmanId, CancellationToken ct)
     {
-        if (!Enabled) return false;
+        if (!Ready) return false;
         try
         {
             using var scope = scopes.CreateScope();
@@ -125,9 +125,17 @@ public sealed class SellerHubSyncService(
         }
     }
 
+    /// <summary>
+    /// مفتاح المزامنة مع خادم الفريق — سري، يُضبط في appsettings.json المثبّت على سيرفر المحل
+    /// (أو متغير البيئة SellerWeb__SyncKey) أو من لوحة التحكم (HubSyncKeyStore) — وليس في git. فارغ = المزامنة متوقفة حتى يُضبط.
+    /// </summary>
+    public static string? ReadSyncKey(IConfiguration config) => HubSyncKeyStore.Read(config);
+
     private bool Enabled => config.GetValue("SellerWeb:Enabled", true);
+    /// <summary>الإعدادات تُقرأ في كل مرة: ضبط المفتاح يسري دون إعادة تشغيل السيرفر.</summary>
+    private bool Ready => Enabled && ReadSyncKey(config) is not null;
     private string SyncUrl => (config["SellerWeb:SyncUrl"] ?? "http://187.124.23.65:4705").TrimEnd('/');
-    private string SyncKey => config["SellerWeb:SyncKey"] ?? "fot-hub-sync-e7Kq9mN2pL4xW8vR";
+    private string SyncKey => ReadSyncKey(config) ?? "";
     private int IntervalSeconds => Math.Clamp(config.GetValue("SellerWeb:IntervalSeconds", 60), 20, 3600);
     private int WeekCount => Math.Clamp(config.GetValue("SellerWeb:WeekCount", 8), 1, 12);
 
@@ -140,6 +148,8 @@ public sealed class SellerHubSyncService(
         }
 
         logger.LogInformation("Seller hub sync started -> {Url} every {Seconds}s", SyncUrl, IntervalSeconds);
+        if (HubSyncKeyStore.ReadConfigured(config) is null)
+            logger.LogWarning("Hub sync key is not set — using the legacy key until it is entered in the control panel (Team app → Updates)");
         await Task.Delay(TimeSpan.FromSeconds(8), stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -158,7 +168,7 @@ public sealed class SellerHubSyncService(
 
     public async Task<bool> PushNowAsync(CancellationToken ct)
     {
-        if (!Enabled) return false;
+        if (!Ready) return false;
         await _gate.WaitAsync(ct);
         try
         {

@@ -9,9 +9,24 @@ const bcrypt = require('bcryptjs');
 const PORT = Number(process.env.PORT || 4705);
 const DATA_DIR = process.env.FOT_HUB_DATA || '/data';
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
-const SYNC_KEY = process.env.FOT_HUB_SYNC_KEY || 'fot-hub-sync-e7Kq9mN2pL4xW8vR';
-const JWT_KEY = process.env.FOT_HUB_JWT_KEY || 'FOT-HUB-JWT-CHANGE-THIS-SECRET-MIN-32-CHARS';
-const JWT_HOURS = Number(process.env.FOT_HUB_JWT_HOURS || 87600);
+// المفاتيح الافتراضية القديمة منشورة في المستودع: للتطوير والاختبار فقط (FOT_HUB_ALLOW_DEV_KEYS=1)
+const DEV_KEYS = process.env.FOT_HUB_ALLOW_DEV_KEYS === '1';
+const LEAKED_KEYS = ['fot-hub-sync-e7Kq9mN2pL4xW8vR', 'FOT-HUB-JWT-CHANGE-THIS-SECRET-MIN-32-CHARS'];
+const SYNC_KEY = process.env.FOT_HUB_SYNC_KEY || (DEV_KEYS ? LEAKED_KEYS[0] : '');
+const JWT_KEY = process.env.FOT_HUB_JWT_KEY || (DEV_KEYS ? LEAKED_KEYS[1] : '');
+// عمر الرمز (30 يوماً)، ونافذة تجديد الرمز المنتهي بعده (30 يوماً) — بعدها يلزم الدخول من جديد
+const JWT_HOURS = Number(process.env.FOT_HUB_JWT_HOURS || 720);
+const REFRESH_GRACE_SEC = Number(process.env.FOT_HUB_REFRESH_DAYS || 30) * 86400;
+
+const weakKey = (value, min) => !value || value.length < min || LEAKED_KEYS.includes(value);
+if (!DEV_KEYS && (weakKey(SYNC_KEY, 24) || weakKey(JWT_KEY, 32))) {
+  console.error(
+    'FOT hub refuses to start: FOT_HUB_SYNC_KEY (24+ chars) and FOT_HUB_JWT_KEY (32+ chars) must be set to private values, ' +
+      'not the defaults published in git. Generate them with `openssl rand -hex 32` and put them in deploy/.env ' +
+      '(see deploy/README.md). For local development only, set FOT_HUB_ALLOW_DEV_KEYS=1.',
+  );
+  process.exit(1);
+}
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -64,15 +79,24 @@ function signJwt(payload) {
   return `${header}.${body}.${sig}`;
 }
 
+/** مقارنة ثابتة الزمن (لا تكشف طول التطابق) */
+function sameSecret(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+/** opts.refresh: يقبل رمزاً منتهياً ما دام داخل نافذة التجديد (لمسارات التجديد فقط) */
 function verifyJwt(token, role, opts) {
   if (!token) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const expect = crypto.createHmac('sha256', JWT_KEY).update(`${parts[0]}.${parts[1]}`).digest('base64url');
-  if (expect !== parts[2]) return null;
+  if (!sameSecret(expect, parts[2])) return null;
   try {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    if (!opts?.ignoreExp && payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    const grace = opts?.refresh ? REFRESH_GRACE_SEC : 0;
+    if (!(payload.exp > 0) || payload.exp + grace < Math.floor(Date.now() / 1000)) return null;
     if (role && payload.role !== role) return null;
     return payload;
   } catch {
@@ -395,7 +419,7 @@ function syncAuthorized(req) {
   const header = req.headers['x-fot-sync-key'] || '';
   const auth = req.headers.authorization || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  return header === SYNC_KEY || bearer === SYNC_KEY;
+  return (!!header && sameSecret(header, SYNC_KEY)) || (!!bearer && sameSecret(bearer, SYNC_KEY));
 }
 
 function sellerIdFromReq(req, opts) {
@@ -1041,6 +1065,8 @@ function applyAccounts(payload) {
     next.managers = managers;
   }
   state = next;
+  // مدير أُوقف أو حُذف: تُغلق قناته الحية فوراً
+  if (Array.isArray(managerRows)) team.recheckStreams('manager:');
   saveState();
   notifySellers();
 }
@@ -1136,6 +1162,8 @@ function applySync(payload) {
   }
 
   state = next;
+  // مدير أُوقف أو حُذف: تُغلق قناته الحية فوراً
+  if (Array.isArray(managerRows)) team.recheckStreams('manager:');
   saveState();
   notifySellers();
 }
@@ -1231,7 +1259,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/seller/events') {
       // EventSource لا يرسل ترويسات — الرمز في الرابط
-      const payload = verifyJwt(url.searchParams.get('token') || bearerToken(req), 'seller', { ignoreExp: true });
+      const payload = verifyJwt(url.searchParams.get('token') || bearerToken(req), 'seller', { refresh: true });
       const sid = Number(payload?.sub || 0);
       if (!sid || !state.accounts[sid]) {
         send(res, 401, { error: 'انتهت الجلسة' });
@@ -1304,7 +1332,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/auth/seller-refresh') {
-      const id = sellerIdFromReq(req, { ignoreExp: true });
+      const id = sellerIdFromReq(req, { refresh: true });
       const acc = id ? state.accounts[id] : null;
       if (!acc || !acc.isActive) {
         send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
@@ -1360,7 +1388,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/auth/manager-refresh') {
-      const acc = managerFromReq(req, { ignoreExp: true });
+      const acc = managerFromReq(req, { refresh: true });
       if (!acc || !acc.isActive) {
         sendOpen(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
         return;

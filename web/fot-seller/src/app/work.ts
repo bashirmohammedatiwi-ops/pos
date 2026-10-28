@@ -225,6 +225,8 @@ export const staffApi = {
   requestLeave: (b: Record<string, unknown>) => call<LeaveReq>('staff', '/api/team/leave', { method: 'POST', body: b }),
   cancelLeave: (id: number) => call<{ ok: true }>('staff', `/api/team/leave/${id}/cancel`, { method: 'POST', body: {} }),
   upload: (dataUrl: string) => call<{ url: string }>('staff', '/api/team/media', { method: 'POST', body: { data: dataUrl } }),
+  /** تقرير طبي: يُحفظ خاصاً ويعود برابط موقّع قصير العمر */
+  uploadLeave: (dataUrl: string) => call<{ url: string }>('staff', '/api/team/media', { method: 'POST', body: { data: dataUrl, purpose: 'leave' } }),
 };
 
 export const managerApi = {
@@ -287,6 +289,8 @@ export interface Shift {
 export interface AttendState {
   now: string;
   today: string;
+  /** يوم الوردية الجارية (الليلية تبقى على يوم بدايتها بعد منتصف الليل) */
+  shiftDate?: string;
   day?: DayState | null;
   shift: Shift;
   attendance: AttendRec | null;

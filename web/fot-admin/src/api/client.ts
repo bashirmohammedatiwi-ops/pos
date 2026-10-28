@@ -621,6 +621,10 @@ export const api = {
   uploadTeamAppRelease: (body: { version: string; notes?: string; required: boolean; data: string }) =>
     request<TeamAppReleaseDto>('/api/team/hub/app-releases', { method: 'POST', body: JSON.stringify(body), timeoutMs: 300_000 }),
   deleteTeamAppRelease: (id: number) => request<{ ok: boolean }>(`/api/team/hub/app-releases/${id}`, { method: 'DELETE' }),
+  /** مفتاح الربط بين سيرفر المحل وخادم الفريق */
+  teamSyncKey: () => request<{ configured: boolean; source: 'settings' | 'file' | 'none'; masked: string }>('/api/team/sync-key'),
+  saveTeamSyncKey: (key: string) =>
+    request<{ configured: boolean; source: string; masked: string }>('/api/team/sync-key', { method: 'PUT', body: JSON.stringify({ key }) }),
   teamPushStatus: () => request<TeamPushStatusDto>('/api/team/hub/push/status'),
   teamPushTest: (kind: 'staff' | 'manager', id: number) =>
     request<TeamPushStatusDto>('/api/team/hub/push/test', { method: 'POST', body: JSON.stringify({ kind, id }) }),
@@ -633,9 +637,12 @@ export const api = {
   teamAudit: (limit = 300) => request<TeamAuditDto[]>(`/api/team/hub/audit?limit=${limit}`),
   /** صورة من خادم الفريق كرابط محلي (المتصفح لا يرسل رمز الدخول في وسم img). */
   teamMediaObjectUrl: async (url: string) => {
-    const name = url.split('/').pop() ?? '';
+    // مرفقات الإجازات خاصة (/api/team/private/<name>?exp=&sig=) — تُجلب بمفتاح المزامنة عبر الوكيل بلا التوقيع
+    const path = url.split('?')[0];
+    const name = path.split('/').pop() ?? '';
+    const folder = path.includes('/api/team/private/') ? 'private' : 'media';
     const token = getToken();
-    const res = await fetchLan(`${getApiBase()}/api/team/hub/media/${encodeURIComponent(name)}`, {
+    const res = await fetchLan(`${getApiBase()}/api/team/hub/${folder}/${encodeURIComponent(name)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       timeoutMs: 60_000,
     });

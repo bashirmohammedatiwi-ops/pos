@@ -41,6 +41,8 @@ function createTeam(ctx) {
        target TEXT, details TEXT
      );
      CREATE INDEX ix_audit_at ON audit(at);`,
+    // نسخة الجلسة: تزيد عند تغيير الرمز أو فك الجهاز أو الإيقاف فتسقط كل الرموز السابقة
+    `ALTER TABLE staff ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0;`,
   ];
   const applied = new Set(db.prepare('SELECT id FROM _migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -82,9 +84,13 @@ function createTeam(ctx) {
   /* ── مزامنة الموظفين من المحل (قائمة كاملة) ── */
   function applyStaff(rows) {
     if (!Array.isArray(rows)) return;
-    const upsert = db.prepare(`INSERT INTO staff (id, code, name, kind, job_title, photo_url, salesman_id, cashier_id, section_id, section_name, pin_hash, is_active, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET code=excluded.code, name=excluded.name, kind=excluded.kind, job_title=excluded.job_title,
+    // رمز جديد أو إيقاف الحساب: تزيد نسخة الجلسة فتسقط الرموز القديمة.
+    // الموظف الجديد يبدأ من الوقت الحالي (لا من 0) كي لا تعود رموز موظف حُذف ثم أُعيد بنفس الرقم
+    const upsert = db.prepare(`INSERT INTO staff (id, code, name, kind, job_title, photo_url, salesman_id, cashier_id, section_id, section_name, pin_hash, is_active, updated_at, token_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s', 'now') AS INTEGER))
+      ON CONFLICT(id) DO UPDATE SET
+        token_version = staff.token_version + (CASE WHEN staff.pin_hash IS NOT excluded.pin_hash OR (staff.is_active = 1 AND excluded.is_active = 0) THEN 1 ELSE 0 END),
+        code=excluded.code, name=excluded.name, kind=excluded.kind, job_title=excluded.job_title,
         photo_url=excluded.photo_url, salesman_id=excluded.salesman_id, cashier_id=excluded.cashier_id, section_id=excluded.section_id,
         section_name=excluded.section_name, pin_hash=excluded.pin_hash, is_active=excluded.is_active, updated_at=excluded.updated_at`);
     const ids = [];
@@ -119,6 +125,8 @@ function createTeam(ctx) {
       db.exec('ROLLBACK');
       console.error('team staff sync failed', err.message);
     }
+    // قنوات من أُوقف أو حُذف أو تغيّر رمزه تُغلق فوراً
+    work.recheckStreams('staff:');
   }
 
   const getStaff = id => db.prepare('SELECT * FROM staff WHERE id = ?').get(id);
@@ -140,15 +148,26 @@ function createTeam(ctx) {
   }
 
   function issueStaffToken(s) {
-    return ctx.signJwt({ sub: String(s.id), role: 'staff', sid: s.salesman_id || null, name: s.name, exp: ctx.tokenExp() });
+    return ctx.signJwt({ sub: String(s.id), role: 'staff', sid: s.salesman_id || null, name: s.name, tv: s.token_version, exp: ctx.tokenExp() });
   }
 
-  function staffFromReq(req, opts) {
-    const payload = ctx.verifyJwt(ctx.bearerToken(req), 'staff', opts);
+  /** الموظف صاحب الرمز إن كان نشطاً ونسخة جلسته حالية.
+   *  رموز ما قبل نسخة الجلسة (بلا tv) تُقبل للتجديد فقط ما لم تزد النسخة بعد. */
+  function staffFromToken(token, opts) {
+    const payload = ctx.verifyJwt(token, 'staff', opts);
     const id = Number(payload?.sub || 0);
     if (!id) return null;
     const s = getStaff(id);
-    return s && s.is_active ? s : null;
+    if (!s || !s.is_active) return null;
+    const tv = payload.tv ?? (opts?.refresh ? 0 : null);
+    return tv === s.token_version ? s : null;
+  }
+  const staffFromReq = (req, opts) => staffFromToken(ctx.bearerToken(req), opts);
+
+  /** إسقاط كل جلسات الموظف (الرموز والقناة الحية) */
+  function revokeStaff(id) {
+    db.prepare('UPDATE staff SET token_version = token_version + 1 WHERE id = ?').run(id);
+    work.recheckStreams(`staff:${id}`);
   }
 
   /* حدّ محاولات الدخول: بعد max فشل خلال 15 دقيقة يُقفل المفتاح 15 دقيقة */
@@ -217,22 +236,38 @@ function createTeam(ctx) {
     // فحص التحديث وتنزيل التطبيق (عام)
     if (extra.handlePublic(req, res, url)) return true;
 
-    // صور الإعلانات والتقارير: عامة بأسماء عشوائية غير قابلة للتخمين
+    // صور الإعلانات والمنتجات: عامة بأسماء عشوائية غير قابلة للتخمين
     const media = p.match(/^\/api\/team\/media\/([\w.]+)$/);
     if (req.method === 'GET' && media) {
       work.serveMedia(res, media[1]);
       return true;
     }
+    // مرفقات الإجازات (تقارير طبية): رابط موقّع قصير العمر، أو رمز صاحب الطلب، أو مدير يملك الموافقة على موظفه
+    const priv = p.match(/^\/api\/team\/private\/([\w.]+)$/);
+    if (req.method === 'GET' && priv) {
+      const name = priv[1];
+      let allowed = work.signedOk(name, url);
+      if (!allowed && ctx.bearerToken(req)) {
+        const owner = work.privateOwner(name);
+        const s = staffFromReq(req);
+        const m = s ? null : managerFromToken(ctx.bearerToken(req));
+        allowed = owner != null && (s ? s.id === owner : !!m && !!work.permsOf(Number(m.id)).perms.approveLeave && work.scopeOf(Number(m.id))(owner));
+      }
+      if (!allowed) ctx.sendOpen(res, 403, { error: 'رابط المرفق منتهٍ — أعد فتح الطلب' });
+      else work.servePrivate(res, name);
+      return true;
+    }
 
     // القناة الحية (EventSource لا يرسل ترويسات — الرمز في الرابط)
     if (req.method === 'GET' && p === '/api/team/events') {
-      const payload = ctx.verifyJwt(url.searchParams.get('token') || '', 'staff');
-      const s = payload ? getStaff(Number(payload.sub)) : null;
-      if (!s || !s.is_active) {
+      const token = url.searchParams.get('token') || '';
+      const s = staffFromToken(token);
+      if (!s) {
         ctx.send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
         return true;
       }
-      work.openStream(req, res, `staff:${s.id}`);
+      // تُعاد المصادقة دورياً: الإيقاف أو تغيير الرمز أو انتهاء الصلاحية يغلق القناة
+      work.openStream(req, res, `staff:${s.id}`, () => !!staffFromToken(token));
       return true;
     }
 
@@ -241,14 +276,15 @@ function createTeam(ctx) {
       // ردود المدير تحتفظ بأسماء الأقسام (تُحذف من ردود البائعين فقط)
       res.teamManager = true;
       const sub = p.slice('/api/team/m/'.length);
-      const m = managerFromToken(sub === 'events' ? url.searchParams.get('token') || '' : ctx.bearerToken(req));
+      const token = sub === 'events' ? url.searchParams.get('token') || '' : ctx.bearerToken(req);
+      const m = managerFromToken(token);
       if (!m) {
         ctx.send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
         return true;
       }
       const mid = Number(m.id);
       if (req.method === 'GET' && sub === 'events') {
-        work.openStream(req, res, `manager:${mid}`);
+        work.openStream(req, res, `manager:${mid}`, () => !!managerFromToken(token));
         return true;
       }
       const { perms, sections } = work.permsOf(mid);
@@ -378,7 +414,7 @@ function createTeam(ctx) {
     }
 
     if (req.method === 'POST' && p === '/auth/team-refresh') {
-      const s = staffFromReq(req, { ignoreExp: true });
+      const s = staffFromReq(req, { refresh: true });
       if (!s) {
         ctx.send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
         return true;
@@ -451,6 +487,8 @@ function createTeam(ctx) {
         const id = Number(m[1]);
         db.prepare('DELETE FROM devices WHERE staff_id = ?').run(id);
         db.prepare("DELETE FROM push_tokens WHERE user_kind = 'staff' AND user_id = ?").run(id);
+        // الهاتف القديم يفقد جلسته فوراً — الدخول من جديد يربط الهاتف الجديد
+        revokeStaff(id);
         audit(actor, 'device.reset', id, null);
         ctx.sendOpen(res, 200, { ok: true });
         return true;
@@ -467,6 +505,11 @@ function createTeam(ctx) {
         work.serveMedia(res, am[1]);
         return true;
       }
+      const ap = p.match(/^\/api\/admin\/team\/private\/([\w.]+)$/);
+      if (req.method === 'GET' && ap) {
+        work.servePrivate(res, ap[1]);
+        return true;
+      }
       if (await work.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       if (await attend.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       if (await extra.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
@@ -481,7 +524,7 @@ function createTeam(ctx) {
     return false;
   }
 
-  return { db, applyStaff, handle, audit, withImages: work.withImages };
+  return { db, applyStaff, handle, audit, withImages: work.withImages, recheckStreams: work.recheckStreams };
 }
 
 module.exports = { createTeam };
