@@ -21,6 +21,10 @@ git pull origin main
 chmod +x "$here/up.sh" "$here/update.sh" "$here/enable-host-tunnel.sh" 2>/dev/null || true
 sh "$here/up.sh"
 
+# البوابة (nginx) تقرأ قالب الإعداد عند التشغيل فقط — نعيد تشغيلها ليُطبَّق أي تعديل على المسارات
+echo "restarting gateway to load nginx config"
+docker compose -f "$here/docker-compose.yml" --env-file "$here/.env" restart gateway
+
 echo
 echo "expected containers: hub, seller, manager, gateway"
 docker compose -f "$here/docker-compose.yml" --env-file "$here/.env" ps
