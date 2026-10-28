@@ -169,7 +169,20 @@ export async function hideSplash() {
 
 /* ── شبكة الواي فاي (للحضور من شبكة المحل) ── */
 export type WifiState = { bssid?: string | null; ssid?: string | null; permission?: 'granted' | 'denied'; locationEnabled?: boolean; wifiEnabled?: boolean };
-type WifiPlugin = { getInfo(): Promise<WifiState>; openLocationSettings(): Promise<void>; openWifiSettings(): Promise<void>; openUrl(o: { url: string }): Promise<void> };
+export type WifiScanResult = {
+  permission?: 'granted' | 'denied';
+  locationEnabled?: boolean;
+  wifiEnabled?: boolean;
+  fresh?: boolean;
+  networks: { ssid: string; bssid: string; level: number; frequency: number }[];
+};
+type WifiPlugin = {
+  getInfo(): Promise<WifiState>;
+  scan(): Promise<WifiScanResult>;
+  openLocationSettings(): Promise<void>;
+  openWifiSettings(): Promise<void>;
+  openUrl(o: { url: string }): Promise<void>;
+};
 let wifiPlugin: WifiPlugin | null = null;
 async function wifi() {
   if (!wifiPlugin) {
@@ -193,6 +206,34 @@ export async function readWifi(): Promise<WifiState> {
     return await (await wifi()).getInfo();
   } catch {
     return {};
+  }
+}
+/** شبكات الواي فاي المحيطة بالهاتف (للمدير). في المتصفح (تطوير): نقاط تجريبية حول fot_dev_bssid. */
+export async function scanWifi(): Promise<WifiScanResult> {
+  if (!isNative()) {
+    try {
+      const dev = localStorage.getItem('fot_dev_bssid');
+      if (!dev) return { networks: [] };
+      const base = dev.slice(0, -2);
+      return {
+        permission: 'granted',
+        locationEnabled: true,
+        wifiEnabled: true,
+        fresh: true,
+        networks: [
+          { ssid: 'DEV', bssid: dev, level: -45, frequency: 5180 },
+          { ssid: 'DEV', bssid: `${base}99`, level: -62, frequency: 2437 },
+          { ssid: 'Neighbour', bssid: '10:7b:44:21:9c:d0', level: -80, frequency: 2412 },
+        ],
+      };
+    } catch {
+      return { networks: [] };
+    }
+  }
+  try {
+    return await (await wifi()).scan();
+  } catch {
+    return { networks: [] };
   }
 }
 export async function openLocationSettings() {

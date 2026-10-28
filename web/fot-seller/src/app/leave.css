@@ -1,0 +1,445 @@
+/* ═════════════ طلب جديد (شاشة كاملة) ═════════════ */
+.t-tile.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.t-lr {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  animation: req-in 0.28s var(--ease) both;
+}
+@keyframes req-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+.t-lr-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-glass);
+  backdrop-filter: blur(14px);
+}
+.t-lr-head .title {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.t-lr-head .title b {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.t-lr-head .title small {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.t-lr-head .steps {
+  display: flex;
+  gap: 4px;
+}
+.t-lr-head .steps i {
+  width: 18px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--line-2);
+  transition: background-color 0.25s;
+}
+.t-lr-head .steps i.on {
+  background: var(--brand-2);
+}
+.t-lr-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px 24px;
+}
+
+/* الخطوة 1: أنواع الطلب */
+.t-lr-types {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.t-lr-type {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-1);
+  text-align: right;
+  animation: page-in 0.35s var(--ease) backwards;
+}
+.t-lr-type .txt {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.t-lr-type .txt b {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.t-lr-type .txt small {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+.t-lr-type .go {
+  color: var(--ink-4);
+}
+.t-lr-note {
+  margin: 8px 4px 0;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink-3);
+}
+
+/* الخطوة 2 */
+.t-lr-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.t-lr-form section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: opacity 0.2s;
+}
+.t-lr-form section.dim {
+  opacity: 0.45;
+}
+.t-lr-form h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+
+/* تقويم الاختيار */
+.t-cal2 {
+  padding: 12px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+}
+.t-cal2-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 10px;
+}
+.t-cal2-head b {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.t-cal2-head button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--bg-sunk);
+  color: var(--ink-2);
+}
+.t-cal2-head button.flip svg {
+  transform: scaleX(-1);
+}
+.t-cal2-head button:disabled {
+  opacity: 0.3;
+}
+.t-cal2-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  row-gap: 4px;
+}
+.t-cal2-grid .wd {
+  padding-bottom: 4px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.t-cal2-grid .d {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 42px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.t-cal2-grid .d:disabled {
+  color: var(--ink-4);
+  opacity: 0.55;
+}
+.t-cal2-grid .d.in {
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+}
+.t-cal2-grid .d.start {
+  border-start-start-radius: 14px;
+  border-end-start-radius: 14px;
+}
+.t-cal2-grid .d.end {
+  border-start-end-radius: 14px;
+  border-end-end-radius: 14px;
+}
+.t-cal2-grid .d.edge span {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 8px 16px -8px rgba(76, 42, 133, 0.7);
+}
+.t-cal2-grid .d i {
+  position: absolute;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.t-cal2-grid .d.weekly i,
+.t-cal2-legend i.weekly {
+  background: var(--brand-2);
+}
+.t-cal2-grid .d.leave i,
+.t-cal2-legend i.leave {
+  background: var(--accent);
+}
+.t-cal2-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 6px 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.t-cal2-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.t-cal2-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* بطاقات الأيام */
+.t-lr-days {
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 2px 16px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.t-lr-days::-webkit-scrollbar {
+  display: none;
+}
+.t-lr-days.wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+.t-lr-days button {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 64px;
+  padding: 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-elev);
+  color: var(--ink);
+}
+.t-lr-days button small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.t-lr-days button b {
+  font-size: 16px;
+  font-weight: 800;
+}
+.t-lr-days button.off {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--brand-2) 45%, transparent);
+}
+.t-lr-days button.on {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 10px 20px -12px rgba(76, 42, 133, 0.8);
+}
+.t-lr-days button.on small {
+  color: rgba(255, 255, 255, 0.8);
+}
+.t-lr-days button:disabled {
+  opacity: 0.5;
+}
+
+/* الوقت */
+.t-lr-times {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.t-lr-times label {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+}
+.t-lr-times label small {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.t-lr-times label b {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+}
+/* حقل الوقت الأصلي فوق البطاقة كلها: لمسة واحدة تفتح منتقي الوقت في الهاتف */
+.t-lr-times input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.t-lr-times .arrow {
+  display: grid;
+  place-items: center;
+  color: var(--ink-4);
+}
+.t-lr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.t-lr-chips button {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.t-lr-chips button.on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+}
+
+/* ملخص التبديل */
+.t-lr-swap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--hero);
+  color: #fff;
+}
+.t-lr-swap > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.t-lr-swap small {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.t-lr-swap b {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* الشريط السفلي الثابت */
+.t-lr-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--bg-elev);
+  box-shadow: 0 -12px 30px -20px rgba(23, 19, 31, 0.35);
+}
+.t-lr-foot .sum {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+.t-lr-foot .sum b {
+  color: var(--ink);
+  font-weight: 800;
+}
+.t-lr-foot .sum small {
+  color: var(--ink-3);
+}
+.t-lr-foot .t-hint {
+  margin: 0;
+}
+
+/* انتظار البحث عن الشبكات (المدير) */
+.t-scan-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 34px 12px;
+  text-align: center;
+}
+.t-scan-wait b {
+  font-size: 15px;
+  color: var(--ink);
+}
+.t-scan-wait small {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.t-scan-wait .spinner {
+  width: 28px;
+  height: 28px;
+  border-color: var(--line-2);
+  border-top-color: var(--brand);
+}

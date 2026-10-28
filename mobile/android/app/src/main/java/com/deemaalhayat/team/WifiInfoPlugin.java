@@ -4,12 +4,18 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.location.LocationManager;
+import android.net.wifi.ScanResult;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
+
+import java.util.List;
 
 import androidx.core.location.LocationManagerCompat;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -76,6 +82,81 @@ public class WifiInfoPlugin extends Plugin {
         r.put("bssid", bssid);
         r.put("ssid", ssid);
         call.resolve(r);
+    }
+
+    /**
+     * البحث عن شبكات الواي فاي المحيطة (للمدير: إضافة شبكة المحل بكل نقاط بثها).
+     * أندرويد يحدّ startScan (4 مرات كل دقيقتين) — إن رُفض نعيد آخر نتائج محفوظة.
+     */
+    @PluginMethod
+    public void scan(PluginCall call) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            requestPermissionForAlias("location", call, "scanCallback");
+            return;
+        }
+        doScan(call);
+    }
+
+    @PermissionCallback
+    private void scanCallback(PluginCall call) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            JSObject r = new JSObject();
+            r.put("permission", "denied");
+            r.put("networks", new JSArray());
+            call.resolve(r);
+            return;
+        }
+        doScan(call);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void doScan(PluginCall call) {
+        Context ctx = getContext();
+        LocationManager lm = (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
+        boolean locationOn = lm != null && LocationManagerCompat.isLocationEnabled(lm);
+        WifiManager wm = (WifiManager) ctx.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wm == null) {
+            JSObject r = new JSObject();
+            r.put("permission", "granted");
+            r.put("locationEnabled", locationOn);
+            r.put("wifiEnabled", false);
+            r.put("networks", new JSArray());
+            call.resolve(r);
+            return;
+        }
+        boolean started = false;
+        try {
+            started = wm.startScan();
+        } catch (Exception ignored) {
+            // الحدّ أو منع النظام: نكتفي بالنتائج المحفوظة
+        }
+        final boolean fresh = started;
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            JSObject r = new JSObject();
+            r.put("permission", "granted");
+            r.put("locationEnabled", locationOn);
+            r.put("wifiEnabled", wm.isWifiEnabled());
+            r.put("fresh", fresh);
+            JSArray list = new JSArray();
+            try {
+                List<ScanResult> results = wm.getScanResults();
+                if (results != null) {
+                    for (ScanResult s : results) {
+                        if (s.BSSID == null) continue;
+                        JSObject o = new JSObject();
+                        o.put("ssid", s.SSID == null ? "" : s.SSID);
+                        o.put("bssid", s.BSSID.toLowerCase());
+                        o.put("level", s.level);
+                        o.put("frequency", s.frequency);
+                        list.put(o);
+                    }
+                }
+            } catch (SecurityException ignored) {
+                // بلا إذن الموقع لا تعيد أندرويد نتائج
+            }
+            r.put("networks", list);
+            call.resolve(r);
+        }, started ? 3500 : 300);
     }
 
     @PluginMethod

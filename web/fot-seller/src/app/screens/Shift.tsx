@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, ErrorLine, Fab, I, Screen, Sheet, Skeleton, toast } from '../kit';
 import { haptic } from '../native';
-import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, StatusBadge } from '../parts';
+import { BackBtn, LEAVE_ICON, Lightbox, StatusBadge } from '../parts';
 import { AttendCard, AttendHistory } from './Attend';
-import { LEAVE_LABEL, dateShort, leaveWhen, offNames, relTime, staffApi, time12, useLoad, type DayState, type LeaveReq, type LeaveType } from '../work';
+import { LeaveRequest } from './LeaveRequest';
+
+const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+import { LEAVE_LABEL, dateShort, leaveWhen, offNames, relTime, staffApi, useLoad, type DayState, type LeaveReq } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * دوامي — حالة اليوم، تقويم ثلاثة أسابيع (العطل، الإجازات، التبديلات، الاستئذان)،
@@ -225,9 +228,10 @@ export function Shift({ back }: { back?: string }) {
       )}
 
       {data && (
-        <RequestSheet
+        <LeaveRequest
           open={form}
           days={data.days}
+          weeklyOff={data.weeklyOff}
           today={today}
           onClose={() => setForm(false)}
           onDone={() => {
@@ -279,189 +283,5 @@ export function Shift({ back }: { back?: string }) {
       </Sheet>
       {viewer && <Lightbox images={[viewer]} start={0} onClose={() => setViewer(null)} />}
     </Screen>
-  );
-}
-
-/* ═════════════ نموذج الطلب ═════════════ */
-const TYPES: LeaveType[] = ['swap', 'day', 'hours', 'sick', 'urgent'];
-
-function addDays(iso: string, n: number) {
-  return new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-}
-
-function DayPills({ days, value, onPick, alt }: { days: DayState[]; value: string; onPick: (d: string) => void; alt?: boolean }) {
-  if (!days.length) return <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>لا أيام متاحة</p>;
-  return (
-    <div className="t-scroller">
-      {days.map(d => (
-        <button
-          key={d.date}
-          type="button"
-          className={`t-pill press ${value === d.date ? 'on' : ''}`}
-          style={value === d.date && alt ? { background: 'var(--brand)', borderColor: 'var(--brand)', color: '#fff' } : undefined}
-          onClick={() => {
-            haptic('select');
-            onPick(d.date);
-          }}
-        >
-          {d.weekday}
-          <small className="num">{dateShort(d.date).split('، ').pop()}</small>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RequestSheet({ open, days, today, onClose, onDone }: { open: boolean; days: DayState[]; today: string; onClose: () => void; onDone: () => void }) {
-  const [type, setType] = useState<LeaveType>('swap');
-  const [swapFrom, setSwapFrom] = useState('');
-  const [swapTo, setSwapTo] = useState('');
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
-  const [tFrom, setTFrom] = useState('14:00');
-  const [tTo, setTTo] = useState('16:00');
-  const [reason, setReason] = useState('');
-  const [files, setFiles] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const upcoming = useMemo(() => days.filter(d => d.date >= today), [days, today]);
-  const offDays = upcoming.filter(d => d.off && d.reason === 'weekly');
-  const workDays = upcoming.filter(d => !d.off);
-  const minDate = type === 'sick' ? addDays(today, -7) : today;
-
-  async function submit() {
-    setErr('');
-    const body: Record<string, unknown> = { type, reason: reason.trim() || undefined };
-    if (type === 'swap') {
-      if (!swapFrom || !swapTo) return setErr('اختر يوم عطلتك واليوم البديل');
-      Object.assign(body, { swapFrom, swapTo });
-    } else if (type === 'hours') {
-      if (tFrom >= tTo) return setErr('وقت العودة يجب أن يكون بعد وقت الخروج');
-      Object.assign(body, { dateFrom: from, timeFrom: tFrom, timeTo: tTo });
-    } else {
-      if (to < from) return setErr('تاريخ النهاية قبل البداية');
-      Object.assign(body, { dateFrom: from, dateTo: to, attachment: files[0] });
-    }
-    if (type === 'urgent' && !reason.trim()) return setErr('اكتب سبب الإجازة الطارئة');
-    setBusy(true);
-    try {
-      await staffApi.requestLeave(body);
-      haptic('success');
-      toast('أُرسل طلبك للمدير — سيصلك الرد هنا');
-      setReason('');
-      setFiles([]);
-      setSwapFrom('');
-      setSwapTo('');
-      onDone();
-    } catch (e) {
-      haptic('error');
-      setErr(e instanceof Error ? e.message : 'تعذر إرسال الطلب');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Sheet open={open} onClose={onClose} title="طلب جديد" subtitle="يصل لمديرك فوراً ويصلك الرد في التبليغات">
-      <div className="t-form">
-        <div className="t-choices">
-          {TYPES.map(t => (
-            <button
-              key={t}
-              type="button"
-              className={`t-choice press ${type === t ? 'on' : ''}`}
-              onClick={() => {
-                haptic('select');
-                setType(t);
-                setErr('');
-              }}
-            >
-              {LEAVE_ICON[t]}
-              {LEAVE_LABEL[t]}
-            </button>
-          ))}
-        </div>
-
-        {type === 'swap' && (
-          <>
-            <div className="t-field">
-              <span>يوم عطلتك الذي تريد العمل فيه</span>
-              <DayPills days={offDays} value={swapFrom} onPick={setSwapFrom} />
-            </div>
-            <div className="t-field">
-              <span>اليوم البديل للراحة</span>
-              <DayPills days={workDays} value={swapTo} onPick={setSwapTo} alt />
-            </div>
-          </>
-        )}
-
-        {type === 'hours' && (
-          <>
-            <label className="t-field">
-              <span>اليوم</span>
-              <input className="t-input sm" type="date" min={today} value={from} onChange={e => e.target.value && setFrom(e.target.value)} />
-            </label>
-            <div className="t-row-2">
-              <label className="t-field">
-                <span>من الساعة</span>
-                <input className="t-input sm" type="time" value={tFrom} onChange={e => setTFrom(e.target.value)} />
-              </label>
-              <label className="t-field">
-                <span>إلى الساعة</span>
-                <input className="t-input sm" type="time" value={tTo} onChange={e => setTTo(e.target.value)} />
-              </label>
-            </div>
-            <p style={{ marginTop: -6, fontSize: 12.5, color: 'var(--ink-3)' }}>
-              خروج {time12(tFrom)} والعودة {time12(tTo)}
-            </p>
-          </>
-        )}
-
-        {(type === 'day' || type === 'sick' || type === 'urgent') && (
-          <div className="t-row-2">
-            <label className="t-field">
-              <span>من</span>
-              <input
-                className="t-input sm"
-                type="date"
-                min={minDate}
-                value={from}
-                onChange={e => {
-                  if (!e.target.value) return;
-                  setFrom(e.target.value);
-                  if (to < e.target.value) setTo(e.target.value);
-                }}
-              />
-            </label>
-            <label className="t-field">
-              <span>إلى</span>
-              <input className="t-input sm" type="date" min={from} value={to} onChange={e => e.target.value && setTo(e.target.value)} />
-            </label>
-          </div>
-        )}
-
-        {type === 'sick' && (
-          <div className="t-field">
-            <span>صورة التقرير الطبي (اختياري)</span>
-            <ImagePicker value={files} onChange={setFiles} upload={staffApi.uploadLeave} max={1} />
-          </div>
-        )}
-
-        <label className="t-field">
-          <span>{type === 'urgent' ? 'السبب (مطلوب)' : 'ملاحظة للمدير (اختياري)'}</span>
-          <textarea className="t-textarea" maxLength={500} value={reason} onChange={e => setReason(e.target.value)} placeholder="اكتب باختصار…" />
-        </label>
-
-        {err && (
-          <p className="t-hint bad" role="alert" style={{ marginTop: -6 }}>
-            {err}
-          </p>
-        )}
-        <button type="button" className="t-btn block press" disabled={busy} onClick={() => void submit()}>
-          {busy ? <span className="spinner" /> : 'إرسال الطلب'}
-        </button>
-      </div>
-    </Sheet>
   );
 }

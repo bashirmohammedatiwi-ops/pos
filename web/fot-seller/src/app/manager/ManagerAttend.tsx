@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Avatar, Badge, Empty, ErrorLine, I, Screen, Sheet, Skeleton, clockLabel, toast } from '../kit';
-import { haptic, readWifi, type WifiState } from '../native';
+import { haptic, openLocationSettings, readWifi, scanWifi, type WifiScanResult, type WifiState } from '../native';
 import { BackBtn } from '../parts';
 import { dur, hhmm } from '../screens/Attend';
-import { dateShort, dateTiny, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus } from '../work';
+import { dateShort, dateTiny, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus, type ShopNetwork } from '../work';
 import { KIND_LABEL } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -345,13 +345,128 @@ export function AttendSummary() {
 }
 
 /* ═════════════ شبكات المحل ═════════════ */
+/* البحث عن الشبكات القريبة من هاتف المدير وإضافة شبكة المحل بكل نقاط بثها */
+const signalPct = (dbm: number) => Math.max(0, Math.min(100, Math.round((dbm + 100) * 2)));
+function NetScanSheet({ open, networks, current, onClose, onSaved }: { open: boolean; networks: ShopNetwork[]; current?: string | null; onClose: () => void; onSaved: () => void }) {
+  const [res, setRes] = useState<WifiScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [saving, setSaving] = useState('');
+
+  async function run() {
+    setScanning(true);
+    setRes(await scanWifi());
+    setScanning(false);
+  }
+  useEffect(() => {
+    if (open) void run();
+    else setRes(null);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const known = new Set(networks.flatMap(n => n.bssids ?? (n.bssid ? [n.bssid] : [])));
+  const groups = (() => {
+    const map = new Map<string, { ssid: string; aps: WifiScanResult['networks'] }>();
+    for (const n of res?.networks ?? []) {
+      if (!n.ssid) continue;
+      const g = map.get(n.ssid) ?? { ssid: n.ssid, aps: [] };
+      if (!g.aps.some(a => a.bssid === n.bssid)) g.aps.push(n);
+      map.set(n.ssid, g);
+    }
+    return [...map.values()]
+      .map(g => ({ ...g, best: Math.max(...g.aps.map(a => a.level)), fresh: g.aps.filter(a => !known.has(a.bssid)).length, existing: networks.find(n => n.ssid === g.ssid) }))
+      .sort((a, b) => Number(b.ssid === current) - Number(a.ssid === current) || b.best - a.best);
+  })();
+
+  async function add(g: (typeof groups)[number]) {
+    setSaving(g.ssid);
+    try {
+      const bssids = g.aps.map(a => a.bssid);
+      if (g.existing) {
+        const before = g.existing.bssids ?? (g.existing.bssid ? [g.existing.bssid] : []);
+        await managerAttendApi.saveNetwork({ name: g.existing.name, ssid: g.ssid, bssids: [...before, ...bssids], ip: g.existing.ip ?? null, isActive: g.existing.isActive }, g.existing.id);
+      } else {
+        await managerAttendApi.saveNetwork({ name: g.ssid, ssid: g.ssid, bssids });
+      }
+      haptic('success');
+      toast(g.existing ? `حُدّثت «${g.ssid}» — ${g.fresh} نقطة جديدة` : `أُضيفت «${g.ssid}» بـ ${bssids.length} نقطة بث`);
+      onSaved();
+    } catch (e) {
+      haptic('error');
+      toast(e instanceof Error ? e.message : 'تعذر الحفظ');
+    } finally {
+      setSaving('');
+    }
+  }
+
+  const blocked = res && (res.permission === 'denied' || res.locationEnabled === false);
+  return (
+    <Sheet open={open} onClose={onClose} title="الشبكات القريبة" subtitle="اختر شبكة المحل — تُضاف بكل نقاط بثها">
+      {scanning ? (
+        <div className="t-scan-wait">
+          <span className="spinner" />
+          <b>جاري البحث عن الشبكات…</b>
+          <small>بضع ثوانٍ</small>
+        </div>
+      ) : blocked ? (
+        <div className="t-scan-wait">
+          <b>{res?.permission === 'denied' ? 'اسمح للتطبيق بالموقع' : 'شغّل خدمة الموقع'}</b>
+          <small>أندرويد لا يعرض شبكات الواي فاي دون إذن الموقع</small>
+          <button type="button" className="t-btn sm press" onClick={() => void openLocationSettings()}>
+            فتح الإعدادات
+          </button>
+        </div>
+      ) : !groups.length ? (
+        <div className="t-scan-wait">
+          <b>لا شبكات ظاهرة</b>
+          <small>تأكد أن الواي فاي مفعّل ثم أعد البحث</small>
+        </div>
+      ) : (
+        <div className="t-list">
+          {groups.map(g => {
+            const complete = !!g.existing && !g.fresh;
+            return (
+              <div key={g.ssid} className="t-row">
+                <span className={`t-tile ${complete ? 'ok' : g.ssid === current ? 'accent' : 'mute'}`}>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+                    <path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0" />
+                    <circle cx="12" cy="19.3" r="1.2" fill="currentColor" />
+                  </svg>
+                </span>
+                <div className="body">
+                  <div className="title">
+                    {g.ssid} {g.ssid === current && <Badge tone="ok">متصل</Badge>}
+                  </div>
+                  <div className="sub">
+                    {g.aps.length} نقطة بث · إشارة {signalPct(g.best)}%{g.existing && g.fresh ? ` · ${g.fresh} جديدة` : ''}
+                  </div>
+                </div>
+                {complete ? (
+                  <Badge tone="ok">مضافة</Badge>
+                ) : (
+                  <button type="button" className="t-btn sm press" disabled={!!saving} onClick={() => void add(g)}>
+                    {saving === g.ssid ? <span className="spinner" /> : g.existing ? 'تحديث' : 'إضافة'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!scanning && (
+        <button type="button" className="t-btn plain block sm press" style={{ marginTop: 12 }} onClick={() => void run()}>
+          بحث مجدداً
+        </button>
+      )}
+    </Sheet>
+  );
+}
+
 export function MNetworks() {
   const perms = usePerms();
   const { data, err, reload } = useLoad(() => managerAttendApi.settings(), []);
   const [wifi, setWifi] = useState<WifiState | null>(null);
   const [probe, setProbe] = useState<{ ok: boolean; ip: string; network: string | null } | null>(null);
-  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
 
   async function scan() {
     const w = await readWifi();
@@ -366,14 +481,13 @@ export function MNetworks() {
     void scan();
   }, []);
 
-  async function capture(ipOnly = false) {
+  async function capture() {
     setBusy(true);
     try {
       const w = await readWifi();
-      await managerAttendApi.capture({ bssid: w.bssid, ssid: w.ssid, name: name.trim() || w.ssid || 'واي فاي المحل', ipOnly });
+      await managerAttendApi.capture({ bssid: w.bssid, ssid: w.ssid, name: w.ssid || 'واي فاي المحل' });
       haptic('success');
-      toast('أُضيفت الشبكة — يستطيع الموظفون البصمة منها الآن');
-      setName('');
+      toast('أُضيفت نقطة البث لشبكة المحل — البصمة تعمل منها الآن');
       void reload();
       void scan();
     } catch (e) {
@@ -404,25 +518,18 @@ export function MNetworks() {
           {wifi?.bssid || '—'} · {probe?.ip || '…'}
         </div>
         <div className="t-net">{probe ? (probe.ok ? `✓ مسجّلة: ${probe.network}` : '✗ ليست ضمن شبكات المحل') : 'جارٍ الفحص…'}</div>
-        <input
-          className="t-input sm"
-          style={{ marginTop: 12, background: 'rgba(255,255,255,.12)', borderColor: 'rgba(255,255,255,.25)', color: '#fff' }}
-          placeholder="اسم الشبكة (مثلاً: واي فاي الصالة)"
-          value={name}
-          onChange={e => setName(e.target.value)}
-        />
         {perms.editAttendance && (
         <div className="acts">
-          <button type="button" className="t-btn white press" disabled={busy || !wifi?.bssid} onClick={() => void capture(false)}>
-            التقاط هذه الشبكة
+          <button type="button" className="t-btn white press" disabled={busy} onClick={() => (haptic('tap'), setScanOpen(true))}>
+            الشبكات القريبة
           </button>
-          <button type="button" className="t-btn glass press" disabled={busy} onClick={() => void capture(true)}>
-            عنوان IP فقط
+          <button type="button" className="t-btn glass press" disabled={busy || !wifi?.bssid || !!probe?.ok} onClick={() => void capture()}>
+            {busy ? <span className="spinner" /> : 'إضافة شبكتي'}
           </button>
         </div>
         )}
         <p className="sub" style={{ fontSize: 12, lineHeight: 1.7 }}>
-          افتح هذه الصفحة وأنت متصل بواي فاي المحل. «التقاط» يضيف نقطة البث الحالية لشبكة المحل (نفس الاسم = نفس الشبكة)، وعنوان الإنترنت يتبع المحل تلقائياً. اقترب من كل راوتر أو مقوٍّ والتقط مرة أخرى.
+          من داخل المحل: «البحث عن الشبكات» يعرض الشبكات حولك، تختار شبكة المحل فتُضاف بكل نقاط بثها. عنوان الإنترنت يتبع المحل تلقائياً.
         </p>
       </section>
 
@@ -495,6 +602,7 @@ export function MNetworks() {
           </div>
         </section>
       )}
+      <NetScanSheet open={scanOpen} networks={data?.networks ?? []} current={wifi?.ssid} onClose={() => setScanOpen(false)} onSaved={() => { void reload(); void scan(); }} />
     </Screen>
   );
 }
