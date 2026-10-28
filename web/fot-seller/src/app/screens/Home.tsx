@@ -7,6 +7,8 @@ import { useSeller, useWeekCompare } from '../../store';
 import { KIND_LABEL, getTeamMe } from '../../team';
 import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
 import { haptic } from '../native';
+import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
+import { getTeamToken } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الرئيسية — تحية، بطاقة عمولة الأسبوع بأعمدة الأيام، الأهداف، البراندات، آخر المبيعات.
@@ -20,7 +22,7 @@ function iraqIsoToday() {
   }
 }
 
-function Greeting({ name, sub, onRefresh, loading }: { name: string; sub: string; onRefresh?: () => void; loading?: boolean }) {
+function Greeting({ name, sub, unread }: { name: string; sub: string; unread?: number }) {
   return (
     <>
       <header className="t-greet">
@@ -31,10 +33,15 @@ function Greeting({ name, sub, onRefresh, loading }: { name: string; sub: string
           <div className="hello">{greet()}</div>
           <div className="who">{name}</div>
         </div>
-        {onRefresh && (
-          <button type="button" className={`t-icon-btn press ${loading ? 'spin' : ''}`} aria-label="تحديث" onClick={onRefresh}>
-            <I.refresh size={20} />
-          </button>
+        {unread !== undefined && (
+          <Link to="/alerts" className="t-icon-btn t-bell press" aria-label={unread ? `${unread} تبليغ غير مقروء` : 'التبليغات'} onClick={() => haptic('tap')}>
+            <I.bell size={20} />
+            {unread > 0 && (
+              <span key={unread} className="dot num">
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </Link>
         )}
       </header>
       <p className="t-date">
@@ -53,6 +60,8 @@ export function SellerHome() {
   const me = getTeamMe();
   const name = me?.name || dash?.seller.name || 'أهلاً';
   const pull = usePull(reload);
+  const team = !!getTeamToken();
+  const unread = useUnread(team ? 'staff' : null);
 
   const today = iraqIsoToday();
   const days = useMemo(() => fillWeekDays(groupDays(lines), dash?.week.weekStart, dash?.week.weekEnd), [lines, dash?.week.weekStart, dash?.week.weekEnd]);
@@ -66,7 +75,7 @@ export function SellerHome() {
   return (
     <>
       {pull}
-      <Greeting name={name} sub={updatedAt ? `محدّث ${ago(updatedAt)}` : ''} loading={loading} onRefresh={() => void reload()} />
+      <Greeting name={name} sub={updatedAt ? `محدّث ${ago(updatedAt)}` : ''} unread={team ? unread : undefined} />
       <div className="t-page">
         {err && !dash && <ErrorLine text={err} onRetry={() => void reload()} />}
 
@@ -136,6 +145,8 @@ export function SellerHome() {
             </span>
           </Link>
         )}
+
+        {team && <TeamWidgets />}
 
         {/* الأهداف */}
         {goals.length > 0 && (
@@ -228,6 +239,80 @@ export function SellerHome() {
   );
 }
 
+/* ═════════════ أجزاء الفريق (تحتاج دخول الفريق) ═════════════ */
+
+/** أسبوعي في الدوام + الإعلانات المثبتة والجديدة */
+function TeamWidgets() {
+  const leave = useLoad(() => staffApi.leave(), ['leave']);
+  const posts = useLoad(() => staffApi.posts(), ['post']);
+  const today = leave.data?.today ?? '';
+  const week = (leave.data?.days ?? []).filter(d => d.date >= today).slice(0, 7);
+  const featured = (posts.data ?? []).filter(p => p.pinned || !p.read || (p.requiresAck && !p.acked)).slice(0, 5);
+  const pending = leave.data?.requests.filter(r => r.status === 'pending').length ?? 0;
+
+  return (
+    <>
+      {week.length > 0 && (
+        <section className="t-section">
+          <div className="t-section-head">
+            <h2>دوامي القادم</h2>
+            <Link to="/shift" className="more">
+              {pending ? `${pending} طلب معلّق` : 'التقويم والطلبات'}
+            </Link>
+          </div>
+          <Link to="/shift" className="t-card pad press" style={{ display: 'block' }}>
+            <div className="t-cal">
+              {week.map(d => (
+                <div key={d.date} className={`t-day ${d.date === today ? 'today' : ''} ${d.off ? (d.reason === 'sick' ? 'sick' : d.reason === 'day' || d.reason === 'urgent' ? 'leave' : 'off') : ''} ${d.reason === 'hours' ? 'hours' : ''}`}>
+                  <small>{shortDay(d.weekday)}</small>
+                  <span className="num">{Number(d.date.slice(8))}</span>
+                </div>
+              ))}
+            </div>
+          </Link>
+        </section>
+      )}
+
+      {featured.length > 0 && (
+        <section className="t-section">
+          <div className="t-section-head">
+            <h2>من الإدارة</h2>
+            <Link to="/posts" className="more">
+              كل الإعلانات
+            </Link>
+          </div>
+          <div className="t-scroller" style={{ alignItems: 'stretch' }}>
+            {featured.map(p => (
+              <Link key={p.id} to={`/posts?id=${p.id}`} className="t-post press" style={{ width: 280, marginTop: 0 }}>
+                {p.images[0] ? (
+                  <div className="t-gallery n1" style={{ marginTop: 0 }}>
+                    <span>
+                      <img src={mediaUrl(p.images[0])} alt="" loading="lazy" />
+                    </span>
+                  </div>
+                ) : null}
+                <div style={{ padding: '12px 14px 14px' }}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                    {p.pinned && <span className="t-badge accent">مثبّت</span>}
+                    {!p.read && <span className="t-badge">جديد</span>}
+                    {p.requiresAck && !p.acked && <span className="t-badge warn">يتطلب اطلاعك</span>}
+                  </div>
+                  <b style={{ display: 'block', fontSize: 15, lineHeight: 1.4 }}>{p.title}</b>
+                  {p.body && (
+                    <p style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-3)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                      {p.body}
+                    </p>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
 function ComingSoon() {
   return (
     <section className="t-section">
@@ -237,7 +322,7 @@ function ComingSoon() {
         </span>
         <div>
           <h3>قريباً في تطبيقك</h3>
-          <p>الحضور والاستراحة، الإجازات، التبليغات والمحادثات.</p>
+          <p>الحضور والانصراف من شبكة المحل، منبّه الاستراحة، والمحادثات.</p>
         </div>
       </div>
     </section>
@@ -245,19 +330,13 @@ function ComingSoon() {
 }
 
 /* ═════════════ الموظف غير البائع ═════════════ */
-const MODULES = [
-  { icon: <I.clock size={22} />, title: 'الحضور والاستراحة', text: 'سجّل حضورك من شبكة المحل، ومنبّه قبل نهاية استراحتك.', tone: '' },
-  { icon: <I.calendar size={22} />, title: 'دوامي وإجازاتي', text: 'عطلتك الأسبوعية وطلبات التبديل والإجازة.', tone: 'accent' },
-  { icon: <I.megaphone size={22} />, title: 'الإعلانات', text: 'تعليمات الإدارة والعروض الجديدة بالصور.', tone: 'ok' },
-  { icon: <I.chat size={22} />, title: 'المحادثات', text: 'محادثات خاصة ومجموعات العمل.', tone: 'mute' },
-];
-
 export function StaffHome() {
   const me = getTeamMe();
   const name = me?.name || 'أهلاً';
+  const unread = useUnread('staff');
   return (
     <>
-      <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} />
+      <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} unread={unread} />
       <div className="t-page">
         <section className="t-hero">
           <p className="kicker">{[me?.jobTitle || KIND_LABEL[me?.kind ?? ''] || 'فريق ديما', me?.sectionName].filter(Boolean).join(' · ')}</p>
@@ -273,23 +352,38 @@ export function StaffHome() {
         </section>
 
         <section className="t-section">
-          <div className="t-section-head">
-            <h2>خدماتك</h2>
-            <small>تُفعَّل تباعاً</small>
-          </div>
-          <div className="t-grid-2">
-            {MODULES.map(m => (
-              <div key={m.title} className="t-feature">
-                <span className={`t-tile ${m.tone}`}>{m.icon}</span>
-                <h3>{m.title}</h3>
-                <p>{m.text}</p>
-                <span className="t-badge mute" style={{ alignSelf: 'flex-start' }}>
-                  قريباً
-                </span>
-              </div>
-            ))}
+          <div className="t-quick">
+            <Link to="/shift" className="press">
+              <span className="t-tile accent">
+                <I.calendar size={20} />
+              </span>
+              دوامي
+            </Link>
+            <Link to="/shift?new=1" className="press">
+              <span className="t-tile">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </span>
+              طلب إجازة
+            </Link>
+            <Link to="/posts" className="press">
+              <span className="t-tile ok">
+                <I.megaphone size={20} />
+              </span>
+              الإعلانات
+            </Link>
+            <Link to="/alerts" className="press">
+              <span className="t-tile mute">
+                <I.bell size={20} />
+              </span>
+              التبليغات
+            </Link>
           </div>
         </section>
+
+        <TeamWidgets />
+        <ComingSoon />
       </div>
     </>
   );

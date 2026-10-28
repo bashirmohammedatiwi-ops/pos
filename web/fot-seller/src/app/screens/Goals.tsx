@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, goalValue, receiptLabel, targetKind, type GoalDetail, type GoalRow } from '../../api';
 import { useSeller } from '../../store';
 import { Badge, Empty, ErrorLine, I, Ring, Screen, Segmented, Sheet, Skeleton, Track, clockLabel, dayLabel, fmt, weekRange } from '../kit';
+import { BackBtn } from '../parts';
 import { haptic } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ function status(p: number) {
   return <Badge tone="mute">ابدأ الآن</Badge>;
 }
 
-export function Goals() {
+export function Goals({ back }: { back?: string }) {
   const { dash, loading, err, reload, weekStart } = useSeller();
   const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState<Filter>('all');
@@ -66,7 +67,7 @@ export function Goals() {
   const shown = detail ?? opening;
 
   return (
-    <Screen title="أهدافي" subtitle={dash?.week ? weekRange(dash.week.weekStart, dash.week.weekEnd) : 'هذا الأسبوع'} onRefresh={reload}>
+    <Screen title="أهدافي" subtitle={dash?.week ? weekRange(dash.week.weekStart, dash.week.weekEnd) : 'هذا الأسبوع'} onRefresh={reload} start={back ? <BackBtn to={back} /> : undefined}>
       {err && !dash && <ErrorLine text={err} onRetry={() => void reload()} />}
 
       {!dash && loading ? (

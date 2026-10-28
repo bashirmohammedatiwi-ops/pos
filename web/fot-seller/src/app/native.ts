@@ -64,12 +64,16 @@ function resolved(pref: ThemePref): 'light' | 'dark' {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+/** عدد الشاشات البنفسجية المفتوحة (الدخول، القفل، عارض الصور) — لها الأولوية على لون المظهر. */
+let heroDepth = 0;
+
 export function applyTheme(pref: ThemePref = getThemePref()) {
   const mode = resolved(pref);
   document.documentElement.dataset.theme = mode;
   const bg = mode === 'dark' ? '#0e0c13' : '#f5f3ef';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
-  void paintStatusBar(mode, bg);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', heroDepth > 0 ? '#241245' : bg);
+  if (heroDepth > 0) void paintStatusBar('dark', '#241245');
+  else void paintStatusBar(mode, bg);
   return mode;
 }
 
@@ -84,20 +88,24 @@ export function setThemePref(pref: ThemePref) {
 
 /** الشاشات بخلفية بنفسجية (الدخول، القفل) تطلب شريط حالة داكن مؤقتاً. */
 export function statusOnHero(on: boolean) {
-  const mode = resolved(getThemePref());
-  if (on) void paintStatusBar('dark', '#241245');
-  else void paintStatusBar(mode, mode === 'dark' ? '#0e0c13' : '#f5f3ef');
+  heroDepth = Math.max(0, heroDepth + (on ? 1 : -1));
+  applyTheme();
 }
 
-async function paintStatusBar(mode: 'light' | 'dark', color: string) {
-  if (!isNative()) return;
-  try {
-    const { StatusBar, Style } = await import('@capacitor/status-bar');
-    await StatusBar.setStyle({ style: mode === 'dark' ? Style.Dark : Style.Light });
-    await StatusBar.setBackgroundColor({ color });
-  } catch {
-    /* ignore */
-  }
+// الطلبات تُنفَّذ بالترتيب: آخر لون مطلوب هو ما يبقى (لا سباق بين استدعاءين)
+let paintChain: Promise<void> = Promise.resolve();
+function paintStatusBar(mode: 'light' | 'dark', color: string) {
+  if (!isNative()) return Promise.resolve();
+  paintChain = paintChain.then(async () => {
+    try {
+      const { StatusBar, Style } = await import('@capacitor/status-bar');
+      await StatusBar.setStyle({ style: mode === 'dark' ? Style.Dark : Style.Light });
+      await StatusBar.setBackgroundColor({ color });
+    } catch {
+      /* ignore */
+    }
+  });
+  return paintChain;
 }
 
 export function watchSystemTheme() {

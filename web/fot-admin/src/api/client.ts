@@ -102,6 +102,14 @@ import type {
   StaffDto,
   StaffSaveRequest,
   TeamHubStatusDto,
+  TeamAudience,
+  TeamBroadcastDto,
+  TeamDirStaffDto,
+  TeamLeaveDto,
+  TeamOverviewDto,
+  TeamPostDto,
+  TeamPostReaderDto,
+  TeamPostSave,
   PortalWebStatusDto,
   PortalManagerAccountDto,
   PortalBulkIssueResult,
@@ -556,6 +564,34 @@ export const api = {
   /** خادم الفريق عبر وكيل المحل */
   teamHubStatus: () => request<TeamHubStatusDto>('/api/team/hub/status'),
   resetStaffDevice: (id: number) => request<{ ok: boolean }>(`/api/team/hub/staff/${id}/reset-device`, { method: 'POST' }),
+  // تطبيق الفريق: الإجازات والعطل والإعلانات والتبليغات (عبر وكيل خادم الفريق)
+  teamOverview: () => request<TeamOverviewDto>('/api/team/hub/overview'),
+  teamDirectory: () => request<TeamDirStaffDto[]>('/api/team/hub/directory'),
+  teamLeave: (status: 'pending' | 'approved' | 'rejected' | 'all') => request<TeamLeaveDto[]>(`/api/team/hub/leave?status=${status}`),
+  decideTeamLeave: (id: number, approve: boolean, note?: string) =>
+    request<TeamLeaveDto>(`/api/team/hub/leave/${id}/decide`, { method: 'POST', body: JSON.stringify({ approve, note }) }),
+  setTeamWeeklyOff: (staffId: number, daysMask: number) =>
+    request<{ daysMask: number }>(`/api/team/hub/staff/${staffId}/weekly-off`, { method: 'PUT', body: JSON.stringify({ daysMask }) }),
+  teamPosts: () => request<TeamPostDto[]>('/api/team/hub/posts'),
+  saveTeamPost: (body: TeamPostSave, id?: number) =>
+    request<TeamPostDto>(id ? `/api/team/hub/posts/${id}` : '/api/team/hub/posts', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) }),
+  deleteTeamPost: (id: number) => request<{ ok: boolean }>(`/api/team/hub/posts/${id}`, { method: 'DELETE' }),
+  teamPostReaders: (id: number) => request<TeamPostReaderDto[]>(`/api/team/hub/posts/${id}/readers`),
+  teamNotify: (body: { title: string; body?: string; image?: string | null; audience: TeamAudience }) =>
+    request<{ ok: boolean; count: number }>('/api/team/hub/notify', { method: 'POST', body: JSON.stringify(body) }),
+  teamNotifyLog: () => request<TeamBroadcastDto[]>('/api/team/hub/notify/log'),
+  uploadTeamMedia: (dataUrl: string) => request<{ url: string }>('/api/team/hub/media', { method: 'POST', body: JSON.stringify({ data: dataUrl }) }),
+  /** صورة من خادم الفريق كرابط محلي (المتصفح لا يرسل رمز الدخول في وسم img). */
+  teamMediaObjectUrl: async (url: string) => {
+    const name = url.split('/').pop() ?? '';
+    const token = getToken();
+    const res = await fetchLan(`${getApiBase()}/api/team/hub/media/${encodeURIComponent(name)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      timeoutMs: 60_000,
+    });
+    if (!res.ok) throw new Error('تعذر تحميل الصورة');
+    return URL.createObjectURL(await res.blob());
+  },
   portalWebStatus: () => request<PortalWebStatusDto>('/api/portal-accounts/web-status'),
   publishSellerToWeb: (id: number) =>
     request<PortalPublishResult>(`/api/portal-accounts/sellers/${id}/publish`, { method: 'POST' }),

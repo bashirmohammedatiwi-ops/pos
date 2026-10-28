@@ -3,6 +3,7 @@ import { getSeller } from '../../api';
 import { APP_VERSION, PUSH_ENABLED, apiUrl, platform } from '../../config';
 import { KIND_LABEL, getTeamMe, getTeamToken } from '../../team';
 import { Avatar, Badge, I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
+import { BackBtn } from '../parts';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ function Row({ icon, tone, title, value, children }: { icon: ReactNode; tone?: s
   );
 }
 
-export function Account({ onLogout }: { onLogout: () => void }) {
+export function Account({ onLogout, back }: { onLogout: () => void; back?: string }) {
   const me = getTeamMe();
   const seller = getSeller();
   const name = me?.name || seller?.name || 'حسابي';
@@ -45,7 +46,7 @@ export function Account({ onLogout }: { onLogout: () => void }) {
   const bound = device?.boundAt ? longDate(device.boundAt) : null;
 
   return (
-    <Screen title="حسابي" hideLarge>
+    <Screen title="حسابي" hideLarge start={back ? <BackBtn to={back} /> : undefined}>
       <div className="t-profile">
         <Avatar name={name} size="xl" />
         <h2>{name}</h2>

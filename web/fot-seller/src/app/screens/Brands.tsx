@@ -4,6 +4,7 @@ import { getSeller } from '../../api';
 import { PRESETS, buildReport, firstDataDay, presetRange, useBrandList, useBrandPack, type BrandFilter, type PresetId, type Scope } from '../../brands';
 import { dayName } from '../../dates';
 import { Delta, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, fmt, shortDate as fmtDate, toast } from '../kit';
+import { BackBtn } from '../parts';
 import { haptic } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ function loadPrefs(): { preset: PresetId; scope: Scope } {
   }
 }
 
-export function Brands() {
+export function Brands({ back }: { back?: string }) {
   const seller = getSeller();
   const { list, err: listErr } = useBrandList();
   const [params, setParams] = useSearchParams();
@@ -67,7 +68,7 @@ export function Brands() {
 
   if (list && brands.length === 0) {
     return (
-      <Screen title="براندي">
+      <Screen title="براندي" start={back ? <BackBtn to={back} /> : undefined}>
         <Empty icon={<I.tag size={30} />} title="لا براند مرتبط بحسابك" text="تربط الإدارة حسابك بشجرة البراند من لوحة التحكم، فتظهر هنا مبيعاته وكشوفاته." />
         {listErr && <ErrorLine text={listErr} />}
       </Screen>
@@ -96,6 +97,7 @@ export function Brands() {
     <Screen
       title={active?.name ?? 'براندي'}
       subtitle={`${fmtDate(range.from)} — ${fmtDate(range.to)}${loading ? ' · جارٍ التحديث…' : ''}`}
+      start={back ? <BackBtn to={back} /> : undefined}
       end={
         <button type="button" className="t-icon-btn press" aria-label="مشاركة كشف Excel" disabled={!report} onClick={() => void exportExcel()}>
           <I.share size={20} />

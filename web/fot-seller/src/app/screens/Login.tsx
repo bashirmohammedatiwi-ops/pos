@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AccessClosedError, api, publishAccess, setLastId, setSeller, setToken } from '../../api';
-import { MANAGER_URL, apiUrl } from '../../config';
+import { apiUrl } from '../../config';
 import { KIND_LABEL, getLastCode, registerPush, setLastCode, setTeamMe, setTeamToken, teamApi } from '../../team';
 import { Avatar, I, Mark, Segmented } from '../kit';
 import { haptic, statusOnHero } from '../native';
@@ -314,6 +314,7 @@ async function managerFetch<T>(path: string, init?: RequestInit): Promise<T> {
 type ManagerMe = { id: number; username: string; displayName: string };
 
 function ManagerLogin() {
+  const nav = useNavigate();
   const [user, setUser] = useState(() => localStorage.getItem('fot_manager_last_user') ?? '');
   const [pass, setPass] = useState('');
   const [show, setShow] = useState(false);
@@ -353,7 +354,7 @@ function ManagerLogin() {
       localStorage.setItem('fot_manager_me', JSON.stringify(res.manager));
       localStorage.setItem('fot_manager_last_user', user.trim());
       haptic('success');
-      window.location.href = MANAGER_URL;
+      nav('/m', { replace: true });
     } catch (ex) {
       haptic('error');
       setErr(ex instanceof Error ? ex.message : 'فشل الدخول');

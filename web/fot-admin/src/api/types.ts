@@ -63,6 +63,108 @@ export interface TeamHubStatusDto {
   serverTime: string;
 }
 
+/* تطبيق الفريق: الإجازات والعطل والإعلانات والتبليغات (من خادم الفريق) */
+export interface TeamAudience {
+  all?: boolean;
+  kinds?: string[];
+  sections?: number[];
+  staff?: number[];
+}
+export type TeamLeaveType = 'swap' | 'day' | 'sick' | 'urgent' | 'hours';
+export interface TeamLeaveDto {
+  id: number;
+  staffId: number;
+  staffName: string;
+  staffKind?: string | null;
+  sectionName?: string | null;
+  type: TeamLeaveType;
+  typeLabel: string;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  swapFrom?: string | null;
+  swapTo?: string | null;
+  timeFrom?: string | null;
+  timeTo?: string | null;
+  reason?: string | null;
+  attachment?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  decidedBy?: string | null;
+  decidedNote?: string | null;
+  decidedAt?: string | null;
+  createdAt: string;
+}
+export interface TeamDirStaffDto {
+  id: number;
+  code: string;
+  name: string;
+  kind: string;
+  jobTitle?: string | null;
+  sectionId?: number | null;
+  sectionName?: string | null;
+  isActive: boolean;
+  weeklyOff: number;
+  device?: string | null;
+  lastSeen?: string | null;
+}
+export interface TeamPostDto {
+  id: number;
+  kind: string;
+  title: string;
+  body?: string | null;
+  images: string[];
+  pinned: boolean;
+  requiresAck: boolean;
+  expiresAt?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  audience: TeamAudience;
+  audienceLabel: string;
+  targetCount: number;
+  readCount: number;
+  ackCount: number;
+  expired: boolean;
+}
+export interface TeamPostSave {
+  kind: string;
+  title: string;
+  body?: string;
+  images: string[];
+  audience: TeamAudience;
+  pinned: boolean;
+  requiresAck: boolean;
+  expiresAt?: string | null;
+  notify?: boolean;
+}
+export interface TeamPostReaderDto {
+  staffId: number;
+  name: string;
+  kind: string;
+  sectionName?: string | null;
+  readAt?: string | null;
+  ackAt?: string | null;
+}
+export interface TeamBroadcastDto {
+  id: number;
+  title: string;
+  body?: string | null;
+  image?: string | null;
+  audienceLabel: string;
+  targetCount: number;
+  readCount: number;
+  createdBy?: string | null;
+  createdAt: string;
+}
+export interface TeamOverviewDto {
+  today: string;
+  weekday: string;
+  staffCount: number;
+  offToday: { staffId: number; name: string; kind: string; reason: string }[];
+  partial: { staffId: number; name: string; kind: string; timeFrom?: string; timeTo?: string }[];
+  pending: number;
+  devices: number;
+  active7: number;
+}
+
 export interface SellerBrandLinkDto {
   salesmanId: number;
   treeSeq: number;
