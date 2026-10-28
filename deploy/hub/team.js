@@ -172,6 +172,16 @@ function createTeam(ctx) {
   });
   const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit });
 
+  /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
+  function permFor(method, sub) {
+    if (sub === 'leave' || /^leave\//.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return 'approveLeave';
+    if (/^attend\/(board|log)$/.test(sub) || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
+    if (/^attend\//.test(sub) || /^networks/.test(sub) || /^staff\/\d+\/shift$/.test(sub)) return 'editAttendance';
+    if ((sub === 'posts' && method !== 'GET') || /^posts\/\d+$/.test(sub) || sub === 'notify') return 'sendPosts';
+    if (sub === 'chat/groups' || /^chat\/groups\//.test(sub) || (method === 'DELETE' && /^chat\/messages\//.test(sub))) return 'manageChat';
+    return null;
+  }
+
   function managerFromToken(token) {
     const payload = ctx.verifyJwt(token, 'manager');
     const id = Number(payload?.sub || 0);
@@ -215,8 +225,21 @@ function createTeam(ctx) {
         work.openStream(req, res, `manager:${mid}`);
         return true;
       }
+      const { perms, sections } = work.permsOf(mid);
       if (req.method === 'GET' && sub === 'me') {
-        ctx.send(res, 200, { id: mid, username: m.username, displayName: m.displayName, unread: work.unreadCount('manager', mid) });
+        ctx.send(res, 200, { id: mid, username: m.username, displayName: m.displayName, unread: work.unreadCount('manager', mid), perms, sections });
+        return true;
+      }
+      // الصلاحية المطلوبة لكل مسار، ونطاق أقسام المدير
+      const need = permFor(req.method, sub);
+      if (need && !perms[need]) {
+        ctx.send(res, 403, { error: 'لا تملك صلاحية هذا الإجراء — راجع الإدارة', code: 'perm', perm: need });
+        return true;
+      }
+      const allow = work.scopeOf(mid);
+      const staffTarget = sub.match(/^staff\/(\d+)\//);
+      if (staffTarget && !allow(Number(staffTarget[1]))) {
+        ctx.send(res, 403, { error: 'هذا الموظف خارج أقسامك' });
         return true;
       }
       if (req.method === 'GET' && sub === 'notifications') {
@@ -237,8 +260,8 @@ function createTeam(ctx) {
         if (await chat.handle(req, res, url, sub.slice(4), { key: `manager:${mid}`, kind: 'manager', id: mid })) return true;
       }
       const actorName = `manager:${m.displayName || m.username}`;
-      if (await work.handleManage(req, res, url, sub, actorName, false)) return true;
-      if (await attend.handleManage(req, res, url, sub, actorName, false)) return true;
+      if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;
+      if (await attend.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -391,7 +414,7 @@ function createTeam(ctx) {
     return false;
   }
 
-  return { db, applyStaff, handle, audit };
+  return { db, applyStaff, handle, audit, withImages: work.withImages };
 }
 
 module.exports = { createTeam };

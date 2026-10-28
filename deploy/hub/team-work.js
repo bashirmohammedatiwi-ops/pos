@@ -77,6 +77,15 @@ function createWork({ db, ctx, now, audit, getStaff }) {
      );
      CREATE INDEX ix_leave_staff ON leave_requests(staff_id, id);
      CREATE INDEX ix_leave_status ON leave_requests(status, id);`,
+    // صور منتجات العمولة (بالباركود)
+    `CREATE TABLE product_images (
+       barcode TEXT PRIMARY KEY, url TEXT NOT NULL, updated_by TEXT, updated_at TEXT NOT NULL
+     );`,
+    // صلاحيات المدراء ونطاق أقسامهم
+    `CREATE TABLE manager_perms (
+       manager_id INTEGER PRIMARY KEY, perms TEXT NOT NULL, sections TEXT NOT NULL DEFAULT '[]',
+       updated_by TEXT, updated_at TEXT NOT NULL
+     );`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _work_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -499,9 +508,10 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     return { status: 200, body: leaveView(full, s) };
   }
 
-  function decideLeave(id, approve, note, actor) {
+  function decideLeave(id, approve, note, actor, allow = () => true) {
     const r = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(id);
     if (!r) return { status: 404, body: { error: 'الطلب غير موجود' } };
+    if (!allow(r.staff_id)) return { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } };
     if (r.status !== 'pending') return { status: 409, body: { error: 'تم البت في هذا الطلب مسبقاً' } };
     const status = approve ? 'approved' : 'rejected';
     db.prepare('UPDATE leave_requests SET status = ?, decided_by = ?, decided_note = ?, decided_at = ? WHERE id = ?').run(status, actor, clip(note, 300), now(), id);
@@ -529,13 +539,13 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     return { status: 200, body: { ok: true } };
   }
 
-  function listLeave(url) {
+  function listLeave(url, allow = () => true) {
     const status = url.searchParams.get('status') || 'pending';
     const rows = status === 'all'
       ? db.prepare('SELECT * FROM leave_requests ORDER BY id DESC LIMIT 300').all()
       : db.prepare('SELECT * FROM leave_requests WHERE status = ? ORDER BY id DESC LIMIT 300').all(status);
     const cache = new Map();
-    return rows.map(r => {
+    return rows.filter(r => allow(r.staff_id)).map(r => {
       if (!cache.has(r.staff_id)) cache.set(r.staff_id, getStaff(r.staff_id));
       return leaveView(r, cache.get(r.staff_id));
     });
@@ -558,9 +568,9 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /** نظرة اليوم للمدير/الإدارة: من في عطلة أو إجازة اليوم والطلبات المعلقة */
-  function overview() {
+  function overview(allow = () => true) {
     const today = iraqDate();
-    const staff = activeStaff();
+    const staff = activeStaff().filter(s => allow(s.id));
     const approved = db.prepare("SELECT * FROM leave_requests WHERE status = 'approved' AND (date_to >= ? OR swap_to >= ? OR swap_from >= ?)").all(today, today, today);
     const byStaff = new Map();
     for (const r of approved) byStaff.set(r.staff_id, [...(byStaff.get(r.staff_id) || []), r]);
@@ -575,16 +585,16 @@ function createWork({ db, ctx, now, audit, getStaff }) {
         partial.push({ staffId: s.id, name: s.name, kind: s.kind, timeFrom: r?.time_from, timeTo: r?.time_to });
       }
     }
-    const pending = db.prepare("SELECT COUNT(*) AS n FROM leave_requests WHERE status = 'pending'").get().n;
+    const pending = db.prepare("SELECT staff_id FROM leave_requests WHERE status = 'pending'").all().filter(r => allow(r.staff_id)).length;
     const devices = db.prepare('SELECT COUNT(*) AS n FROM devices').get().n;
     const active7 = db.prepare('SELECT COUNT(*) AS n FROM devices WHERE last_seen >= ?').get(new Date(Date.now() - 7 * 86_400_000).toISOString()).n;
     return { today, weekday: DAY_NAMES[dayIdx(today)], staffCount: staff.length, offToday, partial, pending, devices, active7, posts: postsAdmin().slice(0, 5) };
   }
 
-  function staffDirectory() {
+  function staffDirectory(allow = () => true) {
     const masks = new Map(db.prepare('SELECT staff_id, days_mask FROM weekly_off').all().map(r => [r.staff_id, r.days_mask]));
     const devices = new Map(db.prepare('SELECT staff_id, label, last_seen FROM devices').all().map(r => [r.staff_id, r]));
-    return db.prepare('SELECT * FROM staff ORDER BY is_active DESC, name').all().map(s => ({
+    return db.prepare('SELECT * FROM staff ORDER BY is_active DESC, name').all().filter(s => allow(s.id)).map(s => ({
       id: s.id,
       code: s.code,
       name: s.name,
@@ -597,6 +607,91 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       device: devices.get(s.id)?.label ?? null,
       lastSeen: devices.get(s.id)?.last_seen ?? null,
     }));
+  }
+
+  /* ═════════════ صلاحيات المدراء ═════════════ */
+  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat'];
+  /** الافتراضي: كل الصلاحيات وكل الأقسام (توافق مع ما قبل الصلاحيات) */
+  function permsOf(managerId) {
+    const row = db.prepare('SELECT perms, sections FROM manager_perms WHERE manager_id = ?').get(managerId);
+    const p = row ? JSON.parse(row.perms) : {};
+    const perms = Object.fromEntries(PERMS.map(k => [k, p[k] !== false]));
+    const sections = row ? JSON.parse(row.sections).map(Number).filter(Boolean) : [];
+    return { perms, sections };
+  }
+  /** من يراه المدير: كل الموظفين، أو موظفو أقسامه فقط */
+  function scopeOf(managerId) {
+    const { sections } = permsOf(managerId);
+    if (!sections.length) return () => true;
+    const ids = new Set(db.prepare(`SELECT id FROM staff WHERE section_id IN (${sections.map(() => '?').join(',')})`).all(...sections).map(r => r.id));
+    return staffId => ids.has(Number(staffId));
+  }
+  function managersPerms() {
+    const sectionNames = new Map(db.prepare('SELECT DISTINCT section_id, section_name FROM staff WHERE section_id IS NOT NULL').all().map(r => [r.section_id, r.section_name]));
+    return Object.values(ctx.getManagers?.() || {}).map(m => ({
+      id: Number(m.id),
+      username: m.username,
+      displayName: m.displayName || m.username,
+      isActive: m.isActive !== false,
+      ...permsOf(Number(m.id)),
+    })).map(m => ({ ...m, sectionNames: m.sections.map(id => sectionNames.get(id) || `قسم ${id}`) }));
+  }
+  function setPerms(managerId, body, actor) {
+    const perms = Object.fromEntries(PERMS.map(k => [k, body.perms?.[k] !== false]));
+    const sections = (Array.isArray(body.sections) ? body.sections : []).map(Number).filter(Boolean);
+    db.prepare(`INSERT INTO manager_perms (manager_id, perms, sections, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(manager_id) DO UPDATE SET perms = excluded.perms, sections = excluded.sections, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+      .run(managerId, JSON.stringify(perms), JSON.stringify(sections), actor, now());
+    audit(actor, 'manager.perms', managerId, { perms, sections });
+    emit(`manager:${managerId}`, 'perms', { perms, sections });
+    return { status: 200, body: { id: managerId, perms, sections } };
+  }
+  function sectionsList() {
+    return db.prepare('SELECT section_id AS id, section_name AS name, COUNT(*) AS staffCount FROM staff WHERE section_id IS NOT NULL AND is_active = 1 GROUP BY section_id, section_name ORDER BY section_name').all();
+  }
+
+  /* ═════════════ صور منتجات العمولة ═════════════ */
+  const normBarcode = v => String(v || '').trim().replace(/\s+/g, '').slice(0, 64);
+  function imagesMap() {
+    return new Map(db.prepare('SELECT barcode, url FROM product_images').all().map(r => [r.barcode, r.url]));
+  }
+  /** منتجات عمولة البائع مع صورها (للتطبيق) */
+  function withImages(products) {
+    const map = imagesMap();
+    return (products || []).map(p => {
+      const bc = normBarcode(p.barcode ?? p.Barcode);
+      return { ...p, image: bc ? map.get(bc) ?? null : null };
+    });
+  }
+  /** كل منتجات العمولة (اتحاد قوائم البائعين) مع الصور والمجموعات — للإدارة */
+  function catalog() {
+    const map = imagesMap();
+    const out = new Map();
+    for (const p of ctx.getCommissionProducts?.() || []) {
+      const bc = normBarcode(p.barcode ?? p.Barcode);
+      if (!bc) continue;
+      const row = out.get(bc) ?? { barcode: bc, name: p.name ?? p.Name ?? '', groups: [], commissionType: p.commissionType ?? p.CommissionType, commissionValue: Number(p.commissionValue ?? p.CommissionValue ?? 0), image: map.get(bc) ?? null };
+      const g = p.groupName ?? p.GroupName;
+      if (g && !row.groups.includes(g)) row.groups.push(g);
+      out.set(bc, row);
+    }
+    // صور لمنتجات لم تعد في قوائم العمولة تبقى ظاهرة للإدارة
+    for (const [bc, url] of map) if (!out.has(bc)) out.set(bc, { barcode: bc, name: '', groups: [], commissionType: null, commissionValue: 0, image: url, orphan: true });
+    return [...out.values()].sort((a, b) => (a.image ? 1 : 0) - (b.image ? 1 : 0) || a.name.localeCompare(b.name, 'ar'));
+  }
+  function setImage(barcode, url, actor) {
+    const bc = normBarcode(barcode);
+    if (!bc) return { status: 400, body: { error: 'الباركود مطلوب' } };
+    if (!url) {
+      db.prepare('DELETE FROM product_images WHERE barcode = ?').run(bc);
+      audit(actor, 'product.image.delete', bc, null);
+      return { status: 200, body: { ok: true } };
+    }
+    if (!/^\/api\/team\/media\/[a-f0-9]{32}\.(jpg|png|webp|gif)$/.test(url)) return { status: 400, body: { error: 'رابط الصورة غير صالح' } };
+    db.prepare(`INSERT INTO product_images (barcode, url, updated_by, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(barcode) DO UPDATE SET url = excluded.url, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(bc, url, actor, now());
+    audit(actor, 'product.image.set', bc, { url });
+    return { status: 200, body: { barcode: bc, image: url } };
   }
 
   /* ═════════════ أدوات الرد ═════════════ */
@@ -660,21 +755,25 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ مسارات مشتركة للمدير والإدارة ═════════════ */
-  async function handleManage(req, res, url, sub, actor, open) {
+  async function handleManage(req, res, url, sub, actor, open, allow = () => true) {
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
-    if (req.method === 'GET' && sub === 'overview') return send(200, overview()), true;
-    if (req.method === 'GET' && sub === 'directory') return send(200, staffDirectory()), true;
-    if (req.method === 'GET' && sub === 'leave') return send(200, listLeave(url)), true;
+    if (req.method === 'GET' && sub === 'overview') return send(200, overview(allow)), true;
+    if (req.method === 'GET' && sub === 'directory') return send(200, staffDirectory(allow)), true;
+    if (req.method === 'GET' && sub === 'leave') return send(200, listLeave(url, allow)), true;
+    // صلاحيات المدراء (من لوحة التحكم فقط)
+    if (open && req.method === 'GET' && sub === 'managers') return send(200, { managers: managersPerms(), sections: sectionsList() }), true;
+    const pm = sub.match(/^managers\/(\d+)$/);
+    if (open && pm && req.method === 'PUT') return reply(res, setPerms(Number(pm[1]), (await json(req)) || {}, actor), open), true;
     let m = sub.match(/^leave\/(\d+)\/decide$/);
     if (req.method === 'POST' && m) {
       const body = (await json(req)) || {};
-      reply(res, decideLeave(Number(m[1]), !!body.approve, body.note, actor), open);
+      reply(res, decideLeave(Number(m[1]), !!body.approve, body.note, actor, allow), open);
       return true;
     }
     m = sub.match(/^staff\/(\d+)\/weekly-off$/);
     if (req.method === 'PUT' && m) {
       const body = (await json(req)) || {};
-      reply(res, setWeeklyOff(Number(m[1]), body.daysMask, actor), open);
+      reply(res, allow(Number(m[1])) ? setWeeklyOff(Number(m[1]), body.daysMask, actor) : { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } }, open);
       return true;
     }
     m = sub.match(/^staff\/(\d+)\/schedule$/);
@@ -718,13 +817,20 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       return true;
     }
     if (req.method === 'GET' && sub === 'notify/log') return send(200, broadcastLog()), true;
+    if (req.method === 'GET' && sub === 'commission-products') return send(200, catalog()), true;
+    m = sub.match(/^product-images\/(.+)$/);
+    if (m && (req.method === 'PUT' || req.method === 'DELETE')) {
+      const body = req.method === 'PUT' ? (await json(req)) || {} : {};
+      reply(res, setImage(decodeURIComponent(m[1]), req.method === 'DELETE' ? null : body.url, actor), open);
+      return true;
+    }
     return false;
   }
 
   /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
   const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
 
-  return { handleStaff, handleManage, openStream, serveMedia, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor };
+  return { permsOf, scopeOf, handleStaff, handleManage, openStream, serveMedia, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
 }
 
 module.exports = { createWork };

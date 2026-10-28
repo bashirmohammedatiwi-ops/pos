@@ -333,10 +333,10 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   /* ── لوحة اليوم للمدير/الإدارة ── */
-  function board() {
+  function board(allow = () => true) {
     const date = iraqDate();
     const nowMin = iraqMinutes();
-    const staff = db.prepare('SELECT * FROM staff WHERE is_active = 1 ORDER BY name').all();
+    const staff = db.prepare('SELECT * FROM staff WHERE is_active = 1 ORDER BY name').all().filter(s => allow(s.id));
     const st = settings();
     const rows = staff.map(s => {
       const shift = shiftOf(s.id);
@@ -362,7 +362,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     };
   }
 
-  function log(url) {
+  function log(url, allow = () => true) {
     const from = url.searchParams.get('from') || iraqDate(Date.now() - 30 * 86_400_000);
     const to = url.searchParams.get('to') || iraqDate();
     const staffId = Number(url.searchParams.get('staffId') || 0);
@@ -370,7 +370,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       ? db.prepare('SELECT * FROM attendance WHERE date BETWEEN ? AND ? AND staff_id = ? ORDER BY date DESC, check_in').all(from, to, staffId)
       : db.prepare('SELECT * FROM attendance WHERE date BETWEEN ? AND ? ORDER BY date DESC, check_in').all(from, to);
     const names = new Map(db.prepare('SELECT id, name, kind, section_name FROM staff').all().map(s => [s.id, s]));
-    return rows.map(r => {
+    return rows.filter(r => allow(r.staff_id)).map(r => {
       const v = attView(r);
       const s = names.get(r.staff_id);
       return { ...v, staffId: r.staff_id, staffName: s?.name ?? '—', staffKind: s?.kind ?? null, sectionName: s?.section_name ?? null, inIp: r.in_ip, inBssid: r.in_bssid, editedBy: r.edited_by };
@@ -484,15 +484,22 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     return false;
   }
 
-  async function handleManage(req, res, url, sub, actor, open) {
+  async function handleManage(req, res, url, sub, actor, open, allow = () => true) {
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
-    if (req.method === 'GET' && sub === 'attend/board') return send(200, board()), true;
-    if (req.method === 'GET' && sub === 'attend/log') return send(200, log(url)), true;
+    if (req.method === 'GET' && sub === 'attend/board') return send(200, board(allow)), true;
+    if (req.method === 'GET' && sub === 'attend/log') return send(200, log(url, allow)), true;
     if (req.method === 'GET' && sub === 'attend/settings') return send(200, { settings: settings(), networks: networks().map(netView) }), true;
     if (req.method === 'PUT' && sub === 'attend/settings') return send(200, saveSettings((await json(req)) || {}, actor)), true;
-    if (req.method === 'POST' && sub === 'attend/manual') return reply(res, manual((await json(req)) || {}, actor), open), true;
+    if (req.method === 'POST' && sub === 'attend/manual') {
+      const body = (await json(req)) || {};
+      return reply(res, allow(Number(body.staffId)) ? manual(body, actor) : { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } }, open), true;
+    }
     let m = sub.match(/^attend\/(\d+)$/);
-    if (m && req.method === 'PUT') return reply(res, correct(Number(m[1]), (await json(req)) || {}, actor), open), true;
+    if (m && req.method === 'PUT') {
+      const rec = db.prepare('SELECT staff_id FROM attendance WHERE id = ?').get(Number(m[1]));
+      if (rec && !allow(rec.staff_id)) return reply(res, { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } }, open), true;
+      return reply(res, correct(Number(m[1]), (await json(req)) || {}, actor), open), true;
+    }
     if (req.method === 'POST' && sub === 'networks') return reply(res, saveNetwork(null, (await json(req)) || {}, actor), open), true;
     m = sub.match(/^networks\/(\d+)$/);
     if (m && req.method === 'PUT') return reply(res, saveNetwork(Number(m[1]), (await json(req)) || {}, actor), open), true;
@@ -514,7 +521,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       return send(200, { ok: net.ok, ip: net.ip, bssid: net.bssid, network: net.network ? net.network.name : null, error: net.ok ? null : net.error }), true;
     }
     m = sub.match(/^staff\/(\d+)\/shift$/);
-    if (m && req.method === 'PUT') return reply(res, setShift(Number(m[1]), (await json(req)) || {}, actor), open), true;
+    if (m && req.method === 'PUT') return reply(res, allow(Number(m[1])) ? setShift(Number(m[1]), (await json(req)) || {}, actor) : { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } }, open), true;
     if (m && req.method === 'GET') return send(200, shiftOf(Number(m[1]))), true;
     return false;
   }

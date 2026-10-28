@@ -1157,6 +1157,7 @@ const team = createTeam({
   issueSellerToken,
   getSellerAccount: id => state.accounts[id] || state.accounts[String(id)] || null,
   getManagers: () => state.managers || {},
+  getCommissionProducts: () => Object.values(state.snapshots || {}).flatMap(s => s?.products || s?.Products || []),
 });
 
 const server = http.createServer(async (req, res) => {
@@ -1527,7 +1528,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/commission-products') {
-      send(res, 200, []);
+      // منتجات العمولة مع صورها — بلا أسماء المجموعات (قد تحمل أسماء كاشيرية)
+      const list = team.withImages(snap.products || snap.Products || []).map(p => ({
+        articleId: p.articleId ?? p.ArticleId ?? null,
+        barcode: p.barcode ?? p.Barcode ?? null,
+        name: p.name ?? p.Name ?? null,
+        commissionType: p.commissionType ?? p.CommissionType ?? 'fixed',
+        commissionValue: Number(p.commissionValue ?? p.CommissionValue ?? 0),
+        image: p.image ?? null,
+      }));
+      send(res, 200, list);
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/seller/dashboard') {
