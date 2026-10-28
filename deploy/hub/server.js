@@ -419,7 +419,10 @@ function syncAuthorized(req) {
   const header = req.headers['x-fot-sync-key'] || '';
   const auth = req.headers.authorization || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  return (!!header && sameSecret(header, SYNC_KEY)) || (!!bearer && sameSecret(bearer, SYNC_KEY));
+  const ok = (!!header && sameSecret(header, SYNC_KEY)) || (!!bearer && sameSecret(bearer, SYNC_KEY));
+  // طلب من سيرفر المحل: عنوانه هو عنوان إنترنت المحل (تتبعه شبكات الحضور بلا عنوان ثابت)
+  if (ok) team.noteShopIp(req);
+  return ok;
 }
 
 function sellerIdFromReq(req, opts) {

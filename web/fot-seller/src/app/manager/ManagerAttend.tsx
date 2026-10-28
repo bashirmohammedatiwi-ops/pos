@@ -422,7 +422,7 @@ export function MNetworks() {
         </div>
         )}
         <p className="sub" style={{ fontSize: 12, lineHeight: 1.7 }}>
-          افتح هذه الصفحة وأنت متصل بواي فاي المحل. «التقاط» يحفظ جهاز الواي فاي (BSSID) مع عنوان إنترنت المحل معاً — الأدق. كرّرها لكل جهاز راوتر في المحل.
+          افتح هذه الصفحة وأنت متصل بواي فاي المحل. «التقاط» يضيف نقطة البث الحالية لشبكة المحل (نفس الاسم = نفس الشبكة)، وعنوان الإنترنت يتبع المحل تلقائياً. اقترب من كل راوتر أو مقوٍّ والتقط مرة أخرى.
         </p>
       </section>
 
@@ -450,8 +450,8 @@ export function MNetworks() {
                 </span>
                 <div className="body">
                   <div className="title">{n.name}</div>
-                  <div className="sub num ltr" style={{ textAlign: 'right' }}>
-                    {[n.bssid, n.ip].filter(Boolean).join(' · ')}
+                  <div className="sub">
+                    {n.bssids?.length ?? (n.bssid ? 1 : 0)} نقطة بث · {n.ip ? <span className="num ltr">IP {n.ip}</span> : 'عنوان المحل تلقائياً'}
                   </div>
                   <div className="sub">
                     {n.createdBy?.replace(/^manager:/, '')} · {relTime(n.createdAt)}

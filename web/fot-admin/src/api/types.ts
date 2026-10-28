@@ -205,7 +205,11 @@ export interface TeamNetworkDto {
   id: number;
   name: string;
   bssid?: string | null;
+  /** كل نقاط بث الشبكة (راوتر + مقويات + النطاقان) */
+  bssids?: string[];
   ip?: string | null;
+  /** auto: يتبع عنوان إنترنت المحل الذي يتعلّمه الخادم تلقائياً */
+  ipMode?: 'fixed' | 'auto';
   ssid?: string | null;
   isActive: boolean;
   createdBy?: string | null;

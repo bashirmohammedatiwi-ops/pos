@@ -325,7 +325,9 @@ export interface ShopNetwork {
   id: number;
   name: string;
   bssid?: string | null;
+  bssids?: string[];
   ip?: string | null;
+  ipMode?: 'fixed' | 'auto';
   ssid?: string | null;
   isActive: boolean;
   createdBy?: string | null;

@@ -597,7 +597,8 @@ export const api = {
   teamBoard: () => request<TeamBoardDto>('/api/team/hub/attend/board'),
   teamAttendLog: (from: string, to: string, staffId?: number) =>
     request<TeamAttendDto[]>(`/api/team/hub/attend/log?from=${from}&to=${to}${staffId ? `&staffId=${staffId}` : ''}`),
-  teamAttendSettings: () => request<{ settings: TeamAttendSettingsDto; networks: TeamNetworkDto[] }>('/api/team/hub/attend/settings'),
+  teamAttendSettings: () =>
+    request<{ settings: TeamAttendSettingsDto; networks: TeamNetworkDto[]; shopIp?: { ip: string; at: string; source?: string } | null }>('/api/team/hub/attend/settings'),
   saveTeamAttendSettings: (body: Partial<TeamAttendSettingsDto>) =>
     request<TeamAttendSettingsDto>('/api/team/hub/attend/settings', { method: 'PUT', body: JSON.stringify(body) }),
   saveTeamNetwork: (body: Partial<TeamNetworkDto>, id?: number) =>

@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/api/client';
 import type { TeamNetworkDto, WifiScanDto } from '@/api/types';
 import { useToast } from '@/components/Toast';
 import { IconRefresh } from '@/components/icons';
-import { Badge, Btn, Checkbox, Field, Input, Modal, Switch, TableSkeleton } from '@/components/ui';
+import { Badge, Btn, Checkbox, Modal } from '@/components/ui';
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * البحث عن شبكات المحل: جهاز السيرفر (داخل المحل) يقرأ شبكات الواي فاي المحيطة،
- * وخادم الفريق يخبرنا بعنوان الإنترنت العام للمحل. يختار المدير ما يخص المحل
- * فتُضاف كل نقطة بث (BSSID) كقاعدة جاهزة مع العنوان، دون كتابة شيء يدوياً.
+ * البحث عن شبكات المحل: هذا الجهاز (لوحة التحكم المكتبية) يطلب من ويندوز بحثاً جديداً،
+ * وإلا يبحث سيرفر المحل. تختار الشبكة كاملة فتُضاف بكل نقاط بثها (راوتر + مقويات + النطاقان)،
+ * والشبكة المضافة سابقاً تُحدَّث بالنقاط الجديدة. عنوان الإنترنت يتبع عنوان المحل تلقائياً.
  * ───────────────────────────────────────────────────────────────────────────── */
 
-const PRIVATE_IP = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+type ScanNet = WifiScanDto['networks'][number];
+type Row = { key: string; ssid: string; auth?: string | null; aps: ScanNet['accessPoints']; best: number; existing?: TeamNetworkDto; fresh: string[] };
 
 function SignalBars({ value }: { value?: number | null }) {
   const v = value ?? 0;
@@ -25,99 +26,148 @@ function SignalBars({ value }: { value?: number | null }) {
   );
 }
 
-export function WifiScanModal({ open, onClose, existing, onAdded }: { open: boolean; onClose: () => void; existing: TeamNetworkDto[]; onAdded: () => void }) {
+async function scan(): Promise<WifiScanDto> {
+  // لوحة التحكم المكتبية تبحث من جهازها (بصلاحيات المستخدم)؛ وإلا — أو إن لم يكن فيه واي فاي — يبحث سيرفر المحل
+  const local = await window.fotDesktop?.wifiScan?.().catch(() => null);
+  if (local && local.networks.length) return local;
+  try {
+    const remote = await api.teamWifiScan();
+    if (remote.networks.length || !local) return remote;
+  } catch (e) {
+    if (!local) throw e;
+  }
+  return local!;
+}
+
+export function WifiScanModal({
+  open,
+  onClose,
+  existing,
+  shopIp,
+  onAdded,
+}: {
+  open: boolean;
+  onClose: () => void;
+  existing: TeamNetworkDto[];
+  shopIp?: string | null;
+  onAdded: () => void;
+}) {
   const toast = useToast();
-  const [scan, setScan] = useState<WifiScanDto | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-  const [ip, setIp] = useState('');
-  const [ipNote, setIpNote] = useState<string | null>(null);
-  const [withIp, setWithIp] = useState(true);
+  const [phase, setPhase] = useState<'scanning' | 'ready' | 'error'>('scanning');
+  const [result, setResult] = useState<WifiScanDto | null>(null);
+  const [failure, setFailure] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const known = useMemo(() => new Set(existing.map(n => n.bssid?.toLowerCase()).filter(Boolean) as string[]), [existing]);
+  const runId = useRef(0);
+  // لقطة من الشبكات الحالية عند الفتح — لا تتغير القائمة أثناء الاختيار
+  const existingRef = useRef(existing);
 
   async function run() {
-    setLoading(true);
-    setFailure(null);
-    // لوحة التحكم المكتبية تبحث من جهازها (بصلاحيات المستخدم)؛ وإلا — أو إن لم يكن فيه واي فاي — يبحث سيرفر المحل
-    const scanBoth = async (): Promise<WifiScanDto> => {
-      const local = await window.fotDesktop?.wifiScan?.().catch(() => null);
-      if (local && local.networks.length) return local;
-      try {
-        const remote = await api.teamWifiScan();
-        if (remote.networks.length || !local) return remote;
-      } catch (e) {
-        if (!local) throw e;
-      }
-      return local!;
-    };
-    const [s, w] = await Promise.allSettled([scanBoth(), api.teamShopIp()]);
-    if (s.status === 'fulfilled') {
-      setScan(s.value);
-      // تحديد مسبق: شبكة السيرفر الحالية = واي فاي المحل غالباً
-      const cur = s.value.current?.ssid;
-      const pre = new Set<string>();
-      for (const n of s.value.networks) if (cur && n.ssid === cur) for (const a of n.accessPoints) if (!known.has(a.bssid)) pre.add(a.bssid);
-      setPicked(pre);
-      setNames(Object.fromEntries(s.value.networks.map(n => [n.ssid, n.ssid || 'واي فاي المحل'])));
-    } else {
-      setScan(null);
-      setFailure(s.reason instanceof Error ? s.reason.message : 'تعذر البحث عن الشبكات');
+    const id = ++runId.current;
+    setPhase('scanning');
+    setFailure('');
+    setExpanded(null);
+    try {
+      const r = await scan();
+      if (id !== runId.current) return;
+      setResult(r);
+      setPhase(r.networks.length ? 'ready' : 'error');
+      if (!r.networks.length) setFailure(r.error || 'لا شبكات ظاهرة الآن');
+    } catch (e) {
+      if (id !== runId.current) return;
+      setResult(null);
+      setPhase('error');
+      setFailure(e instanceof Error ? e.message : 'تعذر البحث عن الشبكات');
     }
-    if (w.status === 'fulfilled') {
-      setIp(w.value.ip);
-      setIpNote(PRIVATE_IP.test(w.value.ip) ? 'العنوان المقروء داخلي — أدخل عنوان إنترنت المحل يدوياً أو التقطه من تطبيق المدير' : null);
-    } else {
-      setIpNote('تعذر قراءة عنوان الإنترنت من خادم الفريق — حدّث الـ VPS أو أدخله يدوياً');
-    }
-    setLoading(false);
   }
 
   useEffect(() => {
-    if (open) void run();
-    else {
-      setScan(null);
-      setPicked(new Set());
+    if (!open) {
+      runId.current++;
+      return;
     }
+    existingRef.current = existing;
+    setPicked(new Set());
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const toggle = (bssid: string, on: boolean) =>
+  // صف لكل شبكة (بالاسم)، مرتبة مرة واحدة حسب أقوى إشارة — ثابتة أثناء الاختيار
+  const rows = useMemo<Row[]>(() => {
+    if (!result) return [];
+    const byName = new Map<string, Row>();
+    for (const n of result.networks) {
+      const key = n.ssid || `hidden:${n.accessPoints[0]?.bssid}`;
+      const cur = byName.get(key);
+      if (cur) cur.aps = [...cur.aps, ...n.accessPoints.filter(a => !cur.aps.some(x => x.bssid === a.bssid))];
+      else byName.set(key, { key, ssid: n.ssid, auth: n.auth, aps: [...n.accessPoints], best: 0, fresh: [] });
+    }
+    const list = [...byName.values()].map(r => {
+      const existingNet = r.ssid ? existingRef.current.find(e => e.ssid === r.ssid || (!e.ssid && e.name === r.ssid)) : undefined;
+      const known = new Set(existingRef.current.flatMap(e => e.bssids ?? (e.bssid ? [e.bssid] : [])));
+      return {
+        ...r,
+        aps: [...r.aps].sort((a, b) => (b.signal ?? 0) - (a.signal ?? 0)),
+        best: Math.max(...r.aps.map(a => a.signal ?? 0)),
+        existing: existingNet,
+        fresh: r.aps.map(a => a.bssid).filter(b => !known.has(b)),
+      };
+    });
+    return list.sort((a, b) => Number(!!b.ssid) - Number(!!a.ssid) || b.best - a.best);
+  }, [result]);
+
+  // تحديد مسبق: شبكة هذا الجهاز الحالية إن لم تكن مضافة بكاملها
+  useEffect(() => {
+    const cur = result?.current?.ssid;
+    if (phase !== 'ready' || !cur) return;
+    const row = rows.find(r => r.ssid === cur);
+    if (row && row.fresh.length) setPicked(new Set([row.key]));
+  }, [phase, rows, result]);
+
+  const toggle = (key: string, on: boolean) =>
     setPicked(p => {
       const n = new Set(p);
-      if (on) n.add(bssid);
-      else n.delete(bssid);
+      if (on) n.add(key);
+      else n.delete(key);
       return n;
     });
 
-  async function add() {
-    if (!scan) return;
-    const list = scan.networks.flatMap(n => n.accessPoints.filter(a => picked.has(a.bssid)).map(a => ({ n, a })));
-    if (!list.length) return;
+  async function save() {
+    const chosen = rows.filter(r => picked.has(r.key) && r.fresh.length);
+    if (!chosen.length) return;
     setSaving(true);
-    let ok = 0;
+    let added = 0;
+    let updated = 0;
     const errors: string[] = [];
-    for (const { n, a } of list) {
-      const base = (names[n.ssid] || n.ssid || 'واي فاي المحل').trim();
-      const many = n.accessPoints.filter(x => picked.has(x.bssid)).length > 1;
-      const name = many ? `${base} · ${a.band ?? `قناة ${a.channel ?? '?'}`} · ${a.bssid.slice(-5)}` : base;
+    for (const r of chosen) {
       try {
-        await api.saveTeamNetwork({ name, bssid: a.bssid, ip: withIp && ip.trim() ? ip.trim() : null, ssid: n.ssid || null, isActive: true });
-        ok++;
+        if (r.existing) {
+          const before = r.existing.bssids ?? (r.existing.bssid ? [r.existing.bssid] : []);
+          await api.saveTeamNetwork(
+            { name: r.existing.name, ssid: r.existing.ssid ?? r.ssid, bssids: [...before, ...r.aps.map(a => a.bssid)], ip: r.existing.ip ?? null, isActive: r.existing.isActive },
+            r.existing.id,
+          );
+          updated++;
+        } else {
+          await api.saveTeamNetwork({ name: r.ssid || 'شبكة مخفية', ssid: r.ssid || null, bssids: r.aps.map(a => a.bssid), ip: null, isActive: true });
+          added++;
+        }
       } catch (e) {
-        errors.push(e instanceof Error ? e.message : a.bssid);
+        errors.push(`${r.ssid || 'شبكة مخفية'}: ${e instanceof Error ? e.message : 'تعذر الحفظ'}`);
       }
     }
     setSaving(false);
-    if (ok) {
-      toast.success(`أُضيفت ${ok} ${ok === 1 ? 'شبكة' : ok === 2 ? 'شبكتان' : 'شبكات'} — البصمة تعمل منها الآن`);
+    if (added || updated) {
+      toast.success([added && `أُضيفت ${added} ${added === 1 ? 'شبكة' : 'شبكات'}`, updated && `حُدّثت ${updated}`].filter(Boolean).join(' · ') + ' — البصمة تعمل منها الآن');
       onAdded();
       onClose();
     }
     if (errors.length) toast.error(errors[0]);
   }
+
+  const pickedRows = rows.filter(r => picked.has(r.key));
+  const pickedAps = pickedRows.reduce((s, r) => s + r.aps.length, 0);
 
   return (
     <Modal
@@ -125,109 +175,121 @@ export function WifiScanModal({ open, onClose, existing, onAdded }: { open: bool
       onClose={onClose}
       wide
       title="البحث عن شبكات المحل"
-      subtitle="الشبكات التي يراها جهاز السيرفر داخل المحل الآن"
+      subtitle="اختر شبكة المحل — تُضاف بكل نقاط بثها"
       footer={
         <>
-          <Btn variant="ghost" icon={<IconRefresh size={14} />} disabled={loading} onClick={() => void run()}>
+          <Btn variant="ghost" icon={<IconRefresh size={14} />} disabled={phase === 'scanning' || saving} onClick={() => void run()}>
             بحث مجدداً
           </Btn>
           <Btn variant="secondary" onClick={onClose}>
             إلغاء
           </Btn>
-          <Btn loading={saving} disabled={!picked.size} onClick={() => void add()}>
-            إضافة المحدد ({picked.size})
+          <Btn loading={saving} disabled={!pickedRows.some(r => r.fresh.length) || phase !== 'ready'} onClick={() => void save()}>
+            {pickedRows.length ? `حفظ ${pickedRows.length} ${pickedRows.length === 1 ? 'شبكة' : 'شبكات'} (${pickedAps} نقطة بث)` : 'اختر شبكة'}
           </Btn>
         </>
       }
     >
-      <div className="space-y-3">
-        <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <Field label="عنوان الإنترنت العام للمحل" hint={ipNote ?? 'قرأه خادم الفريق تلقائياً — يمنع البصمة من خارج المحل حتى لو عُرف BSSID'}>
-            <Input
-              dir="ltr"
-              value={ip}
-              disabled={!withIp}
-              onChange={e => {
-                setIp(e.target.value);
-                setIpNote(PRIVATE_IP.test(e.target.value.trim()) ? 'هذا عنوان داخلي — البصمة تحتاج عنوان إنترنت المحل العام' : null);
-              }}
-              placeholder="5.6.7.8"
-            />
-          </Field>
-          <Switch label="ربط الشبكات بالعنوان" checked={withIp} onChange={setWithIp} />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
+          <span className="font-semibold">عنوان الإنترنت:</span>
+          <span>يتبع عنوان المحل تلقائياً{shopIp ? ' — الحالي ' : ''}</span>
+          {shopIp && (
+            <span className="num font-bold text-slate-800" dir="ltr">
+              {shopIp}
+            </span>
+          )}
         </div>
-        {!withIp && (
-          <div className="rounded-lg bg-amber-50 p-2.5 text-[12px] font-semibold leading-5 text-amber-800">
-            بدون العنوان يكفي إرسال BSSID لتسجيل الحضور — وهو سهل التزوير. إن كان «اشتراط عنوان الإنترنت» مفعّلاً فلن تُقبل هذه الشبكات.
-          </div>
-        )}
 
-        {loading ? (
-          <TableSkeleton rows={5} />
-        ) : failure ? (
-          <div className="rounded-lg bg-red-50 p-3 text-[12.5px] font-semibold text-red-700">{failure}</div>
-        ) : scan?.error ? (
-          <div className="rounded-lg bg-amber-50 p-3 text-[12.5px] font-semibold leading-6 text-amber-800">{scan.error}</div>
-        ) : scan && !scan.networks.length ? (
-          <div className="p-6 text-center text-[13px] text-slate-500">لا شبكات ظاهرة الآن.</div>
-        ) : (
-          scan && (
-            <div className="max-h-[52vh] space-y-2 overflow-auto">
-              {scan.networks.map(n => {
-                const isCurrent = !!scan.current?.ssid && scan.current.ssid === n.ssid;
-                const anyPicked = n.accessPoints.some(a => picked.has(a.bssid));
+        {/* ارتفاع ثابت: لا قفز بين البحث والنتائج */}
+        <div className="h-[min(56vh,460px)] overflow-y-auto rounded-lg border border-slate-200">
+          {phase === 'scanning' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
+              <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-brand-600" aria-hidden />
+              <div className="text-[13.5px] font-semibold text-slate-700">جاري البحث عن الشبكات…</div>
+              <div className="text-[12px]">يستغرق حتى 6 ثوانٍ</div>
+            </div>
+          ) : phase === 'error' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <div className="text-[13.5px] font-semibold leading-6 text-amber-800">{failure}</div>
+              <p className="text-[12px] leading-5 text-slate-500">
+                إن لم يكن في هذا الجهاز واي فاي: من تطبيق المدير داخل المحل ← شبكات المحل ← «التقاط هذه الشبكة».
+              </p>
+              <Btn size="sm" variant="secondary" icon={<IconRefresh size={14} />} onClick={() => void run()}>
+                حاول مجدداً
+              </Btn>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {rows.map(r => {
+                const isCurrent = !!r.ssid && result?.current?.ssid === r.ssid;
+                const complete = !!r.existing && !r.fresh.length;
+                const on = picked.has(r.key);
+                const open = expanded === r.key;
                 return (
-                  <section key={n.ssid + n.accessPoints[0]?.bssid} className={`rounded-lg border ${anyPicked ? 'border-sky-300 bg-sky-50/40' : 'border-slate-200'}`}>
-                    <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
-                      <span className="text-[14px] font-bold text-slate-800">{n.ssid || <span className="text-slate-400">شبكة مخفية</span>}</span>
-                      {isCurrent && <Badge tone="ok">متصل بها السيرفر</Badge>}
-                      {n.auth && <span className="text-[11px] text-slate-400">{n.auth}</span>}
-                      <span className="ms-auto text-[11.5px] text-slate-500">{n.accessPoints.length} نقطة بث</span>
-                      {anyPicked && (
-                        <Input
-                          className="!h-7 w-44 text-[12px]"
-                          value={names[n.ssid] ?? ''}
-                          onChange={e => setNames(x => ({ ...x, [n.ssid]: e.target.value }))}
-                          placeholder="اسم الشبكة"
-                          aria-label="اسم الشبكة في القائمة"
-                        />
-                      )}
-                    </header>
-                    <div className="divide-y divide-slate-100">
-                      {n.accessPoints.map(a => {
-                        const added = known.has(a.bssid);
-                        return (
-                          <div key={a.bssid} className="flex items-center gap-3 px-3 py-1.5">
-                            <Checkbox
-                              checked={added || picked.has(a.bssid)}
-                              disabled={added}
-                              onChange={v => toggle(a.bssid, v)}
-                              label={
-                                <span className="num text-[12.5px] text-slate-700" dir="ltr">
-                                  {a.bssid}
-                                </span>
-                              }
-                            />
-                            {scan.current?.bssid === a.bssid && <Badge tone="info">الأقرب</Badge>}
-                            {added && <Badge>مضافة</Badge>}
-                            <span className="ms-auto flex items-center gap-3 text-[11.5px] text-slate-500">
+                  <li key={r.key} className={on ? 'bg-sky-50/60' : complete ? 'bg-slate-50/60' : ''}>
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <Checkbox
+                        checked={on || complete}
+                        disabled={complete}
+                        onChange={v => toggle(r.key, v)}
+                        label={
+                          <span className="flex min-w-0 flex-col">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate text-[14px] font-bold text-slate-800">{r.ssid || <span className="text-slate-400">شبكة مخفية</span>}</span>
+                              {isCurrent && <Badge tone="ok">متصل بها هذا الجهاز</Badge>}
+                              {complete ? (
+                                <Badge>مضافة</Badge>
+                              ) : r.existing ? (
+                                <Badge tone="info">مضافة · {r.fresh.length} نقطة جديدة</Badge>
+                              ) : null}
+                            </span>
+                            <span className="text-[11.5px] text-slate-400">
+                              {r.aps.length} نقطة بث{r.auth ? ` · ${r.auth}` : ''}
+                            </span>
+                          </span>
+                        }
+                      />
+                      <span className="ms-auto flex shrink-0 items-center gap-2 text-[11.5px] text-slate-500">
+                        <span className="num w-9 text-left">{r.best}%</span>
+                        <SignalBars value={r.best} />
+                        <button
+                          type="button"
+                          className="rounded-md px-2 py-1 text-[11.5px] font-semibold text-brand-700 hover:bg-brand-50"
+                          aria-expanded={open}
+                          onClick={() => setExpanded(open ? null : r.key)}
+                        >
+                          {open ? 'إخفاء' : 'التفاصيل'}
+                        </button>
+                      </span>
+                    </div>
+                    {open && (
+                      <div className="mx-3 mb-2.5 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+                        {r.aps.map(a => (
+                          <div key={a.bssid} className="flex items-center gap-3 px-3 py-1.5 text-[12px]">
+                            <span className="num text-slate-700" dir="ltr">
+                              {a.bssid}
+                            </span>
+                            {r.fresh.includes(a.bssid) ? r.existing && <Badge tone="info">جديدة</Badge> : <Badge>مضافة</Badge>}
+                            {result?.current?.bssid === a.bssid && <Badge tone="ok">الأقرب</Badge>}
+                            <span className="ms-auto flex items-center gap-3 text-slate-500">
                               {a.band && <span dir="ltr">{a.band}</span>}
                               {a.channel != null && <span>قناة {a.channel}</span>}
                               <span className="num w-9 text-left">{a.signal ?? '—'}%</span>
                               <SignalBars value={a.signal} />
                             </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </section>
+                        ))}
+                      </div>
+                    )}
+                  </li>
                 );
               })}
-            </div>
-          )
-        )}
+            </ul>
+          )}
+        </div>
         <p className="text-[11.5px] leading-5 text-slate-400">
-          للمحلات بأكثر من جهاز بث (راوتر + مقويات) اختر كل نقاط شبكة المحل حتى تُقبل البصمة من أي مكان فيه. إن لم يكن في جهاز السيرفر واي فاي، استخدم «التقاط هذه الشبكة» من تطبيق المدير.
+          البحث يرى نقاط البث القريبة من هذا الجهاز فقط. للمقويات البعيدة في أطراف المحل: ابحث من جهاز قريب منها، أو التقطها من تطبيق المدير — تُضاف لنفس الشبكة تلقائياً.
         </p>
       </div>
     </Modal>

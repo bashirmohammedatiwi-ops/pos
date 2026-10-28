@@ -126,6 +126,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     // الأوفر تايم لكل موظف: تفعيل + سعر الساعة (اختياري)
     `ALTER TABLE staff_shift ADD COLUMN overtime INTEGER NOT NULL DEFAULT 0;
      ALTER TABLE staff_shift ADD COLUMN overtime_rate INTEGER;`,
+    // الشبكة الواحدة بكل نقاط بثها (راوتر + مقويات + نطاقا 2.4/5 GHz)
+    `ALTER TABLE networks ADD COLUMN bssids TEXT;
+     UPDATE networks SET bssids = json_array(bssid) WHERE bssid IS NOT NULL;`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _attend_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -231,25 +234,61 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
 
   /* ── الشبكات ── */
   const networks = () => db.prepare('SELECT * FROM networks ORDER BY id').all();
-  const netView = n => ({ id: n.id, name: n.name, bssid: n.bssid, ip: n.ip, ssid: n.ssid, isActive: !!n.is_active, createdBy: n.created_by, createdAt: n.created_at });
+  /** نقاط بث الشبكة (القديمة كانت BSSID واحداً) */
+  const bssidsOf = n => {
+    try {
+      const list = JSON.parse(n.bssids || '[]');
+      if (Array.isArray(list) && list.length) return list;
+    } catch {
+      /* قيمة قديمة */
+    }
+    return n.bssid ? [n.bssid] : [];
+  };
+
+  /* عنوان إنترنت المحل كما يراه الخادم: يُتعلَّم تلقائياً من مزامنة سيرفر المحل (كل دقيقة)
+     ومن التقاط مدير لشبكته داخل المحل. الشبكة بلا عنوان ثابت تتبعه — فيتحدث وحده إن غيّر مزوّد الإنترنت العنوان. */
+  function shopIp() {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'shop_ip'").get();
+    try {
+      return row ? JSON.parse(row.value) : null;
+    } catch {
+      return null;
+    }
+  }
+  function noteShopIp(ip, source) {
+    if (!ip || PRIVATE.test(ip) || ipToInt(ip) == null) return;
+    const cur = shopIp();
+    // كتابة عند التغيّر، أو كل 10 دقائق لتحديث «آخر ظهور»
+    if (cur && cur.ip === ip && Date.now() - Date.parse(cur.at) < 10 * 60_000) return;
+    db.prepare("INSERT INTO settings (key, value) VALUES ('shop_ip', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ip, at: now(), source }));
+    if (cur && cur.ip !== ip) audit('system', 'shop_ip.changed', null, { from: cur.ip, to: ip, source });
+  }
+
+  const netView = n => {
+    const list = bssidsOf(n);
+    return { id: n.id, name: n.name, bssid: list[0] ?? null, bssids: list, ip: n.ip, ipMode: n.ip ? 'fixed' : 'auto', ssid: n.ssid, isActive: !!n.is_active, createdBy: n.created_by, createdAt: n.created_at };
+  };
   function saveNetwork(id, body, actor) {
     const name = String(body.name || '').trim().slice(0, 80);
-    const bssid = body.bssid ? normBssid(body.bssid) : null;
-    if (body.bssid && !bssid) return { status: 400, body: { error: 'BSSID غير صالح (مثال: a4:2b:b0:12:34:56)' } };
+    const raw = [...(Array.isArray(body.bssids) ? body.bssids : []), ...(body.bssid ? [body.bssid] : [])].map(String).filter(x => x.trim());
+    const bad = raw.find(x => !normBssid(x));
+    if (bad) return { status: 400, body: { error: `BSSID غير صالح: ${bad.slice(0, 40)} (مثال: a4:2b:b0:12:34:56)` } };
+    const list = [...new Set(raw.map(normBssid))].slice(0, 64);
     const ip = body.ip ? String(body.ip).trim().slice(0, 50) : null;
     if (ip && ipToInt(ip.split('/')[0]) == null) return { status: 400, body: { error: 'عنوان IP غير صالح' } };
-    if (!bssid && !ip) return { status: 400, body: { error: 'أدخل BSSID أو عنوان IP على الأقل' } };
+    if (!list.length && !ip) return { status: 400, body: { error: 'أضف نقطة بث (BSSID) واحدة على الأقل أو عنوان IP' } };
     if (!name) return { status: 400, body: { error: 'اسم الشبكة مطلوب' } };
     const ssid = body.ssid ? String(body.ssid).slice(0, 64) : null;
     const active = body.isActive === false ? 0 : 1;
+    const json = list.length ? JSON.stringify(list) : null;
     if (id) {
       if (!db.prepare('SELECT id FROM networks WHERE id = ?').get(id)) return { status: 404, body: { error: 'الشبكة غير موجودة' } };
-      db.prepare('UPDATE networks SET name=?, bssid=?, ip=?, ssid=?, is_active=? WHERE id=?').run(name, bssid, ip, ssid, active, id);
-      audit(actor, 'network.update', id, { name, bssid, ip });
+      db.prepare('UPDATE networks SET name=?, bssid=?, bssids=?, ip=?, ssid=?, is_active=? WHERE id=?').run(name, list[0] ?? null, json, ip, ssid, active, id);
+      audit(actor, 'network.update', id, { name, bssids: list.length, ip });
     } else {
-      const r = db.prepare('INSERT INTO networks (name, bssid, ip, ssid, is_active, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, bssid, ip, ssid, active, actor, now());
+      const r = db.prepare('INSERT INTO networks (name, bssid, bssids, ip, ssid, is_active, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(name, list[0] ?? null, json, ip, ssid, active, actor, now());
       id = Number(r.lastInsertRowid);
-      audit(actor, 'network.create', id, { name, bssid, ip });
+      audit(actor, 'network.create', id, { name, bssids: list.length, ip });
     }
     return { status: 200, body: netView(db.prepare('SELECT * FROM networks WHERE id = ?').get(id)) };
   }
@@ -260,13 +299,22 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const bssid = normBssid(bssidRaw);
     const s = settings();
     const nets = networks().filter(n => n.is_active);
-    const match = nets.find(n => (!n.bssid || n.bssid === bssid) && (!n.ip || ipMatch(n.ip, ip)) && (n.ip || !s.requireIp));
+    const shop = shopIp()?.ip ?? null;
+    // العنوان: الثابت إن حُدّد، وإلا عنوان المحل الحالي (يُتعلَّم تلقائياً)
+    const ipOk = n => (n.ip ? ipMatch(n.ip, ip) : !s.requireIp || (!!shop && ip === shop));
+    const apOk = n => {
+      const list = bssidsOf(n);
+      return !list.length || (!!bssid && list.includes(bssid));
+    };
+    const match = nets.find(n => apOk(n) && ipOk(n));
     if (!s.enforceNetwork) return { ok: true, ip, bssid, network: match || null, enforced: false };
     if (!nets.length) return { ok: false, ip, bssid, error: 'لم تُضبط شبكات المحل بعد — راجع الإدارة' };
     if (match) return { ok: true, ip, bssid, network: match, enforced: true };
-    if (s.requireIp && !nets.some(n => n.ip)) return { ok: false, ip, bssid, error: 'شبكات المحل بلا عنوان إنترنت — اطلب من الإدارة إضافته' };
-    if (s.requireIp && bssid && nets.some(n => n.bssid === bssid)) return { ok: false, ip, bssid, error: 'واي فاي المحل صحيح لكن عنوان الإنترنت تغيّر — أبلغ الإدارة لتحديثه' };
-    const needsBssid = nets.some(n => n.bssid);
+    const apMatch = bssid && nets.some(n => bssidsOf(n).includes(bssid));
+    if (s.requireIp && apMatch && !shop && nets.some(n => !n.ip && bssidsOf(n).includes(bssid)))
+      return { ok: false, ip, bssid, error: 'عنوان إنترنت المحل غير معروف بعد — تأكد أن سيرفر المحل متصل بالإنترنت ثم حاول بعد دقيقة' };
+    if (s.requireIp && apMatch) return { ok: false, ip, bssid, error: 'واي فاي المحل صحيح لكن الإنترنت ليس إنترنت المحل — أطفئ بيانات الهاتف واتصل بواي فاي المحل' };
+    const needsBssid = nets.some(n => bssidsOf(n).length);
     return {
       ok: false,
       ip,
@@ -615,7 +663,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
     if (req.method === 'GET' && sub === 'attend/board') return send(200, board(allow)), true;
     if (req.method === 'GET' && sub === 'attend/log') return send(200, log(url, allow)), true;
-    if (req.method === 'GET' && sub === 'attend/settings') return send(200, { settings: settings(), networks: networks().map(netView) }), true;
+    if (req.method === 'GET' && sub === 'attend/settings') return send(200, { settings: settings(), networks: networks().map(netView), shopIp: shopIp() }), true;
     if (req.method === 'PUT' && sub === 'attend/settings') return send(200, saveSettings((await json(req)) || {}, actor)), true;
     if (req.method === 'POST' && sub === 'attend/manual') {
       const body = (await json(req)) || {};
@@ -641,7 +689,16 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       const ip = clientIp(req);
       const bssid = normBssid(body.bssid);
       if (!bssid && !body.ipOnly) return send(400, { error: 'تعذر قراءة BSSID — فعّل الموقع واتصل بواي فاي المحل' }), true;
-      return reply(res, saveNetwork(null, { name: body.name || body.ssid || 'واي فاي المحل', bssid: body.ipOnly ? null : bssid, ip: body.withIp === false ? null : ip, ssid: body.ssid }, actor), open), true;
+      // المدير داخل المحل: عنوانه هو عنوان إنترنت المحل
+      noteShopIp(ip, 'capture');
+      if (body.ipOnly) return reply(res, saveNetwork(null, { name: body.name || 'إنترنت المحل', ip }, actor), open), true;
+      const ssid = body.ssid ? String(body.ssid).slice(0, 64) : null;
+      const same = ssid ? networks().find(n => n.ssid === ssid) : null;
+      if (same) {
+        const view = netView(same);
+        return reply(res, saveNetwork(same.id, { name: same.name, bssids: [...view.bssids, bssid], ip: same.ip, ssid, isActive: !!same.is_active }, actor), open), true;
+      }
+      return reply(res, saveNetwork(null, { name: body.name || ssid || 'واي فاي المحل', bssids: [bssid], ip: body.withIp === true ? ip : null, ssid }, actor), open), true;
     }
     if (req.method === 'GET' && sub === 'networks/probe') {
       const net = checkNetwork(req, url.searchParams.get('bssid'));
@@ -656,7 +713,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     return false;
   }
 
-  return { handleStaff, handleManage, shiftOf, board, clientIp, overtimeOf };
+  return { handleStaff, handleManage, shiftOf, board, clientIp, overtimeOf, noteShopIp, shopIp };
 }
 
 module.exports = { createAttend, clientIp, ipMatch, normBssid };

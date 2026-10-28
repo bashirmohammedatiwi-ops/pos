@@ -515,7 +515,7 @@ function createTeam(ctx) {
       if (await extra.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       // عنوان المحل العام كما يراه الخادم (الطلب يصل من سيرفر المحل مباشرة)
       if (req.method === 'GET' && p === '/api/admin/team/whoami') {
-        ctx.sendOpen(res, 200, { ip: require('./team-attend').clientIp(req) });
+        ctx.sendOpen(res, 200, { ip: require('./team-attend').clientIp(req), shopIp: attend.shopIp() });
         return true;
       }
       ctx.sendOpen(res, 404, { error: 'not found' });
@@ -524,7 +524,9 @@ function createTeam(ctx) {
     return false;
   }
 
-  return { db, applyStaff, handle, audit, withImages: work.withImages, recheckStreams: work.recheckStreams };
+  /** طلب مزامنة صحيح من سيرفر المحل: عنوانه = عنوان إنترنت المحل */
+  const noteShopIp = req => attend.noteShopIp(require('./team-attend').clientIp(req), 'sync');
+  return { db, applyStaff, handle, audit, withImages: work.withImages, recheckStreams: work.recheckStreams, noteShopIp };
 }
 
 module.exports = { createTeam };

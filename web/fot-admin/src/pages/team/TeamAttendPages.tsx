@@ -31,6 +31,8 @@ const clock = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('
 const hm = (min: number) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
 const dur = (min: number) => (min < 60 ? `${min} د` : `${Math.floor(min / 60)} س${min % 60 ? ` ${min % 60} د` : ''}`);
 const toLocal = (iso?: string | null) => (iso ? new Date(Date.parse(iso) + 3 * 3600e3).toISOString().slice(0, 16) : '');
+/** قائمة BSSID من نص: كل سطر أو فاصلة أو مسافة نقطة بث */
+const splitBssids = (text: string) => [...new Set(text.split(/[\s,،;]+/).map(x => x.trim().toLowerCase().replace(/-/g, ':')).filter(Boolean))];
 const fromLocal = (v: string) => (v ? new Date(`${v}:00+03:00`).toISOString() : undefined);
 
 /* ═════════════ الحضور: اللوحة والسجل ═════════════ */
@@ -326,7 +328,7 @@ export function TeamRulesPage() {
   const dirQ = useQuery({ queryKey: ['team-directory'], queryFn: api.teamDirectory, retry: 0 });
   const boardQ = useQuery({ queryKey: ['team-board'], queryFn: api.teamBoard, retry: 0 });
   const [form, setForm] = useState<TeamAttendSettingsDto | null>(null);
-  const [net, setNet] = useState<Partial<TeamNetworkDto> | null>(null);
+  const [net, setNet] = useState<(Partial<TeamNetworkDto> & { bssidText?: string }) | null>(null);
   const [shiftEdit, setShiftEdit] = useState<{ id: number; name: string; start: string; end: string; breakMinutes: string; maxBreaks: string; overtime: boolean; overtimeRate: string } | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
 
@@ -344,7 +346,11 @@ export function TeamRulesPage() {
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
   });
   const saveNet = useMutation({
-    mutationFn: () => api.saveTeamNetwork({ name: net?.name, bssid: net?.bssid || null, ip: net?.ip || null, isActive: net?.isActive !== false }, net?.id),
+    mutationFn: () =>
+      api.saveTeamNetwork(
+        { name: net?.name, ssid: net?.ssid ?? null, bssids: splitBssids(net?.bssidText ?? ''), ip: net?.ip?.trim() || null, isActive: net?.isActive !== false },
+        net?.id,
+      ),
     onSuccess: () => {
       toast.success('حُفظت الشبكة');
       setNet(null);
@@ -394,14 +400,27 @@ export function TeamRulesPage() {
             <Btn size="sm" icon={<IconRefresh size={14} />} onClick={() => setScanOpen(true)}>
               البحث عن الشبكات
             </Btn>
-            <Btn size="sm" variant="secondary" icon={<IconPlus size={14} />} onClick={() => setNet({ name: '', bssid: '', ip: '', isActive: true })}>
+            <Btn size="sm" variant="secondary" icon={<IconPlus size={14} />} onClick={() => setNet({ name: '', bssidText: '', ip: '', isActive: true })}>
               يدوياً
             </Btn>
           </div>
         </div>
         <p className="text-[12.5px] leading-6 text-slate-500">
-          البصمة تُقبل فقط من هذه الشبكات. الأسهل: «البحث عن الشبكات» يعرض شبكات الواي فاي حول جهاز السيرفر في المحل فتختارها وتُملأ بياناتها تلقائياً، أو من تطبيق المدير ← شبكات المحل ← «التقاط هذه الشبكة». القاعدة تطابق حين يتطابق كل ما حُدّد فيها (BSSID و/أو IP، ويقبل IP نطاقاً مثل 1.2.3.0/24).
+          البصمة تُقبل فقط من هذه الشبكات. «البحث عن الشبكات» يعرض شبكات الواي فاي حول هذا الجهاز فتختار شبكة المحل وتُضاف بكل نقاط بثها. عنوان الإنترنت يتبع عنوان المحل تلقائياً، فلا حاجة لإدخاله.
         </p>
+        <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] ${setQ.data?.shopIp ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+          <span className="font-semibold">عنوان إنترنت المحل:</span>
+          {setQ.data?.shopIp ? (
+            <>
+              <span className="num font-bold" dir="ltr">
+                {setQ.data.shopIp.ip}
+              </span>
+              <span className="text-[11.5px] opacity-75">يتحدث تلقائياً · آخر تأكيد {formatDate(setQ.data.shopIp.at)}</span>
+            </>
+          ) : (
+            <span>لم يُعرف بعد — يُتعلَّم تلقائياً خلال دقيقة من اتصال سيرفر المحل بخادم الفريق المحدَّث</span>
+          )}
+        </div>
         {setQ.isLoading ? (
           <TableSkeleton rows={3} />
         ) : !nets.length ? (
@@ -413,16 +432,17 @@ export function TeamRulesPage() {
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-slate-800">
                     {n.name} {!n.isActive && <Badge>متوقفة</Badge>}{' '}
-                    {!n.ip && f?.requireIp !== false && <Badge tone="warn">بلا عنوان — لا تُقبل</Badge>}
+                    {(n.bssids?.length ?? (n.bssid ? 1 : 0)) > 0 && <Badge tone="info">{n.bssids?.length ?? 1} نقطة بث</Badge>}{' '}
+                    {n.ip ? <Badge>عنوان ثابت</Badge> : <Badge tone="ok">عنوان المحل تلقائياً</Badge>}
                   </div>
-                  <div className="num text-[11.5px] text-slate-500" dir="ltr" style={{ textAlign: 'right' }}>
-                    {[n.bssid && `BSSID ${n.bssid}`, n.ip && `IP ${n.ip}`].filter(Boolean).join(' · ')}
+                  <div className="num text-[11.5px] leading-5 text-slate-500" dir="ltr" style={{ textAlign: 'right' }}>
+                    {[...(n.bssids ?? (n.bssid ? [n.bssid] : [])), n.ip && `IP ${n.ip}`].filter(Boolean).join(' · ')}
                   </div>
                   <div className="text-[11px] text-slate-400">
                     {n.createdBy?.replace(/^manager:/, '')} · {formatDate(n.createdAt)}
                   </div>
                 </div>
-                <Btn size="xs" variant="ghost" onClick={() => setNet(n)}>
+                <Btn size="xs" variant="ghost" onClick={() => setNet({ ...n, bssidText: (n.bssids ?? (n.bssid ? [n.bssid] : [])).join('\n') })}>
                   تعديل
                 </Btn>
                 <Btn
@@ -585,7 +605,7 @@ export function TeamRulesPage() {
             <Btn variant="secondary" onClick={() => setNet(null)}>
               إلغاء
             </Btn>
-            <Btn loading={saveNet.isPending} disabled={!net?.name || (!net?.bssid && !net?.ip)} onClick={() => saveNet.mutate()}>
+            <Btn loading={saveNet.isPending} disabled={!net?.name || (!splitBssids(net?.bssidText ?? '').length && !net?.ip?.trim())} onClick={() => saveNet.mutate()}>
               حفظ
             </Btn>
           </>
@@ -596,21 +616,25 @@ export function TeamRulesPage() {
             <Field label="الاسم">
               <Input value={net.name ?? ''} onChange={e => setNet({ ...net, name: e.target.value })} placeholder="واي فاي الصالة" />
             </Field>
-            <Field label="BSSID (عنوان جهاز الواي فاي)" hint="مثال: a4:2b:b0:12:34:56">
-              <Input dir="ltr" value={net.bssid ?? ''} onChange={e => setNet({ ...net, bssid: e.target.value })} />
+            <Field label={`نقاط البث (BSSID) — ${splitBssids(net.bssidText ?? '').length}`} hint="كل نقطة في سطر — الراوتر والمقويات والنطاقان 2.4/5 GHz لكل منها BSSID">
+              <textarea
+                dir="ltr"
+                rows={5}
+                value={net.bssidText ?? ''}
+                onChange={e => setNet({ ...net, bssidText: e.target.value })}
+                placeholder={'a4:2b:b0:12:34:56\na4:2b:b0:12:34:57'}
+                className="num w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-brand-400"
+              />
             </Field>
-            <Field label="عنوان IP العام للمحل" hint="عنوان واحد أو نطاق مثل 5.6.7.0/24">
-              <Input dir="ltr" value={net.ip ?? ''} onChange={e => setNet({ ...net, ip: e.target.value })} />
+            <Field label="عنوان IP ثابت — اختياري" hint="اتركه فارغاً: يتبع عنوان إنترنت المحل تلقائياً (الأفضل). للمحلات بخطّي إنترنت ضع نطاقاً مثل 5.6.7.0/24">
+              <Input dir="ltr" value={net.ip ?? ''} onChange={e => setNet({ ...net, ip: e.target.value })} placeholder="تلقائي" />
             </Field>
             <Switch label="مفعّلة" checked={net.isActive !== false} onChange={v => setNet({ ...net, isActive: v })} />
-            {!net.ip && f?.requireIp !== false && (
-              <div className="rounded-lg bg-amber-50 p-2.5 text-[12px] font-semibold text-amber-800">«اشتراط عنوان الإنترنت» مفعّل — شبكة بلا عنوان IP لن تُقبل.</div>
-            )}
           </div>
         )}
       </Modal>
 
-      <WifiScanModal open={scanOpen} onClose={() => setScanOpen(false)} existing={nets} onAdded={() => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] })} />
+      <WifiScanModal open={scanOpen} onClose={() => setScanOpen(false)} existing={nets} shopIp={setQ.data?.shopIp?.ip ?? null} onAdded={() => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] })} />
 
       <Modal
         open={!!shiftEdit}
