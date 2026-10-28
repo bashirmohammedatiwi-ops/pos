@@ -5,6 +5,7 @@ import { TeamApp } from './AppRoot';
 import { applyTheme } from './native';
 import './app.css';
 import './work.css';
+import './live.css';
 
 /* نقطة دخول تطبيق الهاتف — منفصلة عن الويب (تصميم وترتيب مختلفان تماماً). */
 

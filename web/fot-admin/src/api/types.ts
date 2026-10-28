@@ -154,6 +154,80 @@ export interface TeamBroadcastDto {
   createdBy?: string | null;
   createdAt: string;
 }
+export interface TeamShiftDto {
+  start: string;
+  end: string;
+  breakMinutes: number;
+  maxBreaks: number;
+  custom?: boolean;
+}
+export interface TeamBreakDto {
+  id: number;
+  startAt: string;
+  endAt?: string | null;
+  plannedMinutes: number;
+  endsAt: string;
+  overMinutes: number;
+}
+export interface TeamAttendDto {
+  id: number;
+  date: string;
+  checkIn: string;
+  checkOut?: string | null;
+  lateMinutes: number;
+  autoClosed: boolean;
+  edited: boolean;
+  note?: string | null;
+  workedMinutes: number;
+  breakMinutes: number;
+  overMinutes: number;
+  breaks: TeamBreakDto[];
+  staffId?: number;
+  staffName?: string;
+  staffKind?: string | null;
+  sectionName?: string | null;
+  inIp?: string | null;
+  inBssid?: string | null;
+  editedBy?: string | null;
+}
+export type TeamBoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent';
+export interface TeamBoardDto {
+  date: string;
+  now: string;
+  rows: { staffId: number; name: string; kind: string; sectionName?: string | null; shift: TeamShiftDto; day?: { off: boolean; reason?: string | null } | null; status: TeamBoardStatus; attendance: TeamAttendDto | null }[];
+  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number>;
+  network: { enforced: boolean; count: number };
+}
+export interface TeamNetworkDto {
+  id: number;
+  name: string;
+  bssid?: string | null;
+  ip?: string | null;
+  ssid?: string | null;
+  isActive: boolean;
+  createdBy?: string | null;
+  createdAt: string;
+}
+export interface TeamAttendSettingsDto {
+  enforceNetwork: boolean;
+  shiftStart: string;
+  shiftEnd: string;
+  breakMinutes: number;
+  maxBreaks: number;
+  graceMinutes: number;
+  earlyMinutes: number;
+  autoCloseHours: number;
+  breakWarnMinutes: number;
+}
+export interface TeamAuditDto {
+  id: number;
+  at: string;
+  actor?: string | null;
+  action: string;
+  target?: string | null;
+  details?: string | null;
+}
+
 export interface TeamOverviewDto {
   today: string;
   weekday: string;

@@ -167,6 +167,99 @@ export async function hideSplash() {
   }
 }
 
+/* ── شبكة الواي فاي (للحضور من شبكة المحل) ── */
+export type WifiState = { bssid?: string | null; ssid?: string | null; permission?: 'granted' | 'denied'; locationEnabled?: boolean; wifiEnabled?: boolean };
+type WifiPlugin = { getInfo(): Promise<WifiState>; openLocationSettings(): Promise<void>; openWifiSettings(): Promise<void> };
+let wifiPlugin: WifiPlugin | null = null;
+async function wifi() {
+  if (!wifiPlugin) {
+    const { registerPlugin } = await import('@capacitor/core');
+    wifiPlugin = registerPlugin<WifiPlugin>('WifiInfo');
+  }
+  return wifiPlugin;
+}
+
+/** يقرأ شبكة الواي فاي الحالية. في المتصفح (تطوير): fot_dev_bssid من التخزين المحلي. */
+export async function readWifi(): Promise<WifiState> {
+  if (!isNative()) {
+    try {
+      const dev = localStorage.getItem('fot_dev_bssid');
+      return dev ? { bssid: dev, ssid: 'DEV', permission: 'granted', locationEnabled: true, wifiEnabled: true } : {};
+    } catch {
+      return {};
+    }
+  }
+  try {
+    return await (await wifi()).getInfo();
+  } catch {
+    return {};
+  }
+}
+export async function openLocationSettings() {
+  if (isNative()) await (await wifi()).openLocationSettings().catch(() => undefined);
+}
+export async function openWifiSettings() {
+  if (isNative()) await (await wifi()).openWifiSettings().catch(() => undefined);
+}
+
+/* ── منبّهات محلية (تعمل والتطبيق مغلق ودون إنترنت) ── */
+const ALARM = { warn: 9001, end: 9002, over: 9003, shiftIn: 9010, shiftOut: 9011 };
+let channelReady = false;
+async function notifications() {
+  const { LocalNotifications } = await import('@capacitor/local-notifications');
+  if (!channelReady) {
+    channelReady = true;
+    await LocalNotifications.createChannel({ id: 'breaks', name: 'منبّه الاستراحة والدوام', description: 'تنبيه قبل نهاية الاستراحة وعند انتهائها', importance: 5, visibility: 1, vibration: true }).catch(() => undefined);
+    const perm = await LocalNotifications.checkPermissions().catch(() => null);
+    if (perm && perm.display !== 'granted') await LocalNotifications.requestPermissions().catch(() => undefined);
+  }
+  return LocalNotifications;
+}
+
+/** منبّه الاستراحة: قبل النهاية، عند النهاية، وبعد 5 دقائق تجاوز. */
+export async function scheduleBreakAlarms(endsAtIso: string, warnMinutes: number) {
+  if (!isNative()) return;
+  try {
+    const LN = await notifications();
+    await LN.cancel({ notifications: [{ id: ALARM.warn }, { id: ALARM.end }, { id: ALARM.over }] });
+    const end = Date.parse(endsAtIso);
+    const list = [];
+    const warnAt = end - warnMinutes * 60_000;
+    if (warnMinutes > 0 && warnAt > Date.now() + 5000)
+      list.push({ id: ALARM.warn, channelId: 'breaks', title: `تنتهي استراحتك بعد ${warnMinutes} دقيقة`, body: 'استعد للعودة لمكان عملك', schedule: { at: new Date(warnAt), allowWhileIdle: true } });
+    if (end > Date.now() + 2000) list.push({ id: ALARM.end, channelId: 'breaks', title: 'انتهت استراحتك ⏰', body: 'سجّل عودتك من الاستراحة الآن', schedule: { at: new Date(end), allowWhileIdle: true } });
+    list.push({ id: ALARM.over, channelId: 'breaks', title: 'تجاوزت وقت الاستراحة', body: 'يصل تنبيه لمديرك — سجّل عودتك فوراً', schedule: { at: new Date(Math.max(end, Date.now()) + 5 * 60_000), allowWhileIdle: true } });
+    await LN.schedule({ notifications: list });
+  } catch {
+    /* المنبّه اختياري */
+  }
+}
+export async function cancelBreakAlarms() {
+  if (!isNative()) return;
+  try {
+    const LN = await notifications();
+    await LN.cancel({ notifications: [{ id: ALARM.warn }, { id: ALARM.end }, { id: ALARM.over }] });
+  } catch {
+    /* ignore */
+  }
+}
+/** تذكير ببداية الدوام (إن لم يُسجَّل الحضور) وبنهايته (إن لم يُسجَّل الانصراف). */
+export async function scheduleShiftReminders(opt: { startAt?: number | null; endAt?: number | null }) {
+  if (!isNative()) return;
+  try {
+    const LN = await notifications();
+    await LN.cancel({ notifications: [{ id: ALARM.shiftIn }, { id: ALARM.shiftOut }] });
+    const list = [];
+    if (opt.startAt && opt.startAt > Date.now() + 60_000)
+      list.push({ id: ALARM.shiftIn, channelId: 'breaks', title: 'يبدأ دوامك بعد قليل', body: 'سجّل حضورك من التطبيق عند وصولك للمحل', schedule: { at: new Date(opt.startAt), allowWhileIdle: true } });
+    if (opt.endAt && opt.endAt > Date.now() + 60_000)
+      list.push({ id: ALARM.shiftOut, channelId: 'breaks', title: 'انتهى دوامك', body: 'لا تنسَ تسجيل انصرافك قبل الخروج', schedule: { at: new Date(opt.endAt), allowWhileIdle: true } });
+    if (list.length) await LN.schedule({ notifications: list });
+  } catch {
+    /* ignore */
+  }
+}
+
 /* ── مشاركة الملفات (Excel وغيره) ── */
 function toBase64(bytes: Uint8Array) {
   let s = '';

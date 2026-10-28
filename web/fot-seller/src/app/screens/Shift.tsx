@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Badge, ErrorLine, I, Screen, Sheet, Skeleton, toast } from '../kit';
 import { haptic } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, StatusBadge } from '../parts';
+import { AttendCard, AttendHistory } from './Attend';
 import { LEAVE_LABEL, dateShort, leaveWhen, offNames, relTime, staffApi, time12, useLoad, type DayState, type LeaveReq, type LeaveType } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +140,10 @@ export function Shift({ back }: { back?: string }) {
             </div>
           </section>
 
+          <div style={{ marginTop: 14 }}>
+            <AttendCard />
+          </div>
+
           <section className="t-card pad" style={{ marginTop: 14 }}>
             <div className="t-cal">
               {WD_SHORT.map(w => (
@@ -171,6 +176,8 @@ export function Shift({ back }: { back?: string }) {
               </span>
             </div>
           </section>
+
+          <AttendHistory />
 
           <section className="t-section">
             <div className="t-section-head">

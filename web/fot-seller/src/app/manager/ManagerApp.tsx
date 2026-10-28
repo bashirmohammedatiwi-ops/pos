@@ -5,6 +5,8 @@ import { Avatar, Badge, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton,
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, StatusBadge } from '../parts';
 import { Alerts } from '../screens/Alerts';
+import { ChatList, ChatRoom } from '../screens/Chat';
+import { AttendSummary, MAttend, MNetworks } from './ManagerAttend';
 import {
   LEAVE_LABEL,
   POST_KIND,
@@ -17,6 +19,7 @@ import {
   onLive,
   relTime,
   shortDay,
+  useChatUnread,
   useLiveChannel,
   useLoad,
   useUnread,
@@ -83,6 +86,11 @@ export function ManagerApp() {
         haptic('warning');
         toast(m.data.item.title);
       }
+      // رسالة جديدة خارج غرفتها
+      if (m.event === 'chat' && m.data.message && m.data.message.sender.key !== `manager:${getManagerMe()?.id}` && !locRef.current.startsWith(`/m/chat/${m.data.convId}`)) {
+        haptic('tap');
+        toast(`💬 ${m.data.message.sender.name}: ${m.data.message.body || 'صورة'}`);
+      }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -91,22 +99,30 @@ export function ManagerApp() {
     nav('/login?as=manager', { replace: true });
   }
 
+  const chatUnread = useChatUnread('manager');
   const tabs: { to: string; label: string; icon: (p: { filled?: boolean }) => ReactNode; badge?: number }[] = [
     { to: '/m', label: 'الرئيسية', icon: p => <I.home {...p} /> },
+    { to: '/m/attend', label: 'الحضور', icon: p => <I.clock {...p} /> },
     { to: '/m/approvals', label: 'الموافقات', icon: p => <I.calendar {...p} />, badge: pending },
-    { to: '/m/posts', label: 'الإعلانات', icon: p => <I.megaphone {...p} /> },
-    { to: '/m/team', label: 'الفريق', icon: p => <I.user {...p} /> },
+    { to: '/m/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
     { to: '/m/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread },
   ];
   const loc = useLocation();
+  const locRef = useRef(loc.pathname);
+  locRef.current = loc.pathname;
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks'];
 
   return (
     <div className="t-app">
       <Routes>
         <Route index element={<MHome unread={unread} pending={pending} />} />
+        <Route path="attend" element={<MAttend />} />
         <Route path="approvals" element={<MApprovals />} />
         <Route path="posts" element={<MPosts />} />
         <Route path="team" element={<MTeam />} />
+        <Route path="networks" element={<MNetworks />} />
+        <Route path="chat" element={<ChatList role="manager" base="/m/chat" />} />
+        <Route path="chat/:id" element={<ChatRoom role="manager" base="/m/chat" />} />
         <Route path="more" element={<MMore unread={unread} onLogout={logout} />} />
         <Route path="alerts" element={<Alerts role="manager" back="/m/more" />} />
         <Route path="notify" element={<MNotify />} />
@@ -114,7 +130,7 @@ export function ManagerApp() {
       </Routes>
       <nav className="t-tabs" aria-label="التنقل">
         {tabs.map(t => {
-          const on = t.to === '/m' ? loc.pathname === '/m' || loc.pathname === '/m/' : loc.pathname.startsWith(t.to) || (t.to === '/m/more' && ['/m/alerts', '/m/notify'].includes(loc.pathname));
+          const on = t.to === '/m' ? loc.pathname === '/m' || loc.pathname === '/m/' : loc.pathname.startsWith(t.to) || (t.to === '/m/more' && MORE_PAGES.some(x => loc.pathname.startsWith(x)));
           return (
             <NavLink
               key={t.to}
@@ -197,6 +213,8 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
                 </div>
               </div>
             </section>
+
+            <AttendSummary />
 
             <div className="t-kpis" style={{ marginTop: 14 }}>
               <Link to="/m/approvals" className={`t-kpi press ${pending ? 'alert' : ''}`}>
@@ -1090,11 +1108,32 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             </span>
             تبليغ سريع
           </Link>
+          <Link to="/m/posts" className="press" onClick={() => haptic('tap')}>
+            <span className="t-tile lg ok">
+              <I.megaphone size={22} />
+            </span>
+            الإعلانات
+          </Link>
+          <Link to="/m/team" className="press" onClick={() => haptic('tap')}>
+            <span className="t-tile lg">
+              <I.user size={22} />
+            </span>
+            الفريق والعطل
+          </Link>
+          <Link to="/m/networks" className="press" onClick={() => haptic('tap')}>
+            <span className="t-tile lg mute">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+                <path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0" />
+                <circle cx="12" cy="19.3" r="1.2" fill="currentColor" />
+              </svg>
+            </span>
+            شبكات المحل
+          </Link>
           <a href={MANAGER_URL} className="press">
             <span className="t-tile lg ok">
               <I.sparkle size={22} />
             </span>
-            التحليلات الكاملة
+            التحليلات
           </a>
         </div>
       </section>

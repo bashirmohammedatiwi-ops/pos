@@ -8,6 +8,7 @@ import { KIND_LABEL, getTeamMe } from '../../team';
 import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
 import { haptic } from '../native';
 import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
+import { AttendCard } from './Attend';
 import { getTeamToken } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +79,12 @@ export function SellerHome() {
       <Greeting name={name} sub={updatedAt ? `محدّث ${ago(updatedAt)}` : ''} unread={team ? unread : undefined} />
       <div className="t-page">
         {err && !dash && <ErrorLine text={err} onRetry={() => void reload()} />}
+
+        {team && (
+          <div style={{ marginBottom: 14 }}>
+            <AttendCard compact />
+          </div>
+        )}
 
         {!dash ? (
           <Skeleton h={250} r={26} />
@@ -338,18 +345,7 @@ export function StaffHome() {
     <>
       <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} unread={unread} />
       <div className="t-page">
-        <section className="t-hero">
-          <p className="kicker">{[me?.jobTitle || KIND_LABEL[me?.kind ?? ''] || 'فريق ديما', me?.sectionName].filter(Boolean).join(' · ')}</p>
-          <div className="amount" style={{ fontSize: 28 }}>
-            {name}
-          </div>
-          <div className="meta">
-            <span>
-              كود الدخول <b className="num ltr">{me?.code ?? '—'}</b>
-            </span>
-            <span>ديما الحياة · بغداد</span>
-          </div>
-        </section>
+        <AttendCard compact />
 
         <section className="t-section">
           <div className="t-quick">

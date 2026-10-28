@@ -40,6 +40,15 @@
         "set FOT_SELLER_API=http://127.0.0.1:47907&& set VITE_TARGET=app&& npm --prefix web/fot-seller run dev -- --port 4712"
       ],
       "port": 4712
+    },
+    {
+      "name": "fot-admin-hubtest",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_PROXY_TARGET=http://127.0.0.1:47920&& npm --prefix web/fot-admin run dev"
+      ],
+      "port": 5173
     }
   ]
 }

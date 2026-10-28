@@ -53,7 +53,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/cashiers', label: 'الكاشير', icon: '⌨', iconKey: 'cashiers', hint: 'الحسابات والصلاحيات' },
       { path: '/discount-qr', label: 'رموز الخصم', icon: '▣', iconKey: 'qr', hint: 'QR لاعتماد خصم الفاتورة' },
       { path: '/salesmen', label: 'البائعون', icon: '♂', iconKey: 'salesmen', hint: 'القائمة والتقارير' },
-      { path: '/portal-accounts', label: 'حسابات الويب', icon: '⚿', iconKey: 'key', hint: 'رموز البائعين وحسابات المدراء' },
       { path: '/commissions', label: 'العمولات', icon: '₪', iconKey: 'commissions', hint: 'مجاميع العمولة' },
       { path: '/targets', label: 'الأهداف', icon: '▲', iconKey: 'targets', hint: 'إنشاء الأهداف وإدارتها' },
     ],
@@ -63,10 +62,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'تطبيق الفريق',
     icon: '📱',
     items: [
-      { path: '/team/staff', label: 'الموظفون', icon: '👤', iconKey: 'salesmen', hint: 'حسابات التطبيق والهواتف المربوطة' },
-      { path: '/team/leave', label: 'الإجازات والعطل', icon: '📅', iconKey: 'targets', hint: 'طلبات الإجازة والتبديل والاستئذان والعطل الأسبوعية' },
-      { path: '/team/posts', label: 'الإعلانات', icon: '📣', iconKey: 'offers', hint: 'أخبار وعروض وتعليمات بالصور للفريق' },
-      { path: '/team/notify', label: 'التبليغات', icon: '🔔', iconKey: 'activity', hint: 'رسالة فورية لهواتف الفريق' },
+      // قسم رئيسي واحد بأقسام فرعية داخله (الموظفون، الحضور، الإجازات، الإعلانات، التبليغات، الشبكات، الحسابات، التدقيق)
+      { path: '/team', label: 'تطبيق الفريق', icon: '📱', iconKey: 'salesmen', hint: 'كل ما يخص التطبيق: الموظفون، الحضور، الإجازات، الإعلانات، المحادثات والحسابات' },
     ],
   },
   {
@@ -100,10 +97,16 @@ export const PAGE_META: Record<
   '/activity': { title: 'حركات الكاشير', subtitle: 'السجل · حسب الكاشير · مقارنة الفترات', iconKey: 'activity' },
   '/reports': { title: 'التقارير', subtitle: 'تطبيقات التقارير', iconKey: 'reports' },
   '/salesmen': { title: 'البائعون', subtitle: 'القائمة · التقارير · عمولات الفترة', iconKey: 'salesmen' },
-  '/team/staff': { title: 'الموظفون', subtitle: 'تطبيق الفريق · الحسابات والرموز والهواتف المربوطة', iconKey: 'salesmen' },
-  '/team/leave': { title: 'الإجازات والعطل', subtitle: 'تطبيق الفريق · الطلبات والموافقات والعطل الأسبوعية', iconKey: 'targets' },
-  '/team/posts': { title: 'الإعلانات', subtitle: 'تطبيق الفريق · أخبار وعروض بالصور وإحصاءات القراءة', iconKey: 'offers' },
-  '/team/notify': { title: 'التبليغات', subtitle: 'تطبيق الفريق · رسائل فورية للهواتف', iconKey: 'activity' },
+  '/team': { title: 'تطبيق الفريق', subtitle: 'نظرة عامة · الفريق اليوم وما يحتاج انتباهك', iconKey: 'salesmen' },
+  '/team/overview': { title: 'تطبيق الفريق', subtitle: 'نظرة عامة · الفريق اليوم وما يحتاج انتباهك', iconKey: 'salesmen' },
+  '/team/staff': { title: 'تطبيق الفريق', subtitle: 'الموظفون · الحسابات والرموز والهواتف المربوطة', iconKey: 'salesmen' },
+  '/team/attend': { title: 'تطبيق الفريق', subtitle: 'الحضور · اللوحة الحيّة والسجل والتصحيح', iconKey: 'salesmen' },
+  '/team/leave': { title: 'تطبيق الفريق', subtitle: 'الإجازات والعطل · الطلبات والموافقات والعطل الأسبوعية', iconKey: 'salesmen' },
+  '/team/posts': { title: 'تطبيق الفريق', subtitle: 'الإعلانات · أخبار وعروض بالصور وإحصاءات القراءة', iconKey: 'salesmen' },
+  '/team/notify': { title: 'تطبيق الفريق', subtitle: 'التبليغات · رسائل فورية للهواتف', iconKey: 'salesmen' },
+  '/team/rules': { title: 'تطبيق الفريق', subtitle: 'الشبكات وقواعد الدوام · شبكات المحل والورديات والاستراحة', iconKey: 'salesmen' },
+  '/team/accounts': { title: 'تطبيق الفريق', subtitle: 'حسابات المدراء والويب · الدخول وأوقات الفتح', iconKey: 'salesmen' },
+  '/team/audit': { title: 'تطبيق الفريق', subtitle: 'سجل التدقيق · كل إجراء في التطبيق', iconKey: 'salesmen' },
   '/portal-accounts': { title: 'حسابات الويب', subtitle: 'رموز البائعين · حسابات المدراء · محفوظة على السيرفر', iconKey: 'key' },
   '/cashiers': { title: 'الكاشير', subtitle: 'الحسابات والصلاحيات', iconKey: 'cashiers' },
   '/discount-qr': { title: 'رموز الخصم', subtitle: 'توليد QR لكل شخص وربطه بفواتير الخصم', iconKey: 'qr' },
@@ -147,5 +150,5 @@ export const DENSE_LIST_PATHS = new Set([
 ]);
 
 export function isDenseListPage(pathname: string) {
-  return DENSE_LIST_PATHS.has(pathname);
+  return DENSE_LIST_PATHS.has(pathname) || pathname === '/team' || pathname.startsWith('/team/');
 }

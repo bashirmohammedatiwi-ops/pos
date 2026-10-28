@@ -103,6 +103,12 @@ import type {
   StaffSaveRequest,
   TeamHubStatusDto,
   TeamAudience,
+  TeamAttendDto,
+  TeamAttendSettingsDto,
+  TeamAuditDto,
+  TeamBoardDto,
+  TeamNetworkDto,
+  TeamShiftDto,
   TeamBroadcastDto,
   TeamDirStaffDto,
   TeamLeaveDto,
@@ -581,6 +587,22 @@ export const api = {
     request<{ ok: boolean; count: number }>('/api/team/hub/notify', { method: 'POST', body: JSON.stringify(body) }),
   teamNotifyLog: () => request<TeamBroadcastDto[]>('/api/team/hub/notify/log'),
   uploadTeamMedia: (dataUrl: string) => request<{ url: string }>('/api/team/hub/media', { method: 'POST', body: JSON.stringify({ data: dataUrl }) }),
+  teamBoard: () => request<TeamBoardDto>('/api/team/hub/attend/board'),
+  teamAttendLog: (from: string, to: string, staffId?: number) =>
+    request<TeamAttendDto[]>(`/api/team/hub/attend/log?from=${from}&to=${to}${staffId ? `&staffId=${staffId}` : ''}`),
+  teamAttendSettings: () => request<{ settings: TeamAttendSettingsDto; networks: TeamNetworkDto[] }>('/api/team/hub/attend/settings'),
+  saveTeamAttendSettings: (body: Partial<TeamAttendSettingsDto>) =>
+    request<TeamAttendSettingsDto>('/api/team/hub/attend/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  saveTeamNetwork: (body: Partial<TeamNetworkDto>, id?: number) =>
+    request<TeamNetworkDto>(id ? `/api/team/hub/networks/${id}` : '/api/team/hub/networks', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) }),
+  deleteTeamNetwork: (id: number) => request<{ ok: boolean }>(`/api/team/hub/networks/${id}`, { method: 'DELETE' }),
+  correctTeamAttend: (id: number, body: { checkIn?: string; checkOut?: string | null; note?: string }) =>
+    request<TeamAttendDto>(`/api/team/hub/attend/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  manualTeamAttend: (body: { staffId: number; checkIn: string; checkOut?: string | null; note?: string }) =>
+    request<TeamAttendDto>('/api/team/hub/attend/manual', { method: 'POST', body: JSON.stringify(body) }),
+  setTeamShift: (staffId: number, body: Partial<TeamShiftDto> & { reset?: boolean }) =>
+    request<TeamShiftDto>(`/api/team/hub/staff/${staffId}/shift`, { method: 'PUT', body: JSON.stringify(body) }),
+  teamAudit: (limit = 300) => request<TeamAuditDto[]>(`/api/team/hub/audit?limit=${limit}`),
   /** صورة من خادم الفريق كرابط محلي (المتصفح لا يرسل رمز الدخول في وسم img). */
   teamMediaObjectUrl: async (url: string) => {
     const name = url.split('/').pop() ?? '';

@@ -57,11 +57,7 @@ const ReportsPage = lazyPage(() => import('@/pages/ReportsPage'), 'ReportsPage')
 
 const SalesmenPage = lazyPage(() => import('@/pages/SalesmenPage'), 'SalesmenPage');
 
-const PortalAccountsPage = lazyPage(() => import('@/pages/PortalAccountsPage'), 'PortalAccountsPage');
-const TeamStaffPage = lazyPage(() => import('@/pages/team/TeamStaffPage'), 'TeamStaffPage');
-const TeamLeavePage = lazyPage(() => import('@/pages/team/TeamWorkPages'), 'TeamLeavePage');
-const TeamPostsPage = lazyPage(() => import('@/pages/team/TeamWorkPages'), 'TeamPostsPage');
-const TeamNotifyPage = lazyPage(() => import('@/pages/team/TeamWorkPages'), 'TeamNotifyPage');
+const TeamHubPage = lazyPage(() => import('@/pages/team/TeamHubPage'), 'TeamHubPage');
 
 const CashiersPage = lazyPage(() => import('@/pages/CashiersPage'), 'CashiersPage');
 
@@ -167,11 +163,9 @@ export function App() {
 
                     <Route path="salesmen" element={<Page><SalesmenPage /></Page>} />
 
-                    <Route path="portal-accounts" element={<Page><PortalAccountsPage /></Page>} />
-                    <Route path="team/staff" element={<Page><TeamStaffPage /></Page>} />
-                    <Route path="team/leave" element={<Page><TeamLeavePage /></Page>} />
-                    <Route path="team/posts" element={<Page><TeamPostsPage /></Page>} />
-                    <Route path="team/notify" element={<Page><TeamNotifyPage /></Page>} />
+                    <Route path="portal-accounts" element={<Navigate to="/team/accounts" replace />} />
+                    <Route path="team" element={<Page><TeamHubPage /></Page>} />
+                    <Route path="team/:tab" element={<Page><TeamHubPage /></Page>} />
 
                     <Route path="cashiers" element={<Page><CashiersPage /></Page>} />
 

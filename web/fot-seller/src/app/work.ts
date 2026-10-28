@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../config';
-import { getTeamToken } from '../team';
+import { getTeamMe, getTeamToken } from '../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * وحدات العمل في التطبيق: التبليغات، الإعلانات، الدوام والإجازات، رفع الصور،
@@ -233,6 +233,193 @@ export const managerApi = {
   upload: (dataUrl: string) => call<{ url: string }>('manager', '/api/team/m/media', { method: 'POST', body: { data: dataUrl } }),
 };
 
+/* ═════════════ الحضور والاستراحة ═════════════ */
+export interface BreakRec {
+  id: number;
+  startAt: string;
+  endAt?: string | null;
+  plannedMinutes: number;
+  endsAt: string;
+  overMinutes: number;
+}
+export interface AttendRec {
+  id: number;
+  date: string;
+  checkIn: string;
+  checkOut?: string | null;
+  lateMinutes: number;
+  autoClosed: boolean;
+  edited: boolean;
+  note?: string | null;
+  workedMinutes: number;
+  breakMinutes: number;
+  overMinutes: number;
+  breaks: BreakRec[];
+  // في السجل
+  staffId?: number;
+  staffName?: string;
+  staffKind?: string | null;
+  sectionName?: string | null;
+}
+export interface Shift {
+  start: string;
+  end: string;
+  breakMinutes: number;
+  maxBreaks: number;
+  custom?: boolean;
+}
+export interface AttendState {
+  now: string;
+  today: string;
+  day?: DayState | null;
+  shift: Shift;
+  attendance: AttendRec | null;
+  openBreak: BreakRec | null;
+  breakLeftMinutes: number;
+  breaksLeft: number;
+  history: AttendRec[];
+  network: { enforced: boolean; configured: boolean; needsBssid: boolean };
+}
+export type BoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent';
+export interface BoardRow {
+  staffId: number;
+  name: string;
+  kind: string;
+  sectionName?: string | null;
+  shift: Shift;
+  day?: DayState | null;
+  status: BoardStatus;
+  attendance: AttendRec | null;
+}
+export interface Board {
+  date: string;
+  now: string;
+  rows: BoardRow[];
+  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number>;
+  network: { enforced: boolean; count: number };
+}
+export interface ShopNetwork {
+  id: number;
+  name: string;
+  bssid?: string | null;
+  ip?: string | null;
+  ssid?: string | null;
+  isActive: boolean;
+  createdBy?: string | null;
+  createdAt: string;
+}
+export interface AttendSettings {
+  enforceNetwork: boolean;
+  shiftStart: string;
+  shiftEnd: string;
+  breakMinutes: number;
+  maxBreaks: number;
+  graceMinutes: number;
+  earlyMinutes: number;
+  autoCloseHours: number;
+  breakWarnMinutes: number;
+}
+
+export const attendApi = {
+  state: () => call<AttendState>('staff', '/api/team/attend'),
+  probe: (bssid?: string | null) => call<{ ok: boolean; ip: string; network: string | null; error: string | null }>('staff', `/api/team/attend/probe${bssid ? `?bssid=${encodeURIComponent(bssid)}` : ''}`),
+  act: (action: 'in' | 'out' | 'break/start' | 'break/end', bssid?: string | null, deviceId?: string) =>
+    call<AttendState>('staff', `/api/team/attend/${action}`, { method: 'POST', body: { bssid, deviceId } }),
+};
+export const managerAttendApi = {
+  board: () => call<Board>('manager', '/api/team/m/attend/board'),
+  log: (from: string, to: string, staffId?: number) => call<AttendRec[]>('manager', `/api/team/m/attend/log?from=${from}&to=${to}${staffId ? `&staffId=${staffId}` : ''}`),
+  settings: () => call<{ settings: AttendSettings; networks: ShopNetwork[] }>('manager', '/api/team/m/attend/settings'),
+  capture: (b: { bssid?: string | null; ssid?: string | null; name?: string; ipOnly?: boolean; withIp?: boolean }) => call<ShopNetwork>('manager', '/api/team/m/networks/capture', { method: 'POST', body: b }),
+  probe: (bssid?: string | null) => call<{ ok: boolean; ip: string; bssid?: string | null; network: string | null; error: string | null }>('manager', `/api/team/m/networks/probe${bssid ? `?bssid=${encodeURIComponent(bssid)}` : ''}`),
+  deleteNetwork: (id: number) => call<{ ok: true }>('manager', `/api/team/m/networks/${id}`, { method: 'DELETE' }),
+  correct: (id: number, b: { checkIn?: string; checkOut?: string | null; note?: string }) => call<AttendRec>('manager', `/api/team/m/attend/${id}`, { method: 'PUT', body: b }),
+  setShift: (staffId: number, b: Partial<Shift> & { reset?: boolean }) => call<Shift>('manager', `/api/team/m/staff/${staffId}/shift`, { method: 'PUT', body: b }),
+  shift: (staffId: number) => call<Shift>('manager', `/api/team/m/staff/${staffId}/shift`),
+};
+
+/* ═════════════ المحادثات ═════════════ */
+export interface ChatPerson {
+  key: string;
+  kind: 'staff' | 'manager';
+  id: number;
+  name: string;
+  role: string;
+  sub?: string | null;
+}
+export interface ChatMsg {
+  id: number;
+  convId: number;
+  sender: { key: string; name: string; role?: string | null };
+  body?: string | null;
+  image?: string | null;
+  replyTo?: { id: number; senderName: string; body: string } | null;
+  createdAt: string;
+  deleted: boolean;
+  /** محلي: قيد الإرسال */
+  pending?: boolean;
+}
+export interface ChatConv {
+  id: number;
+  kind: 'direct' | 'group';
+  auto?: string | null;
+  title: string;
+  other?: { key: string; role: string; sub?: string | null } | null;
+  memberCount: number;
+  lastAt: string;
+  last?: { body: string; senderName: string; mine: boolean; at: string } | null;
+  unread: number;
+  muted: boolean;
+  isAdmin: boolean;
+}
+
+export function chatApi(role: Role) {
+  const base = role === 'manager' ? '/api/team/m/chat' : '/api/team/chat';
+  return {
+    me: () => (role === 'manager' ? `manager:${getManagerMe()?.id ?? 0}` : `staff:${getTeamMe()?.id ?? 0}`),
+    list: () => call<ChatConv[]>(role, base),
+    unread: () => call<{ total: number }>(role, `${base}/unread`),
+    people: () => call<ChatPerson[]>(role, `${base}/people`),
+    direct: (key: string) => call<ChatConv>(role, `${base}/direct`, { method: 'POST', body: { key } }),
+    createGroup: (title: string, members: string[]) => call<ChatConv>(role, `${base}/groups`, { method: 'POST', body: { title, members } }),
+    updateGroup: (id: number, b: { title?: string; add?: string[]; remove?: string[]; delete?: boolean }) => call<ChatConv>(role, `${base}/groups/${id}`, { method: 'PUT', body: b }),
+    messages: (id: number, before?: number) =>
+      call<{ conversation: ChatConv; messages: ChatMsg[]; members: (ChatPerson & { lastRead: number })[]; hasMore: boolean }>(role, `${base}/${id}/messages${before ? `?before=${before}` : ''}`),
+    send: (id: number, b: { body?: string; image?: string | null; replyTo?: number | null }) => call<ChatMsg>(role, `${base}/${id}/messages`, { method: 'POST', body: b }),
+    read: (id: number, lastId?: number) => call<{ total: number }>(role, `${base}/${id}/read`, { method: 'POST', body: { lastId } }),
+    typing: (id: number) => call<{ ok: true }>(role, `${base}/${id}/typing`, { method: 'POST', body: {} }),
+    remove: (mid: number) => call<{ ok: true }>(role, `${base}/messages/${mid}`, { method: 'DELETE' }),
+    mute: (id: number, muted: boolean) => call<ChatConv>(role, `${base}/${id}/mute`, { method: 'POST', body: { muted } }),
+    upload: (data: string) => (role === 'manager' ? managerApi.upload(data) : staffApi.upload(data)),
+  };
+}
+
+/** عدد رسائل المحادثات غير المقروءة (يتحدث مع كل رسالة). */
+export function useChatUnread(role: Role | null) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!role) return;
+    const api = chatApi(role);
+    let alive = true;
+    let t = 0;
+    const load = () => api.unread().then(r => alive && setN(r.total)).catch(() => undefined);
+    void load();
+    const off = onLive(m => {
+      if (m.event === 'chat-unread' && typeof m.data.total === 'number') setN(m.data.total);
+      else if (m.event === 'chat') {
+        window.clearTimeout(t);
+        t = window.setTimeout(load, 400);
+      }
+    });
+    return () => {
+      alive = false;
+      off();
+      window.clearTimeout(t);
+    };
+  }, [role]);
+  return n;
+}
+
 /** رابط صورة من الخادم (مسار نسبي ← عنوان الخادم داخل التطبيق). */
 export function mediaUrl(u?: string | null) {
   if (!u) return '';
@@ -268,7 +455,28 @@ export async function compressImage(file: File, max = 1600, quality = 0.82): Pro
 
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
 const LIVE_EVENT = 'fot-team-live';
-export type LiveMsg = { event: 'hello' | 'notify' | 'unread' | 'post' | 'leave'; data: { unread?: number; item?: Notif; id?: number; deleted?: boolean; weekly?: boolean } };
+export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread';
+export type LiveMsg = {
+  event: LiveEvent;
+  data: {
+    unread?: number;
+    item?: Notif;
+    id?: number;
+    deleted?: boolean;
+    weekly?: boolean;
+    staffId?: number;
+    // المحادثات
+    convId?: number;
+    message?: ChatMsg;
+    deletedId?: number;
+    key?: string;
+    name?: string;
+    lastId?: number;
+    total?: number;
+    created?: boolean;
+    updated?: boolean;
+  };
+};
 
 export function onLive(fn: (m: LiveMsg) => void) {
   const h = (e: Event) => fn((e as CustomEvent<LiveMsg>).detail);
@@ -297,7 +505,8 @@ export function useLiveChannel(role: Role | null) {
     const connect = () => {
       if (stopped) return;
       es = new EventSource(apiUrl(`${path}?token=${encodeURIComponent(token)}`));
-      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave'] as const) es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
+      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread'] as const)
+        es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
       es.onopen = () => {
         retry = 0;
       };
@@ -340,7 +549,7 @@ export function useUnread(role: Role | null) {
 }
 
 /** تحميل بيانات مع إعادة عند حدث حي معيّن. */
-export function useLoad<T>(fn: () => Promise<T>, reloadOn: LiveMsg['event'][] = [], deps: unknown[] = []) {
+export function useLoad<T>(fn: () => Promise<T>, reloadOn: LiveEvent[] = [], deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
