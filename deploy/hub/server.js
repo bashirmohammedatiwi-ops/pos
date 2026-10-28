@@ -1156,6 +1156,7 @@ const team = createTeam({
   accessState,
   issueSellerToken,
   getSellerAccount: id => state.accounts[id] || state.accounts[String(id)] || null,
+  getManagers: () => state.managers || {},
 });
 
 const server = http.createServer(async (req, res) => {

@@ -155,9 +155,74 @@ function createTeam(ctx) {
     db.prepare('UPDATE devices SET last_seen = ?, app_version = COALESCE(?, app_version) WHERE staff_id = ?').run(now(), info?.appVersion || null, staffId);
   }
 
+  // التبليغات، الإعلانات، الوسائط، الدوام والإجازات
+  const work = require('./team-work').createWork({ db, ctx, now, audit, getStaff });
+
+  function managerFromToken(token) {
+    const payload = ctx.verifyJwt(token, 'manager');
+    const id = Number(payload?.sub || 0);
+    const m = id ? (ctx.getManagers?.() || {})[id] || (ctx.getManagers?.() || {})[String(id)] : null;
+    return m && m.isActive !== false ? m : null;
+  }
+
   /* ── المسارات ── */
   async function handle(req, res, url) {
     const p = url.pathname;
+
+    // صور الإعلانات والتقارير: عامة بأسماء عشوائية غير قابلة للتخمين
+    const media = p.match(/^\/api\/team\/media\/([\w.]+)$/);
+    if (req.method === 'GET' && media) {
+      work.serveMedia(res, media[1]);
+      return true;
+    }
+
+    // القناة الحية (EventSource لا يرسل ترويسات — الرمز في الرابط)
+    if (req.method === 'GET' && p === '/api/team/events') {
+      const payload = ctx.verifyJwt(url.searchParams.get('token') || '', 'staff');
+      const s = payload ? getStaff(Number(payload.sub)) : null;
+      if (!s || !s.is_active) {
+        ctx.send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
+        return true;
+      }
+      work.openStream(req, res, `staff:${s.id}`);
+      return true;
+    }
+
+    // المدير داخل التطبيق: /api/team/m/*
+    if (p.startsWith('/api/team/m/')) {
+      const sub = p.slice('/api/team/m/'.length);
+      const m = managerFromToken(sub === 'events' ? url.searchParams.get('token') || '' : ctx.bearerToken(req));
+      if (!m) {
+        ctx.send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
+        return true;
+      }
+      const mid = Number(m.id);
+      if (req.method === 'GET' && sub === 'events') {
+        work.openStream(req, res, `manager:${mid}`);
+        return true;
+      }
+      if (req.method === 'GET' && sub === 'me') {
+        ctx.send(res, 200, { id: mid, username: m.username, displayName: m.displayName, unread: work.unreadCount('manager', mid) });
+        return true;
+      }
+      if (req.method === 'GET' && sub === 'notifications') {
+        ctx.send(res, 200, work.listNotifications('manager', mid, url));
+        return true;
+      }
+      if (req.method === 'POST' && sub === 'notifications/read') {
+        let body = {};
+        try {
+          body = JSON.parse((await ctx.readBody(req)) || '{}');
+        } catch {
+          /* فارغ */
+        }
+        ctx.send(res, 200, work.markRead('manager', mid, body));
+        return true;
+      }
+      if (await work.handleManage(req, res, url, sub, `manager:${m.displayName || m.username}`, false)) return true;
+      ctx.send(res, 404, { error: 'not found' });
+      return true;
+    }
 
     // تعريف الموظف بالكود قبل الرمز (الاسم فقط)
     if (req.method === 'GET' && p === '/auth/team-lookup') {
@@ -255,6 +320,7 @@ function createTeam(ctx) {
         ctx.send(res, 200, { ok: true });
         return true;
       }
+      if (await work.handleStaff(req, res, url, s)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -288,6 +354,13 @@ function createTeam(ctx) {
         ctx.sendOpen(res, 200, rows);
         return true;
       }
+      // لوحة التحكم تعرض الصور عبر الوكيل (المسار نفسه بلا مصادقة المتصفح)
+      const am = p.match(/^\/api\/admin\/team\/media\/([\w.]+)$/);
+      if (req.method === 'GET' && am) {
+        work.serveMedia(res, am[1]);
+        return true;
+      }
+      if (await work.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       ctx.sendOpen(res, 404, { error: 'not found' });
       return true;
     }
