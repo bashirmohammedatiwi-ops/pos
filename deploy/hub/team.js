@@ -157,6 +157,20 @@ function createTeam(ctx) {
 
   // التبليغات، الإعلانات، الوسائط، الدوام والإجازات
   const work = require('./team-work').createWork({ db, ctx, now, audit, getStaff });
+  // الحضور والاستراحة، والمحادثات
+  const attend = require('./team-attend').createAttend({
+    db,
+    ctx,
+    now,
+    audit,
+    getStaff,
+    notify: work.notify,
+    managerIds: work.managerIds,
+    emit: work.emit,
+    emitManagers: work.emitManagers,
+    dayFor: work.dayFor,
+  });
+  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit });
 
   function managerFromToken(token) {
     const payload = ctx.verifyJwt(token, 'manager');
@@ -219,7 +233,12 @@ function createTeam(ctx) {
         ctx.send(res, 200, work.markRead('manager', mid, body));
         return true;
       }
-      if (await work.handleManage(req, res, url, sub, `manager:${m.displayName || m.username}`, false)) return true;
+      if (sub === 'chat' || sub.startsWith('chat/')) {
+        if (await chat.handle(req, res, url, sub.slice(4), { key: `manager:${mid}`, kind: 'manager', id: mid })) return true;
+      }
+      const actorName = `manager:${m.displayName || m.username}`;
+      if (await work.handleManage(req, res, url, sub, actorName, false)) return true;
+      if (await attend.handleManage(req, res, url, sub, actorName, false)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -321,6 +340,10 @@ function createTeam(ctx) {
         return true;
       }
       if (await work.handleStaff(req, res, url, s)) return true;
+      if (await attend.handleStaff(req, res, url, s)) return true;
+      if (p === '/api/team/chat' || p.startsWith('/api/team/chat/')) {
+        if (await chat.handle(req, res, url, p.slice('/api/team/chat'.length), { key: `staff:${s.id}`, kind: 'staff', id: s.id })) return true;
+      }
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -361,6 +384,7 @@ function createTeam(ctx) {
         return true;
       }
       if (await work.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
+      if (await attend.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       ctx.sendOpen(res, 404, { error: 'not found' });
       return true;
     }

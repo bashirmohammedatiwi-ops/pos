@@ -721,7 +721,10 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     return false;
   }
 
-  return { handleStaff, handleManage, openStream, serveMedia, notify, unreadCount, listNotifications, markRead, iraqDate };
+  /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
+  const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
+
+  return { handleStaff, handleManage, openStream, serveMedia, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor };
 }
 
 module.exports = { createWork };
