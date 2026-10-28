@@ -355,7 +355,39 @@ export const managerAttendApi = {
   correct: (id: number, b: { checkIn?: string; checkOut?: string | null; note?: string }) => call<AttendRec>('manager', `/api/team/m/attend/${id}`, { method: 'PUT', body: b }),
   setShift: (staffId: number, b: Partial<Shift> & { reset?: boolean }) => call<Shift>('manager', `/api/team/m/staff/${staffId}/shift`, { method: 'PUT', body: b }),
   shift: (staffId: number) => call<Shift>('manager', `/api/team/m/staff/${staffId}/shift`),
+  summary: (from: string, to: string) => call<{ from: string; to: string; days: number; rows: SummaryRow[] }>('manager', `/api/team/m/attend/summary?from=${from}&to=${to}`),
+  roster: (from: string, days = 7) => call<Roster>('manager', `/api/team/m/roster?from=${from}&days=${days}`),
 };
+export interface SummaryRow {
+  staffId: number;
+  name: string;
+  kind: string;
+  sectionName?: string | null;
+  scheduledDays: number;
+  presentDays: number;
+  absentDays: number;
+  offDays: number;
+  leaveDays: number;
+  workedMinutes: number;
+  avgMinutes: number;
+  lateDays: number;
+  lateMinutes: number;
+  breakMinutes: number;
+  overMinutes: number;
+  overtimeEnabled: boolean;
+  overtimeRate?: number | null;
+  overtimeMinutes: number;
+  overtimeDays: number;
+  overtimePay?: number | null;
+  attendanceRate: number | null;
+}
+export interface Roster {
+  from: string;
+  dates: string[];
+  rows: { staffId: number; name: string; kind: string; sectionName?: string | null; cells: { date: string; off: boolean; reason?: string | null }[] }[];
+  working: number[];
+  staffCount: number;
+}
 
 /* ═════════════ المحادثات ═════════════ */
 export interface ChatPerson {

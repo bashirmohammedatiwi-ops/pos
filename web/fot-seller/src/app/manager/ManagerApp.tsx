@@ -7,6 +7,7 @@ import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, StatusBadge } fro
 import { Alerts } from '../screens/Alerts';
 import { ChatList, ChatRoom } from '../screens/Chat';
 import { AttendSummary, MAttend, MNetworks } from './ManagerAttend';
+import { MReports } from './ManagerReports';
 import {
   LEAVE_LABEL,
   POST_KIND,
@@ -123,7 +124,7 @@ export function ManagerApp() {
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
-  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks'];
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports'];
 
   return (
     <PermsProvider value={perms}>
@@ -135,6 +136,7 @@ export function ManagerApp() {
         <Route path="posts" element={<MPosts />} />
         <Route path="team" element={<MTeam />} />
         <Route path="networks" element={<MNetworks />} />
+        <Route path="reports" element={<MReports />} />
         <Route path="chat" element={<ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={<ChatRoom role="manager" base="/m/chat" />} />
         <Route path="more" element={<MMore unread={unread} onLogout={logout} />} />
@@ -1157,6 +1159,14 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             </span>
             الفريق والعطل
           </Link>
+          {perms.viewAttendance && (
+          <Link to="/m/reports" className="press" onClick={() => haptic('tap')}>
+            <span className="t-tile lg accent">
+              <I.chart size={22} />
+            </span>
+            تقارير الحضور والأوفر تايم
+          </Link>
+          )}
           {perms.viewAttendance && (
           <Link to="/m/networks" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg mute">
