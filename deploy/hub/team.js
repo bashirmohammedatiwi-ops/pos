@@ -238,6 +238,8 @@ function createTeam(ctx) {
 
     // المدير داخل التطبيق: /api/team/m/*
     if (p.startsWith('/api/team/m/')) {
+      // ردود المدير تحتفظ بأسماء الأقسام (تُحذف من ردود البائعين فقط)
+      res.teamManager = true;
       const sub = p.slice('/api/team/m/'.length);
       const m = managerFromToken(sub === 'events' ? url.searchParams.get('token') || '' : ctx.bearerToken(req));
       if (!m) {
