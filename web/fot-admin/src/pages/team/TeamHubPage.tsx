@@ -19,6 +19,8 @@ const Attend = lz(() => import('./TeamAttendPages'), 'TeamAttendPage');
 const Leave = lz(() => import('./TeamWorkPages'), 'TeamLeavePage');
 const Posts = lz(() => import('./TeamWorkPages'), 'TeamPostsPage');
 const Notify = lz(() => import('./TeamWorkPages'), 'TeamNotifyPage');
+const Products = lz(() => import('./TeamProductsPage'), 'TeamProductsPage');
+const Managers = lz(() => import('./TeamManagersPage'), 'TeamManagersPage');
 const Rules = lz(() => import('./TeamAttendPages'), 'TeamRulesPage');
 const Accounts = lz(() => import('../PortalAccountsPage'), 'PortalAccountsPage');
 const Audit = lz(() => import('./TeamAttendPages'), 'TeamAuditPage');
@@ -31,7 +33,9 @@ const TEAM_TABS: Tab[] = [
   { id: 'leave', label: 'الإجازات والعطل', icon: '📅', hint: 'الطلبات والموافقات والعطل الأسبوعية' },
   { id: 'posts', label: 'الإعلانات', icon: '📣', hint: 'أخبار وعروض بالصور' },
   { id: 'notify', label: 'التبليغات', icon: '🔔', hint: 'رسائل فورية للهواتف' },
+  { id: 'products', label: 'منتجات العمولة والصور', icon: '🖼', hint: 'صورة لكل منتج عمولة تظهر للبائعين' },
   { id: 'rules', label: 'الشبكات وقواعد الدوام', icon: '📶', hint: 'شبكات المحل والورديات والاستراحة' },
+  { id: 'managers', label: 'صلاحيات المدراء', icon: '🛡', hint: 'ما يستطيعه كل مدير والأقسام التي يديرها' },
   { id: 'accounts', label: 'حسابات المدراء والويب', icon: '🔑', hint: 'دخول المدراء وأوقات فتح الويب' },
   { id: 'audit', label: 'سجل التدقيق', icon: '🧾', hint: 'كل إجراء في التطبيق' },
 ];
@@ -68,8 +72,14 @@ export function TeamHubPage() {
     case 'notify':
       body = <Notify />;
       break;
+    case 'products':
+      body = <Products />;
+      break;
     case 'rules':
       body = <Rules />;
+      break;
+    case 'managers':
+      body = <Managers />;
       break;
     case 'accounts':
       body = <Accounts />;

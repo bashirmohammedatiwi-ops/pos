@@ -19,6 +19,9 @@ import {
   onLive,
   relTime,
   shortDay,
+  ALL_PERMS,
+  PermsProvider,
+  usePerms,
   useChatUnread,
   useLiveChannel,
   useLoad,
@@ -26,6 +29,7 @@ import {
   type Audience,
   type DirStaff,
   type LeaveReq,
+  type ManagerPerms,
   type Post,
 } from '../work';
 import { KIND_LABEL } from '../../team';
@@ -70,6 +74,9 @@ export function ManagerApp() {
   useScrollMemory();
   const unread = useUnread('manager');
   const [pending, setPending] = useState(0);
+  // صلاحيات المدير من الخادم (تتحدث فوراً عند تعديلها من لوحة التحكم)
+  const meQ = useLoad(() => managerApi.me(), ['perms']);
+  const perms: ManagerPerms = meQ.data?.perms ?? ALL_PERMS;
 
   useEffect(() => {
     const load = () =>
@@ -77,7 +84,9 @@ export function ManagerApp() {
         .leave('pending')
         .then(r => setPending(r.length))
         .catch(e => {
-          if ((e as { status?: number }).status === 401) logout();
+          const st = (e as { status?: number }).status;
+          if (st === 401) logout();
+          if (st === 403) setPending(0);
         });
     void load();
     return onLive(m => {
@@ -102,8 +111,8 @@ export function ManagerApp() {
   const chatUnread = useChatUnread('manager');
   const tabs: { to: string; label: string; icon: (p: { filled?: boolean }) => ReactNode; badge?: number }[] = [
     { to: '/m', label: 'الرئيسية', icon: p => <I.home {...p} /> },
-    { to: '/m/attend', label: 'الحضور', icon: p => <I.clock {...p} /> },
-    { to: '/m/approvals', label: 'الموافقات', icon: p => <I.calendar {...p} />, badge: pending },
+    ...(perms.viewAttendance ? [{ to: '/m/attend', label: 'الحضور', icon: (p: { filled?: boolean }) => <I.clock {...p} /> }] : []),
+    ...(perms.approveLeave ? [{ to: '/m/approvals', label: 'الموافقات', icon: (p: { filled?: boolean }) => <I.calendar {...p} />, badge: pending }] : []),
     { to: '/m/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
     { to: '/m/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread },
   ];
@@ -113,6 +122,7 @@ export function ManagerApp() {
   const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks'];
 
   return (
+    <PermsProvider value={perms}>
     <div className="t-app">
       <Routes>
         <Route index element={<MHome unread={unread} pending={pending} />} />
@@ -121,7 +131,7 @@ export function ManagerApp() {
         <Route path="posts" element={<MPosts />} />
         <Route path="team" element={<MTeam />} />
         <Route path="networks" element={<MNetworks />} />
-        <Route path="chat" element={<ChatList role="manager" base="/m/chat" />} />
+        <Route path="chat" element={<ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={<ChatRoom role="manager" base="/m/chat" />} />
         <Route path="more" element={<MMore unread={unread} onLogout={logout} />} />
         <Route path="alerts" element={<Alerts role="manager" back="/m/more" />} />
@@ -152,6 +162,7 @@ export function ManagerApp() {
         })}
       </nav>
     </div>
+    </PermsProvider>
   );
 }
 
@@ -171,6 +182,7 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
   const me = getManagerMe();
   const { data, err, loading, reload } = useLoad(() => managerApi.overview(), ['leave', 'post']);
   const pull = usePull(reload);
+  const perms = usePerms();
   const working = data ? data.staffCount - data.offToday.length : 0;
 
   return (
@@ -214,13 +226,15 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
               </div>
             </section>
 
-            <AttendSummary />
+            {perms.viewAttendance && <AttendSummary />}
 
             <div className="t-kpis" style={{ marginTop: 14 }}>
-              <Link to="/m/approvals" className={`t-kpi press ${pending ? 'alert' : ''}`}>
-                <span>طلبات بانتظارك</span>
-                <b className="num">{pending}</b>
-              </Link>
+              {perms.approveLeave && (
+                <Link to="/m/approvals" className={`t-kpi press ${pending ? 'alert' : ''}`}>
+                  <span>طلبات بانتظارك</span>
+                  <b className="num">{pending}</b>
+                </Link>
+              )}
               <Link to="/m/team" className="t-kpi press">
                 <span>هواتف مربوطة</span>
                 <b className="num">
@@ -266,23 +280,35 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
                 <h2>إجراءات سريعة</h2>
               </div>
               <div className="t-quick">
-                <Link to="/m/posts?new=1" className="press">
-                  <span className="t-tile">
-                    <I.megaphone size={20} />
+                {perms.sendPosts && (
+                  <Link to="/m/posts?new=1" className="press">
+                    <span className="t-tile">
+                      <I.megaphone size={20} />
+                    </span>
+                    إعلان جديد
+                  </Link>
+                )}
+                {perms.sendPosts && (
+                  <Link to="/m/notify" className="press">
+                    <span className="t-tile accent">
+                      <I.bell size={20} />
+                    </span>
+                    تبليغ سريع
+                  </Link>
+                )}
+                {perms.approveLeave && (
+                  <Link to="/m/approvals" className="press">
+                    <span className="t-tile ok">
+                      <I.check size={20} />
+                    </span>
+                    الموافقات
+                  </Link>
+                )}
+                <Link to="/m/team" className="press">
+                  <span className="t-tile mute">
+                    <I.user size={20} />
                   </span>
-                  إعلان جديد
-                </Link>
-                <Link to="/m/notify" className="press">
-                  <span className="t-tile accent">
-                    <I.bell size={20} />
-                  </span>
-                  تبليغ سريع
-                </Link>
-                <Link to="/m/approvals" className="press">
-                  <span className="t-tile ok">
-                    <I.check size={20} />
-                  </span>
-                  الموافقات
+                  الفريق
                 </Link>
                 <a href={MANAGER_URL} className="press">
                   <span className="t-tile mute">
@@ -556,6 +582,7 @@ function AudiencePicker({ value, onChange }: { value: Audience; onChange: (a: Au
 
 /* ═════════════ الإعلانات ═════════════ */
 function MPosts() {
+  const perms = usePerms();
   const { data, err, loading, reload } = useLoad(() => managerApi.posts(), ['post']);
   const [compose, setCompose] = useState<Post | 'new' | null>(null);
   const [stats, setStats] = useState<Post | null>(null);
@@ -624,6 +651,7 @@ function MPosts() {
         ))
       )}
       <div style={{ height: 70 }} />
+      {perms.sendPosts && (
       <button
         type="button"
         className="t-fab press"
@@ -637,6 +665,7 @@ function MPosts() {
         </svg>
         إعلان جديد
       </button>
+      )}
 
       <PostComposer
         open={!!compose}
@@ -900,6 +929,7 @@ function MTeam() {
 }
 
 function StaffSheet({ staff, onClose, onSaved }: { staff: DirStaff | null; onClose: () => void; onSaved: (mask: number) => void }) {
+  const perms = usePerms();
   const [mask, setMask] = useState(0);
   const [busy, setBusy] = useState(false);
   const sched = useLoad(() => (staff ? managerApi.schedule(staff.id) : Promise.resolve(null)), ['leave'], [staff?.id]);
@@ -949,7 +979,7 @@ function StaffSheet({ staff, onClose, onSaved }: { staff: DirStaff | null; onClo
               ))}
             </div>
           </div>
-          <button type="button" className="t-btn block press" disabled={busy || mask === staff.weeklyOff} onClick={() => void save()}>
+          <button type="button" className="t-btn block press" disabled={busy || mask === staff.weeklyOff || !perms.approveLeave} onClick={() => void save()}>
             {busy ? <span className="spinner" /> : 'حفظ العطلة'}
           </button>
 
@@ -1077,6 +1107,7 @@ function MNotify() {
 
 /* ═════════════ المزيد ═════════════ */
 function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
+  const perms = usePerms();
   const me = getManagerMe();
   const [theme, setTheme] = useState<ThemePref>(getThemePref);
   const [vib, setVib] = useState(hapticsOn);
@@ -1102,12 +1133,14 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             التبليغات
             {unread > 0 && <span className="badge num">{unread > 9 ? '9+' : unread}</span>}
           </Link>
+          {perms.sendPosts && (
           <Link to="/m/notify" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg accent">
               <I.megaphone size={22} />
             </span>
             تبليغ سريع
           </Link>
+          )}
           <Link to="/m/posts" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg ok">
               <I.megaphone size={22} />
@@ -1120,6 +1153,7 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             </span>
             الفريق والعطل
           </Link>
+          {perms.viewAttendance && (
           <Link to="/m/networks" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg mute">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
@@ -1129,6 +1163,7 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             </span>
             شبكات المحل
           </Link>
+          )}
           <a href={MANAGER_URL} className="press">
             <span className="t-tile lg ok">
               <I.sparkle size={22} />

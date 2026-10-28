@@ -219,6 +219,24 @@ export interface TeamAttendSettingsDto {
   autoCloseHours: number;
   breakWarnMinutes: number;
 }
+export interface TeamManagerPermsDto {
+  id: number;
+  username: string;
+  displayName: string;
+  isActive: boolean;
+  perms: Record<'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat', boolean>;
+  sections: number[];
+  sectionNames: string[];
+}
+export interface TeamCommissionProductDto {
+  barcode: string;
+  name: string;
+  groups: string[];
+  commissionType?: string | null;
+  commissionValue: number;
+  image?: string | null;
+  orphan?: boolean;
+}
 export interface TeamAuditDto {
   id: number;
   at: string;

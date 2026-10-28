@@ -4,12 +4,13 @@ import { groupReceipts, rankProducts, type ReceiptGroup } from '../../insights';
 import { useSeller } from '../../store';
 import { Badge, CountUp, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, clockLabel, dayLabel, fmt, weekRange, weekdayLong } from '../kit';
 import { haptic } from '../native';
+import { Catalog } from './Catalog';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * عمولتي — اختيار الأسبوع، ملخص، ثم المبيعات حسب اليوم / الفواتير / أكثر المنتجات.
  * ───────────────────────────────────────────────────────────────────────────── */
 
-type Tab = 'sales' | 'receipts' | 'products';
+type Tab = 'sales' | 'receipts' | 'products' | 'catalog';
 
 function shortRange(start: string, end: string) {
   const a = new Date(start);
@@ -120,14 +121,21 @@ export function Commission() {
           items={[
             { id: 'sales', label: 'المبيعات' },
             { id: 'receipts', label: 'الفواتير' },
-            { id: 'products', label: 'المنتجات' },
+            { id: 'products', label: 'الأكثر' },
+            { id: 'catalog', label: 'القائمة' },
           ]}
           value={tab}
           onChange={setTab}
         />
       </div>
 
-      {lines.length > 6 && (
+      {tab === 'catalog' && (
+        <div style={{ marginTop: 12, animation: 'page-in .3s var(--ease) both' }}>
+          <Catalog embedded />
+        </div>
+      )}
+
+      {tab !== 'catalog' && lines.length > 6 && (
         <label className="t-search" style={{ marginTop: 12 }}>
           <I.search />
           <input placeholder="ابحث بالمنتج أو رقم الفاتورة" value={q} onChange={e => setQ(e.target.value)} />
@@ -139,7 +147,7 @@ export function Commission() {
         </label>
       )}
 
-      <div key={tab} style={{ animation: 'page-in .3s var(--ease) both' }}>
+      <div key={tab} style={{ animation: 'page-in .3s var(--ease) both', display: tab === 'catalog' ? 'none' : undefined }}>
         {loading && !lines.length ? (
           <Skeleton h={220} r={20} mt={14} />
         ) : filtered.length === 0 ? (

@@ -49,7 +49,7 @@ function ConvAvatar({ c }: { c: ChatConv }) {
 }
 
 /* ═════════════ قائمة المحادثات ═════════════ */
-export function ChatList({ role, base }: { role: Role; base: string }) {
+export function ChatList({ role, base, canGroup = role === 'manager' }: { role: Role; base: string; canGroup?: boolean }) {
   const api = useMemo(() => chatApi(role), [role]);
   const nav = useNavigate();
   const { data, err, loading, reload, setData } = useLoad(() => api.list(), []);
@@ -144,6 +144,7 @@ export function ChatList({ role, base }: { role: Role; base: string }) {
       </button>
       <PeopleSheet
         role={role}
+        canGroup={canGroup}
         mode={pick}
         onClose={() => setPick('')}
         onPick={p => void openDirect(p)}
@@ -165,6 +166,7 @@ export function ChatList({ role, base }: { role: Role; base: string }) {
 
 function PeopleSheet({
   role,
+  canGroup,
   mode,
   onClose,
   onPick,
@@ -172,6 +174,7 @@ function PeopleSheet({
   onGroup,
 }: {
   role: Role;
+  canGroup: boolean;
   mode: '' | 'direct' | 'group';
   onClose: () => void;
   onPick: (p: ChatPerson) => void;
@@ -203,7 +206,7 @@ function PeopleSheet({
           <input className="t-input sm" maxLength={80} value={title} onChange={e => setTitle(e.target.value)} placeholder="مثال: قسم المكياج" />
         </label>
       )}
-      {mode === 'direct' && role === 'manager' && (
+      {mode === 'direct' && canGroup && (
         <button type="button" className="t-row t-card press" style={{ marginBottom: 12 }} onClick={onSwitch}>
           <span className="t-group-ava">
             <I.chat size={20} />

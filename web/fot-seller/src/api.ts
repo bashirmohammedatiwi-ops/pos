@@ -167,7 +167,9 @@ export interface GroupRow {
 }
 export interface ProductRow {
   articleId?: number | null; barcode?: string | null; name?: string | null;
-  groupId: number; groupName: string; commissionType: string; commissionValue: number;
+  groupId?: number; groupName?: string; commissionType: string; commissionValue: number;
+  /** صورة المنتج من خادم الفريق */
+  image?: string | null;
 }
 export interface Dashboard {
   seller: SellerMe; week: WeekSummary; balanceDue: number;

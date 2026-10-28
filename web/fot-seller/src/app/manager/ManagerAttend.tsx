@@ -4,7 +4,7 @@ import { Avatar, Badge, Empty, ErrorLine, I, Screen, Sheet, Skeleton, clockLabel
 import { haptic, readWifi, type WifiState } from '../native';
 import { BackBtn } from '../parts';
 import { dur, hhmm } from '../screens/Attend';
-import { dateShort, managerAttendApi, relTime, useLoad, type AttendRec, type BoardRow, type BoardStatus } from '../work';
+import { dateShort, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus } from '../work';
 import { KIND_LABEL } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -146,6 +146,7 @@ const toLocalInput = (iso?: string | null) => (iso ? new Date(Date.parse(iso) + 
 const fromLocal = (date: string, hm: string) => new Date(`${date}T${hm}:00+03:00`).toISOString();
 
 function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; onClose: () => void; onChanged: () => void }) {
+  const perms = usePerms();
   const [shift, setShift] = useState({ start: '', end: '', breakMinutes: '', maxBreaks: '' });
   const [fix, setFix] = useState({ in: '', out: '', note: '' });
   const [busy, setBusy] = useState('');
@@ -219,7 +220,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
             </p>
           )}
 
-          {a && (
+          {a && perms.editAttendance && (
             <div className="t-card pad" style={{ display: 'grid', gap: 10 }}>
               <b style={{ fontSize: 14 }}>تصحيح أوقات اليوم</b>
               <div className="t-row-2">
@@ -239,6 +240,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
             </div>
           )}
 
+          {perms.editAttendance && (
           <div className="t-card pad" style={{ display: 'grid', gap: 10 }}>
             <b style={{ fontSize: 14 }}>الوردية والاستراحة{row.shift.custom ? '' : ' (الافتراضية)'}</b>
             <div className="t-row-2">
@@ -263,6 +265,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
               {busy === 'shift' ? 'جارٍ الحفظ…' : 'حفظ الوردية'}
             </button>
           </div>
+          )}
 
           <div className="t-field">
             <span>آخر أسبوعين</span>
@@ -334,6 +337,7 @@ export function AttendSummary() {
 
 /* ═════════════ شبكات المحل ═════════════ */
 export function MNetworks() {
+  const perms = usePerms();
   const { data, err, reload } = useLoad(() => managerAttendApi.settings(), []);
   const [wifi, setWifi] = useState<WifiState | null>(null);
   const [probe, setProbe] = useState<{ ok: boolean; ip: string; network: string | null } | null>(null);
@@ -398,6 +402,7 @@ export function MNetworks() {
           value={name}
           onChange={e => setName(e.target.value)}
         />
+        {perms.editAttendance && (
         <div className="acts">
           <button type="button" className="t-btn white press" disabled={busy || !wifi?.bssid} onClick={() => void capture(false)}>
             التقاط هذه الشبكة
@@ -406,6 +411,7 @@ export function MNetworks() {
             عنوان IP فقط
           </button>
         </div>
+        )}
         <p className="sub" style={{ fontSize: 12, lineHeight: 1.7 }}>
           افتح هذه الصفحة وأنت متصل بواي فاي المحل. «التقاط» يحفظ جهاز الواي فاي (BSSID) مع عنوان إنترنت المحل معاً — الأدق. كرّرها لكل جهاز راوتر في المحل.
         </p>
@@ -442,9 +448,11 @@ export function MNetworks() {
                     {n.createdBy?.replace(/^manager:/, '')} · {relTime(n.createdAt)}
                   </div>
                 </div>
+                {perms.editAttendance && (
                 <button type="button" className="t-icon-btn ghost press" aria-label="حذف" onClick={() => void remove(n.id)}>
                   <I.close size={18} />
                 </button>
+                )}
               </div>
             ))}
           </div>

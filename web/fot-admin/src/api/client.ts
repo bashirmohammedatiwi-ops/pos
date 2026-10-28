@@ -103,6 +103,8 @@ import type {
   StaffSaveRequest,
   TeamHubStatusDto,
   TeamAudience,
+  TeamCommissionProductDto,
+  TeamManagerPermsDto,
   TeamAttendDto,
   TeamAttendSettingsDto,
   TeamAuditDto,
@@ -602,6 +604,12 @@ export const api = {
     request<TeamAttendDto>('/api/team/hub/attend/manual', { method: 'POST', body: JSON.stringify(body) }),
   setTeamShift: (staffId: number, body: Partial<TeamShiftDto> & { reset?: boolean }) =>
     request<TeamShiftDto>(`/api/team/hub/staff/${staffId}/shift`, { method: 'PUT', body: JSON.stringify(body) }),
+  teamManagers: () => request<{ managers: TeamManagerPermsDto[]; sections: { id: number; name: string; staffCount: number }[] }>('/api/team/hub/managers'),
+  saveTeamManagerPerms: (id: number, body: { perms: Record<string, boolean>; sections: number[] }) =>
+    request<{ id: number }>(`/api/team/hub/managers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  teamCommissionProducts: () => request<TeamCommissionProductDto[]>('/api/team/hub/commission-products'),
+  setTeamProductImage: (barcode: string, url: string | null) =>
+    request<{ ok?: boolean; image?: string }>(`/api/team/hub/product-images/${encodeURIComponent(barcode)}`, url ? { method: 'PUT', body: JSON.stringify({ url }) } : { method: 'DELETE' }),
   teamAudit: (limit = 300) => request<TeamAuditDto[]>(`/api/team/hub/audit?limit=${limit}`),
   /** صورة من خادم الفريق كرابط محلي (المتصفح لا يرسل رمز الدخول في وسم img). */
   teamMediaObjectUrl: async (url: string) => {

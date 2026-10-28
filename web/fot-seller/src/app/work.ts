@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../config';
 import { getTeamMe, getTeamToken } from '../team';
 
@@ -136,6 +136,19 @@ export interface Audience {
   staff?: number[];
 }
 
+/** صلاحيات المدير (الافتراضي: كلها) */
+export interface ManagerPerms {
+  approveLeave: boolean;
+  viewAttendance: boolean;
+  editAttendance: boolean;
+  sendPosts: boolean;
+  manageChat: boolean;
+}
+export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true };
+const PermsCtx = createContext<ManagerPerms>(ALL_PERMS);
+export const PermsProvider = PermsCtx.Provider;
+export const usePerms = () => useContext(PermsCtx);
+
 export const LEAVE_LABEL: Record<LeaveType, string> = {
   swap: 'تبديل العطلة',
   day: 'إجازة',
@@ -215,7 +228,7 @@ export const staffApi = {
 };
 
 export const managerApi = {
-  me: () => call<{ id: number; username: string; displayName: string; unread: number }>('manager', '/api/team/m/me'),
+  me: () => call<{ id: number; username: string; displayName: string; unread: number; perms?: ManagerPerms; sections?: number[] }>('manager', '/api/team/m/me'),
   overview: () => call<Overview>('manager', '/api/team/m/overview'),
   directory: () => call<DirStaff[]>('manager', '/api/team/m/directory'),
   leave: (status: 'pending' | 'all' | 'approved' | 'rejected') => call<LeaveReq[]>('manager', `/api/team/m/leave?status=${status}`),
@@ -455,7 +468,7 @@ export async function compressImage(file: File, max = 1600, quality = 0.82): Pro
 
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
 const LIVE_EVENT = 'fot-team-live';
-export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread';
+export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms';
 export type LiveMsg = {
   event: LiveEvent;
   data: {
@@ -505,7 +518,7 @@ export function useLiveChannel(role: Role | null) {
     const connect = () => {
       if (stopped) return;
       es = new EventSource(apiUrl(`${path}?token=${encodeURIComponent(token)}`));
-      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread'] as const)
+      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms'] as const)
         es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
       es.onopen = () => {
         retry = 0;

@@ -12,6 +12,7 @@ import { handleBack, haptic, hideSplash, onNativeBack, onResume, shareFile, watc
 import { Account } from './screens/Account';
 import { Alerts } from './screens/Alerts';
 import { Brands } from './screens/Brands';
+import { Catalog } from './screens/Catalog';
 import { Commission } from './screens/Commission';
 import { Lock, Splash } from './screens/Gate';
 import { Goals } from './screens/Goals';
@@ -40,7 +41,7 @@ const MoreIcon = () => (
 );
 
 /** صفحات تُفتح من «المزيد» تُحسب لتبويب «المزيد» في الشريط. */
-const MORE_CHILDREN = ['/goals', '/brands', '/account', '/posts', '/alerts'];
+const MORE_CHILDREN = ['/goals', '/brands', '/account', '/posts', '/alerts', '/catalog'];
 
 function TabBar({ tabs }: { tabs: Tab[] }) {
   const loc = useLocation();
@@ -173,6 +174,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
       ];
   const moreItems: MoreItem[] = [
     { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
+    { to: '/catalog', label: 'منتجات عمولتي', icon: <I.box size={22} />, tone: 'ok' },
     { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok' },
     { to: '/goals', label: 'أهدافي', icon: <I.target size={22} />, badge: openGoals || undefined },
     ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent' }] : []),
@@ -188,6 +190,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         <Route path="/" element={<SellerHome />} />
         <Route path="/commission" element={<Commission />} />
         <Route path="/goals" element={<Goals back={back} />} />
+        <Route path="/catalog" element={<Catalog back={back ?? '/commission'} />} />
         <Route path="/brands" element={<Brands back={back} />} />
         <Route path="/account" element={<Account onLogout={onLogout} back={back} />} />
         {team && <Route path="/shift" element={<Shift />} />}
