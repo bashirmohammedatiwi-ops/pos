@@ -1,4 +1,5 @@
 'use strict';
+const { HUB_VERSION } = require('./version');
 
 /*
  * تطبيق الفريق — الحضور والانصراف والاستراحة (على خادم الـ VPS).
@@ -380,6 +381,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const nets = networks().filter(n => n.is_active);
     return {
       now: now(),
+      server: HUB_VERSION,
       today: iraqDate(),
       shiftDate,
       day,

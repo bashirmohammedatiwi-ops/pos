@@ -1,4 +1,5 @@
 'use strict';
+const { HUB_VERSION } = require('./version');
 
 const http = require('http');
 const fs = require('fs');
@@ -1203,6 +1204,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') {
       sendOpen(res, 200, {
         status: 'ok',
+        version: HUB_VERSION,
         lastSyncAt: state.lastSyncAt,
         sellerCount: Object.keys(state.accounts).length,
         managerCount: Object.keys(state.managers || {}).length,

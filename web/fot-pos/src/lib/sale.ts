@@ -29,6 +29,10 @@ export type CartLine = {
   sourceItemId?: number;
   /** Price was set by hand on this line — conditional bundle re-pricing must not overwrite it. */
   manualPrice?: boolean;
+  /** قطع أخذت خصم العرض المشروط (هدية) مفصولة عن قطع نفس المادة المدفوعة — يعيد العرض توزيعها تلقائياً. */
+  bundleGift?: boolean;
+  /** اسم العرض المشروط الذي خفّض هذا السطر. */
+  bundleOfferName?: string;
   commissionAmount?: number;
   commissionType?: string;
   commissionValue?: number;
@@ -137,6 +141,8 @@ export function sameLine(a: CartLine, articleId: number, salesmanId: number, gro
   if (sourceItemId != null || a.sourceItemId != null) {
     return a.sourceItemId === sourceItemId && a.articleId === articleId;
   }
+  // سطر الهدية لا يُدمج معه — تُضاف القطع للسطر الأساسي ثم يُعاد التوزيع
+  if (a.bundleGift) return false;
   return a.articleId === articleId && a.salesmanId === salesmanId && a.groupKey === groupKey;
 }
 

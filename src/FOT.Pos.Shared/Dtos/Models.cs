@@ -863,6 +863,7 @@ public record PosBundleOfferDto(
 /// <summary>
 /// شروط تفعيل العرض المشروط. MatchMode: 0 كل المواد · 1 عدد منها (MinCount).
 /// CountBasis: 0 مواد مختلفة · 1 عدد قطع (تكرار نفس المادة مسموح).
+/// GiftEvery/GiftCount: كل GiftEvery قطعة مدفوعة من المشروطة ← GiftCount قطعة مخفّضة (0 = بلا حد).
 /// </summary>
 public record OfferBundleConditionsDto(
     int MatchMode = 0,
@@ -870,7 +871,9 @@ public record OfferBundleConditionsDto(
     int CountBasis = 0,
     decimal MinQtyEach = 1,
     decimal MinRequiredAmount = 0,
-    decimal RequiredDiscount = 0);
+    decimal RequiredDiscount = 0,
+    int GiftEvery = 0,
+    int GiftCount = 0);
 
 /// <summary>One offer a product belongs to — used by admin product→offer search.</summary>
 public record ProductOfferMembershipDto(

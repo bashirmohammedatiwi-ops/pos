@@ -833,7 +833,8 @@ public sealed class OfferRepository(
 
             SELECT c.offer_id AS OfferId, c.match_mode AS MatchMode, c.min_count AS MinCount,
                    c.count_basis AS CountBasis, c.min_qty_each AS MinQtyEach,
-                   c.min_required_amount AS MinRequiredAmount, c.required_discount AS RequiredDiscount
+                   c.min_required_amount AS MinRequiredAmount, c.required_discount AS RequiredDiscount,
+                   c.gift_every AS GiftEvery, c.gift_count AS GiftCount
             FROM ext_offer_bundle_conditions c
             INNER JOIN offers o ON o.id = c.offer_id AND o.enabled = 1 AND o.type = 1;
             """;
@@ -867,7 +868,8 @@ public sealed class OfferRepository(
         var row = await conn.QuerySingleOrDefaultAsync<BundleConditionRow>(new CommandDefinition("""
             SELECT offer_id AS OfferId, match_mode AS MatchMode, min_count AS MinCount,
                    count_basis AS CountBasis, min_qty_each AS MinQtyEach,
-                   min_required_amount AS MinRequiredAmount, required_discount AS RequiredDiscount
+                   min_required_amount AS MinRequiredAmount, required_discount AS RequiredDiscount,
+                   gift_every AS GiftEvery, gift_count AS GiftCount
             FROM ext_offer_bundle_conditions WHERE offer_id = @offerId
             """, new { offerId }, cancellationToken: ct));
         return row?.ToDto() ?? new OfferBundleConditionsDto();
@@ -885,6 +887,12 @@ public sealed class OfferRepository(
         var requiredDiscount = Math.Round(req.RequiredDiscount, 2);
         if (requiredDiscount < 0 || requiredDiscount > 100)
             throw new InvalidOperationException("خصم المواد المشروطة يجب أن يكون بين 0 و 100٪.");
+        // عدد الهدايا: الاثنان معاً أو لا شيء (0 = بلا حد)
+        var giftEvery = Math.Max(0, req.GiftEvery);
+        var giftCount = Math.Max(0, req.GiftCount);
+        if (giftEvery == 0 || giftCount == 0) { giftEvery = 0; giftCount = 0; }
+        if (giftEvery > 1000 || giftCount > 1000)
+            throw new InvalidOperationException("عدد القطع في نسبة الهدايا كبير جداً.");
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("""
@@ -893,11 +901,12 @@ public sealed class OfferRepository(
             WHEN MATCHED THEN UPDATE SET
                 match_mode = @matchMode, min_count = @minCount, count_basis = @countBasis,
                 min_qty_each = @minQtyEach, min_required_amount = @minAmount,
-                required_discount = @requiredDiscount, updated_at = GETDATE()
+                required_discount = @requiredDiscount, gift_every = @giftEvery, gift_count = @giftCount,
+                updated_at = GETDATE()
             WHEN NOT MATCHED THEN INSERT
-                (offer_id, match_mode, min_count, count_basis, min_qty_each, min_required_amount, required_discount)
-                VALUES (@offerId, @matchMode, @minCount, @countBasis, @minQtyEach, @minAmount, @requiredDiscount);
-            """, new { offerId, matchMode, minCount, countBasis, minQtyEach, minAmount, requiredDiscount }, cancellationToken: ct));
+                (offer_id, match_mode, min_count, count_basis, min_qty_each, min_required_amount, required_discount, gift_every, gift_count)
+                VALUES (@offerId, @matchMode, @minCount, @countBasis, @minQtyEach, @minAmount, @requiredDiscount, @giftEvery, @giftCount);
+            """, new { offerId, matchMode, minCount, countBasis, minQtyEach, minAmount, requiredDiscount, giftEvery, giftCount }, cancellationToken: ct));
     }
 
     private sealed class BundleConditionRow
@@ -909,8 +918,10 @@ public sealed class OfferRepository(
         public decimal MinQtyEach { get; set; }
         public decimal MinRequiredAmount { get; set; }
         public decimal RequiredDiscount { get; set; }
+        public int GiftEvery { get; set; }
+        public int GiftCount { get; set; }
 
         public OfferBundleConditionsDto ToDto() =>
-            new(MatchMode, MinCount, CountBasis, MinQtyEach, MinRequiredAmount, RequiredDiscount);
+            new(MatchMode, MinCount, CountBasis, MinQtyEach, MinRequiredAmount, RequiredDiscount, GiftEvery, GiftCount);
     }
 }

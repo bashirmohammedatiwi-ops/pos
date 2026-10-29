@@ -1487,6 +1487,27 @@ input, button, select { font-family: inherit; }
 
 .pos-cart-dash { color: #cbd5e1; }
 
+/* سطر خفّضه عرض مشروط — الهدية بلون مميز */
+.pos-cart-offer {
+  display: block;
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6d28d9;
+}
+.pos-cart-offer.is-gift {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  box-shadow: inset 0 0 0 1px #a7f3d0;
+}
+
 .pos-cart-old-price {
   display: block;
   font-size: 10px;

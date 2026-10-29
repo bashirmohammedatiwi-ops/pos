@@ -175,7 +175,14 @@ export function AttendCard({ compact }: { compact?: boolean }) {
 
   const a = data.attendance;
   const s = data.shift;
-  const netLine = <NetLine wifi={net.wifi} probe={net.probe} onRetry={() => void net.check()} />;
+  // خادم قديم على الـ VPS: الحضور لن يقبل مهما كانت الشبكة — نقولها صراحة بدل «ليست شبكة المحل»
+  const netLine = !data.server ? (
+    <div className="t-net bad">
+      <I.info size={16} /> خادم الفريق بحاجة إلى تحديث — لن يعمل تسجيل الحضور حتى تحدّثه الإدارة
+    </div>
+  ) : (
+    <NetLine wifi={net.wifi} probe={net.probe} onRetry={() => void net.check()} />
+  );
 
   // في استراحة: عداد تنازلي حي
   if (a && !a.checkOut && ob) {

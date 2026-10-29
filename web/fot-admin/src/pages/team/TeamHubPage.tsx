@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { TableSkeleton } from '@/components/ui';
+import { HubOutdatedBanner } from './HubOutdatedBanner';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * «تطبيق الفريق» — قسم رئيسي واحد يجمع كل ما يخص التطبيق في أقسام فرعية:
@@ -103,6 +104,7 @@ export function TeamHubPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <HubOutdatedBanner onKey={() => go('app')} />
       <nav className="card flex shrink-0 items-center gap-1 overflow-x-auto p-1" aria-label="أقسام تطبيق الفريق">
         {TEAM_TABS.map(t => {
           const on = t.id === active.id;

@@ -11,10 +11,18 @@ export const DEFAULT_BUNDLE_CONDITIONS: OfferBundleConditionsDto = {
   minQtyEach: 1,
   minRequiredAmount: 0,
   requiredDiscount: 0,
+  giftEvery: 0,
+  giftCount: 0,
 };
 
 export function normalizeBundleConditions(c?: Partial<OfferBundleConditionsDto> | null): OfferBundleConditionsDto {
+  // نسبة الهدايا: الرقمان معاً أو بلا حد
+  let giftEvery = Math.max(0, Math.floor(Number(c?.giftEvery) || 0));
+  let giftCount = Math.max(0, Math.floor(Number(c?.giftCount) || 0));
+  if (!giftEvery || !giftCount) giftEvery = giftCount = 0;
   return {
+    giftEvery,
+    giftCount,
     matchMode: c?.matchMode === 1 ? 1 : 0,
     minCount: Math.max(0, Math.floor(Number(c?.minCount) || 0)),
     countBasis: c?.countBasis === 1 ? 1 : 0,
@@ -32,7 +40,9 @@ export function sameBundleConditions(a: OfferBundleConditionsDto, b: OfferBundle
     (x.matchMode === 0 || (x.minCount === y.minCount && x.countBasis === y.countBasis)) &&
     x.minQtyEach === y.minQtyEach &&
     x.minRequiredAmount === y.minRequiredAmount &&
-    x.requiredDiscount === y.requiredDiscount
+    x.requiredDiscount === y.requiredDiscount &&
+    x.giftEvery === y.giftEvery &&
+    x.giftCount === y.giftCount
   );
 }
 
@@ -64,7 +74,19 @@ export function describeBundleConditions(c: OfferBundleConditionsDto, requiredCo
     parts.push(`يُفعَّل العرض عند وجود ${formatNum(c.minCount || 0)} مواد مختلفة على الأقل من أصل ${formatNum(requiredCount)}${each}`);
   }
   if (c.minRequiredAmount > 0) parts.push(`وبشرط ألا تقل قيمتها عن ${formatNum(c.minRequiredAmount)} IQD`);
+  if (giftLimited(c)) parts.push(giftText(c));
   return parts.join('، ');
+}
+
+function giftLimited(c: OfferBundleConditionsDto) {
+  return (c.giftEvery ?? 0) > 0 && (c.giftCount ?? 0) > 0;
+}
+
+function giftText(c: OfferBundleConditionsDto) {
+  const every = c.giftEvery ?? 0;
+  const count = c.giftCount ?? 0;
+  if (every === 1 && count === 1) return 'وقطعة مخفّضة واحدة مقابل كل قطعة مدفوعة (قطعة + قطعة هدية)';
+  return `و${formatNum(count)} قطعة مخفّضة مقابل كل ${formatNum(every)} قطعة مدفوعة (${formatNum(every)} + ${formatNum(count)})`;
 }
 
 function examples(c: OfferBundleConditionsDto, requiredCount: number): { ok: boolean; text: string }[] {
@@ -135,11 +157,14 @@ export function OfferBundleConditionsEditor({
   onChange,
   requiredCount,
   hasDiscountedItems,
+  overlapCount = 0,
 }: {
   value: OfferBundleConditionsDto;
   onChange: (v: OfferBundleConditionsDto) => void;
   requiredCount: number;
   hasDiscountedItems: boolean;
+  /** أصناف مخفّضة موجودة ضمن المواد المشروطة أيضاً. */
+  overlapCount?: number;
 }) {
   const c = value;
   const set = (patch: Partial<OfferBundleConditionsDto>) => onChange({ ...c, ...patch });
@@ -267,6 +292,67 @@ export function OfferBundleConditionsEditor({
           </div>
         </label>
       </div>
+
+      {hasDiscountedItems && (
+        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-bold text-slate-700">عدد القطع المخفّضة (الهدايا)</p>
+              <p className="mt-0.5 text-[11.5px] leading-5 text-slate-500">
+                كم قطعة مخفّضة يأخذها الزبون مقابل القطع المدفوعة من المواد المشروطة. القطعة الأرخص هي التي تُخفَّض دائماً.
+              </p>
+            </div>
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => set({ giftEvery: 0, giftCount: 0 })}
+                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition ${!giftLimited(c) ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                بلا حد
+              </button>
+              <button
+                type="button"
+                onClick={() => set({ giftEvery: c.giftEvery || 1, giftCount: c.giftCount || 1 })}
+                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition ${giftLimited(c) ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                بالتناسب
+              </button>
+            </div>
+          </div>
+          {giftLimited(c) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-700">
+              <span className="font-semibold">كل</span>
+              <Stepper value={c.giftEvery ?? 1} min={1} onChange={v => set({ giftEvery: Math.max(1, Math.floor(v) || 1) })} ariaLabel="عدد القطع المدفوعة" suffix="قطعة مدفوعة" />
+              <span className="font-semibold">←</span>
+              <Stepper value={c.giftCount ?? 1} min={1} onChange={v => set({ giftCount: Math.max(1, Math.floor(v) || 1) })} ariaLabel="عدد القطع المخفّضة" suffix="قطعة مخفّضة" />
+              <span className="ms-1 flex flex-wrap gap-1">
+                {([[1, 1, 'قطعة + قطعة'], [2, 1, '2 + 1'], [3, 1, '3 + 1']] as const).map(([e, n, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => set({ giftEvery: e, giftCount: n })}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset transition ${c.giftEvery === e && c.giftCount === n ? 'bg-emerald-600 text-white ring-emerald-600' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
+          {!giftLimited(c) && overlapCount > 0 && (
+            <p className="mt-2 text-[11.5px] font-semibold leading-5 text-amber-700">
+              بلا حد: بعد تحقق الشرط تُخفَّض كل القطع المخفّضة في الفاتورة. لعرض «قطعة + قطعة هدية» اختر «بالتناسب».
+            </p>
+          )}
+        </div>
+      )}
+
+      {overlapCount > 0 && (
+        <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-[11.5px] font-semibold leading-5 text-sky-800 ring-1 ring-inset ring-sky-200">
+          {formatNum(overlapCount)} من الأصناف المخفّضة موجودة أيضاً ضمن المواد المشروطة (مثل هدية من نفس الشجرة).
+          في نقطة البيع تُستعمل قطع منها لتحقيق الشرط بسعر المواد المشروطة، والقطع الباقية تأخذ خصم الهدية وتظهر في سطر مستقل «هدية العرض».
+        </p>
+      )}
 
       {/* ملخص حي + أمثلة */}
       <div className={`mt-3 rounded-xl border p-3 ${error ? 'border-red-200 bg-red-50/60' : 'border-brand-100 bg-brand-50/50'}`}>

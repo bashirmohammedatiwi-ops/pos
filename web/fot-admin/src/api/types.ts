@@ -61,6 +61,8 @@ export interface TeamHubStatusDto {
   devices: { staffId: number; label?: string | null; platform?: string | null; appVersion?: string | null; boundAt: string; lastSeen: string }[];
   push: { staffId: number; n: number }[];
   serverTime: string;
+  /** نسخة خادم الفريق (YYYY.MM.DD) — غائبة في الخوادم القديمة. */
+  hubVersion?: string;
 }
 
 /* تطبيق الفريق: الإجازات والعطل والإعلانات والتبليغات (من خادم الفريق) */
@@ -487,6 +489,9 @@ export interface OfferBundleConditionsDto {
   minQtyEach: number;
   minRequiredAmount: number;
   requiredDiscount: number;
+  /** كل giftEvery قطعة مدفوعة من المشروطة ← giftCount قطعة مخفّضة (0 = بلا حد). */
+  giftEvery?: number;
+  giftCount?: number;
 }
 
 export interface OfferFolderDto {

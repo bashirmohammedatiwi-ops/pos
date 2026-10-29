@@ -288,6 +288,8 @@ export interface Shift {
 }
 export interface AttendState {
   now: string;
+  /** نسخة خادم الفريق — غائبة في الخوادم القديمة التي لا تدعم الحضور الحالي */
+  server?: string;
   today: string;
   /** يوم الوردية الجارية (الليلية تبقى على يوم بدايتها بعد منتصف الليل) */
   shiftDate?: string;

@@ -1,4 +1,5 @@
 'use strict';
+const { HUB_VERSION } = require('./version');
 
 /*
  * تطبيق الفريق — الأساس على خادم الـ VPS.
@@ -479,7 +480,7 @@ function createTeam(ctx) {
         const devices = db.prepare('SELECT staff_id AS staffId, label, platform, app_version AS appVersion, bound_at AS boundAt, last_seen AS lastSeen FROM devices').all();
         const push = db.prepare("SELECT user_id AS staffId, COUNT(*) AS n FROM push_tokens WHERE user_kind = 'staff' GROUP BY user_id").all();
         const staffCount = db.prepare('SELECT COUNT(*) AS n FROM staff').get().n;
-        ctx.sendOpen(res, 200, { staffCount, devices, push, serverTime: now() });
+        ctx.sendOpen(res, 200, { staffCount, devices, push, serverTime: now(), hubVersion: HUB_VERSION });
         return true;
       }
       const m = p.match(/^\/api\/admin\/team\/staff\/(\d+)\/reset-device$/);

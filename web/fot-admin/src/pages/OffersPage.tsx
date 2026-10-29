@@ -754,6 +754,12 @@ export function OfferEditorModal({
     const existing = (allDetailsQ.data ?? []).filter(d => d.detailRole === 1).length;
     return Math.max(0, existing - bundleRequiredOps.removeRowIds.length) + bundleRequiredOps.add.length;
   }, [allDetailsQ.data, bundleRequiredOps]);
+  // أصناف مخفّضة موجودة أيضاً ضمن المواد المشروطة (مثل هدية من نفس الشجرة)
+  const overlapCount = useMemo(() => {
+    const rows = (allDetailsQ.data ?? []).filter(d => !d.excluded && d.itemId != null);
+    const required = new Set(rows.filter(d => d.detailRole === 1).map(d => d.itemId));
+    return new Set(rows.filter(d => d.detailRole === 0 && required.has(d.itemId)).map(d => d.itemId)).size;
+  }, [allDetailsQ.data]);
   const bundleCondChanged = isBundle && !sameBundleConditions(bundleCond, bundleCondBase);
   const bundleCondErr = isBundle ? bundleConditionsError(bundleCond, requiredCount) : null;
   const contentChanges = offerScopeOpsCount(scopeOps) + pricedGroupOpsCount(pricedOps) + bundleRequiredOpsCount(bundleRequiredOps) + (bundleCondChanged ? 1 : 0);
@@ -1240,6 +1246,7 @@ export function OfferEditorModal({
                   value={bundleCond}
                   onChange={setBundleCond}
                   requiredCount={requiredCount}
+                  overlapCount={overlapCount}
                   hasDiscountedItems={trees.length + standalone.length + scopeOps.addTrees.length + scopeOps.addProducts.length > 0}
                 />
               </div>

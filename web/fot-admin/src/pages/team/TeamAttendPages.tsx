@@ -437,7 +437,7 @@ export function TeamRulesPage() {
                   <div className="font-semibold text-slate-800">
                     {n.name} {!n.isActive && <Badge>متوقفة</Badge>}{' '}
                     {(n.bssids?.length ?? (n.bssid ? 1 : 0)) > 0 && <Badge tone="info">{n.bssids?.length ?? 1} نقطة بث</Badge>}{' '}
-                    {n.ip ? <Badge>عنوان ثابت</Badge> : legacyHub ? <Badge>بلا عنوان</Badge> : <Badge tone="ok">عنوان المحل تلقائياً</Badge>}
+                    {n.ip ? <Badge>عنوان ثابت</Badge> : legacyHub ? <Badge tone="warn">يُعرف العنوان بعد تحديث الخادم</Badge> : <Badge tone="ok">عنوان المحل تلقائياً</Badge>}
                   </div>
                   <div className="num text-[11.5px] leading-5 text-slate-500" dir="ltr" style={{ textAlign: 'right' }}>
                     {[...(n.bssids ?? (n.bssid ? [n.bssid] : [])), n.ip && `IP ${n.ip}`].filter(Boolean).join(' · ')}

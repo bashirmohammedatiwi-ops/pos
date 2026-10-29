@@ -204,6 +204,11 @@ export function CartTable({
                   </td>
                   <td className="pos-td-name" title={line.name}>
                     <span className="pos-cart-name">{line.name}</span>
+                    {line.bundleOfferName && (
+                      <span className={`pos-cart-offer ${line.price <= 0 ? 'is-gift' : ''}`} title={line.bundleOfferName}>
+                        {line.price <= 0 ? 'هدية العرض' : line.bundleGift ? 'خصم العرض' : 'عرض مشروط'} · {line.bundleOfferName}
+                      </span>
+                    )}
                     {line.num && line.barcode && line.num !== line.barcode && (
                       <span className="pos-cart-sku num" dir="ltr">{line.num}</span>
                     )}
