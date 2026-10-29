@@ -18,6 +18,21 @@ export function hubIsOutdated(version?: string | null) {
 export function HubOutdatedBanner({ onKey }: { onKey: () => void }) {
   const q = useQuery({ queryKey: ['team-hub-status'], queryFn: api.teamHubStatus, retry: 0, refetchInterval: 60_000 });
   const [copied, setCopied] = useState(false);
+  const keyRejected = q.error instanceof Error && q.error.message.includes('مفتاح المزامنة');
+  if (keyRejected) {
+    return (
+      <section className="shrink-0 rounded-xl border border-red-200 bg-red-50 p-3 text-red-900" role="alert">
+        <p className="text-[13.5px] font-bold">خادم الفريق رفض مفتاح المزامنة</p>
+        <p className="mt-0.5 text-[12px] leading-6 text-red-800">
+          تحديث الـ VPS أنشأ مفتاحاً جديداً. الصق المفتاح الذي ظهر في نهاية التحديث في{' '}
+          <button type="button" className="font-bold underline" onClick={onKey}>
+            التحديثات والإشعارات ← ربط خادم الفريق
+          </button>
+          {' '}— حتى ذلك تتوقف المزامنة وتسجيل الحضور.
+        </p>
+      </section>
+    );
+  }
   if (!q.data || !hubIsOutdated(q.data.hubVersion)) return null;
 
   return (

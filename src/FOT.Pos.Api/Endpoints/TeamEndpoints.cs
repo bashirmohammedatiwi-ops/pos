@@ -152,6 +152,13 @@ public static class TeamEndpoints
                 var type = res.Content.Headers.ContentType?.ToString() ?? "application/json; charset=utf-8";
                 if (res.StatusCode == System.Net.HttpStatusCode.NotFound && bytes.Length == 0)
                     return Results.Json(new { error = "خادم الفريق لا يدعم هذه الميزة بعد — حدّث الـ VPS" }, statusCode: 502);
+                // رفض خادم الفريق مفتاح المزامنة: لا نمرّر 401 — لوحة التحكم تفهمه انتهاء جلسة الدخول وتُخرج المستخدم
+                if (res.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                    return Results.Json(new
+                    {
+                        error = "خادم الفريق رفض مفتاح المزامنة — أدخل المفتاح الجديد من «التحديثات والإشعارات ← ربط خادم الفريق»",
+                        code = "sync_key",
+                    }, statusCode: 502);
                 http.Response.StatusCode = (int)res.StatusCode;
                 http.Response.ContentType = type;
                 await http.Response.Body.WriteAsync(bytes, ct);

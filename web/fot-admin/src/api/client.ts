@@ -302,6 +302,10 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
     // الرمز انتهى — نجدده بصمت ونعيد نفس الطلب مرة واحدة قبل إرسال المستخدم لشاشة الدخول
     if (await refreshSession()) return request<T>(path, { ...(init ?? {}), _retried: true });
   }
+  if (res.status === 401 && path.startsWith('/api/team/hub/') && init?._retried) {
+    // الجلسة جُدّدت ولا يزال 401: الرفض من خادم الفريق (مفتاح المزامنة) لا من جلسة الدخول — لا نُخرج المستخدم
+    throw new Error('خادم الفريق رفض مفتاح المزامنة — أدخل المفتاح الجديد من «التحديثات والإشعارات ← ربط خادم الفريق»');
+  }
   if (res.status === 401) {
     setToken(null);
     localStorage.removeItem('fot_admin_user');
