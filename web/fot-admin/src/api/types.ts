@@ -303,7 +303,7 @@ export interface TeamManagerPermsDto {
   username: string;
   displayName: string;
   isActive: boolean;
-  perms: Record<'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat', boolean>;
+  perms: Record<'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales', boolean>;
   sections: number[];
   sectionNames: string[];
 }

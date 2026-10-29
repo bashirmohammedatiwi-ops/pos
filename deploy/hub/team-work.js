@@ -750,7 +750,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ صلاحيات المدراء ═════════════ */
-  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat'];
+  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales'];
   /** الافتراضي: كل الصلاحيات وكل الأقسام (توافق مع ما قبل الصلاحيات) */
   function permsOf(managerId) {
     const row = db.prepare('SELECT perms, sections FROM manager_perms WHERE manager_id = ?').get(managerId);

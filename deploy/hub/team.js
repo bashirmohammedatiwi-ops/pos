@@ -211,6 +211,8 @@ function createTeam(ctx) {
   // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
   const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf });
   ctx.pushTo = (kind, ids, n) => void extra.pushTo(kind, ids, n);
+  // مبيعات المحل المباشرة والأيام السابقة للمدراء
+  const sales = require('./team-sales').createSales({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
 
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
@@ -220,6 +222,7 @@ function createTeam(ctx) {
     if ((sub === 'posts' && method !== 'GET') || /^posts\/\d+$/.test(sub) || sub === 'notify') return 'sendPosts';
     if (sub === 'chat/groups' || /^chat\/groups\//.test(sub) || (method === 'DELETE' && /^chat\/messages\//.test(sub))) return 'manageChat';
     if (/^product-images\//.test(sub) && method !== 'GET') return 'admin';
+    if (/^sales(\/|$)/.test(sub)) return 'viewSales';
     return null;
   }
 
@@ -233,6 +236,9 @@ function createTeam(ctx) {
   /* ── المسارات ── */
   async function handle(req, res, url) {
     const p = url.pathname;
+
+    // مبيعات المحل من سيرفر المحل (مفتاح المزامنة)
+    if (p.startsWith('/api/sync/sales') && (await sales.handleSync(req, res, url))) return true;
 
     // فحص التحديث وتنزيل التطبيق (عام)
     if (extra.handlePublic(req, res, url)) return true;
@@ -343,6 +349,7 @@ function createTeam(ctx) {
       if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       if (await attend.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       if (await extra.handleManage(req, res, url, sub, actorName, false, allow)) return true;
+      if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }

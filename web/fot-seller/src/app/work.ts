@@ -143,8 +143,9 @@ export interface ManagerPerms {
   editAttendance: boolean;
   sendPosts: boolean;
   manageChat: boolean;
+  viewSales: boolean;
 }
-export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true };
+export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true };
 const PermsCtx = createContext<ManagerPerms>(ALL_PERMS);
 export const PermsProvider = PermsCtx.Provider;
 export const usePerms = () => useContext(PermsCtx);
@@ -514,9 +515,72 @@ export async function compressImage(file: File, max = 1600, quality = 0.82): Pro
   }
 }
 
+/* ═════════════ مبيعات المحل (المدير — صلاحية viewSales) ═════════════ */
+export type SaleTotals = {
+  net: number;
+  gross: number;
+  receipts: number;
+  pieces: number;
+  returnsTotal: number;
+  returnsCount: number;
+  gifts: number;
+  offersDiscount: number;
+  userDiscount: number;
+  itemsDiscount: number;
+  cardTotal: number;
+  cardCount: number;
+  firstAt?: string | null;
+  lastAt?: string | null;
+};
+export type SaleHour = { h: number; t: number; n: number };
+/** صف مسمّى: t الصافي، n الفواتير، q القطع (للكاشير: عدد المرتجعات) */
+export type SaleNamed = { id: number; name: string; sub?: string | null; barcode?: string | null; t: number; n: number; q: number; lastAt?: string | null; days?: number };
+export type SalePack = {
+  day: string;
+  totals: SaleTotals;
+  hours: SaleHour[];
+  sections: SaleNamed[];
+  terminals: SaleNamed[];
+  cashiers: SaleNamed[];
+  sellers: SaleNamed[];
+  products: SaleNamed[];
+};
+export type SaleReceipt = { id: number; number: number; at: string; kind: number; total: number; items: number; cashier?: string | null; pos?: string | null; seller?: string | null; card: boolean };
+export type SaleTerminal = { id: number; name: string; section?: string | null; lastSeen?: string | null; lastSaleAt?: string | null; active: boolean };
+export type SalesDay = {
+  day: string;
+  isToday: boolean;
+  pack: SalePack | null;
+  recent: SaleReceipt[];
+  terminalsLive: SaleTerminal[];
+  at: string | null;
+  receivedAt: string | null;
+  compare: { prev: SalePack | null; lastWeek: SalePack | null; avg4: { weeks: number; net: number; hours: SaleHour[] } | null };
+  bounds: { min: string | null; max: string };
+};
+export type SalesDailyRow = { day: string; net: number; receipts: number; returnsTotal: number; pieces: number };
+export type SalesRangeSum = { net: number; receipts: number; pieces: number; returnsTotal: number; days: number };
+export type SalesRange = {
+  from: string;
+  to: string;
+  span: number;
+  days: SalesDailyRow[];
+  sum: SalesRangeSum;
+  prev: { from: string; to: string; sum: SalesRangeSum; days: SalesDailyRow[] };
+  detail: (Omit<SalePack, 'day'> & { dayCount: number }) | null;
+  heat: number[][];
+  weekday: { w: number; net: number; days: number }[];
+  bounds: { min: string | null; max: string };
+};
+export const salesApi = {
+  live: () => call<SalesDay>('manager', '/api/team/m/sales/live'),
+  day: (date: string) => call<SalesDay>('manager', `/api/team/m/sales/day?date=${date}`),
+  range: (from: string, to: string) => call<SalesRange>('manager', `/api/team/m/sales/range?from=${from}&to=${to}`),
+};
+
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
 const LIVE_EVENT = 'fot-team-live';
-export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms';
+export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales';
 export type LiveMsg = {
   event: LiveEvent;
   data: {
@@ -536,6 +600,11 @@ export type LiveMsg = {
     total?: number;
     created?: boolean;
     updated?: boolean;
+    // مبيعات المحل المباشرة
+    day?: string;
+    net?: number;
+    receipts?: number;
+    fresh?: SaleReceipt[];
   };
 };
 
@@ -566,7 +635,7 @@ export function useLiveChannel(role: Role | null) {
     const connect = () => {
       if (stopped) return;
       es = new EventSource(apiUrl(`${path}?token=${encodeURIComponent(token)}`));
-      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms'] as const)
+      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms', 'sales'] as const)
         es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
       es.onopen = () => {
         retry = 0;
