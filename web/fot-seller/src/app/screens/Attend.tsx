@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { deviceInfo } from '../../team';
 import { Badge, I, Skeleton, clockLabel, toast } from '../kit';
 import {
+  allowLocation,
   cancelBreakAlarms,
   haptic,
   openLocationSettings,
@@ -66,8 +67,8 @@ function NetLine({ wifi, probe, onRetry }: { wifi: WifiState | null; probe: { ok
     return (
       <div className="t-net bad">
         <I.info size={16} /> اسمح للتطبيق بالموقع لقراءة شبكة المحل
-        <button type="button" onClick={() => void openLocationSettings()}>
-          الإعدادات
+        <button type="button" onClick={() => void allowLocation().then(onRetry)}>
+          السماح
         </button>
       </div>
     );
@@ -131,10 +132,14 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     haptic('tap');
     setBusy(action);
     try {
-      const w = await net.check();
+      let w = await net.check();
       if (w.permission === 'denied' && data?.network.needsBssid) {
-        toast('اسمح للتطبيق بالموقع أولاً لقراءة واي فاي المحل');
-        return;
+        // طلب الإذن بضغطة المستخدم — وإن لم تظهر النافذة تُفتح صفحة أذونات التطبيق
+        if (!(await allowLocation())) {
+          toast('اسمح للتطبيق بالموقع («أثناء استخدام التطبيق») ثم عُد وسجّل');
+          return;
+        }
+        w = await net.check();
       }
       const dev = await deviceInfo();
       const next = await attendApi.act(action, w.bssid, dev.deviceId);

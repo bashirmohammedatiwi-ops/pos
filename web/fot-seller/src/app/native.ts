@@ -179,10 +179,20 @@ export type WifiScanResult = {
 type WifiPlugin = {
   getInfo(): Promise<WifiState>;
   scan(): Promise<WifiScanResult>;
+  checkPermissions(): Promise<{ location: string }>;
+  requestPermissions(o: { permissions: string[] }): Promise<{ location: string }>;
   openLocationSettings(): Promise<void>;
+  openAppSettings(): Promise<void>;
   openWifiSettings(): Promise<void>;
   openUrl(o: { url: string }): Promise<void>;
 };
+/** بعض هواتف شاومي لا تُظهر نافذة طلب الإذن فيبقى الطلب معلّقاً — لا ننتظر للأبد. */
+const within = <T,>(p: Promise<T>, ms: number) =>
+  Promise.race([p, new Promise<null>(r => window.setTimeout(() => r(null), ms))]);
+async function locationGranted(plugin: WifiPlugin) {
+  const perm = await within(plugin.checkPermissions(), 3000).catch(() => null);
+  return perm?.location === 'granted';
+}
 let wifiPlugin: WifiPlugin | null = null;
 async function wifi() {
   if (!wifiPlugin) {
@@ -203,9 +213,29 @@ export async function readWifi(): Promise<WifiState> {
     }
   }
   try {
-    return await (await wifi()).getInfo();
+    const plugin = await wifi();
+    // دون إذن الموقع لا نطلبه هنا (النافذة قد لا تظهر) — الواجهة تعرض زر «السماح»
+    if (!(await locationGranted(plugin))) return { permission: 'denied' };
+    return (await within(plugin.getInfo(), 8000)) ?? {};
   } catch {
     return {};
+  }
+}
+/**
+ * يطلب إذن الموقع بضغطة من المستخدم؛ إن لم تظهر النافذة أو رُفض نهائياً يفتح صفحة أذونات التطبيق.
+ * يعيد true إن صار الإذن ممنوحاً.
+ */
+export async function allowLocation(): Promise<boolean> {
+  if (!isNative()) return true;
+  try {
+    const plugin = await wifi();
+    if (await locationGranted(plugin)) return true;
+    const res = await within(plugin.requestPermissions({ permissions: ['location'] }), 6000).catch(() => null);
+    if (res?.location === 'granted') return true;
+    await plugin.openAppSettings().catch(() => plugin.openLocationSettings());
+    return false;
+  } catch {
+    return false;
   }
 }
 /** شبكات الواي فاي المحيطة بالهاتف (للمدير). في المتصفح (تطوير): نقاط تجريبية حول fot_dev_bssid. */
@@ -231,7 +261,9 @@ export async function scanWifi(): Promise<WifiScanResult> {
     }
   }
   try {
-    return await (await wifi()).scan();
+    const plugin = await wifi();
+    if (!(await locationGranted(plugin))) return { permission: 'denied', networks: [] };
+    return (await within(plugin.scan(), 15000)) ?? { networks: [] };
   } catch {
     return { networks: [] };
   }

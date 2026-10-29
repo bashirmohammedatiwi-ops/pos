@@ -167,6 +167,15 @@ public class WifiInfoPlugin extends Plugin {
         call.resolve();
     }
 
+    /** صفحة أذونات التطبيق — حين لا تظهر نافذة طلب الإذن (بعض هواتف شاومي) أو رُفض نهائياً */
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", getContext().getPackageName(), null));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(i);
+        call.resolve();
+    }
+
     @PluginMethod
     public void openWifiSettings(PluginCall call) {
         Intent i = new Intent(Settings.ACTION_WIFI_SETTINGS);

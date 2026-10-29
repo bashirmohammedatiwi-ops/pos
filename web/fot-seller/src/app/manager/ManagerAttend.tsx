@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Avatar, Badge, Empty, ErrorLine, I, Screen, Sheet, Skeleton, clockLabel, toast } from '../kit';
-import { haptic, openLocationSettings, readWifi, scanWifi, type WifiScanResult, type WifiState } from '../native';
+import { allowLocation, haptic, openLocationSettings, readWifi, scanWifi, type WifiScanResult, type WifiState } from '../native';
 import { BackBtn } from '../parts';
 import { dur, hhmm } from '../screens/Attend';
 import { dateShort, dateTiny, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus, type ShopNetwork } from '../work';
@@ -434,8 +434,8 @@ function NetScanSheet({
         <div className="t-scan-wait">
           <b>{res?.permission === 'denied' ? 'اسمح للتطبيق بالموقع' : 'شغّل خدمة الموقع'}</b>
           <small>أندرويد لا يعرض شبكات الواي فاي دون إذن الموقع</small>
-          <button type="button" className="t-btn sm press" onClick={() => void openLocationSettings()}>
-            فتح الإعدادات
+          <button type="button" className="t-btn sm press" onClick={() => void (res?.permission === 'denied' ? allowLocation() : openLocationSettings())}>
+            {res?.permission === 'denied' ? 'السماح' : 'فتح الإعدادات'}
           </button>
         </div>
       ) : !groups.length ? (
