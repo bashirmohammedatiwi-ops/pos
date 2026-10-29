@@ -194,12 +194,16 @@ async function locationGranted(plugin: WifiPlugin) {
   return perm?.location === 'granted';
 }
 let wifiPlugin: WifiPlugin | null = null;
-async function wifi() {
+/**
+ * يُعاد الكائن داخل غلاف: كائن إضافة Capacitor لا يصح أن يكون قيمة Promise — انتظاره يستدعي
+ * .then() كدالة أصلية غير موجودة فلا يكتمل أبداً (كان يعلّق «جارٍ فحص الشبكة…»).
+ */
+async function wifi(): Promise<{ plugin: WifiPlugin }> {
   if (!wifiPlugin) {
     const { registerPlugin } = await import('@capacitor/core');
     wifiPlugin = registerPlugin<WifiPlugin>('WifiInfo');
   }
-  return wifiPlugin;
+  return { plugin: wifiPlugin };
 }
 
 /** يقرأ شبكة الواي فاي الحالية. في المتصفح (تطوير): fot_dev_bssid من التخزين المحلي. */
@@ -213,7 +217,7 @@ export async function readWifi(): Promise<WifiState> {
     }
   }
   try {
-    const plugin = await wifi();
+    const { plugin } = await wifi();
     // دون إذن الموقع لا نطلبه هنا (النافذة قد لا تظهر) — الواجهة تعرض زر «السماح»
     if (!(await locationGranted(plugin))) return { permission: 'denied' };
     return (await within(plugin.getInfo(), 8000)) ?? {};
@@ -228,7 +232,7 @@ export async function readWifi(): Promise<WifiState> {
 export async function allowLocation(): Promise<boolean> {
   if (!isNative()) return true;
   try {
-    const plugin = await wifi();
+    const { plugin } = await wifi();
     if (await locationGranted(plugin)) return true;
     const res = await within(plugin.requestPermissions({ permissions: ['location'] }), 6000).catch(() => null);
     if (res?.location === 'granted') return true;
@@ -261,7 +265,7 @@ export async function scanWifi(): Promise<WifiScanResult> {
     }
   }
   try {
-    const plugin = await wifi();
+    const { plugin } = await wifi();
     if (!(await locationGranted(plugin))) return { permission: 'denied', networks: [] };
     return (await within(plugin.scan(), 15000)) ?? { networks: [] };
   } catch {
@@ -269,20 +273,21 @@ export async function scanWifi(): Promise<WifiScanResult> {
   }
 }
 export async function openLocationSettings() {
-  if (isNative()) await (await wifi()).openLocationSettings().catch(() => undefined);
+  if (isNative()) await (await wifi()).plugin.openLocationSettings().catch(() => undefined);
 }
 /** فتح رابط خارج التطبيق (مثل تنزيل تحديث التطبيق) */
 export async function openExternal(url: string) {
-  if (isNative()) await (await wifi()).openUrl({ url }).catch(() => window.open(url, '_system'));
+  if (isNative()) await (await wifi()).plugin.openUrl({ url }).catch(() => window.open(url, '_system'));
   else window.open(url, '_blank', 'noopener');
 }
 export async function openWifiSettings() {
-  if (isNative()) await (await wifi()).openWifiSettings().catch(() => undefined);
+  if (isNative()) await (await wifi()).plugin.openWifiSettings().catch(() => undefined);
 }
 
 /* ── منبّهات محلية (تعمل والتطبيق مغلق ودون إنترنت) ── */
 const ALARM = { warn: 9001, end: 9002, over: 9003, shiftIn: 9010, shiftOut: 9011 };
 let channelReady = false;
+// يُعاد داخل غلاف — انتظار كائن الإضافة مباشرة لا يكتمل (انظر wifi())
 async function notifications() {
   const { LocalNotifications } = await import('@capacitor/local-notifications');
   if (!channelReady) {
@@ -291,14 +296,14 @@ async function notifications() {
     const perm = await LocalNotifications.checkPermissions().catch(() => null);
     if (perm && perm.display !== 'granted') await LocalNotifications.requestPermissions().catch(() => undefined);
   }
-  return LocalNotifications;
+  return { LN: LocalNotifications };
 }
 
 /** منبّه الاستراحة: قبل النهاية، عند النهاية، وبعد 5 دقائق تجاوز. */
 export async function scheduleBreakAlarms(endsAtIso: string, warnMinutes: number) {
   if (!isNative()) return;
   try {
-    const LN = await notifications();
+    const { LN } = await notifications();
     await LN.cancel({ notifications: [{ id: ALARM.warn }, { id: ALARM.end }, { id: ALARM.over }] });
     const end = Date.parse(endsAtIso);
     const list = [];
@@ -315,7 +320,7 @@ export async function scheduleBreakAlarms(endsAtIso: string, warnMinutes: number
 export async function cancelBreakAlarms() {
   if (!isNative()) return;
   try {
-    const LN = await notifications();
+    const { LN } = await notifications();
     await LN.cancel({ notifications: [{ id: ALARM.warn }, { id: ALARM.end }, { id: ALARM.over }] });
   } catch {
     /* ignore */
@@ -325,7 +330,7 @@ export async function cancelBreakAlarms() {
 export async function scheduleShiftReminders(opt: { startAt?: number | null; endAt?: number | null }) {
   if (!isNative()) return;
   try {
-    const LN = await notifications();
+    const { LN } = await notifications();
     await LN.cancel({ notifications: [{ id: ALARM.shiftIn }, { id: ALARM.shiftOut }] });
     const list = [];
     if (opt.startAt && opt.startAt > Date.now() + 60_000)
