@@ -105,6 +105,11 @@ export interface TeamDirStaffDto {
   sectionName?: string | null;
   isActive: boolean;
   weeklyOff: number;
+  plan?: 'weekly' | 'monthly' | 'hourly';
+  monthlyDays?: number | null;
+  hourlyRate?: number | null;
+  rates?: { fromDate: string; rate: number }[];
+  supervisor?: boolean;
   device?: string | null;
   lastSeen?: string | null;
 }
@@ -195,7 +200,7 @@ export interface TeamAttendDto {
   inBssid?: string | null;
   editedBy?: string | null;
 }
-export type TeamBoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent';
+export type TeamBoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent' | 'hourly';
 export interface TeamBoardDto {
   date: string;
   now: string;
@@ -303,9 +308,50 @@ export interface TeamManagerPermsDto {
   username: string;
   displayName: string;
   isActive: boolean;
-  perms: Record<'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales', boolean>;
+  perms: Record<TeamPermKey, boolean>;
   sections: number[];
   sectionNames: string[];
+}
+export type TeamPermKey = 'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales' | 'viewPay';
+export interface TeamSupervisorDto {
+  staffId: number;
+  name: string;
+  kind: string;
+  sectionName?: string | null;
+  isActive: boolean;
+  perms: Record<TeamPermKey, boolean>;
+  members: number[];
+}
+export type TeamPlan = 'weekly' | 'monthly' | 'hourly';
+export interface TeamHoursWeekDto {
+  from: string;
+  to: string;
+  minutes: number;
+  pay: number | null;
+  days: number;
+}
+export interface TeamHoursRowDto {
+  staffId: number;
+  name: string;
+  kind: string;
+  sectionName?: string | null;
+  rate: number | null;
+  minutes: number;
+  pay: number | null;
+  days: number;
+  open: number;
+  autoClosed: number;
+  edited: number;
+  noRate: number;
+  weeks: TeamHoursWeekDto[];
+}
+export interface TeamHoursDto {
+  from: string;
+  to: string;
+  showPay: boolean;
+  totalMinutes: number;
+  totalPay: number | null;
+  rows: TeamHoursRowDto[];
 }
 export interface TeamCommissionProductDto {
   barcode: string;

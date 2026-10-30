@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { I, toast } from '../kit';
 import { haptic, pushBack } from '../native';
 import { ImagePicker, LEAVE_ICON } from '../parts';
-import { WEEK_DAYS, attendApi, staffApi, time12, useLoad, type DayState, type LeaveType } from '../work';
+import { WEEK_DAYS, attendApi, staffApi, time12, useLoad, type DayState, type LeaveType, type MonthBalance } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * طلب جديد — شاشة كاملة بخطوتين مصممة للهاتف:
@@ -133,6 +133,7 @@ export function LeaveRequest({
   open,
   days,
   weeklyOff,
+  monthly,
   today,
   onClose,
   onDone,
@@ -140,6 +141,8 @@ export function LeaveRequest({
   open: boolean;
   days: DayState[];
   weeklyOff: number;
+  /** من إجازاته شهرية: رصيد هذا الشهر والقادم (وليس له تبديل عطلة) */
+  monthly?: MonthBalance[] | null;
   today: string;
   onClose: () => void;
   onDone: () => void;
@@ -322,7 +325,7 @@ export function LeaveRequest({
       <div className="t-lr-body" ref={bodyRef}>
         {!type ? (
           <div className="t-lr-types">
-            {TYPES.map((t, i) => (
+            {TYPES.filter(t => !(monthly && t.type === 'swap')).map((t, i) => (
               <button
                 key={t.type}
                 type="button"
@@ -337,7 +340,7 @@ export function LeaveRequest({
                 <span className={`t-tile lg ${t.tone}`}>{LEAVE_ICON[t.type]}</span>
                 <span className="txt">
                   <b>{t.title}</b>
-                  <small>{t.desc}</small>
+                  <small>{monthly && t.type === 'day' ? `متبقي لك ${monthly[0].left} من ${monthly[0].allowance} هذا الشهر و${monthly[1].left} الشهر القادم` : t.desc}</small>
                 </span>
                 <span className="go">
                   <I.chevron size={18} />

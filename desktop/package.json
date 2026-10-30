@@ -1,6 +1,6 @@
 {
   "name": "fot-pos-desktop",
-  "version": "2.4.7",
+  "version": "2.4.8",
   "private": true,
   "description": "Electron shells for FOT POS Admin and Cashier",
   "main": "electron/main.cjs",
@@ -29,7 +29,7 @@
   "build": {
     "appId": "com.fot.pos.desktop",
     "productName": "FOT POS",
-    "copyright": "Copyright آ© Future of Technology",
+    "copyright": "Copyright ط¢آ© Future of Technology",
     "directories": {
       "output": "dist"
     },

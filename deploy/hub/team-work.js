@@ -48,6 +48,9 @@ function dayIdx(iso) {
 const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`));
 const isTime = v => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null);
+const PLAN_LABEL = { weekly: 'عطلة أسبوعية', monthly: 'إجازات شهرية', hourly: 'بالساعات' };
+/** آخر يوم في شهر YYYY-MM */
+const monthEnd = month => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 
 function createWork({ db, ctx, now, audit, getStaff }) {
   /* ── الجداول ── */
@@ -91,6 +94,19 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     // صلاحيات المدراء ونطاق أقسامهم
     `CREATE TABLE manager_perms (
        manager_id INTEGER PRIMARY KEY, perms TEXT NOT NULL, sections TEXT NOT NULL DEFAULT '[]',
+       updated_by TEXT, updated_at TEXT NOT NULL
+     );`,
+    // نوع دوام الموظف: عطلة أسبوعية / إجازات شهرية / بالساعات، وأسعار الساعة بتواريخها، والمسؤولون من الموظفين
+    `CREATE TABLE staff_plan (
+       staff_id INTEGER PRIMARY KEY, plan TEXT NOT NULL DEFAULT 'weekly', monthly_days INTEGER, hourly_rate INTEGER,
+       updated_by TEXT, updated_at TEXT NOT NULL
+     );
+     CREATE TABLE staff_rate_history (
+       staff_id INTEGER NOT NULL, from_date TEXT NOT NULL, rate INTEGER NOT NULL, set_by TEXT, set_at TEXT NOT NULL,
+       PRIMARY KEY (staff_id, from_date)
+     );
+     CREATE TABLE staff_supervisors (
+       staff_id INTEGER PRIMARY KEY, perms TEXT NOT NULL, members TEXT NOT NULL DEFAULT '[]',
        updated_by TEXT, updated_at TEXT NOT NULL
      );`,
   ];
@@ -179,6 +195,8 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
   function emitManagers(event, data) {
     for (const key of streams.keys()) if (key.startsWith('manager:')) emit(key, event, data);
+    // المسؤولون من الموظفين يتابعون فريقهم على قناتهم نفسها
+    for (const r of db.prepare('SELECT staff_id FROM staff_supervisors').all()) emit(`staff:${r.staff_id}`, event, data);
   }
   setInterval(() => {
     recheckStreams();
@@ -552,7 +570,68 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ الدوام والإجازات ═════════════ */
-  const getMask = staffId => db.prepare('SELECT days_mask FROM weekly_off WHERE staff_id = ?').get(staffId)?.days_mask ?? 0;
+  /* ── نوع الدوام: weekly عطلة أسبوعية، monthly عدد إجازات في الشهر، hourly بالساعات بلا وقت محدد ── */
+  function planOf(staffId) {
+    const r = db.prepare('SELECT plan, monthly_days, hourly_rate FROM staff_plan WHERE staff_id = ?').get(staffId);
+    return { plan: r?.plan || 'weekly', monthlyDays: r?.monthly_days ?? null, hourlyRate: r?.hourly_rate ?? null };
+  }
+  /** سعر الساعة الساري في يوم معيّن: تغيير السعر لا يعيد حساب ما مضى */
+  const rateOn = (staffId, date) => db.prepare('SELECT rate FROM staff_rate_history WHERE staff_id = ? AND from_date <= ? ORDER BY from_date DESC LIMIT 1').get(staffId, date)?.rate ?? null;
+  const ratesOf = staffId => db.prepare('SELECT from_date AS fromDate, rate FROM staff_rate_history WHERE staff_id = ? ORDER BY from_date DESC LIMIT 12').all(staffId);
+  function setPlan(staffId, body, actor) {
+    const s = getStaff(staffId);
+    if (!s) return { status: 404, body: { error: 'الموظف غير موجود' } };
+    const plan = String(body.plan || '');
+    if (!PLAN_LABEL[plan]) return { status: 400, body: { error: 'نوع الدوام غير معروف' } };
+    const cur = planOf(staffId);
+    const monthlyDays = plan === 'monthly' ? Math.round(Number(body.monthlyDays)) : cur.monthlyDays;
+    if (plan === 'monthly' && !(monthlyDays >= 0 && monthlyDays <= 31)) return { status: 400, body: { error: 'حدد عدد الإجازات في الشهر (0 إلى 31)' } };
+    const hourlyRate = plan === 'hourly' ? Math.round(Number(body.hourlyRate)) : cur.hourlyRate;
+    if (plan === 'hourly' && !(hourlyRate > 0 && hourlyRate <= 10_000_000)) return { status: 400, body: { error: 'حدد راتب الساعة بالدينار' } };
+    const from = isDate(body.rateFrom) ? body.rateFrom : iraqDate();
+    db.prepare(`INSERT INTO staff_plan (staff_id, plan, monthly_days, hourly_rate, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(staff_id) DO UPDATE SET plan = excluded.plan, monthly_days = excluded.monthly_days, hourly_rate = excluded.hourly_rate, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+      .run(staffId, plan, monthlyDays ?? null, hourlyRate ?? null, actor, now());
+    if (plan === 'hourly' && rateOn(staffId, from) !== hourlyRate) {
+      db.prepare(`INSERT INTO staff_rate_history (staff_id, from_date, rate, set_by, set_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(staff_id, from_date) DO UPDATE SET rate = excluded.rate, set_by = excluded.set_by, set_at = excluded.set_at`).run(staffId, from, hourlyRate, actor, now());
+    }
+    audit(actor, 'staff.plan', staffId, { from: cur, plan, monthlyDays, hourlyRate, rateFrom: plan === 'hourly' ? from : undefined });
+    if (cur.plan !== plan || (plan === 'monthly' && cur.monthlyDays !== monthlyDays) || (plan === 'hourly' && cur.hourlyRate !== hourlyRate)) {
+      const text = plan === 'hourly' ? `دوامك الآن بالساعات — ${hourlyRate.toLocaleString('en-US')} دينار للساعة` : plan === 'monthly' ? `إجازاتك الآن ${monthlyDays} في الشهر` : 'عطلتك الآن أسبوعية';
+      notify('staff', [staffId], { type: 'schedule', title: 'تم تحديث نوع دوامك', body: text, link: '/shift' });
+    }
+    emit(`staff:${staffId}`, 'perms', { plan });
+    emit(`staff:${staffId}`, 'attend', { plan });
+    emit(`staff:${staffId}`, 'leave', { plan });
+    emitManagers('leave', { plan: staffId });
+    return { status: 200, body: { staffId, ...planOf(staffId), rates: ratesOf(staffId) } };
+  }
+
+  /** الأيام المستهلكة من الإجازات الشهرية في شهر: طلبات «إجازة» المقبولة والمعلّقة */
+  function monthUsage(staffId, month) {
+    const first = `${month}-01`;
+    const last = monthEnd(month);
+    const rows = db.prepare("SELECT status, date_from, date_to FROM leave_requests WHERE staff_id = ? AND type = 'day' AND status IN ('approved','pending') AND date_from <= ? AND date_to >= ?").all(staffId, last, first);
+    const out = { approved: 0, pending: 0 };
+    for (const r of rows) {
+      for (let d = r.date_from > first ? r.date_from : first; d <= r.date_to && d <= last; d = addDays(d, 1)) out[r.status]++;
+    }
+    return out;
+  }
+  /** رصيد هذا الشهر والشهر القادم لمن إجازاته شهرية */
+  function monthlyBalance(staffId) {
+    const p = planOf(staffId);
+    if (p.plan !== 'monthly') return null;
+    const allowance = p.monthlyDays ?? 0;
+    const month = iraqDate().slice(0, 7);
+    const next = addDays(monthEnd(month), 1).slice(0, 7);
+    return [month, next].map(m => {
+      const u = monthUsage(staffId, m);
+      return { month: m, allowance, approved: u.approved, pending: u.pending, left: Math.max(0, allowance - u.approved - u.pending) };
+    });
+  }
+  const getMask = staffId => (planOf(staffId).plan === 'weekly' ? db.prepare('SELECT days_mask FROM weekly_off WHERE staff_id = ?').get(staffId)?.days_mask ?? 0 : 0);
   function leaveView(r, s) {
     const st = s || getStaff(r.staff_id);
     return {
@@ -624,6 +703,9 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   function createLeave(s, body) {
     const type = String(body.type || '');
     if (!LEAVE_TYPES[type]) return { status: 400, body: { error: 'نوع الطلب غير معروف' } };
+    const plan = planOf(s.id);
+    if (plan.plan === 'hourly') return { status: 400, body: { error: 'حسابك بالساعات بلا وقت محدد — لا يحتاج طلبات إجازة' } };
+    if (plan.plan === 'monthly' && type === 'swap') return { status: 400, body: { error: 'إجازاتك شهرية بلا عطلة أسبوعية — اطلب «إجازة» في اليوم الذي تريده' } };
     const today = iraqDate();
     const reason = clip(body.reason, 500);
     // المرفق خاص دائماً: مرفوع خاصاً (التطبيق الجديد) أو يُنقل من المجلد العام (إصدارات أقدم) عند الحفظ
@@ -652,6 +734,16 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       const earliest = type === 'sick' ? addDays(today, -7) : today;
       if (from < earliest) return { status: 400, body: { error: type === 'sick' ? 'الإجازة المرضية حتى 7 أيام سابقة فقط' : 'لا يمكن طلب إجازة لأيام مضت' } };
       if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 30) return { status: 400, body: { error: 'أقصى مدة للطلب 31 يوماً' } };
+      // الإجازات الشهرية: لا يتجاوز الطلب رصيد كل شهر يمر به (المرضية والطارئة لا تُخصم)
+      if (plan.plan === 'monthly' && type === 'day') {
+        const need = {};
+        for (let d = from; d <= to; d = addDays(d, 1)) need[d.slice(0, 7)] = (need[d.slice(0, 7)] || 0) + 1;
+        for (const [m, n] of Object.entries(need)) {
+          const u = monthUsage(s.id, m);
+          const left = Math.max(0, (plan.monthlyDays ?? 0) - u.approved - u.pending);
+          if (n > left) return { status: 400, body: { error: left ? `متبقي لك ${left} من ${plan.monthlyDays} إجازة في شهر ${Number(m.slice(5))} — طلبت ${n}` : `استنفدت إجازاتك (${plan.monthlyDays}) في شهر ${Number(m.slice(5))}`, code: 'monthly_limit' } };
+        }
+      }
       row = { ...row, date_from: from, date_to: to };
     }
     // تعارض مع طلب قائم لنفس الأيام
@@ -672,7 +764,9 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     const id = Number(r.lastInsertRowid);
     const full = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(id);
     audit(`staff:${s.id}`, 'leave.request', id, { type });
-    notify('manager', managerIds(), { type: 'leave.new', title: `طلب ${LEAVE_TYPES[type]} — ${s.name}`, body: leaveSummary(full) + (reason ? ` · ${reason}` : ''), link: `/approvals?id=${id}`, data: { leaveId: id } });
+    const leaveNote = { type: 'leave.new', title: `طلب ${LEAVE_TYPES[type]} — ${s.name}`, body: leaveSummary(full) + (reason ? ` · ${reason}` : ''), link: `/approvals?id=${id}`, data: { leaveId: id } };
+    notify('manager', managerIds(), leaveNote);
+    notifySupervisors(s.id, 'approveLeave', leaveNote);
     emitManagers('leave', { id });
     return { status: 200, body: leaveView(full, s) };
   }
@@ -723,6 +817,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   function setWeeklyOff(staffId, mask, actor) {
     const s = getStaff(staffId);
     if (!s) return { status: 404, body: { error: 'الموظف غير موجود' } };
+    if (planOf(staffId).plan !== 'weekly') return { status: 400, body: { error: 'هذا الموظف ليس له عطلة أسبوعية — نوع دوامه يُغيَّر من لوحة التحكم' } };
     const m = Math.max(0, Math.min(127, Number(mask) || 0));
     const before = getMask(staffId);
     db.prepare(`INSERT INTO weekly_off (staff_id, days_mask, updated_by, updated_at) VALUES (?, ?, ?, ?)
@@ -743,11 +838,10 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     const approved = db.prepare("SELECT * FROM leave_requests WHERE status = 'approved' AND (date_to >= ? OR swap_to >= ? OR swap_from >= ?)").all(today, today, today);
     const byStaff = new Map();
     for (const r of approved) byStaff.set(r.staff_id, [...(byStaff.get(r.staff_id) || []), r]);
-    const masks = new Map(db.prepare('SELECT staff_id, days_mask FROM weekly_off').all().map(r => [r.staff_id, r.days_mask]));
     const offToday = [];
     const partial = [];
     for (const s of staff) {
-      const st = dayStatus(s.id, today, masks.get(s.id) ?? 0, byStaff.get(s.id) || []);
+      const st = dayStatus(s.id, today, getMask(s.id), byStaff.get(s.id) || []);
       if (st.off) offToday.push({ staffId: s.id, name: s.name, kind: s.kind, reason: st.reason });
       else if (st.reason === 'hours') {
         const r = (byStaff.get(s.id) || []).find(x => x.id === st.leaveId);
@@ -760,7 +854,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     return { today, weekday: DAY_NAMES[dayIdx(today)], staffCount: staff.length, offToday, partial, pending, devices, active7, posts: postsAdmin().slice(0, 5) };
   }
 
-  function staffDirectory(allow = () => true) {
+  function staffDirectory(allow = () => true, open = false) {
     const masks = new Map(db.prepare('SELECT staff_id, days_mask FROM weekly_off').all().map(r => [r.staff_id, r.days_mask]));
     const devices = new Map(db.prepare('SELECT staff_id, label, last_seen FROM devices').all().map(r => [r.staff_id, r]));
     return db.prepare('SELECT * FROM staff ORDER BY is_active DESC, name').all().filter(s => allow(s.id)).map(s => ({
@@ -773,13 +867,19 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       sectionName: s.section_name,
       isActive: !!s.is_active,
       weeklyOff: masks.get(s.id) ?? 0,
+      plan: planOf(s.id).plan,
+      monthlyDays: planOf(s.id).monthlyDays,
+      // سعر الساعة يمسّ الرواتب: للوحة التحكم، والتقارير حسب صلاحية المستحقات
+      hourlyRate: open ? planOf(s.id).hourlyRate : undefined,
+      rates: open && planOf(s.id).plan === 'hourly' ? ratesOf(s.id) : undefined,
+      supervisor: !!supervisorOf(s.id),
       device: devices.get(s.id)?.label ?? null,
       lastSeen: devices.get(s.id)?.last_seen ?? null,
     }));
   }
 
   /* ═════════════ صلاحيات المدراء ═════════════ */
-  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales'];
+  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales', 'viewPay'];
   /** الافتراضي: كل الصلاحيات وكل الأقسام (توافق مع ما قبل الصلاحيات) */
   function permsOf(managerId) {
     const row = db.prepare('SELECT perms, sections FROM manager_perms WHERE manager_id = ?').get(managerId);
@@ -814,6 +914,54 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     audit(actor, 'manager.perms', managerId, { perms, sections });
     emit(`manager:${managerId}`, 'perms', { perms, sections });
     return { status: 200, body: { id: managerId, perms, sections } };
+  }
+  /* ═════════════ المسؤولون من الموظفين ═════════════
+     موظف بصلاحيات إضافية على موظفين محددين: كل صلاحية مطفأة حتى تفعّلها الإدارة،
+     ولا يملك شيئاً على نفسه (طلبه يذهب لمديره). */
+  function supervisorOf(staffId) {
+    const row = db.prepare('SELECT perms, members FROM staff_supervisors WHERE staff_id = ?').get(staffId);
+    if (!row) return null;
+    const p = JSON.parse(row.perms);
+    const members = JSON.parse(row.members).map(Number).filter(id => id && id !== Number(staffId));
+    return { perms: Object.fromEntries(PERMS.map(k => [k, p[k] === true])), members };
+  }
+  function supervisorScope(staffId) {
+    const ids = new Set(supervisorOf(staffId)?.members ?? []);
+    return id => ids.has(Number(id));
+  }
+  function supervisorsList() {
+    return db.prepare('SELECT staff_id FROM staff_supervisors').all().map(r => {
+      const s = getStaff(r.staff_id);
+      return s ? { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, isActive: !!s.is_active, ...supervisorOf(s.id) } : null;
+    }).filter(Boolean);
+  }
+  function setSupervisor(staffId, body, actor) {
+    if (!getStaff(staffId)) return { status: 404, body: { error: 'الموظف غير موجود' } };
+    if (body.remove) {
+      db.prepare('DELETE FROM staff_supervisors WHERE staff_id = ?').run(staffId);
+      audit(actor, 'supervisor.remove', staffId, null);
+      notify('staff', [staffId], { type: 'schedule', title: 'لم تعد مسؤولاً عن فريق', body: 'أُزيلت صلاحيات الإدارة من حسابك', link: '/' });
+      emit(`staff:${staffId}`, 'perms', { supervisor: false });
+      return { status: 200, body: { ok: true } };
+    }
+    const perms = Object.fromEntries(PERMS.map(k => [k, body.perms?.[k] === true]));
+    const members = [...new Set((Array.isArray(body.members) ? body.members : []).map(Number))].filter(id => id && id !== staffId && getStaff(id));
+    const isNew = !supervisorOf(staffId);
+    db.prepare(`INSERT INTO staff_supervisors (staff_id, perms, members, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(staff_id) DO UPDATE SET perms = excluded.perms, members = excluded.members, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+      .run(staffId, JSON.stringify(perms), JSON.stringify(members), actor, now());
+    audit(actor, 'supervisor.set', staffId, { perms, members });
+    if (isNew) notify('staff', [staffId], { type: 'schedule', title: 'أصبحت مسؤولاً عن فريق', body: `لديك ${members.length} موظف — افتح «إدارة الفريق» من المزيد`, link: '/more' });
+    emit(`staff:${staffId}`, 'perms', { supervisor: true });
+    return { status: 200, body: { staffId, ...supervisorOf(staffId) } };
+  }
+  /** تبليغ المسؤولين عن موظف ممن يملكون الصلاحية؛ روابطهم تفتح واجهة الإدارة داخل حسابهم */
+  function notifySupervisors(staffId, perm, n) {
+    const ids = db.prepare('SELECT staff_id FROM staff_supervisors').all().map(r => r.staff_id).filter(id => {
+      const sv = supervisorOf(id);
+      return sv?.perms[perm] && sv.members.includes(Number(staffId)) && getStaff(id)?.is_active;
+    });
+    if (ids.length) notify('staff', ids, { ...n, link: n.link ? `/m${n.link}` : n.link });
   }
   function sectionsList() {
     return db.prepare('SELECT section_id AS id, section_name AS name, COUNT(*) AS staffCount FROM staff WHERE section_id IS NOT NULL AND is_active = 1 GROUP BY section_id, section_name ORDER BY section_name').all();
@@ -901,7 +1049,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (req.method === 'GET' && p === '/api/team/leave') {
       const from = iraqDate();
       const requests = db.prepare('SELECT * FROM leave_requests WHERE staff_id = ? ORDER BY id DESC LIMIT 60').all(s.id).map(r => leaveView(r, s));
-      ctx.send(res, 200, { today: from, weeklyOff: getMask(s.id), days: schedule(s.id, addDays(from, -dayIdx(from)), 21), requests, types: LEAVE_TYPES });
+      ctx.send(res, 200, { today: from, weeklyOff: getMask(s.id), plan: planOf(s.id).plan, monthly: monthlyBalance(s.id), days: schedule(s.id, addDays(from, -dayIdx(from)), 21), requests, types: LEAVE_TYPES });
       return true;
     }
     if (req.method === 'POST' && p === '/api/team/leave') {
@@ -928,12 +1076,18 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   async function handleManage(req, res, url, sub, actor, open, allow = () => true) {
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
     if (req.method === 'GET' && sub === 'overview') return send(200, overview(allow)), true;
-    if (req.method === 'GET' && sub === 'directory') return send(200, staffDirectory(allow)), true;
+    if (req.method === 'GET' && sub === 'directory') return send(200, staffDirectory(allow, open)), true;
     if (req.method === 'GET' && sub === 'leave') return send(200, listLeave(url, allow)), true;
     // صلاحيات المدراء (من لوحة التحكم فقط)
     if (open && req.method === 'GET' && sub === 'managers') return send(200, { managers: managersPerms(), sections: sectionsList() }), true;
     const pm = sub.match(/^managers\/(\d+)$/);
     if (open && pm && req.method === 'PUT') return reply(res, setPerms(Number(pm[1]), (await json(req)) || {}, actor), open), true;
+    // نوع دوام الموظف والمسؤولون (من لوحة التحكم فقط)
+    const planM = sub.match(/^staff\/(\d+)\/plan$/);
+    if (open && planM && req.method === 'PUT') return reply(res, setPlan(Number(planM[1]), (await json(req)) || {}, actor), open), true;
+    if (open && req.method === 'GET' && sub === 'supervisors') return send(200, { supervisors: supervisorsList() }), true;
+    const svM = sub.match(/^supervisors\/(\d+)$/);
+    if (open && svM && req.method === 'PUT') return reply(res, setSupervisor(Number(svM[1]), (await json(req)) || {}, actor), open), true;
     let m = sub.match(/^leave\/(\d+)\/decide$/);
     if (req.method === 'POST' && m) {
       const body = (await json(req)) || {};
@@ -1000,7 +1154,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
   const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
 
-  return { deleteMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
+  return { planOf, rateOn, supervisorOf, supervisorScope, notifySupervisors, deleteMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
 }
 
 module.exports = { createWork };

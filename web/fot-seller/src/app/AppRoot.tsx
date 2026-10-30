@@ -5,7 +5,7 @@ import { getToken, refreshSession, setSeller, setToken } from '../api';
 import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
 import { UpdateCheck } from './Update';
-import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush, unregisterPush } from '../team';
+import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush, setTeamMe, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
 import { ManagerApp } from './manager/ManagerApp';
@@ -24,7 +24,7 @@ import { Posts } from './screens/Posts';
 import { Shift } from './screens/Shift';
 import { MyMonth } from './screens/MyMonth';
 import { ChatList, ChatRoom } from './screens/Chat';
-import { getManagerToken, onLive, useChatUnread, useLiveChannel, useUnread } from './work';
+import { getManagerToken, managerApi, onLive, staffApi, supervisorMode, useChatUnread, useLiveChannel, useLoad, useUnread } from './work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * جذر تطبيق «ديما · الفريق»: الجلسة، بوابة الأوقات، التبويبات حسب الدور، القناة الحية،
@@ -103,6 +103,10 @@ function useBackButton() {
     void onNativeBack(() =>
       handleBack(() => {
         const p = path.current;
+        if ((p === '/m' || p === '/m/') && supervisorMode()) {
+          nav('/more', { replace: true });
+          return true;
+        }
         if (p === '/' || p === '/login' || p === '/m' || p === '/m/') return false;
         if (p.startsWith('/m/')) nav('/m', { replace: true });
         else nav('/', { replace: true });
@@ -111,6 +115,18 @@ function useBackButton() {
     ).then(f => (off = f));
     return () => off?.();
   }, [nav]);
+}
+
+/** بيانات الحساب (نوع الدوام، والمسؤولية عن فريق) تتحدث فور تعديلها من لوحة التحكم، مع عدد طلبات الفريق المعلّقة. */
+function useTeamAccount(enabled: boolean) {
+  const { data } = useLoad(() => (enabled ? staffApi.me() : Promise.resolve(null)), ['perms']);
+  useEffect(() => {
+    const me = getTeamMe();
+    if (data && me) setTeamMe({ ...me, plan: data.plan, supervisor: data.supervisor });
+  }, [data]);
+  const approves = !!data?.supervisor && !!data.supervisorPerms?.approveLeave;
+  const pending = useLoad(() => (approves ? managerApi.leave('pending') : Promise.resolve([])), ['leave'], [approves]);
+  return { supervisor: data?.supervisor ?? !!getTeamMe()?.supervisor, canGroup: !!data?.supervisorPerms?.manageChat, pending: pending.data?.length ?? 0 };
 }
 
 /** القناة الحية للموظف: إشعار داخل التطبيق مع اهتزاز عند كل تبليغ جديد. */
@@ -143,6 +159,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
   const team = !!getTeamToken();
   const unread = useUnread(team ? 'staff' : null);
   const chatUnread = useChatUnread(team ? 'staff' : null);
+  const account = useTeamAccount(team);
   useTabScroll();
 
   useEffect(() => {
@@ -165,7 +182,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         { to: '/shift', label: 'دوامي', icon: p => <I.calendar {...p} /> },
         { to: '/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
         { to: '/commission', label: 'عمولتي', icon: p => <I.wallet {...p} /> },
-        { to: '/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread || openGoals || undefined },
+        { to: '/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread + account.pending || openGoals || undefined },
       ]
     : [
         { to: '/', label: 'الرئيسية', icon: p => <I.home {...p} /> },
@@ -175,6 +192,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         { to: '/account', label: 'حسابي', icon: p => <I.user {...p} /> },
       ];
   const moreItems: MoreItem[] = [
+    ...(account.supervisor ? [{ to: '/m', label: 'إدارة الفريق', icon: <I.user size={22} />, badge: account.pending, tone: 'ok' }] : []),
     { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
     { to: '/catalog', label: 'منتجات عمولتي', icon: <I.box size={22} />, tone: 'ok' },
     { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok' },
@@ -185,6 +203,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
     { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute' },
   ];
   const back = team ? '/more' : undefined;
+  const canGroup = account.canGroup;
 
   return (
     <div className="t-app">
@@ -199,7 +218,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         {team && <Route path="/shift" element={<Shift />} />}
         {team && <Route path="/my-month" element={<MyMonth back="/more" />} />}
         {team && <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />}
-        {team && <Route path="/chat" element={<ChatList role="staff" base="/chat" />} />}
+        {team && <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={canGroup} />} />}
         {team && <Route path="/chat/:id" element={<ChatRoom role="staff" base="/chat" />} />}
         {team && <Route path="/posts" element={<Posts back="/more" />} />}
         {team && <Route path="/more" element={<More items={moreItems} />} />}
@@ -214,14 +233,16 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
   useTabScroll();
   const unread = useUnread('staff');
   const chatUnread = useChatUnread('staff');
+  const account = useTeamAccount(true);
   const tabs: Tab[] = [
     { to: '/', label: 'الرئيسية', icon: p => <I.home {...p} /> },
     { to: '/shift', label: 'دوامي', icon: p => <I.calendar {...p} /> },
     { to: '/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
     { to: '/posts', label: 'الإعلانات', icon: p => <I.megaphone {...p} /> },
-    { to: '/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread },
+    { to: '/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread + account.pending },
   ];
   const moreItems: MoreItem[] = [
+    ...(account.supervisor ? [{ to: '/m', label: 'إدارة الفريق', icon: <I.user size={22} />, badge: account.pending, tone: 'ok' }] : []),
     { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
     { to: '/shift', label: 'دوامي', icon: <I.calendar size={22} />, tone: 'accent' },
     { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} /> },
@@ -238,7 +259,7 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
         <Route path="/my-month" element={<MyMonth back="/more" />} />
         <Route path="/posts" element={<Posts />} />
         <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />
-        <Route path="/chat" element={<ChatList role="staff" base="/chat" />} />
+        <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={account.canGroup} />} />
         <Route path="/chat/:id" element={<ChatRoom role="staff" base="/chat" />} />
         <Route path="/more" element={<More items={moreItems} />} />
         <Route path="/account" element={<Account onLogout={onLogout} back="/more" />} />

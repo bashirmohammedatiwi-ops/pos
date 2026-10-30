@@ -21,6 +21,7 @@ const STATUS: Record<BoardStatus, { label: string; color: string }> = {
   soon: { label: 'لم يبدأ دوامه', color: 'var(--ink-4)' },
   missing: { label: 'لم يحضر', color: 'var(--bad)' },
   absent: { label: 'غائب', color: 'var(--bad)' },
+  hourly: { label: 'بالساعات', color: 'var(--brand-2)' },
 };
 type Filter = 'all' | 'in' | 'break' | 'missing' | 'out' | 'off';
 const FILTER_OF: Record<Filter, BoardStatus[]> = {
@@ -29,7 +30,7 @@ const FILTER_OF: Record<Filter, BoardStatus[]> = {
   break: ['break', 'over'],
   missing: ['missing', 'absent', 'soon'],
   out: ['out'],
-  off: ['off'],
+  off: ['off', 'hourly'],
 };
 
 function line(r: BoardRow) {
@@ -39,6 +40,7 @@ function line(r: BoardRow) {
   if (r.status === 'over' && ob) return `تجاوز الاستراحة ${Math.max(0, Math.floor((Date.now() - Date.parse(ob.endsAt)) / 60_000))} دقيقة`;
   if (a && r.status === 'in') return `حضر ${clockLabel(a.checkIn)}${a.lateMinutes ? ` · متأخر ${dur(a.lateMinutes)}` : ''}`;
   if (a && r.status === 'out') return `${clockLabel(a.checkIn)} – ${clockLabel(a.checkOut)} · ${hhmm(a.workedMinutes)} ساعة`;
+  if (r.status === 'hourly') return 'دوام بالساعات — غير موجود الآن';
   if (r.status === 'off') return r.day?.reason === 'weekly' ? 'عطلة أسبوعية' : 'في إجازة';
   if (r.status === 'soon') return `دوامه ${r.shift.start}`;
   return `لم يسجّل حضوره — دوامه ${r.shift.start}`;
@@ -57,7 +59,7 @@ export function MAttend() {
   const rows = useMemo(() => {
     const all = data?.rows ?? [];
     const wanted = FILTER_OF[filter];
-    const order: BoardStatus[] = ['over', 'missing', 'break', 'in', 'soon', 'out', 'off', 'absent'];
+    const order: BoardStatus[] = ['over', 'missing', 'break', 'in', 'soon', 'out', 'hourly', 'off', 'absent'];
     return (wanted.length ? all.filter(r => wanted.includes(r.status)) : all).sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
   }, [data, filter]);
   const c = data?.counts;
@@ -210,7 +212,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
               <div className="t-stat">
                 <span>الحضور</span>
                 <b className="num">{clockLabel(a.checkIn)}</b>
-                <em>{a.lateMinutes ? `متأخر ${dur(a.lateMinutes)}` : 'في الموعد'}</em>
+                <em>{a.lateMinutes ? `متأخر ${dur(a.lateMinutes)}` : row.shift.hourly ? 'بالساعات' : 'في الموعد'}</em>
               </div>
               <div className="t-stat">
                 <span>العمل</span>
@@ -225,7 +227,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
             </div>
           ) : (
             <p className="muted" style={{ fontSize: 13.5 }}>
-              لم يسجّل حضوراً اليوم. دوامه {row.shift.start} – {row.shift.end}.
+              {row.shift.hourly ? 'لم يسجّل حضوراً اليوم — دوامه بالساعات بلا وقت محدد.' : `لم يسجّل حضوراً اليوم. دوامه ${row.shift.start} – ${row.shift.end}.`}
             </p>
           )}
 
@@ -249,7 +251,7 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
             </div>
           )}
 
-          {perms.editAttendance && (
+          {perms.editAttendance && !row.shift.hourly && (
           <div className="t-card pad" style={{ display: 'grid', gap: 10 }}>
             <b style={{ fontSize: 14 }}>الوردية والاستراحة{row.shift.custom ? '' : ' (الافتراضية)'}</b>
             <div className="t-row-2">

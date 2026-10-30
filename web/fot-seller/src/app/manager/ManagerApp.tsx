@@ -24,7 +24,9 @@ import {
   relTime,
   shortDay,
   ALL_PERMS,
+  NO_PERMS,
   PermsProvider,
+  supervisorMode,
   usePerms,
   useChatUnread,
   useLiveChannel,
@@ -36,7 +38,8 @@ import {
   type ManagerPerms,
   type Post,
 } from '../work';
-import { KIND_LABEL, registerPush, unregisterPush } from '../../team';
+import { KIND_LABEL, getTeamMe, registerPush, setTeamMe, unregisterPush } from '../../team';
+import { MHours } from './ManagerHours';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق المدير داخل «ديما · الفريق» — بنفس الهوية:
@@ -76,11 +79,13 @@ export function ManagerApp() {
   const nav = useNavigate();
   useLiveChannel('manager');
   useScrollMemory();
-  const unread = useUnread('manager');
+  // مسؤول من الموظفين: نفس الواجهة بحدود صلاحياته وفريقه، وتبليغاته ومحادثاته في حسابه
+  const sup = supervisorMode();
+  const unread = useUnread(sup ? 'staff' : 'manager');
   const [pending, setPending] = useState(0);
   // صلاحيات المدير من الخادم (تتحدث فوراً عند تعديلها من لوحة التحكم)
   const meQ = useLoad(() => managerApi.me(), ['perms']);
-  const perms: ManagerPerms = meQ.data?.perms ?? ALL_PERMS;
+  const perms: ManagerPerms = meQ.data?.perms ?? (sup ? NO_PERMS : ALL_PERMS);
 
   useEffect(() => {
     const load = () =>
@@ -94,7 +99,7 @@ export function ManagerApp() {
         });
     void load();
     // إشعارات الهاتف للمدير؛ الضغط على الإشعار يفتح صفحته داخل نافذة المدير
-    void registerPush('manager', getManagerToken(), link => nav(link.startsWith('/m') ? link : `/m${link === '/' ? '' : link}`));
+    if (!sup) void registerPush('manager', getManagerToken(), link => nav(link.startsWith('/m') ? link : `/m${link === '/' ? '' : link}`));
     return onLive(m => {
       if (m.event === 'leave') void load();
       if (m.event === 'notify' && m.data.item) {
@@ -110,12 +115,19 @@ export function ManagerApp() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function logout() {
+    // أُزيلت مسؤوليته: يبقى في حسابه العادي
+    if (sup) {
+      const me = getTeamMe();
+      if (me) setTeamMe({ ...me, supervisor: false });
+      nav('/', { replace: true });
+      return;
+    }
     void unregisterPush('manager', getManagerToken());
     clearManager();
     nav('/login?as=manager', { replace: true });
   }
 
-  const chatUnread = useChatUnread('manager');
+  const chatUnread = useChatUnread(sup ? null : 'manager');
   const approvalsInMore = perms.viewSales && perms.viewAttendance;
   const tabs: { to: string; label: string; icon: (p: { filled?: boolean }) => ReactNode; badge?: number }[] = [
     { to: '/m', label: 'الرئيسية', icon: p => <I.home {...p} /> },
@@ -123,13 +135,13 @@ export function ManagerApp() {
     ...(perms.viewAttendance ? [{ to: '/m/attend', label: 'الحضور', icon: (p: { filled?: boolean }) => <I.clock {...p} /> }] : []),
     // خمسة تبويبات كحد أقصى: مع المبيعات تنتقل الموافقات إلى «المزيد» (وتبقى في الرئيسية)
     ...(perms.approveLeave && !approvalsInMore ? [{ to: '/m/approvals', label: 'الموافقات', icon: (p: { filled?: boolean }) => <I.calendar {...p} />, badge: pending }] : []),
-    { to: '/m/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
+    sup ? { to: '/more', label: 'حسابي', icon: p => <I.user {...p} /> } : { to: '/m/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
     { to: '/m/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread + (approvalsInMore ? pending : 0) },
   ];
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
-  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', ...(approvalsInMore ? ['/m/approvals'] : [])];
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/hours', ...(approvalsInMore ? ['/m/approvals'] : [])];
 
   return (
     <PermsProvider value={perms}>
@@ -137,17 +149,18 @@ export function ManagerApp() {
       <Routes>
         <Route index element={<MHome unread={unread} pending={pending} />} />
         <Route path="sales" element={perms.viewSales ? <MSales /> : <Navigate to="/m" replace />} />
-        <Route path="performance" element={perms.viewSales ? <MPerformance /> : <Navigate to="/m" replace />} />
+        <Route path="performance" element={perms.viewSales && !sup ? <MPerformance /> : <Navigate to="/m" replace />} />
         <Route path="attend" element={<MAttend />} />
         <Route path="approvals" element={<MApprovals />} />
         <Route path="posts" element={<MPosts />} />
         <Route path="team" element={<MTeam />} />
-        <Route path="networks" element={<MNetworks />} />
+        <Route path="networks" element={sup ? <Navigate to="/m" replace /> : <MNetworks />} />
         <Route path="reports" element={<MReports />} />
-        <Route path="chat" element={<ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
-        <Route path="chat/:id" element={<ChatRoom role="manager" base="/m/chat" />} />
+        <Route path="hours" element={<MHours />} />
+        <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
+        <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatRoom role="manager" base="/m/chat" />} />
         <Route path="more" element={<MMore unread={unread} pending={approvalsInMore ? pending : 0} onLogout={logout} />} />
-        <Route path="alerts" element={<Alerts role="manager" back="/m/more" />} />
+        <Route path="alerts" element={<Alerts role={sup ? 'staff' : 'manager'} back="/m/more" />} />
         <Route path="notify" element={<MNotify />} />
         <Route path="*" element={<Navigate to="/m" replace />} />
       </Routes>
@@ -506,7 +519,7 @@ function MApprovals() {
               open.decidedAt && (
                 <div className="t-card pad">
                   <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                    {open.status === 'approved' ? 'وافق' : open.status === 'rejected' ? 'رفض' : 'أُلغي'} {open.decidedBy?.replace(/^manager:/, '') ?? ''} · {relTime(open.decidedAt)}
+                    {open.status === 'approved' ? 'وافق' : open.status === 'rejected' ? 'رفض' : 'أُلغي'} {open.decidedBy?.replace(/^(manager|supervisor):/, '') ?? ''} · {relTime(open.decidedAt)}
                   </div>
                   {open.decidedNote && <div style={{ marginTop: 4 }}>{open.decidedNote}</div>}
                 </div>
@@ -888,7 +901,7 @@ function MTeam() {
     const rows = (data ?? []).filter(s => s.isActive);
     return n ? rows.filter(s => s.name.includes(n) || s.code.includes(n) || (s.sectionName ?? '').includes(n)) : rows;
   }, [data, q]);
-  const noOff = (data ?? []).filter(s => s.isActive && !s.weeklyOff).length;
+  const noOff = (data ?? []).filter(s => s.isActive && !s.weeklyOff && (s.plan ?? 'weekly') === 'weekly').length;
 
   return (
     <Screen title="الفريق" subtitle={data ? `${list.length} موظف${noOff ? ` · ${noOff} بلا عطلة محددة` : ''}` : 'الموظفون وعطلهم'} onRefresh={reload}>
@@ -919,11 +932,17 @@ function MTeam() {
                   {s.sectionName ? ` · ${s.sectionName}` : ''} · {s.lastSeen ? `نشط ${relTime(s.lastSeen)}` : 'لم يدخل التطبيق'}
                 </div>
               </div>
-              <div className="t-mini-off" aria-label="العطلة الأسبوعية">
-                {WEEK_DAYS.map((d, i) => (
-                  <i key={d} className={(s.weeklyOff >> i) & 1 ? 'on' : ''} title={d} />
-                ))}
-              </div>
+              {s.plan === 'hourly' ? (
+                <Badge tone="accent">بالساعات</Badge>
+              ) : s.plan === 'monthly' ? (
+                <Badge tone="ok">{s.monthlyDays ?? 0} بالشهر</Badge>
+              ) : (
+                <div className="t-mini-off" aria-label="العطلة الأسبوعية">
+                  {WEEK_DAYS.map((d, i) => (
+                    <i key={d} className={(s.weeklyOff >> i) & 1 ? 'on' : ''} title={d} />
+                  ))}
+                </div>
+              )}
             </button>
           ))}
         </div>
@@ -973,27 +992,39 @@ function StaffSheet({ staff, onClose, onSaved }: { staff: DirStaff | null; onClo
     >
       {staff && (
         <div className="t-form">
-          <div className="t-field">
-            <span>العطلة الأسبوعية</span>
-            <div className="t-days-pick">
-              {WEEK_DAYS.map((d, i) => (
-                <button
-                  key={d}
-                  type="button"
-                  className={(mask >> i) & 1 ? 'on' : ''}
-                  onClick={() => {
-                    haptic('select');
-                    setMask(m => m ^ (1 << i));
-                  }}
-                >
-                  <b>{shortDay(d)}</b>
-                </button>
-              ))}
+          {staff.plan === 'hourly' ? (
+            <div className="t-card pad" style={{ fontSize: 13.5, lineHeight: 1.8 }}>
+              دوام <b>بالساعات</b> بلا وقت محدد ولا عطلة — يُحسب راتبه من ساعات حضوره.
             </div>
-          </div>
-          <button type="button" className="t-btn block press" disabled={busy || mask === staff.weeklyOff || !perms.approveLeave} onClick={() => void save()}>
-            {busy ? <span className="spinner" /> : 'حفظ العطلة'}
-          </button>
+          ) : staff.plan === 'monthly' ? (
+            <div className="t-card pad" style={{ fontSize: 13.5, lineHeight: 1.8 }}>
+              له <b className="num">{staff.monthlyDays ?? 0}</b> إجازة في الشهر بلا عطلة أسبوعية ثابتة — يطلبها من التطبيق وتصلك للموافقة.
+            </div>
+          ) : (
+            <>
+              <div className="t-field">
+                <span>العطلة الأسبوعية</span>
+                <div className="t-days-pick">
+                  {WEEK_DAYS.map((d, i) => (
+                    <button
+                      key={d}
+                      type="button"
+                      className={(mask >> i) & 1 ? 'on' : ''}
+                      onClick={() => {
+                        haptic('select');
+                        setMask(m => m ^ (1 << i));
+                      }}
+                    >
+                      <b>{shortDay(d)}</b>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button type="button" className="t-btn block press" disabled={busy || mask === staff.weeklyOff || !perms.approveLeave} onClick={() => void save()}>
+                {busy ? <span className="spinner" /> : 'حفظ العطلة'}
+              </button>
+            </>
+          )}
 
           <div className="t-field">
             <span>الأسابيع الأربعة القادمة</span>
@@ -1121,6 +1152,7 @@ function MNotify() {
 function MMore({ unread, pending, onLogout }: { unread: number; pending: number; onLogout: () => void }) {
   const perms = usePerms();
   const me = getManagerMe();
+  const sup = supervisorMode();
   const [theme, setTheme] = useState<ThemePref>(getThemePref);
   const [vib, setVib] = useState(hapticsOn);
   const [askOut, setAskOut] = useState(false);
@@ -1130,9 +1162,13 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
         <Avatar name={me?.displayName} />
         <div>
           <div style={{ fontSize: 16.5, fontWeight: 700 }}>{me?.displayName || 'المدير'}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }} className="ltr">
-            @{me?.username}
-          </div>
+          {sup ? (
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>مسؤول الفريق</div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }} className="ltr">
+              @{me?.username}
+            </div>
+          )}
         </div>
       </section>
 
@@ -1183,6 +1219,14 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
           </Link>
           )}
           {perms.viewAttendance && (
+            <Link to="/m/hours" className="press" onClick={() => haptic('tap')}>
+              <span className="t-tile lg">
+                <I.clock size={22} />
+              </span>
+              الدوام بالساعات
+            </Link>
+          )}
+          {perms.viewAttendance && !sup && (
           <Link to="/m/networks" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg mute">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
@@ -1193,7 +1237,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
             شبكات المحل
           </Link>
           )}
-          {perms.viewSales && (
+          {perms.viewSales && !sup && (
             <Link to="/m/performance" className="press" onClick={() => haptic('tap')}>
               <span className="t-tile lg accent">
                 <I.target size={22} />
@@ -1201,7 +1245,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
               أداء الفريق
             </Link>
           )}
-          {perms.viewSales && (
+          {perms.viewSales && !sup && (
             <a href={MANAGER_URL} className="press">
               <span className="t-tile lg ok">
                 <I.sparkle size={22} />
@@ -1245,6 +1289,16 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
 
       <section className="t-section">
         <div className="t-list">
+          {sup ? (
+            <Link to="/more" className="t-row press-soft" onClick={() => haptic('tap')}>
+              <span className="t-tile">
+                <I.user size={19} />
+              </span>
+              <div className="body">
+                <div className="title">الرجوع إلى حسابي</div>
+              </div>
+            </Link>
+          ) : (
           <button type="button" className="t-row danger press-soft" onClick={() => setAskOut(true)}>
             <span className="t-tile bad">
               <I.out size={19} />
@@ -1253,6 +1307,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
               <div className="title">تسجيل الخروج</div>
             </div>
           </button>
+          )}
         </div>
       </section>
       <p className="t-foot">

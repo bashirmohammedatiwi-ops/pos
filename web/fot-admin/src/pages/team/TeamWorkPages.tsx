@@ -212,7 +212,7 @@ export function TeamLeavePage() {
             ) : dirQ.isLoading ? (
               <TableSkeleton rows={8} />
             ) : (
-              <WeeklyTable staff={staff} saving={weekly.isPending} onSave={(id, mask) => weekly.mutate({ id, mask })} />
+              <WeeklyTable staff={staff.filter(s => (s.plan ?? 'weekly') === 'weekly')} saving={weekly.isPending} onSave={(id, mask) => weekly.mutate({ id, mask })} />
             )
           ) : leaveQ.isError ? (
             <ErrorBlock error={leaveQ.error} onRetry={() => void leaveQ.refetch()} />
@@ -284,7 +284,7 @@ export function TeamLeavePage() {
               open.decidedAt && (
                 <div className="rounded-lg bg-slate-50 p-3">
                   <div className="text-[12px] text-slate-500">
-                    {open.decidedBy?.replace(/^manager:/, '')} · {formatDate(open.decidedAt)}
+                    {open.decidedBy?.replace(/^(manager|supervisor):/, '')} · {formatDate(open.decidedAt)}
                   </div>
                   {open.decidedNote && <div className="mt-1 text-slate-700">{open.decidedNote}</div>}
                 </div>

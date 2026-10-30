@@ -133,7 +133,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
   }
 
   /* ═════════════ ملخص الحضور لكل موظف ═════════════ */
-  function summary(url, allow) {
+  function summary(url, allow, showPay = true) {
     const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : iraqDate();
     const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : `${to.slice(0, 8)}01`;
     const today = iraqDate();
@@ -188,6 +188,11 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
         }
         const sh = shiftOf(s.id);
         const lateRows = list.filter(r => r.late_minutes > 0);
+        // بالساعات: لا أيام مقررة ولا غياب — يُحسب ما حضره فقط
+        if (sh.hourly) {
+          scheduled = present.size;
+          absent = 0;
+        }
         return {
           staffId: s.id,
           name: s.name,
@@ -204,14 +209,15 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
           lateMinutes: lateRows.reduce((x, r) => x + r.late_minutes, 0),
           breakMinutes: breakMin,
           overMinutes: over,
+          hourly: !!sh.hourly,
           overtimeEnabled: !!sh.overtime,
-          overtimeRate: sh.overtimeRate ?? null,
+          overtimeRate: showPay ? sh.overtimeRate ?? null : null,
           overtimeMinutes: ot,
           overtimeDays: otDays,
-          overtimePay: sh.overtimeRate ? Math.round((ot / 60) * sh.overtimeRate) : null,
+          overtimePay: showPay && sh.overtimeRate ? Math.round((ot / 60) * sh.overtimeRate) : null,
           autoClosed: list.filter(r => r.auto_closed).length,
           edited: list.filter(r => r.edited_by).length,
-          attendanceRate: scheduled ? Math.round((Math.min(present.size, scheduled) / scheduled) * 100) : null,
+          attendanceRate: !sh.hourly && scheduled ? Math.round((Math.min(present.size, scheduled) / scheduled) * 100) : null,
         };
       }),
     };
@@ -357,10 +363,10 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
     }
     return false;
   }
-  async function handleManage(req, res, url, sub, actor, open, allow = () => true) {
+  async function handleManage(req, res, url, sub, actor, open, allow = () => true, showPay = true) {
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
     if (req.method === 'GET' && sub === 'roster') return send(200, roster(url, allow)), true;
-    if (req.method === 'GET' && sub === 'attend/summary') return send(200, summary(url, allow)), true;
+    if (req.method === 'GET' && sub === 'attend/summary') return send(200, summary(url, allow, showPay)), true;
     if (!open) return false; // ما يلي للإدارة فقط
     if (req.method === 'GET' && sub === 'app-releases') return send(200, db.prepare('SELECT * FROM app_releases ORDER BY id DESC').all().map(releaseView)), true;
     if (req.method === 'POST' && sub === 'app-releases') {

@@ -1,13 +1,13 @@
 <Project>
   <PropertyGroup>
-    <Version>2.4.7</Version>
-    <AssemblyVersion>2.4.7.0</AssemblyVersion>
-    <FileVersion>2.4.7.0</FileVersion>
-    <InformationalVersion>2.4.7</InformationalVersion>
+    <Version>2.4.8</Version>
+    <AssemblyVersion>2.4.8.0</AssemblyVersion>
+    <FileVersion>2.4.8.0</FileVersion>
+    <InformationalVersion>2.4.8</InformationalVersion>
     <Company>Future of Technology</Company>
     <Product>FOT POS</Product>
     <Authors>Future of Technology</Authors>
-    <Copyright>Copyright © Future of Technology</Copyright>
+    <Copyright>Copyright آ© Future of Technology</Copyright>
     <NeutralLanguage>ar</NeutralLanguage>
   </PropertyGroup>
 </Project>

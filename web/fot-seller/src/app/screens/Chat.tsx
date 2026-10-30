@@ -143,6 +143,41 @@ function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
   return { recording, ms, start, stop };
 }
 
+/** صورة في فقاعة المحادثة: فشل التحميل يظهر مع إعادة محاولة بدل فقاعة فارغة */
+function ChatImage({ src, onOpen, onLoad }: { src: string; onOpen: () => void; onLoad: () => void }) {
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  if (failed) {
+    return (
+      <button
+        type="button"
+        className="t-img-failed press"
+        onClick={e => {
+          e.stopPropagation();
+          setFailed(false);
+          setAttempt(n => n + 1);
+        }}
+      >
+        تعذر تحميل الصورة — اضغط لإعادة المحاولة
+      </button>
+    );
+  }
+  return (
+    <img
+      key={attempt}
+      src={mediaUrl(src)}
+      alt=""
+      loading="lazy"
+      onClick={e => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      onLoad={onLoad}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 /** صوت واحد يعمل في الوقت نفسه */
 let nowPlaying: HTMLAudioElement | null = null;
 
@@ -185,6 +220,7 @@ function VoiceBubble({ src, ms }: { src: string; ms?: number | null }) {
       a.onerror = () => {
         setLoading(false);
         setPlaying(false);
+        audio.current = null; // الضغطة التالية تعيد المحاولة
         toast('تعذر تشغيل الرسالة الصوتية');
       };
       audio.current = a;
@@ -832,14 +868,9 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
                       </div>
                     )}
                     {r.msg.image && (
-                      <img
-                        src={mediaUrl(r.msg.image)}
-                        alt=""
-                        loading="lazy"
-                        onClick={e => {
-                          e.stopPropagation();
-                          setViewer(r.msg.image!);
-                        }}
+                      <ChatImage
+                        src={r.msg.image}
+                        onOpen={() => setViewer(r.msg.image!)}
                         onLoad={() => atBottom.current && scrollDown()}
                       />
                     )}

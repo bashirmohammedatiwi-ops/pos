@@ -145,6 +145,8 @@ function createTeam(ctx) {
       sectionName: s.section_name,
       salesmanId: s.salesman_id,
       cashierId: s.cashier_id,
+      plan: work.planOf(s.id).plan,
+      supervisor: !!work.supervisorOf(s.id),
     };
   }
 
@@ -206,6 +208,9 @@ function createTeam(ctx) {
     emit: work.emit,
     emitManagers: work.emitManagers,
     dayFor: work.dayFor,
+    planOf: work.planOf,
+    rateOn: work.rateOn,
+    notifySupervisors: work.notifySupervisors,
   });
   const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia });
   // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
@@ -217,13 +222,56 @@ function createTeam(ctx) {
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
     if (sub === 'leave' || /^leave\//.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return 'approveLeave';
-    if (/^attend\/(board|log|summary)$/.test(sub) || sub === 'roster' || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
+    if (/^attend\/(board|log|summary|hours)$/.test(sub) || sub === 'roster' || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
     if (/^attend\//.test(sub) || /^networks/.test(sub) || /^staff\/\d+\/shift$/.test(sub)) return 'editAttendance';
     if ((sub === 'posts' && method !== 'GET') || /^posts\/\d+$/.test(sub) || sub === 'notify') return 'sendPosts';
     if (sub === 'chat/groups' || /^chat\/groups\//.test(sub) || (method === 'DELETE' && /^chat\/messages\//.test(sub))) return 'manageChat';
     if (/^product-images\//.test(sub) && method !== 'GET') return 'admin';
     if (/^sales(\/|$)/.test(sub)) return 'viewSales';
     return null;
+  }
+
+  /** ما يُسمح به للمسؤول من الموظفين داخل /api/team/m/* — لا شبكات ولا إعدادات ولا ما يخص الإدارة */
+  function supervisorRoute(method, sub) {
+    if (['overview', 'directory', 'leave', 'roster', 'notify/log', 'attend/board', 'attend/log', 'attend/summary', 'attend/hours'].includes(sub)) return method === 'GET';
+    if (/^leave\/\d+\/decide$/.test(sub) || sub === 'attend/manual' || sub === 'notify' || sub === 'media') return method === 'POST';
+    if (/^attend\/\d+$/.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return method === 'PUT';
+    if (/^staff\/\d+\/shift$/.test(sub)) return method === 'PUT' || method === 'GET';
+    if (/^staff\/\d+\/schedule$/.test(sub)) return method === 'GET';
+    if (sub === 'posts' || /^posts\/\d+(\/readers)?$/.test(sub)) return true;
+    return /^sales(\/|$)/.test(sub);
+  }
+  /** المسؤول: موظف برمز حسابه العادي، صلاحياته ونطاقه من لوحة التحكم */
+  async function handleSupervisor(req, res, url, sub, s) {
+    const key = `staff:${s.id}`;
+    if (req.method === 'GET' && sub === 'events') {
+      const token = url.searchParams.get('token') || '';
+      work.openStream(req, res, key, () => !!staffFromToken(token) && !!work.supervisorOf(s.id));
+      return true;
+    }
+    const { perms, members } = work.supervisorOf(s.id);
+    if (req.method === 'GET' && sub === 'me') {
+      ctx.send(res, 200, { id: s.id, username: s.code, displayName: s.name, unread: work.unreadCount('staff', s.id), perms, sections: [], supervisor: true, memberCount: members.length });
+      return true;
+    }
+    const need = permFor(req.method, sub);
+    if (!supervisorRoute(req.method, sub) || (need && !perms[need])) {
+      ctx.send(res, 403, { error: 'لا تملك صلاحية هذا الإجراء — راجع الإدارة', code: 'perm', perm: need });
+      return true;
+    }
+    const allow = work.supervisorScope(s.id);
+    const target = sub.match(/^staff\/(\d+)\//);
+    if (target && !allow(Number(target[1]))) {
+      ctx.send(res, 403, { error: 'هذا الموظف ليس ضمن فريقك' });
+      return true;
+    }
+    const actor = `supervisor:${s.name}`;
+    if (await work.handleManage(req, res, url, sub, actor, false, allow)) return true;
+    if (await attend.handleManage(req, res, url, sub, actor, false, allow, perms.viewPay)) return true;
+    if (await extra.handleManage(req, res, url, sub, actor, false, allow, perms.viewPay)) return true;
+    if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actor)) return true;
+    ctx.send(res, 404, { error: 'not found' });
+    return true;
   }
 
   function managerFromToken(token) {
@@ -286,6 +334,8 @@ function createTeam(ctx) {
       const token = sub === 'events' ? url.searchParams.get('token') || '' : ctx.bearerToken(req);
       const m = managerFromToken(token);
       if (!m) {
+        const sup = staffFromToken(token);
+        if (sup && work.supervisorOf(sup.id)) return handleSupervisor(req, res, url, sub, sup);
         ctx.send(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
         return true;
       }
@@ -347,8 +397,8 @@ function createTeam(ctx) {
       }
       const actorName = `manager:${m.displayName || m.username}`;
       if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;
-      if (await attend.handleManage(req, res, url, sub, actorName, false, allow)) return true;
-      if (await extra.handleManage(req, res, url, sub, actorName, false, allow)) return true;
+      if (await attend.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
+      if (await extra.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
       if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
@@ -444,7 +494,7 @@ function createTeam(ctx) {
       }
       if (req.method === 'GET' && p === '/api/team/me') {
         const device = db.prepare('SELECT label, platform, bound_at AS boundAt FROM devices WHERE staff_id = ?').get(s.id) || null;
-        ctx.send(res, 200, { ...staffView(s), device });
+        ctx.send(res, 200, { ...staffView(s), device, supervisorPerms: work.supervisorOf(s.id)?.perms ?? null });
         return true;
       }
       // الخروج: إيقاف إشعارات هذا الهاتف
@@ -475,7 +525,7 @@ function createTeam(ctx) {
       if (await work.handleStaff(req, res, url, s)) return true;
       if (await attend.handleStaff(req, res, url, s)) return true;
       if (p === '/api/team/chat' || p.startsWith('/api/team/chat/')) {
-        if (await chat.handle(req, res, url, p.slice('/api/team/chat'.length), { key: `staff:${s.id}`, kind: 'staff', id: s.id })) return true;
+        if (await chat.handle(req, res, url, p.slice('/api/team/chat'.length), { key: `staff:${s.id}`, kind: 'staff', id: s.id, canManage: !!work.supervisorOf(s.id)?.perms.manageChat })) return true;
       }
       ctx.send(res, 404, { error: 'not found' });
       return true;

@@ -18,6 +18,7 @@ const PERMS: { key: keyof TeamManagerPermsDto['perms']; label: string; hint: str
   { key: 'sendPosts', label: 'الإعلانات والتبليغات', hint: 'نشر إعلانات وإرسال تبليغات للفريق' },
   { key: 'manageChat', label: 'إدارة المحادثات', hint: 'إنشاء المجموعات وحذف الرسائل المسيئة' },
   { key: 'viewSales', label: 'مبيعات المحل', hint: 'المبيعات المباشرة والأيام السابقة والكاشيرية والبائعين والمنتجات' },
+  { key: 'viewPay', label: 'المبالغ والرواتب', hint: 'مستحقات الساعات والأوفر تايم في التقارير' },
 ];
 
 function ManagerCard({ m, sections, onSaved }: { m: TeamManagerPermsDto; sections: { id: number; name: string; staffCount: number }[]; onSaved: () => void }) {

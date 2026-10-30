@@ -12,7 +12,7 @@ import {
   scheduleShiftReminders,
   type WifiState,
 } from '../native';
-import { attendApi, dateTiny, useLoad, type AttendRec, type AttendState } from '../work';
+import { attendApi, dateTiny, useLoad, type AttendRec, type AttendState, type HoursSpan } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الحضور والانصراف والاستراحة — من شبكة المحل فقط (يتحقق الخادم من BSSID و IP).
@@ -109,11 +109,11 @@ function ConfirmPunch({ action, data, onCancel, onConfirm }: { action: AttendAct
   const iraqNow = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Baghdad', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
   const nowText = new Date().toLocaleTimeString('ar-IQ-u-nu-latn', { timeZone: 'Asia/Baghdad', hour: 'numeric', minute: '2-digit', hour12: true });
   const s = data.shift;
-  const early = a === 'out' && !data.day?.off && s.start < s.end && iraqNow < s.end;
-  const late = a === 'in' && !data.day?.off && s.start < s.end && iraqNow > s.start;
+  const early = !s.hourly && a === 'out' && !data.day?.off && s.start < s.end && iraqNow < s.end;
+  const late = !s.hourly && a === 'in' && !data.day?.off && s.start < s.end && iraqNow > s.start;
   const info: Record<AttendAction, { title: string; text: string; ok: string; tone: string; icon: ReactNode }> = {
-    in: { title: 'تأكيد تسجيل الحضور', text: `سيُسجَّل حضورك الآن الساعة ${nowText}${data.day?.off ? ' — اليوم عطلتك، يُحسب حضوراً إضافياً' : ''}.`, ok: 'نعم، سجّل حضوري', tone: 'ok', icon: <I.store size={24} /> },
-    out: { title: 'تأكيد الانصراف', text: `سيُسجَّل انصرافك الآن الساعة ${nowText}، ولن تتمكن من التعديل بعدها.`, ok: 'نعم، سجّل انصرافي', tone: 'bad', icon: <I.out size={24} /> },
+    in: { title: 'تأكيد تسجيل الحضور', text: `سيُسجَّل حضورك الآن الساعة ${nowText}${s.hourly ? ' وتبدأ ساعات عملك.' : data.day?.off ? ' — اليوم عطلتك، يُحسب حضوراً إضافياً.' : '.'}`, ok: 'نعم، سجّل حضوري', tone: 'ok', icon: <I.store size={24} /> },
+    out: { title: 'تأكيد الانصراف', text: s.hourly ? `سيُسجَّل انصرافك الآن الساعة ${nowText} وتتوقف ساعات عملك. إن عدت اليوم سجّل حضورك من جديد.` : `سيُسجَّل انصرافك الآن الساعة ${nowText}، ولن تتمكن من التعديل بعدها.`, ok: 'نعم، سجّل انصرافي', tone: 'bad', icon: <I.out size={24} /> },
     'break/start': { title: 'بدء الاستراحة', text: `يبدأ العدّاد فوراً. المتبقي من استراحتك اليوم ${data.breakLeftMinutes} دقيقة.`, ok: 'نعم، ابدأ الاستراحة', tone: 'accent', icon: <I.coffee size={24} /> },
     'break/end': { title: 'إنهاء الاستراحة', text: `ستُسجَّل عودتك للعمل الآن الساعة ${nowText}.`, ok: 'نعم، عدت للعمل', tone: 'ok', icon: <I.check size={24} /> },
   };
@@ -162,10 +162,10 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     scheduled.current = key;
     if (ob) void scheduleBreakAlarms(new Date(Date.parse(ob.endsAt) - skew.current).toISOString(), data.breakWarnMinutes ?? 2);
     else void cancelBreakAlarms();
-    const off = data.day?.off;
+    const off = data.day?.off || data.shift.hourly;
     void scheduleShiftReminders({
       startAt: !data.attendance && !off ? iraqAt(data.today, data.shift.start) - 5 * 60_000 : null,
-      endAt: data.attendance && !data.attendance.checkOut ? iraqAt(data.today, data.shift.end) : null,
+      endAt: data.attendance && !data.attendance.checkOut && !data.shift.hourly ? iraqAt(data.today, data.shift.end) : null,
     });
   }, [data, ob]);
 
@@ -195,7 +195,9 @@ export function AttendCard({ compact }: { compact?: boolean }) {
       haptic('success');
       toast(
         action === 'in'
-          ? next.attendance?.lateMinutes
+          ? data?.attendance?.checkOut
+            ? 'أهلاً بعودتك — استُؤنفت ساعاتك'
+            : next.attendance?.lateMinutes
             ? `سُجّل حضورك — متأخر ${dur(next.attendance.lateMinutes)}`
             : 'سُجّل حضورك — يوم موفق ✨'
           : action === 'out'
@@ -291,6 +293,34 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     );
   }
 
+  // بالساعات في الدوام: الساعات تجري، والخروج بزر الانصراف
+  if (a && !a.checkOut && s.hourly) {
+    const worked = Math.max(0, Math.round((nowMs() - Date.parse(a.checkIn)) / 60_000) - a.breakMinutes);
+    return (
+      <section className="t-attend live">
+        <div className="row">
+          <span className="label">في الدوام منذ {clockLabel(a.checkIn)}</span>
+          <span className="t-chip-glass up">بالساعات</span>
+        </div>
+        <div className="clock num ltr" style={{ marginTop: 8, textAlign: 'right' }}>
+          {hhmm(worked)}
+        </div>
+        <div className="sub">ساعات اليوم{data.hours ? ` · هذا الأسبوع ${hhmm(data.hours.week.minutes)}` : ''}</div>
+        <div className="acts">
+          <button type="button" className="t-btn white press" disabled={!!busy} onClick={() => askFor('out')}>
+            {busy === 'out' ? <span className="spinner" style={{ borderTopColor: '#241245' }} /> : (
+              <>
+                <I.out size={18} /> انصراف
+              </>
+            )}
+          </button>
+        </div>
+        {netLine}
+        {confirmEl}
+      </section>
+    );
+  }
+
   // في الدوام
   if (a && !a.checkOut) {
     const worked = Math.max(0, Math.round((nowMs() - Date.parse(a.checkIn)) / 60_000) - a.breakMinutes);
@@ -343,8 +373,8 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     );
   }
 
-  // انتهى اليوم
-  if (a && a.checkOut) {
+  // انتهى اليوم (بالساعات يستطيع العودة في اليوم نفسه)
+  if (a && a.checkOut && !s.hourly) {
     return (
       <section className="t-attend">
         <div className="row">
@@ -381,19 +411,18 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     );
   }
 
-  // لم يحضر بعد
-  const off = data.day?.off;
+  // لم يحضر بعد — أو خرج وصاحب الساعات قد يعود
+  const off = data.day?.off && !s.hourly;
+  const weekHours = data.hours ? hhmm(data.hours.week.minutes) : '0:00';
   const noNets = !data.network.configured && data.network.enforced;
   // الرئيسية: بطاقة أفقية مختصرة (الزر الدائري الكبير في «دوامي»)
   if (compact)
     return (
       <section className="t-attend t-attend-mini">
         <div className="info">
-          <span className="label">{off ? 'اليوم عطلتك' : 'لم تسجّل حضورك بعد'}</span>
-          <b className="num ltr">
-            {s.start} – {s.end}
-          </b>
-          <small>{noNets ? 'البصمة تُفعَّل حين تضيف الإدارة واي فاي المحل' : `استراحة ${s.breakMinutes} د · من واي فاي المحل`}</small>
+          <span className="label">{s.hourly ? (a ? `عملت اليوم ${hhmm(a.workedMinutes)}` : 'دوامك بالساعات') : off ? 'اليوم عطلتك' : 'لم تسجّل حضورك بعد'}</span>
+          <b className="num ltr">{s.hourly ? weekHours : `${s.start} – ${s.end}`}</b>
+          <small>{noNets ? 'البصمة تُفعَّل حين تضيف الإدارة واي فاي المحل' : s.hourly ? 'ساعات هذا الأسبوع · من واي فاي المحل' : `استراحة ${s.breakMinutes} د · من واي فاي المحل`}</small>
         </div>
         {!noNets && (
           <button type="button" className="t-punch-mini press" disabled={!!busy} onClick={() => askFor('in')} aria-label="تسجيل الحضور">
@@ -408,9 +437,9 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     <section className="t-attend" style={{ textAlign: 'center' }}>
       <div className="row">
         <span className="label" style={{ opacity: 1, color: 'var(--ink-3)' }}>
-          {off ? 'اليوم عطلتك' : `دوامك ${s.start} – ${s.end}`}
+          {s.hourly ? (a ? `عملت اليوم ${hhmm(a.workedMinutes)}` : 'دوامك بالساعات') : off ? 'اليوم عطلتك' : `دوامك ${s.start} – ${s.end}`}
         </span>
-        <span className="t-badge mute">استراحة {s.breakMinutes} د</span>
+        <span className="t-badge mute">{s.hourly ? `هذا الأسبوع ${weekHours}` : `استراحة ${s.breakMinutes} د`}</span>
       </div>
       {!data.network.configured && data.network.enforced ? (
         <p className="muted" style={{ margin: '18px 0 6px', fontSize: 13.5, lineHeight: 1.8 }}>
@@ -422,13 +451,66 @@ export function AttendCard({ compact }: { compact?: boolean }) {
         <button type="button" className="t-punch" disabled={!!busy} onClick={() => askFor('in')}>
           <span>
             {busy === 'in' ? <span className="spinner" style={{ width: 30, height: 30 }} /> : <I.store size={40} />}
-            <b>تسجيل الحضور</b>
+            <b>{s.hourly && a ? 'تسجيل العودة' : 'تسجيل الحضور'}</b>
             <small>{off ? 'يوم عطلة — تسجيل إضافي' : 'من شبكة المحل'}</small>
           </span>
         </button>
       )}
       {!compact && netLine}
       {confirmEl}
+    </section>
+  );
+}
+
+const money = (n?: number | null) => (n ?? 0).toLocaleString('en-US');
+
+/** حساب الساعات: ساعات الأسبوع والشهر ومستحقها بسعر الساعة */
+export function HoursCard() {
+  const { data } = useLoad(() => attendApi.state(), ['attend']);
+  const h = data?.hours;
+  if (!h) return null;
+  const span = (s: HoursSpan, label: string) => (
+    <div className="t-stat">
+      <span>{label}</span>
+      <b className="num ltr">{hhmm(s.minutes)}</b>
+      <em className="num">{s.pay != null ? `${money(s.pay)} د.ع` : `${s.days} يوم`}</em>
+    </div>
+  );
+  return (
+    <section className="t-section">
+      <div className="t-section-head">
+        <h2>ساعاتي وراتبي</h2>
+        {h.rate ? <small className="num">{money(h.rate)} دينار للساعة</small> : null}
+      </div>
+      <div className="t-stats">
+        {span(h.week, 'هذا الأسبوع')}
+        {span(h.lastWeek, 'الأسبوع الماضي')}
+        {span(h.month, 'هذا الشهر')}
+      </div>
+      {h.weeks.length > 0 && (
+        <div className="t-list" style={{ marginTop: 12 }}>
+          {h.weeks.map(w => (
+            <div key={w.from} className="t-row">
+              <span className="t-tile accent">
+                <I.clock size={18} />
+              </span>
+              <div className="body">
+                <div className="title">
+                  {dateTiny(w.from)} – {dateTiny(w.to)}
+                </div>
+                <div className="sub">{w.days === 1 ? 'يوم واحد' : w.days === 2 ? 'يومان' : `${w.days} أيام`} · من السبت إلى الجمعة</div>
+              </div>
+              <div className="end">
+                <b className="num ltr">{hhmm(w.minutes)}</b>
+                {w.pay != null && <small className="num">{money(w.pay)} د.ع</small>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+        تُحسب الساعات من الحضور إلى الانصراف، ولا يُحسب وقت خروجك بينهما.
+      </p>
     </section>
   );
 }
@@ -440,12 +522,13 @@ export function AttendHistory() {
   const total = rows.reduce((s, r) => s + r.workedMinutes, 0);
   const late = rows.filter(r => r.lateMinutes > 0).length;
   const ot = data?.overtime;
+  const hourly = !!data?.shift.hourly;
   return (
     <section className="t-section">
       <div className="t-section-head">
         <h2>سجل الحضور</h2>
         <small>
-          {hhmm(total)} ساعة · {late ? `${late} تأخير` : 'بلا تأخير'}
+          {hhmm(total)} ساعة{hourly ? '' : ` · ${late ? `${late} تأخير` : 'بلا تأخير'}`}
         </small>
       </div>
       {ot && (
@@ -474,7 +557,7 @@ export function AttendHistory() {
               <div className="title">{dateTiny(r.date)}</div>
               <div className="sub">
                 {clockLabel(r.checkIn)} – {r.checkOut ? clockLabel(r.checkOut) : '—'}
-                {r.breakMinutes ? ` · استراحة ${r.breakMinutes} د` : ''}
+                {r.breakMinutes ? ` · ${hourly ? 'خروج' : 'استراحة'} ${r.breakMinutes} د` : ''}
                 {r.autoClosed ? ' · إغلاق تلقائي' : ''}
                 {r.edited ? ' · معدّل' : ''}
               </div>
@@ -482,7 +565,7 @@ export function AttendHistory() {
             <div className="end">
               <b className="num ltr">{hhmm(r.workedMinutes)}</b>
               <small className={r.overtimeMinutes ? 'ot' : undefined}>
-                {r.overtimeMinutes ? `+${dur(r.overtimeMinutes)} أوفر` : r.lateMinutes ? `تأخير ${dur(r.lateMinutes)}` : r.overMinutes ? `تجاوز ${r.overMinutes} د` : 'منضبط'}
+                {hourly ? '' : r.overtimeMinutes ? `+${dur(r.overtimeMinutes)} أوفر` : r.lateMinutes ? `تأخير ${dur(r.lateMinutes)}` : r.overMinutes ? `تجاوز ${r.overMinutes} د` : 'منضبط'}
               </small>
             </div>
           </div>

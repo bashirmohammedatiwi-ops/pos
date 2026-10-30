@@ -1,20 +1,36 @@
 package com.deemaalhayat.team;
 
+import android.net.http.HttpResponseCache;
 import android.os.Bundle;
 import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.File;
+import java.io.IOException;
+
 public class MainActivity extends BridgeActivity {
     // أقصى تكبير لخط النظام داخل التطبيق: يبقى مقروءاً لمن كبّر الخط دون أن يتكسر التصميم
     private static final int MAX_TEXT_ZOOM = 115;
+    private static final long MEDIA_CACHE_BYTES = 100L * 1024 * 1024;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // إضافة شبكة الواي فاي (الحضور من شبكة المحل) — تُسجَّل قبل تشغيل الجسر
         registerPlugin(WifiInfoPlugin.class);
         super.onCreate(savedInstanceState);
+        installMediaProxy();
         applyTextZoom();
+    }
+
+    private void installMediaProxy() {
+        // تخزين الوسائط على الهاتف حسب ترويسات الخادم، فلا تُحمَّل الصورة نفسها مرتين
+        try {
+            HttpResponseCache.install(new File(getCacheDir(), "media"), MEDIA_CACHE_BYTES);
+        } catch (IOException ignored) {
+            // بلا تخزين تعمل الوسائط أيضاً
+        }
+        if (bridge != null) bridge.setWebViewClient(new MediaProxyClient(bridge, getString(R.string.team_api_base)));
     }
 
     @Override

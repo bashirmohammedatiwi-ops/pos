@@ -19,6 +19,10 @@ export interface TeamStaff {
   sectionId?: number | null;
   sectionName?: string | null;
   salesmanId?: number | null;
+  /** نوع الدوام: عطلة أسبوعية، إجازات شهرية، أو بالساعات */
+  plan?: 'weekly' | 'monthly' | 'hourly';
+  /** مسؤول عن فريق: يفتح واجهة الإدارة بحسابه */
+  supervisor?: boolean;
 }
 
 export function getTeamToken() {

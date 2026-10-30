@@ -117,7 +117,7 @@ import type {
   TeamPushStatusDto,
   WifiScanDto,
   TeamBroadcastDto,
-  TeamDirStaffDto,
+  TeamDirStaffDto, TeamHoursDto, TeamPlan, TeamSupervisorDto,
   TeamLeaveDto,
   TeamOverviewDto,
   TeamPostDto,
@@ -584,6 +584,12 @@ export const api = {
   // تطبيق الفريق: الإجازات والعطل والإعلانات والتبليغات (عبر وكيل خادم الفريق)
   teamOverview: () => request<TeamOverviewDto>('/api/team/hub/overview'),
   teamDirectory: () => request<TeamDirStaffDto[]>('/api/team/hub/directory'),
+  saveTeamPlan: (staffId: number, body: { plan: TeamPlan; monthlyDays?: number; hourlyRate?: number; rateFrom?: string }) =>
+    request<{ plan: TeamPlan }>(`/api/team/hub/staff/${staffId}/plan`, { method: 'PUT', body: JSON.stringify(body) }),
+  teamHours: (from: string, to: string) => request<TeamHoursDto>(`/api/team/hub/attend/hours?from=${from}&to=${to}`),
+  teamSupervisors: () => request<{ supervisors: TeamSupervisorDto[] }>('/api/team/hub/supervisors'),
+  saveTeamSupervisor: (staffId: number, body: { perms?: Record<string, boolean>; members?: number[]; remove?: boolean }) =>
+    request<unknown>(`/api/team/hub/supervisors/${staffId}`, { method: 'PUT', body: JSON.stringify(body) }),
   teamLeave: (status: 'pending' | 'approved' | 'rejected' | 'all') => request<TeamLeaveDto[]>(`/api/team/hub/leave?status=${status}`),
   decideTeamLeave: (id: number, approve: boolean, note?: string) =>
     request<TeamLeaveDto>(`/api/team/hub/leave/${id}/decide`, { method: 'POST', body: JSON.stringify({ approve, note }) }),

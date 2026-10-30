@@ -88,7 +88,7 @@ if (-not (Test-Path $keystoreProps)) {
 Write-Host "Assembling APK $Version ($versionCode)..." -ForegroundColor Cyan
 Push-Location $androidDir
 try {
-    & .\gradlew.bat assembleRelease --no-daemon "-PteamVersionCode=$versionCode" "-PteamVersionName=$Version"
+    & .\gradlew.bat assembleRelease --no-daemon "-PteamVersionCode=$versionCode" "-PteamVersionName=$Version" "-PteamApiBase=$ApiBase"
     if ($LASTEXITCODE -ne 0) { throw "Gradle assembleRelease failed" }
 }
 finally { Pop-Location }

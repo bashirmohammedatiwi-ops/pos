@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, ErrorLine, Fab, I, Screen, Sheet, Skeleton, toast } from '../kit';
 import { haptic } from '../native';
 import { BackBtn, LEAVE_ICON, Lightbox, StatusBadge } from '../parts';
-import { AttendCard, AttendHistory } from './Attend';
+import { AttendCard, AttendHistory, HoursCard } from './Attend';
 import { LeaveRequest } from './LeaveRequest';
 
 const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -67,6 +67,9 @@ export function Shift({ back }: { back?: string }) {
   const nextOff = data?.days.find(d => d.date > today && d.off);
   const offList = data ? offNames(data.weeklyOff) : [];
   const pending = data?.requests.filter(r => r.status === 'pending').length ?? 0;
+  const hourly = data?.plan === 'hourly';
+  const monthly = data?.plan === 'monthly' ? data.monthly ?? null : null;
+  const thisMonth = monthly?.[0];
 
   async function cancel() {
     if (!detail) return;
@@ -104,7 +107,17 @@ export function Shift({ back }: { back?: string }) {
   return (
     <Screen
       title="دوامي"
-      subtitle={data ? (offList.length ? `عطلتك الأسبوعية: ${offList.join(' و')}` : 'لم تُحدَّد عطلتك الأسبوعية بعد') : 'العطل والإجازات والطلبات'}
+      subtitle={
+        !data
+          ? 'العطل والإجازات والطلبات'
+          : hourly
+            ? 'دوام بالساعات بلا وقت محدد'
+            : thisMonth
+              ? `إجازاتك ${thisMonth.allowance} في الشهر · المتبقي ${thisMonth.left}`
+              : offList.length
+                ? `عطلتك الأسبوعية: ${offList.join(' و')}`
+                : 'لم تُحدَّد عطلتك الأسبوعية بعد'
+      }
       onRefresh={reload}
       start={back ? <BackBtn to={back} /> : undefined}
     >
@@ -113,6 +126,15 @@ export function Shift({ back }: { back?: string }) {
         <>
           <Skeleton h={120} r={26} />
           <Skeleton h={260} r={20} mt={14} />
+        </>
+      ) : data && hourly ? (
+        <>
+          <AttendCard />
+          <HoursCard />
+          <Link to="/my-month" className="t-btn soft block sm press" style={{ marginTop: 12 }} onClick={() => haptic('tap')}>
+            <I.chart size={18} /> تقريري الشهري
+          </Link>
+          <AttendHistory />
         </>
       ) : data ? (
         <>
@@ -137,11 +159,33 @@ export function Shift({ back }: { back?: string }) {
                 <p>
                   {nextOff
                     ? `أقرب يوم راحة: ${nextOff.weekday} ${dateShort(nextOff.date).split('، ').pop()} · ${inDays(daysUntil(nextOff.date))}`
-                    : 'لا عطلة خلال الأسابيع الثلاثة القادمة'}
+                    : monthly
+                      ? 'لا إجازة محددة خلال الأسابيع الثلاثة القادمة'
+                      : 'لا عطلة خلال الأسابيع الثلاثة القادمة'}
                 </p>
               </div>
             </div>
           </section>
+
+          {monthly && (
+            <section className="t-section" style={{ marginTop: 14 }}>
+              <div className="t-section-head">
+                <h2>إجازاتي الشهرية</h2>
+                <small>المرضية والطارئة لا تُخصم</small>
+              </div>
+              <div className="t-stats" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                {monthly.map((m, i) => (
+                  <div key={m.month} className="t-stat">
+                    <span>{i === 0 ? 'هذا الشهر' : 'الشهر القادم'}</span>
+                    <b className="num">
+                      {m.left} <small style={{ fontSize: 12, fontWeight: 500 }}>من {m.allowance}</small>
+                    </b>
+                    <em>{m.pending ? `${m.pending} بانتظار الموافقة` : m.approved ? `${m.approved} مأخوذة` : 'لم تُستخدم'}</em>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div style={{ marginTop: 14 }}>
             <AttendCard />
@@ -194,7 +238,7 @@ export function Shift({ back }: { back?: string }) {
               <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5, lineHeight: 1.8 }}>
                 لم ترفع أي طلب بعد.
                 <br />
-                تبديل يوم العطلة، إجازة، استئذان بالساعات… كلها من زر «طلب جديد».
+                {monthly ? 'إجازة، مرضية، استئذان بالساعات… كلها من زر «طلب جديد».' : 'تبديل يوم العطلة، إجازة، استئذان بالساعات… كلها من زر «طلب جديد».'}
               </div>
             ) : (
               <div className="t-list">
@@ -218,7 +262,7 @@ export function Shift({ back }: { back?: string }) {
         </>
       ) : null}
 
-      {data && (
+      {data && !hourly && (
         <Fab
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
@@ -230,11 +274,12 @@ export function Shift({ back }: { back?: string }) {
         />
       )}
 
-      {data && (
+      {data && !hourly && (
         <LeaveRequest
           open={form}
           days={data.days}
           weeklyOff={data.weeklyOff}
+          monthly={monthly}
           today={today}
           onClose={() => setForm(false)}
           onDone={() => {
@@ -271,7 +316,7 @@ export function Shift({ back }: { back?: string }) {
             {detail.status !== 'pending' && detail.status !== 'cancelled' && (
               <div className="t-card pad">
                 <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {detail.status === 'approved' ? 'وافق' : 'رفض'} {detail.decidedBy?.replace(/^manager:/, '') || 'الإدارة'} · {detail.decidedAt ? relTime(detail.decidedAt) : ''}
+                  {detail.status === 'approved' ? 'وافق' : 'رفض'} {detail.decidedBy?.replace(/^(manager|supervisor):/, '') || 'الإدارة'} · {detail.decidedAt ? relTime(detail.decidedAt) : ''}
                 </div>
                 {detail.decidedNote && <div style={{ marginTop: 4, lineHeight: 1.7 }}>{detail.decidedNote}</div>}
               </div>

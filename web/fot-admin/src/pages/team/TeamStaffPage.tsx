@@ -9,6 +9,7 @@ import { IconLock, IconPlus, IconRefresh, IconUsers } from '@/components/icons';
 import { Badge, Btn, Field, IconButton, Input, Modal, Select, TableSkeleton, useConfirm } from '@/components/ui';
 import { CopyButton, ErrorBlock, RowMenu, SearchBox } from '@/components/people/PeopleKit';
 import { fixEdariName } from '@/lib/text';
+import { PlanDialog, planBadge } from './TeamPlanPages';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق الفريق ← الموظفون: كل من يستخدم التطبيق (بائع، كاشير، مشرف، آخر).
@@ -42,10 +43,13 @@ export function TeamStaffPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<StaffDto | 'new' | null>(null);
+  const [planFor, setPlanFor] = useState<StaffDto | null>(null);
 
   const staffQ = useQuery({ queryKey: ['team-staff'], queryFn: api.teamStaff });
   const hubQ = useQuery({ queryKey: ['team-hub-status'], queryFn: api.teamHubStatus, retry: 0, refetchInterval: 60_000 });
   const hub = hubQ.data;
+  const dirQ = useQuery({ queryKey: ['team-directory'], queryFn: api.teamDirectory, retry: 0 });
+  const dirOf = useMemo(() => new Map((dirQ.data ?? []).map(d => [d.id, d])), [dirQ.data]);
   const deviceOf = useMemo(() => new Map((hub?.devices ?? []).map(d => [d.staffId, d])), [hub]);
   const pushOf = useMemo(() => new Set((hub?.push ?? []).map(p => p.staffId)), [hub]);
 
@@ -126,6 +130,25 @@ export function TeamStaffPage() {
       filterValue: s => KIND_LABEL[s.kind] ?? s.kind,
       render: s => <Badge tone={KIND_TONE[s.kind] ?? 'default'}>{KIND_LABEL[s.kind] ?? s.kind}</Badge>,
     },
+    {
+      key: 'plan',
+      header: 'نوع الدوام',
+      width: 130,
+      sortValue: s => dirOf.get(s.id)?.plan ?? 'weekly',
+      exportValue: s => dirOf.get(s.id)?.plan ?? 'weekly',
+      render: s => (
+        <button
+          type="button"
+          title="نوع الدوام والراتب"
+          onClick={e => {
+            e.stopPropagation();
+            setPlanFor(s);
+          }}
+        >
+          {planBadge(dirOf.get(s.id))}
+        </button>
+      ),
+    },
     { key: 'sectionName', header: 'القسم', width: 140, render: s => (s.sectionName ? fixEdariName(s.sectionName) : <span className="text-slate-300">—</span>) },
     {
       key: 'pinDisplay',
@@ -181,6 +204,7 @@ export function TeamStaffPage() {
           <RowMenu
             items={[
               { label: 'تعديل', icon: <IconUsers size={15} />, onClick: () => setEditing(s) },
+              { label: 'نوع الدوام والراتب', icon: <IconRefresh size={15} />, onClick: () => setPlanFor(s) },
               { label: s.hasPin ? 'رمز دخول جديد' : 'توليد رمز الدخول', icon: <IconLock size={15} />, onClick: () => issuePin.mutate(s.id) },
               deviceOf.has(s.id)
                 ? {
@@ -270,6 +294,7 @@ export function TeamStaffPage() {
         </WorkspaceBody>
       </WorkspaceCard>
 
+      {planFor && <PlanDialog name={planFor.name} staffId={planFor.id} current={dirOf.get(planFor.id)} onClose={() => setPlanFor(null)} onSaved={() => void qc.invalidateQueries({ queryKey: ['team-directory'] })} />}
       {editing && <StaffEditor staff={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={refresh} />}
     </WorkspacePage>
   );

@@ -37,6 +37,8 @@ const hm = s => {
 /** لحظة (UTC ms) لوقت «HH:MM» بتوقيت العراق في يوم معيّن؛ النهاية بعد منتصف الليل تُحسب لليوم التالي. */
 const atIraq = (date, minutes) => Date.parse(`${date}T00:00:00Z`) - IRAQ_MS + minutes * 60_000;
 const isTime = v => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+const isDateStr = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`));
+const HOURLY_CLOSE_GRACE_MS = 8 * 3600_000;
 
 /** بداية ونهاية الوردية بالدقائق؛ النهاية <= البداية تعني وردية ليلية تنتهي في اليوم التالي. */
 function shiftSpan(shift) {
@@ -99,7 +101,7 @@ function clientIp(req) {
   return remote;
 }
 
-function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit, emitManagers, dayFor }) {
+function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit, emitManagers, dayFor, planOf, rateOn, notifySupervisors }) {
   db.exec('CREATE TABLE IF NOT EXISTS _attend_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const MIGRATIONS = [
     `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -181,7 +183,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       breakMinutes: o?.break_minutes ?? s.breakMinutes,
       maxBreaks: o?.max_breaks ?? s.maxBreaks,
       custom: !!(o && (o.start || o.end || o.break_minutes != null || o.max_breaks != null)),
-      overtime: !!o?.overtime,
+      // حساب بالساعات: بلا وردية ولا تأخير ولا أوفر تايم — كل ساعة مدفوعة
+      hourly: planOf(staffId).plan === 'hourly',
+      overtime: !!o?.overtime && planOf(staffId).plan !== 'hourly',
       overtimeRate: o?.overtime_rate ?? null,
     };
   }
@@ -325,7 +329,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   /* ── الحضور ── */
-  const windowOf = (staffId, ms = Date.now()) => shiftWindow(shiftOf(staffId), ms, settings().earlyMinutes);
+  const windowOf = (staffId, ms = Date.now()) => (planOf(staffId).plan === 'hourly' ? { date: iraqDate(ms), start: ms, end: ms } : shiftWindow(shiftOf(staffId), ms, settings().earlyMinutes));
   /**
    * سجل الوردية الجارية: الحضور المفتوح (آخر 24 ساعة — يعبر منتصف الليل)، وإلا سجل يوم الوردية الحالية.
    * الحضور المنسي الذي حان إغلاقه يُغلق هنا أولاً كي لا يحجب حضور الوردية التالية.
@@ -394,7 +398,65 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       network: { enforced: settings().enforceNetwork, configured: nets.length > 0, needsBssid: nets.some(n => n.bssid) },
       breakWarnMinutes: settings().breakWarnMinutes,
       overtime: shift.overtime ? overtimeMonth(s.id) : null,
+      hours: shift.hourly ? myHours(s.id) : null,
     };
+  }
+  /* ── الدوام بالساعات: الأسبوع من السبت إلى الجمعة، والمبلغ بسعر الساعة الساري في كل يوم ── */
+  const weekStart = date => addDays(date, -((new Date(`${date}T12:00:00Z`).getUTCDay() + 1) % 7));
+  function hoursOf(staffId, from, to) {
+    const out = { minutes: 0, pay: 0, days: 0, open: 0, autoClosed: 0, edited: 0, noRate: 0, weeks: [] };
+    const weeks = new Map();
+    for (const r of db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND date BETWEEN ? AND ? ORDER BY date').all(staffId, from, to)) {
+      const w = attView(r).workedMinutes;
+      const rate = rateOn(staffId, r.date);
+      out.minutes += w;
+      out.days++;
+      if (!r.check_out) out.open++;
+      if (r.auto_closed) out.autoClosed++;
+      if (r.edited_by) out.edited++;
+      if (rate == null && w > 0) out.noRate++;
+      const key = weekStart(r.date);
+      if (!weeks.has(key)) weeks.set(key, { from: key, to: addDays(key, 6), minutes: 0, money: 0, days: 0 });
+      const wk = weeks.get(key);
+      wk.minutes += w;
+      wk.days++;
+      wk.money += ((rate ?? 0) * w) / 60;
+    }
+    out.weeks = [...weeks.values()].map(({ money, ...wk }) => ({ ...wk, pay: Math.round(money) }));
+    out.pay = out.weeks.reduce((x, wk) => x + wk.pay, 0);
+    return out;
+  }
+  /** ساعات الموظف نفسه: هذا الأسبوع والماضي والشهر وآخر الأسابيع */
+  function myHours(staffId) {
+    const today = iraqDate();
+    const start = weekStart(today);
+    const pick = (a, b) => {
+      const { minutes, pay, days } = hoursOf(staffId, a, b);
+      return { from: a, to: b, minutes, pay, days };
+    };
+    return {
+      rate: rateOn(staffId, today) ?? planOf(staffId).hourlyRate,
+      week: pick(start, addDays(start, 6)),
+      lastWeek: pick(addDays(start, -7), addDays(start, -1)),
+      month: pick(`${today.slice(0, 8)}01`, today),
+      weeks: hoursOf(staffId, addDays(start, -49), addDays(start, 6)).weeks.reverse(),
+    };
+  }
+  /** كشف ساعات الفترة لكل موظف بالساعات (للإدارة والمدراء والمسؤولين) */
+  function hoursReport(url, allow = () => true, showPay = true) {
+    const today = iraqDate();
+    const from = isDateStr(url.searchParams.get('from')) ? url.searchParams.get('from') : weekStart(today);
+    const to = isDateStr(url.searchParams.get('to')) ? url.searchParams.get('to') : today;
+    const staff = db.prepare('SELECT * FROM staff ORDER BY name').all().filter(s => planOf(s.id).plan === 'hourly' && allow(s.id));
+    const rows = staff.map(s => {
+      const h = hoursOf(s.id, from, to);
+      if (!showPay) {
+        h.pay = null;
+        h.weeks = h.weeks.map(w => ({ ...w, pay: null }));
+      }
+      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, isActive: !!s.is_active, rate: showPay ? (rateOn(s.id, to) ?? planOf(s.id).hourlyRate) : null, ...h };
+    }).filter(r => r.isActive || r.days > 0);
+    return { from, to, showPay, rows, totalMinutes: rows.reduce((x, r) => x + r.minutes, 0), totalPay: showPay ? rows.reduce((x, r) => x + r.pay, 0) : null };
   }
   /** أوفر تايم الموظف هذا الشهر (حتى اليوم) */
   function overtimeMonth(staffId) {
@@ -408,19 +470,35 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   function checkIn(req, s, body) {
     const net = checkNetwork(req, body.bssid);
     if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
-    if (currentRow(s.id)) return { status: 409, body: { error: 'سجّلت حضورك اليوم مسبقاً' } };
+    const hourly = planOf(s.id).plan === 'hourly';
+    const cur = currentRow(s.id);
+    // بالساعات: خرج وعاد في اليوم نفسه — يُفتح السجل وتُخصم مدة الغياب من ساعاته
+    if (hourly && cur?.check_out) {
+      const back = now();
+      const gap = Math.max(0, Math.round((Date.parse(back) - Date.parse(cur.check_out)) / 60_000));
+      db.prepare('INSERT INTO breaks (attendance_id, staff_id, start_at, end_at, planned_minutes, over_minutes, warned, ip, bssid) VALUES (?, ?, ?, ?, ?, 0, 3, ?, ?)').run(cur.id, s.id, cur.check_out, back, gap, net.ip, net.bssid);
+      db.prepare('UPDATE attendance SET check_out = NULL, out_ip = NULL, out_bssid = NULL, auto_closed = 0 WHERE id = ?').run(cur.id);
+      audit(`staff:${s.id}`, 'attend.resume', cur.id, { ip: net.ip, gap });
+      emitManagers('attend', { staffId: s.id });
+      return { status: 200, body: myState(s) };
+    }
+    if (cur) return { status: 409, body: { error: 'سجّلت حضورك اليوم مسبقاً' } };
     const shift = shiftOf(s.id);
     const st = settings();
     const t = now();
     // التأخير مقابل بداية الوردية التي تخص هذه اللحظة (23:45 لوردية 00:30 = مبكر لا تأخير يوم كامل)
     const w = windowOf(s.id, Date.parse(t));
-    if (Date.parse(t) < w.start - st.earlyMinutes * 60_000) return { status: 400, body: { error: `الحضور يبدأ قبل الدوام بـ ${st.earlyMinutes} دقيقة فقط (دوامك ${shift.start})` } };
+    if (!hourly && Date.parse(t) < w.start - st.earlyMinutes * 60_000) return { status: 400, body: { error: `الحضور يبدأ قبل الدوام بـ ${st.earlyMinutes} دقيقة فقط (دوامك ${shift.start})` } };
     const lateRaw = Math.floor((Date.parse(t) - w.start) / 60_000);
-    const late = lateRaw > st.graceMinutes ? lateRaw : 0;
+    const late = !hourly && lateRaw > st.graceMinutes ? lateRaw : 0;
     const r = db.prepare('INSERT INTO attendance (staff_id, date, check_in, in_ip, in_bssid, network_id, device_id, late_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(s.id, w.date, t, net.ip, net.bssid, net.network?.id ?? null, String(body.deviceId || '').slice(0, 120) || null, late);
     audit(`staff:${s.id}`, 'attend.in', Number(r.lastInsertRowid), { ip: net.ip, bssid: net.bssid, late });
-    if (late > 0) notify('manager', managerIds(), { type: 'attend.late', title: `تأخر ${s.name} ${late} دقيقة`, body: `سجّل حضوره ${new Date(Date.parse(t) + IRAQ_MS).toISOString().slice(11, 16)} — دوامه ${shift.start}`, link: '/attend' });
+    if (late > 0) {
+      const lateNote = { type: 'attend.late', title: `تأخر ${s.name} ${late} دقيقة`, body: `سجّل حضوره ${new Date(Date.parse(t) + IRAQ_MS).toISOString().slice(11, 16)} — دوامه ${shift.start}`, link: '/attend' };
+      notify('manager', managerIds(), lateNote);
+      notifySupervisors(s.id, 'viewAttendance', lateNote);
+    }
     emitManagers('attend', { staffId: s.id });
     return { status: 200, body: myState(s) };
   }
@@ -448,6 +526,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   function breakStart(req, s, body) {
+    if (planOf(s.id).plan === 'hourly') return { status: 400, body: { error: 'حسابك بالساعات — سجّل انصرافك عند الخروج وحضورك عند العودة' } };
     const a = currentRow(s.id);
     if (!a || a.check_out) return { status: 400, body: { error: 'سجّل حضورك أولاً' } };
     if (openBreak(a.id)) return { status: 409, body: { error: 'أنت في استراحة الآن' } };
@@ -477,13 +556,14 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   /* ── لوحة اليوم للمدير/الإدارة ── */
-  function board(allow = () => true) {
+  function board(allow = () => true, showPay = true) {
     const date = iraqDate();
     const t = Date.now();
     const staff = db.prepare('SELECT * FROM staff WHERE is_active = 1 ORDER BY name').all().filter(s => allow(s.id));
     const st = settings();
     const rows = staff.map(s => {
       const shift = shiftOf(s.id);
+      if (!showPay) shift.overtimeRate = null;
       const a = attView(currentRow(s.id));
       // الحالة مقابل نافذة الوردية (الليلية تعبر منتصف الليل) لا ساعات يوم التقويم
       const w = shiftWindow(shift, t, st.earlyMinutes);
@@ -492,7 +572,8 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       if (a) {
         const ob = a.breaks.find(b => !b.endAt);
         status = a.checkOut ? 'out' : ob ? (ob.overMinutes > 0 ? 'over' : 'break') : 'in';
-      } else if (day?.off) status = 'off';
+      } else if (shift.hourly) status = 'hourly';
+      else if (day?.off) status = 'off';
       else if (t < w.start + st.graceMinutes * 60_000) status = 'soon';
       else if (t > w.end) status = 'absent';
       else status = 'missing';
@@ -531,12 +612,12 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const shift = shiftOf(a.staff_id);
     const st = settings();
     // وردية ليلية: انصراف بساعة أصغر من الحضور (إصدارات تطبيق أقدم تبنيه على يوم الحضور) = اليوم التالي
-    if (co && co <= ci && hm(shift.end) != null && hm(shift.end) <= (hm(shift.start) ?? 600) && Date.parse(co) + 86_400_000 > Date.parse(ci)) {
+    if (!shift.hourly && co && co <= ci && hm(shift.end) != null && hm(shift.end) <= (hm(shift.start) ?? 600) && Date.parse(co) + 86_400_000 > Date.parse(ci)) {
       co = new Date(Date.parse(co) + 86_400_000).toISOString();
     }
     if (co && co <= ci) return { status: 400, body: { error: 'وقت الانصراف قبل الحضور' } };
     const lateRaw = Math.floor((Date.parse(ci) - shiftWindow(shift, Date.parse(ci), st.earlyMinutes).start) / 60_000);
-    const late = lateRaw > st.graceMinutes ? lateRaw : 0;
+    const late = !shift.hourly && lateRaw > st.graceMinutes ? lateRaw : 0;
     db.prepare('UPDATE attendance SET check_in = ?, check_out = ?, late_minutes = ?, note = ?, edited_by = ?, edited_at = ?, auto_closed = CASE WHEN ? IS NULL THEN auto_closed ELSE 0 END WHERE id = ?')
       .run(ci, co, late, String(body.note || a.note || '').slice(0, 300) || null, actor, now(), co, id);
     if (co) {
@@ -576,6 +657,23 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   function autoClose(a) {
     const shift = shiftOf(a.staff_id);
     const st = settings();
+    // بالساعات: لا وردية له — نسيان الانصراف يُغلق قبل صباح اليوم التالي ويعتمد وقت إغلاق المحل، ويراجعه المدير لأنه يمسّ الراتب
+    if (shift.hourly) {
+      const closeAt = atIraq(a.date, shiftSpan({ start: st.shiftStart, end: st.shiftEnd }).end);
+      if (Date.now() < closeAt + HOURLY_CLOSE_GRACE_MS) return false;
+      const last = Math.max(Date.parse(a.check_in), ...breaksOf(a.id).map(b => Date.parse(b.end_at || b.start_at)));
+      const t = new Date(Math.max(closeAt, last)).toISOString();
+      const r = db.prepare('UPDATE attendance SET check_out = ?, auto_closed = 1 WHERE id = ? AND check_out IS NULL').run(t, a.id);
+      if (!r.changes) return true;
+      audit('system', 'attend.autoclose', a.id, { at: t, hourly: true });
+      const s = getStaff(a.staff_id);
+      notify('staff', [a.staff_id], { type: 'attend.auto', title: 'أُغلق حضورك تلقائياً', body: 'لم تسجّل انصرافك — اعتُمد وقت إغلاق المحل. راجع مديرك إن كانت ساعاتك أكثر.', link: '/shift' });
+      const note = { type: 'attend.auto', title: `${s?.name ?? 'موظف'} نسي الانصراف`, body: 'حساب بالساعات أُغلق تلقائياً — راجع وقت انصرافه لأنه يدخل في راتبه', link: '/attend' };
+      notify('manager', managerIds(), note);
+      notifySupervisors(a.staff_id, 'editAttendance', note);
+      emitManagers('attend', { staffId: a.staff_id });
+      return true;
+    }
     const span = shiftSpan(shift);
     const end = atIraq(a.date, span.end);
     const nextOpen = atIraq(addDays(a.date, 1), span.start) - st.earlyMinutes * 60_000;
@@ -614,7 +712,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
           }
           if (over >= 2 && !(b.warned & 2)) {
             db.prepare('UPDATE breaks SET warned = warned | 2 WHERE id = ?').run(b.id);
-            notify('manager', managerIds(), { type: 'break.over', title: `${b.staff_name} تجاوز الاستراحة`, body: `تجاوز ${over} دقيقة ولم يسجّل عودته`, link: '/attend' });
+            const overNote = { type: 'break.over', title: `${b.staff_name} تجاوز الاستراحة`, body: `تجاوز ${over} دقيقة ولم يسجّل عودته`, link: '/attend' };
+            notify('manager', managerIds(), overNote);
+            notifySupervisors(b.staff_id, 'viewAttendance', overNote);
             emitManagers('attend', { staffId: b.staff_id });
           }
         }
@@ -661,9 +761,10 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     return false;
   }
 
-  async function handleManage(req, res, url, sub, actor, open, allow = () => true) {
+  async function handleManage(req, res, url, sub, actor, open, allow = () => true, showPay = true) {
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
-    if (req.method === 'GET' && sub === 'attend/board') return send(200, board(allow)), true;
+    if (req.method === 'GET' && sub === 'attend/board') return send(200, board(allow, showPay)), true;
+    if (req.method === 'GET' && sub === 'attend/hours') return send(200, hoursReport(url, allow, showPay)), true;
     if (req.method === 'GET' && sub === 'attend/log') return send(200, log(url, allow)), true;
     if (req.method === 'GET' && sub === 'attend/settings') return send(200, { settings: settings(), networks: networks().map(netView), shopIp: shopIp() }), true;
     if (req.method === 'PUT' && sub === 'attend/settings') return send(200, saveSettings((await json(req)) || {}, actor)), true;
@@ -711,7 +812,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (om && req.method === 'PUT') return reply(res, !open ? { status: 403, body: { error: 'تفعيل الأوفر تايم من لوحة التحكم فقط' } } : setOvertime(Number(om[1]), (await json(req)) || {}, actor), open), true;
     m = sub.match(/^staff\/(\d+)\/shift$/);
     if (m && req.method === 'PUT') return reply(res, allow(Number(m[1])) ? setShift(Number(m[1]), (await json(req)) || {}, actor) : { status: 403, body: { error: 'هذا الموظف خارج أقسامك' } }, open), true;
-    if (m && req.method === 'GET') return send(200, shiftOf(Number(m[1]))), true;
+    if (m && req.method === 'GET') return send(200, showPay ? shiftOf(Number(m[1])) : { ...shiftOf(Number(m[1])), overtimeRate: null }), true;
     return false;
   }
 

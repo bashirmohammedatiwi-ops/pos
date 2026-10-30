@@ -25,6 +25,7 @@ const STATUS: Record<TeamBoardStatus, { label: string; tone: 'ok' | 'warn' | 'da
   soon: { label: 'لم يبدأ دوامه', tone: 'default' },
   missing: { label: 'لم يحضر', tone: 'danger' },
   absent: { label: 'غائب', tone: 'danger' },
+  hourly: { label: 'بالساعات', tone: 'violet' },
 };
 const iraqDate = (offsetDays = 0) => new Date(Date.now() + 3 * 3600e3 + offsetDays * 86400e3).toISOString().slice(0, 10);
 const clock = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('ar-IQ-u-nu-latn', { hour: 'numeric', minute: '2-digit' }) : '—');
@@ -69,7 +70,7 @@ export function TeamAttendPage() {
   const board: TeamBoardDto | undefined = boardQ.data;
   const boardRows = useMemo(() => {
     const q = search.trim();
-    const order: TeamBoardStatus[] = ['over', 'missing', 'break', 'in', 'soon', 'out', 'off', 'absent'];
+    const order: TeamBoardStatus[] = ['over', 'missing', 'break', 'in', 'soon', 'out', 'hourly', 'off', 'absent'];
     return (board?.rows ?? []).filter(r => !q || r.name.includes(q)).sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
   }, [board, search]);
   const logRows = useMemo(() => {

@@ -8,7 +8,7 @@ import { KIND_LABEL, getTeamMe } from '../../team';
 import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
 import { haptic } from '../native';
 import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
-import { AttendCard } from './Attend';
+import { AttendCard, HoursCard } from './Attend';
 import { getTeamToken } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -255,10 +255,26 @@ function TeamWidgets() {
   const week = (leave.data?.days ?? []).filter(d => d.date >= today).slice(0, 7);
   const featured = (posts.data ?? []).filter(p => p.pinned || !p.read || (p.requiresAck && !p.acked)).slice(0, 5);
   const pending = leave.data?.requests.filter(r => r.status === 'pending').length ?? 0;
+  const hourly = leave.data?.plan === 'hourly';
 
   return (
     <>
-      {week.length > 0 && (
+      {getTeamMe()?.supervisor && (
+        <section className="t-section">
+          <Link to="/m" className="t-row t-card press" onClick={() => haptic('tap')}>
+            <span className="t-tile ok">
+              <I.user size={20} />
+            </span>
+            <div className="body">
+              <div className="title">إدارة الفريق</div>
+              <div className="sub">طلبات فريقك وحضوره وما فعّلته لك الإدارة</div>
+            </div>
+            <I.chevron size={18} />
+          </Link>
+        </section>
+      )}
+      {hourly && <HoursCard />}
+      {!hourly && week.length > 0 && (
         <section className="t-section">
           <div className="t-section-head">
             <h2>دوامي القادم</h2>
@@ -338,14 +354,16 @@ export function StaffHome() {
               </span>
               دوامي
             </Link>
-            <Link to="/shift?new=1" className="press">
-              <span className="t-tile">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </span>
-              طلب إجازة
-            </Link>
+            {me?.plan !== 'hourly' && (
+              <Link to="/shift?new=1" className="press">
+                <span className="t-tile">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </span>
+                طلب إجازة
+              </Link>
+            )}
             <Link to="/posts" className="press">
               <span className="t-tile ok">
                 <I.megaphone size={20} />

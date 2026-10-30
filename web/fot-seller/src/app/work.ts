@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { apiUrl } from '../config';
-import { getTeamMe, getTeamToken } from '../team';
+import { API_BASE, apiUrl, isNative } from '../config';
+import { getTeamMe, getTeamToken, type TeamStaff } from '../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * وحدات العمل في التطبيق: التبليغات، الإعلانات، الدوام والإجازات، رفع الصور،
@@ -12,15 +12,27 @@ export const MANAGER_ME = 'fot_manager_me';
 
 export type Role = 'staff' | 'manager';
 
+/** المسؤول من الموظفين: يفتح واجهة الإدارة بحسابه العادي (الخادم يحصره في صلاحياته وفريقه) */
+export function supervisorMode() {
+  try {
+    return !localStorage.getItem(MANAGER_TOKEN) && !!getTeamToken() && !!getTeamMe()?.supervisor;
+  } catch {
+    return false;
+  }
+}
 export function getManagerToken() {
   try {
-    return localStorage.getItem(MANAGER_TOKEN);
+    return localStorage.getItem(MANAGER_TOKEN) || (supervisorMode() ? getTeamToken() : null);
   } catch {
     return null;
   }
 }
 export function getManagerMe(): { id: number; username: string; displayName: string } | null {
   try {
+    if (supervisorMode()) {
+      const me = getTeamMe();
+      return me ? { id: me.id, username: me.code, displayName: me.name } : null;
+    }
     const raw = localStorage.getItem(MANAGER_ME);
     return raw ? JSON.parse(raw) : null;
   } catch {
@@ -98,9 +110,19 @@ export interface LeaveReq {
   decidedAt?: string | null;
   createdAt: string;
 }
+export interface MonthBalance {
+  month: string;
+  allowance: number;
+  approved: number;
+  pending: number;
+  left: number;
+}
 export interface MyLeave {
   today: string;
   weeklyOff: number;
+  plan?: 'weekly' | 'monthly' | 'hourly';
+  /** رصيد هذا الشهر والقادم لمن إجازاته شهرية */
+  monthly?: MonthBalance[] | null;
   days: DayState[];
   requests: LeaveReq[];
   types: Record<LeaveType, string>;
@@ -126,6 +148,8 @@ export interface DirStaff {
   sectionName?: string | null;
   isActive: boolean;
   weeklyOff: number;
+  plan?: 'weekly' | 'monthly' | 'hourly';
+  monthlyDays?: number | null;
   device?: string | null;
   lastSeen?: string | null;
 }
@@ -144,8 +168,11 @@ export interface ManagerPerms {
   sendPosts: boolean;
   manageChat: boolean;
   viewSales: boolean;
+  viewPay?: boolean;
 }
-export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true };
+export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewPay: true };
+/** المسؤول: كل شيء مطفأ حتى يصل رد الخادم */
+export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewPay: false };
 const PermsCtx = createContext<ManagerPerms>(ALL_PERMS);
 export const PermsProvider = PermsCtx.Provider;
 export const usePerms = () => useContext(PermsCtx);
@@ -223,6 +250,7 @@ export const staffApi = {
   posts: () => call<Post[]>('staff', '/api/team/posts'),
   readPost: (id: number, ack = false) => call<Post>('staff', `/api/team/posts/${id}/${ack ? 'ack' : 'read'}`, { method: 'POST', body: {} }),
   leave: () => call<MyLeave>('staff', '/api/team/leave'),
+  me: () => call<TeamStaff & { supervisorPerms?: ManagerPerms | null }>('staff', '/api/team/me'),
   requestLeave: (b: Record<string, unknown>) => call<LeaveReq>('staff', '/api/team/leave', { method: 'POST', body: b }),
   cancelLeave: (id: number) => call<{ ok: true }>('staff', `/api/team/leave/${id}/cancel`, { method: 'POST', body: {} }),
   upload: (dataUrl: string, purpose?: 'chat') => call<{ url: string }>('staff', '/api/team/media', { method: 'POST', body: { data: dataUrl, purpose } }),
@@ -286,6 +314,30 @@ export interface Shift {
   custom?: boolean;
   overtime?: boolean;
   overtimeRate?: number | null;
+  /** حساب بالساعات: بلا وردية ولا تأخير ولا استراحة */
+  hourly?: boolean;
+}
+export interface HoursSpan {
+  from: string;
+  to: string;
+  minutes: number;
+  pay: number | null;
+  days: number;
+}
+export interface MyHours {
+  rate: number | null;
+  week: HoursSpan;
+  lastWeek: HoursSpan;
+  month: HoursSpan;
+  weeks: HoursSpan[];
+}
+export interface HoursReport {
+  from: string;
+  to: string;
+  showPay: boolean;
+  totalMinutes: number;
+  totalPay: number | null;
+  rows: { staffId: number; name: string; kind: string; sectionName?: string | null; rate: number | null; minutes: number; pay: number | null; days: number; open: number; autoClosed: number; edited: number; noRate: number; weeks: HoursSpan[] }[];
 }
 export interface AttendState {
   now: string;
@@ -305,8 +357,10 @@ export interface AttendState {
   breakWarnMinutes?: number;
   /** الأوفر تايم هذا الشهر — null إن لم يكن مفعّلاً للموظف */
   overtime?: { monthMinutes: number; days: number; rate: number | null; pay: number | null } | null;
+  /** ساعات الدوام والمستحق — لحساب الساعات فقط */
+  hours?: MyHours | null;
 }
-export type BoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent';
+export type BoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent' | 'hourly';
 export interface BoardRow {
   staffId: number;
   name: string;
@@ -377,6 +431,7 @@ export const managerAttendApi = {
   shift: (staffId: number) => call<Shift>('manager', `/api/team/m/staff/${staffId}/shift`),
   summary: (from: string, to: string) => call<{ from: string; to: string; days: number; rows: SummaryRow[] }>('manager', `/api/team/m/attend/summary?from=${from}&to=${to}`),
   roster: (from: string, days = 7) => call<Roster>('manager', `/api/team/m/roster?from=${from}&days=${days}`),
+  hours: (from: string, to: string) => call<HoursReport>('manager', `/api/team/m/attend/hours?from=${from}&to=${to}`),
 };
 export interface SummaryRow {
   staffId: number;
@@ -499,10 +554,15 @@ export function useChatUnread(role: Role | null) {
   return n;
 }
 
-/** رابط صورة من الخادم (مسار نسبي ← عنوان الخادم داخل التطبيق). */
+/**
+ * رابط صورة أو صوت من الخادم (مسار نسبي ← عنوان الخادم داخل التطبيق).
+ * التطبيق صفحته https والخادم http، فيحظر WebView الوسائط المباشرة:
+ * تمر عبر /_media على نفس الأصل، وتجلبها الطبقة الأصلية (MediaProxyClient.java).
+ */
 export function mediaUrl(u?: string | null) {
   if (!u) return '';
-  return /^https?:|^data:/.test(u) ? u : apiUrl(u);
+  if (/^https?:|^data:/.test(u)) return u;
+  return isNative() && API_BASE.startsWith('http:') ? `/_media${u}` : apiUrl(u);
 }
 
 /* ═════════════ ضغط الصور قبل الرفع ═════════════ */

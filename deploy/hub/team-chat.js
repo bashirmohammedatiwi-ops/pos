@@ -192,7 +192,7 @@ function createChat({ db, ctx, now, audit, emit, notify, deleteMedia }) {
     return { status: 200, body: convView(conv(id), me) };
   }
   function createGroup(me, body) {
-    if (me.kind !== 'manager') return { status: 403, body: { error: 'المدراء فقط ينشئون مجموعات' } };
+    if (me.kind !== 'manager' && !me.canManage) return { status: 403, body: { error: 'المدراء فقط ينشئون مجموعات' } };
     const title = String(body.title || '').trim().slice(0, 80);
     if (!title) return { status: 400, body: { error: 'اسم المجموعة مطلوب' } };
     const keys = [...new Set((Array.isArray(body.members) ? body.members : []).map(String))].filter(k => person(k));

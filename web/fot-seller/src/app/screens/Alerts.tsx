@@ -59,7 +59,7 @@ export function Alerts({ role, back }: { role: Role; back?: string }) {
       setItems(list => list?.map(x => (x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null);
       void api.read({ ids: [n.id] }).then(r => setUnread(r.unread)).catch(() => undefined);
     }
-    if (n.link) nav(role === 'manager' ? `/m${n.link}` : n.link);
+    if (n.link) nav(role === 'manager' && !n.link.startsWith('/m/') ? `/m${n.link}` : n.link);
   }
 
   async function readAll() {

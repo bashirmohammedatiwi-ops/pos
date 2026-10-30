@@ -17,6 +17,8 @@ const lz = <T extends Record<string, unknown>>(load: () => Promise<T>, name: key
 const Overview = lz(() => import('./TeamAttendPages'), 'TeamOverviewPanel');
 const Staff = lz(() => import('./TeamStaffPage'), 'TeamStaffPage');
 const Attend = lz(() => import('./TeamAttendPages'), 'TeamAttendPage');
+const Hours = lz(() => import('./TeamPlanPages'), 'TeamHoursPage');
+const Supervisors = lz(() => import('./TeamPlanPages'), 'TeamSupervisorsPage');
 const Leave = lz(() => import('./TeamWorkPages'), 'TeamLeavePage');
 const Posts = lz(() => import('./TeamWorkPages'), 'TeamPostsPage');
 const Notify = lz(() => import('./TeamWorkPages'), 'TeamNotifyPage');
@@ -33,6 +35,7 @@ const TEAM_TABS: Tab[] = [
   { id: 'overview', label: 'نظرة عامة', icon: '◉', hint: 'الفريق اليوم وما يحتاج انتباهك' },
   { id: 'staff', label: 'الموظفون', icon: '👤', hint: 'الحسابات والرموز والهواتف المربوطة' },
   { id: 'attend', label: 'الحضور', icon: '⏱', hint: 'اللوحة الحيّة والسجل والتصحيح' },
+  { id: 'hours', label: 'الدوام بالساعات', icon: '⏳', hint: 'ساعات موظفي الساعات أسبوعياً ورواتبهم' },
   { id: 'report', label: 'الملخص والأوفر تايم', icon: '📊', hint: 'ملخص شهري لكل موظف، الأوفر تايم ومبلغه، وجدول الفريق' },
   { id: 'leave', label: 'الإجازات والعطل', icon: '📅', hint: 'الطلبات والموافقات والعطل الأسبوعية' },
   { id: 'posts', label: 'الإعلانات', icon: '📣', hint: 'أخبار وعروض بالصور' },
@@ -40,6 +43,7 @@ const TEAM_TABS: Tab[] = [
   { id: 'products', label: 'منتجات العمولة والصور', icon: '🖼', hint: 'صورة لكل منتج عمولة تظهر للبائعين' },
   { id: 'rules', label: 'الشبكات وقواعد الدوام', icon: '📶', hint: 'شبكات المحل والورديات والاستراحة' },
   { id: 'managers', label: 'صلاحيات المدراء', icon: '🛡', hint: 'ما يستطيعه كل مدير والأقسام التي يديرها' },
+  { id: 'supervisors', label: 'مسؤولو الفرق', icon: '⭐', hint: 'موظف مسؤول عن موظفين آخرين وصلاحياته' },
   { id: 'accounts', label: 'حسابات المدراء والويب', icon: '🔑', hint: 'دخول المدراء وأوقات فتح الويب' },
   { id: 'app', label: 'التحديثات والإشعارات', icon: '📲', hint: 'رفع إصدار جديد للتطبيق وحالة إشعارات الهواتف' },
   { id: 'audit', label: 'سجل التدقيق', icon: '🧾', hint: 'كل إجراء في التطبيق' },
@@ -67,6 +71,12 @@ export function TeamHubPage() {
       break;
     case 'attend':
       body = <Attend />;
+      break;
+    case 'hours':
+      body = <Hours />;
+      break;
+    case 'supervisors':
+      body = <Supervisors />;
       break;
     case 'leave':
       body = <Leave />;
