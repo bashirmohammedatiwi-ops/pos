@@ -225,7 +225,7 @@ export const staffApi = {
   leave: () => call<MyLeave>('staff', '/api/team/leave'),
   requestLeave: (b: Record<string, unknown>) => call<LeaveReq>('staff', '/api/team/leave', { method: 'POST', body: b }),
   cancelLeave: (id: number) => call<{ ok: true }>('staff', `/api/team/leave/${id}/cancel`, { method: 'POST', body: {} }),
-  upload: (dataUrl: string) => call<{ url: string }>('staff', '/api/team/media', { method: 'POST', body: { data: dataUrl } }),
+  upload: (dataUrl: string, purpose?: 'chat') => call<{ url: string }>('staff', '/api/team/media', { method: 'POST', body: { data: dataUrl, purpose } }),
   /** تقرير طبي: يُحفظ خاصاً ويعود برابط موقّع قصير العمر */
   uploadLeave: (dataUrl: string) => call<{ url: string }>('staff', '/api/team/media', { method: 'POST', body: { data: dataUrl, purpose: 'leave' } }),
 };
@@ -246,7 +246,7 @@ export const managerApi = {
   notifyLog: () => call<{ id: number; title: string; body?: string; audienceLabel: string; targetCount: number; readCount: number; createdBy?: string; createdAt: string }[]>('manager', '/api/team/m/notify/log'),
   notifications: (before?: number) => call<{ items: Notif[]; unread: number }>('manager', `/api/team/m/notifications${before ? `?before=${before}` : ''}`),
   read: (b: { ids?: number[]; all?: boolean }) => call<{ unread: number }>('manager', '/api/team/m/notifications/read', { method: 'POST', body: b }),
-  upload: (dataUrl: string) => call<{ url: string }>('manager', '/api/team/m/media', { method: 'POST', body: { data: dataUrl } }),
+  upload: (dataUrl: string, purpose?: 'chat') => call<{ url: string }>('manager', '/api/team/m/media', { method: 'POST', body: { data: dataUrl, purpose } }),
 };
 
 /* ═════════════ الحضور والاستراحة ═════════════ */
@@ -348,8 +348,17 @@ export interface AttendSettings {
   breakWarnMinutes: number;
 }
 
+/** طلب واحد جارٍ: شاشة «دوامي» تطلب الحالة من عدة بطاقات في اللحظة نفسها */
+let attendInflight: Promise<AttendState> | null = null;
+export type MyMonthData = {
+  month: string;
+  row: SummaryRow | null;
+  days: { date: string; off: boolean; reason?: string | null; checkIn?: string | null; checkOut?: string | null; lateMinutes: number; workedMinutes: number; breakMinutes: number; overtimeMinutes: number; autoClosed: boolean }[];
+  leaves: { type: string; n: number }[];
+};
 export const attendApi = {
-  state: () => call<AttendState>('staff', '/api/team/attend'),
+  state: () => (attendInflight ??= call<AttendState>('staff', '/api/team/attend').finally(() => (attendInflight = null))),
+  month: (month: string) => call<MyMonthData>('staff', `/api/team/attend/month?month=${month}`),
   probe: (bssid?: string | null) => call<{ ok: boolean; ip: string; network: string | null; error: string | null }>('staff', `/api/team/attend/probe${bssid ? `?bssid=${encodeURIComponent(bssid)}` : ''}`),
   act: (action: 'in' | 'out' | 'break/start' | 'break/end', bssid?: string | null, deviceId?: string) =>
     call<AttendState>('staff', `/api/team/attend/${action}`, { method: 'POST', body: { bssid, deviceId } }),
@@ -408,6 +417,8 @@ export interface ChatPerson {
   name: string;
   role: string;
   sub?: string | null;
+  /** مشرف المجموعة */
+  admin?: boolean;
 }
 export interface ChatMsg {
   id: number;
@@ -415,6 +426,9 @@ export interface ChatMsg {
   sender: { key: string; name: string; role?: string | null };
   body?: string | null;
   image?: string | null;
+  audio?: string | null;
+  audioMs?: number | null;
+  kind?: 'text' | 'system';
   replyTo?: { id: number; senderName: string; body: string } | null;
   createdAt: string;
   deleted: boolean;
@@ -429,7 +443,7 @@ export interface ChatConv {
   other?: { key: string; role: string; sub?: string | null } | null;
   memberCount: number;
   lastAt: string;
-  last?: { body: string; senderName: string; mine: boolean; at: string } | null;
+  last?: { body: string; senderName: string; mine: boolean; at: string; system?: boolean } | null;
   unread: number;
   muted: boolean;
   isAdmin: boolean;
@@ -447,12 +461,15 @@ export function chatApi(role: Role) {
     updateGroup: (id: number, b: { title?: string; add?: string[]; remove?: string[]; delete?: boolean }) => call<ChatConv>(role, `${base}/groups/${id}`, { method: 'PUT', body: b }),
     messages: (id: number, before?: number) =>
       call<{ conversation: ChatConv; messages: ChatMsg[]; members: (ChatPerson & { lastRead: number })[]; hasMore: boolean }>(role, `${base}/${id}/messages${before ? `?before=${before}` : ''}`),
-    send: (id: number, b: { body?: string; image?: string | null; replyTo?: number | null }) => call<ChatMsg>(role, `${base}/${id}/messages`, { method: 'POST', body: b }),
+    send: (id: number, b: { body?: string; image?: string | null; audio?: string | null; audioMs?: number | null; replyTo?: number | null }) => call<ChatMsg>(role, `${base}/${id}/messages`, { method: 'POST', body: b }),
+    leave: (id: number) => call<{ ok: true }>(role, `${base}/${id}/leave`, { method: 'POST', body: {} }),
+    media: (id: number) => call<string[]>(role, `${base}/${id}/media`),
     read: (id: number, lastId?: number) => call<{ total: number }>(role, `${base}/${id}/read`, { method: 'POST', body: { lastId } }),
     typing: (id: number) => call<{ ok: true }>(role, `${base}/${id}/typing`, { method: 'POST', body: {} }),
     remove: (mid: number) => call<{ ok: true }>(role, `${base}/messages/${mid}`, { method: 'DELETE' }),
     mute: (id: number, muted: boolean) => call<ChatConv>(role, `${base}/${id}/mute`, { method: 'POST', body: { muted } }),
-    upload: (data: string) => (role === 'manager' ? managerApi.upload(data) : staffApi.upload(data)),
+    /** صور المحادثات والرسائل الصوتية (حد أصغر على الخادم) */
+    upload: (data: string) => (role === 'manager' ? managerApi.upload(data, 'chat') : staffApi.upload(data, 'chat')),
   };
 }
 
@@ -489,6 +506,43 @@ export function mediaUrl(u?: string | null) {
 }
 
 /* ═════════════ ضغط الصور قبل الرفع ═════════════ */
+/** حجم الملف الفعلي من رابط base64 */
+export const dataUrlBytes = (d: string) => Math.floor(((d.length - d.indexOf(',') - 1) * 3) / 4);
+
+/**
+ * صورة المحادثة: تُصغَّر قبل الرفع لتوفير مساحة الخادم وباقة الموظف.
+ * WebP إن توفّر (أصغر بنحو الثلث)، وتُخفَّض الأبعاد والجودة تدريجياً حتى 200 كيلوبايت تقريباً.
+ */
+export async function compressChatImage(file: File, target = 200 * 1024): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, fail) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = () => fail(new Error('تعذر قراءة الصورة'));
+      i.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    let best = '';
+    for (const [max, q] of [[1080, 0.62], [960, 0.52], [800, 0.45], [640, 0.4]] as const) {
+      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const g = canvas.getContext('2d');
+      if (!g) throw new Error('تعذر معالجة الصورة');
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, canvas.width, canvas.height);
+      g.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const webp = canvas.toDataURL('image/webp', q);
+      best = webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', q);
+      if (dataUrlBytes(best) <= target) break;
+    }
+    return best;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function compressImage(file: File, max = 1600, quality = 0.82): Promise<string> {
   const url = URL.createObjectURL(file);
   try {
@@ -534,7 +588,7 @@ export type SaleTotals = {
 };
 export type SaleHour = { h: number; t: number; n: number };
 /** صف مسمّى: t الصافي، n الفواتير، q القطع (للكاشير: عدد المرتجعات) */
-export type SaleNamed = { id: number; name: string; sub?: string | null; barcode?: string | null; t: number; n: number; q: number; lastAt?: string | null; days?: number };
+export type SaleNamed = { id: number; name: string; sub?: string | null; barcode?: string | null; t: number; n: number; q: number; lastAt?: string | null; days?: number; d?: number; v?: number; va?: number };
 export type SalePack = {
   day: string;
   totals: SaleTotals;
@@ -572,10 +626,26 @@ export type SalesRange = {
   weekday: { w: number; net: number; days: number }[];
   bounds: { min: string | null; max: string };
 };
+export type SalesAlerts = { bigSale: number; bigReturn: number; terminalOffline: boolean; slowPace: boolean; dailyClose: boolean; closeAt: string };
 export const salesApi = {
+  alerts: () => call<SalesAlerts>('manager', '/api/team/m/sales/alerts'),
+  saveAlerts: (b: Partial<SalesAlerts>) => call<SalesAlerts>('manager', '/api/team/m/sales/alerts', { method: 'PUT', body: b }),
   live: () => call<SalesDay>('manager', '/api/team/m/sales/live'),
   day: (date: string) => call<SalesDay>('manager', `/api/team/m/sales/day?date=${date}`),
   range: (from: string, to: string) => call<SalesRange>('manager', `/api/team/m/sales/range?from=${from}&to=${to}`),
+};
+
+/* ═════════════ أداء الفريق (نفس بيانات تحليلات المدراء) ═════════════ */
+export type PerfWeek = { weekStart: string; weekEnd: string; isCurrent: boolean; salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number; sellerCount: number; cashierCount: number };
+export type PerfSeller = { salesmanId: number; name: string; salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number; goalCount: number; goalsHit: number; goalPercent: number; balanceDue: number };
+export type PerfGoal = { ruleId: number; ruleName: string; targetType: string; salesmanId: number; salesmanName: string; sold: number; weeklyTarget: number; percent: number };
+export type PerfLine = { id: number; productName: string; quantity: number; salesAmount: number; commissionAmount: number; occurredAt: string };
+export type PerfSellerDetail = { seller: PerfSeller; goals: PerfGoal[]; lines: PerfLine[] };
+export const performanceApi = {
+  weeks: () => call<PerfWeek[]>('manager', '/api/manager/weeks'),
+  sellers: (week: string) => call<PerfSeller[]>('manager', `/api/manager/sellers?weekStart=${encodeURIComponent(week)}`),
+  goals: (week: string) => call<PerfGoal[]>('manager', `/api/manager/goals?weekStart=${encodeURIComponent(week)}`),
+  seller: (id: number, week: string) => call<PerfSellerDetail>('manager', `/api/manager/sellers/${id}?weekStart=${encodeURIComponent(week)}`),
 };
 
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
@@ -605,6 +675,9 @@ export type LiveMsg = {
     net?: number;
     receipts?: number;
     fresh?: SaleReceipt[];
+    // خروج من مجموعة
+    removed?: boolean;
+    gone?: boolean;
   };
 };
 

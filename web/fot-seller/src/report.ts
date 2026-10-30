@@ -2,7 +2,7 @@ import { downloadXlsxFile, type XlsxRowInput, type XlsxStyleDef } from './xlsx';
 import type { BrandReport, BrandFilter } from './brands';
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * كشف البراند — Excel منظم (ملخص · المواد · يومي) و PDF رسمي بهوية ديما الحياة.
+ * كشف البراند بالأعداد فقط — Excel منظم (ملخص · المواد · يومي) و PDF رسمي بهوية ديما الحياة.
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const GREEN = '0F9F76';
@@ -14,7 +14,6 @@ const STYLES: XlsxStyleDef[] = [
   { id: 'xBand', fontSize: 10.5, bold: true, color: 'FFFFFF', bg: GREEN, align: 'center', valign: 'center', border: 'thin' },
   { id: 'xHead', fontSize: 10, bold: true, color: 'FFFFFF', bg: '134E4A', align: 'center', valign: 'center', wrap: true, border: 'thin' },
   { id: 'xLbl', fontSize: 10, bold: true, color: '334155', bg: 'F0FDF9', valign: 'center', border: 'thin' },
-  { id: 'xMoney', fontSize: 12, bold: true, color: NAVY, align: 'center', valign: 'center', border: 'thin', numFmt: '#,##0' },
   { id: 'xInt', fontSize: 12, bold: true, color: NAVY, align: 'center', valign: 'center', border: 'thin', numFmt: '#,##0' },
   { id: 'xPctV', fontSize: 12, bold: true, color: GREEN, align: 'center', valign: 'center', border: 'thin', numFmt: '0.0%' },
   { id: 'xTxt', fontSize: 10, color: NAVY, valign: 'center', border: 'thin' },
@@ -56,7 +55,7 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
     { height: 22, cells: [{ value: 'المؤشرات الرئيسية', style: 'xBand', mergeAcross: 3 }] },
     { height: 22, cells: [{ value: 'المؤشر', style: 'xHead' }, { value: 'هذه المدة', style: 'xHead' }, { value: 'المدة السابقة', style: 'xHead' }, { value: 'التغيّر', style: 'xHead' }] },
   ];
-  const kpi = (label: string, now: number, prev: number, style = 'xMoney') => {
+  const kpi = (label: string, now: number, prev: number, style = 'xInt') => {
     summary.push({
       height: 22,
       cells: [
@@ -67,34 +66,33 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
       ],
     });
   };
-  kpi('صافي المبيعات (د.ع)', r.amount, r.prev.amount);
-  kpi('القطع المباعة', r.qty, r.prev.qty, 'xInt');
-  kpi('عدد الفواتير', r.receipts, r.prev.receipts, 'xInt');
-  summary.push({ height: 22, cells: [{ value: 'متوسط الفاتورة (د.ع)', style: 'xLbl' }, { value: Math.round(r.avgTicket), style: 'xMoney', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
+  kpi('القطع المباعة', r.qty, r.prev.qty);
+  kpi('عدد الفواتير', r.receipts, r.prev.receipts);
+  summary.push({ height: 22, cells: [{ value: 'قطعة لكل فاتورة', style: 'xLbl' }, { value: Number(r.avgPieces.toFixed(1)), style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
+  summary.push({ height: 22, cells: [{ value: 'معدل القطع في يوم البيع', style: 'xLbl' }, { value: Math.round(r.avgPerDay), style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
   summary.push({ height: 22, cells: [{ value: 'مواد بيعت', style: 'xLbl' }, { value: r.productsSold, style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
   summary.push({ height: 22, cells: [{ value: 'أيام فيها بيع', style: 'xLbl' }, { value: r.activeDays, style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
   summary.push({ cells: [{ value: '' }] });
-  summary.push({ height: 22, cells: [{ value: 'أعلى 10 مواد', style: 'xBand', mergeAcross: 3 }] });
-  summary.push({ height: 22, cells: [{ value: 'المادة', style: 'xHead' }, { value: 'الكمية', style: 'xHead' }, { value: 'المبلغ', style: 'xHead' }, { value: 'الحصة', style: 'xHead' }] });
+  summary.push({ height: 22, cells: [{ value: 'أكثر 10 مواد مبيعاً', style: 'xBand', mergeAcross: 3 }] });
+  summary.push({ height: 22, cells: [{ value: 'المادة', style: 'xHead', mergeAcross: 1 }, { value: 'الكمية', style: 'xHead' }, { value: 'الحصة', style: 'xHead' }] });
   r.products.slice(0, 10).forEach((p, i) => {
     const z = i % 2 === 1;
     summary.push({
       height: 20,
       cells: [
-        { value: p.name, style: z ? 'xTxtZ' : 'xTxt' },
+        { value: p.name, style: z ? 'xTxtZ' : 'xTxt', mergeAcross: 1 },
         { value: p.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: Math.round(p.amount), style: z ? 'xNumZ' : 'xNum', type: 'Number' },
         { value: p.share / 100, style: z ? 'xPctZ' : 'xPct', type: 'Number' },
       ],
     });
   });
   summary.push({ cells: [{ value: '' }] });
-  summary.push({ cells: [{ value: 'المبالغ صافية بعد طرح المرتجعات، والهدايا غير محسوبة. المدة السابقة = نفس عدد الأيام قبل بداية المدة.', style: 'xNote', mergeAcross: 3 }], height: 30 });
+  summary.push({ cells: [{ value: 'الأعداد صافية بعد طرح المرتجعات، والهدايا غير محسوبة. المدة السابقة = نفس عدد الأيام قبل بداية المدة.', style: 'xNote', mergeAcross: 3 }], height: 30 });
 
   /* ── المواد ── */
   const prod: XlsxRowInput[] = [
-    { height: 30, cells: [{ value: `مواد ${brand} — ${period}`, style: 'xTitle', mergeAcross: 6 }] },
-    { height: 22, cells: ['#', 'المادة', 'الباركود', 'الكمية', 'المبلغ (د.ع)', 'متوسط السعر', 'الحصة'].map(v => ({ value: v, style: 'xHead' })) },
+    { height: 30, cells: [{ value: `مواد ${brand} — ${period}`, style: 'xTitle', mergeAcross: 4 }] },
+    { height: 22, cells: ['#', 'المادة', 'الباركود', 'الكمية', 'الحصة'].map(v => ({ value: v, style: 'xHead' })) },
   ];
   r.products.forEach((p, i) => {
     const z = i % 2 === 1;
@@ -105,8 +103,6 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
         { value: p.name, style: z ? 'xTxtZ' : 'xTxt' },
         { value: p.barcode, style: z ? 'xCodeZ' : 'xCode', type: 'String' },
         { value: p.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: Math.round(p.amount), style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: p.qty ? Math.round(p.amount / p.qty) : 0, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
         { value: p.share / 100, style: z ? 'xPctZ' : 'xPct', type: 'Number' },
       ],
     });
@@ -116,16 +112,14 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
     cells: [
       { value: 'المجموع', style: 'xTotL', mergeAcross: 2 },
       { value: r.qty, style: 'xTotN', type: 'Number' },
-      { value: Math.round(r.amount), style: 'xTotN', type: 'Number' },
-      { value: '', style: 'xTotN' },
       { value: '', style: 'xTotN' },
     ],
   });
 
   /* ── يومي ── */
   const daily: XlsxRowInput[] = [
-    { height: 30, cells: [{ value: `المبيعات اليومية — ${brand}`, style: 'xTitle', mergeAcross: 4 }] },
-    { height: 22, cells: ['التاريخ', 'اليوم', 'الفواتير', 'القطع', 'المبلغ (د.ع)'].map(v => ({ value: v, style: 'xHead' })) },
+    { height: 30, cells: [{ value: `المبيعات اليومية — ${brand}`, style: 'xTitle', mergeAcross: 3 }] },
+    { height: 22, cells: ['التاريخ', 'اليوم', 'الفواتير', 'القطع'].map(v => ({ value: v, style: 'xHead' })) },
   ];
   r.days.forEach((d, i) => {
     const z = i % 2 === 1;
@@ -136,7 +130,6 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
         { value: dayName(d.day), style: z ? 'xCodeZ' : 'xCode' },
         { value: d.receipts, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
         { value: d.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: Math.round(d.amount), style: z ? 'xNumZ' : 'xNum', type: 'Number' },
       ],
     });
   });
@@ -146,7 +139,6 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
       { value: 'المجموع', style: 'xTotL', mergeAcross: 1 },
       { value: r.receipts, style: 'xTotN', type: 'Number' },
       { value: r.qty, style: 'xTotN', type: 'Number' },
-      { value: Math.round(r.amount), style: 'xTotN', type: 'Number' },
     ],
   });
 
@@ -154,8 +146,8 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
     fileBase(brand, f),
     [
       { name: 'ملخص', rtl: true, columnWidths: [230, 140, 140, 100], rows: summary },
-      { name: 'المواد', rtl: true, columnWidths: [44, 320, 130, 80, 120, 110, 80], rows: prod },
-      { name: 'يومي', rtl: true, columnWidths: [110, 90, 80, 80, 120], rows: daily },
+      { name: 'المواد', rtl: true, columnWidths: [44, 340, 140, 90, 80], rows: prod },
+      { name: 'يومي', rtl: true, columnWidths: [110, 90, 90, 90], rows: daily },
     ],
     STYLES,
   );
@@ -176,15 +168,15 @@ export function brandPdfHtml(opts: { brand: string; seller: string; filter: Bran
     const p = ((now - prev) / Math.abs(prev)) * 100;
     return `<span class="d ${p >= 0 ? 'up' : 'down'}">${p >= 0 ? '▲' : '▼'} ${Math.abs(p).toFixed(1)}%</span>`;
   };
-  const max = Math.max(1, ...r.days.map(d => d.amount));
+  const max = Math.max(1, ...r.days.map(d => d.qty));
   const bars = r.days.length <= 62
     ? `<div class="chart">${r.days
-        .map(d => `<div class="bar" title="${d.day}"><i style="height:${Math.max(1, (Math.max(0, d.amount) / max) * 100)}%"></i><span>${r.days.length <= 31 ? d.day.slice(8) : ''}</span></div>`)
+        .map(d => `<div class="bar" title="${d.day}"><i style="height:${Math.max(1, (Math.max(0, d.qty) / max) * 100)}%"></i><span>${r.days.length <= 31 ? d.day.slice(8) : ''}</span></div>`)
         .join('')}</div>`
     : '';
   const rows = r.products
     .map(
-      (p, i) => `<tr><td class="c m">${i + 1}</td><td>${esc(p.name)}</td><td class="c code">${esc(p.barcode)}</td><td class="c">${nf(p.qty)}</td><td class="c b">${nf(p.amount)}</td><td class="c g">${p.share.toFixed(1)}%</td></tr>`,
+      (p, i) => `<tr><td class="c m">${i + 1}</td><td>${esc(p.name)}</td><td class="c code">${esc(p.barcode)}</td><td class="c b">${nf(p.qty)}</td><td class="c g">${p.share.toFixed(1)}%</td></tr>`,
     )
     .join('');
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${esc(fileBase(brand, f))}</title>
@@ -230,17 +222,17 @@ export function brandPdfHtml(opts: { brand: string; seller: string; filter: Bran
 <h1>كشف مبيعات <span>${esc(brand)}</span></h1>
 <div class="meta">من ${fmtDate(f.from)} إلى ${fmtDate(f.to)} · ${scopeLabel(f)} · الموظف: ${esc(seller)}</div>
 <div class="kpis">
-  <div class="k main"><div class="l">صافي المبيعات (د.ع)</div><div class="v">${nf(r.amount)}</div>${delta(r.amount, r.prev.amount)}</div>
-  <div class="k"><div class="l">القطع المباعة</div><div class="v">${nf(r.qty)}</div>${delta(r.qty, r.prev.qty)}</div>
+  <div class="k main"><div class="l">القطع المباعة</div><div class="v">${nf(r.qty)}</div>${delta(r.qty, r.prev.qty)}</div>
   <div class="k"><div class="l">عدد الفواتير</div><div class="v">${nf(r.receipts)}</div>${delta(r.receipts, r.prev.receipts)}</div>
-  <div class="k"><div class="l">متوسط الفاتورة (د.ع)</div><div class="v">${nf(r.avgTicket)}</div><span class="d">${r.productsSold} مادة · ${r.activeDays} يوم بيع</span></div>
+  <div class="k"><div class="l">قطعة لكل فاتورة</div><div class="v">${r.avgPieces.toFixed(1)}</div><span class="d">معدل اليوم ${nf(r.avgPerDay)} قطعة</span></div>
+  <div class="k"><div class="l">مواد بيعت</div><div class="v">${nf(r.productsSold)}</div><span class="d">${r.activeDays} يوم بيع</span></div>
 </div>
 ${bars ? `<h2>المبيعات اليومية</h2>${bars}` : ''}
 <h2>المواد (${r.products.length})</h2>
-<table><thead><tr><th class="c">#</th><th>المادة</th><th class="c">الباركود</th><th class="c">الكمية</th><th class="c">المبلغ (د.ع)</th><th class="c">الحصة</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="6" class="c m">لا مبيعات في هذه المدة</td></tr>'}</tbody>
-<tfoot><tr><td colspan="3">المجموع</td><td class="c">${nf(r.qty)}</td><td class="c">${nf(r.amount)}</td><td class="c">100%</td></tr></tfoot></table>
-<div class="foot"><span>المبالغ صافية بعد المرتجعات · الهدايا غير محسوبة</span><span>Deema Al Hayat · Baghdad</span></div>
+<table><thead><tr><th class="c">#</th><th>المادة</th><th class="c">الباركود</th><th class="c">الكمية</th><th class="c">الحصة</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="5" class="c m">لا مبيعات في هذه المدة</td></tr>'}</tbody>
+<tfoot><tr><td colspan="3">المجموع</td><td class="c">${nf(r.qty)}</td><td class="c">100%</td></tr></tfoot></table>
+<div class="foot"><span>الأعداد صافية بعد المرتجعات · الهدايا غير محسوبة</span><span>Deema Al Hayat · Baghdad</span></div>
 </body></html>`;
 }
 

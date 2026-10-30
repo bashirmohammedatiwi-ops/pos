@@ -217,6 +217,45 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
     };
   }
 
+  /** تقرير الموظف نفسه لشهر: ملخص + كل يوم + إجازات السنة */
+  function myMonth(s, monthRaw) {
+    const today = iraqDate();
+    const month = /^\d{4}-\d{2}$/.test(String(monthRaw || '')) ? monthRaw : today.slice(0, 7);
+    const from = `${month}-01`;
+    const [y, m] = month.split('-').map(Number);
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const to = end < today ? end : today;
+    const params = new URLSearchParams({ from, to });
+    const row = from <= today ? summary({ searchParams: params }, id => id === s.id).rows[0] ?? null : null;
+    const recs = new Map(db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND date BETWEEN ? AND ?').all(s.id, from, to).map(r => [r.date, r]));
+    const days = [];
+    for (let d = to; d >= from; d = addDays(d, -1)) {
+      const r = recs.get(d);
+      const st = dayFor(s.id, d);
+      let worked = 0;
+      let breakMin = 0;
+      if (r) {
+        const bl = db.prepare('SELECT * FROM breaks WHERE attendance_id = ?').all(r.id);
+        breakMin = bl.reduce((x, b) => x + Math.round(((b.end_at ? Date.parse(b.end_at) : Date.now()) - Date.parse(b.start_at)) / 60_000), 0);
+        worked = Math.max(0, Math.round(((r.check_out ? Date.parse(r.check_out) : Date.now()) - Date.parse(r.check_in)) / 60_000) - breakMin);
+      }
+      days.push({
+        date: d,
+        off: !!st?.off,
+        reason: st?.reason ?? null,
+        checkIn: r?.check_in ?? null,
+        checkOut: r?.check_out ?? null,
+        lateMinutes: r?.late_minutes ?? 0,
+        workedMinutes: worked,
+        breakMinutes: breakMin,
+        overtimeMinutes: r ? overtimeOf(s.id, d, worked) : 0,
+        autoClosed: !!r?.auto_closed,
+      });
+    }
+    const leaves = db.prepare("SELECT type, COUNT(*) AS n FROM leave_requests WHERE staff_id = ? AND status = 'approved' AND substr(created_at, 1, 4) = ? GROUP BY type").all(s.id, month.slice(0, 4));
+    return { month, from, to, row, days, leaves };
+  }
+
   /* ═════════════ إشعارات Firebase (FCM HTTP v1) ═════════════ */
   let sa = null;
   let saLoadedAt = 0;
@@ -344,7 +383,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
     return false;
   }
 
-  return { handlePublic, handleManage, pushTo, check };
+  return { handlePublic, handleManage, pushTo, check, myMonth };
 }
 
 module.exports = { createExtra };

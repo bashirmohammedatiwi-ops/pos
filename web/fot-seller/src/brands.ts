@@ -3,7 +3,8 @@ import { api, getSeller } from './api';
 import { onBrandsChanged } from './access';
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * براندات البائع — كل براند شجرة مواد مستقلة في الإداري.
+ * براندات البائع — كل براند شجرة مواد مستقلة في الإداري. **بالأعداد فقط**:
+ * الخادم لا يرسل أي مبلغ أو سعر للموظف.
  * الخادم يرسل الحزمة كاملة (منذ بدء النظام) والحساب كله هنا: أي مدة، كل المحل أو مبيعاتي،
  * فرع محدد، مقارنة بالمدة السابقة — فوري ويعمل حتى مع ضعف الإنترنت (مخزّن محلياً).
  * ───────────────────────────────────────────────────────────────────────────── */
@@ -20,10 +21,9 @@ export interface BrandProduct {
   id: number;
   name: string;
   barcode: string;
-  price: number;
 }
 
-/** صف: [يوم ISO, مادة, قسم, لي(1/0), كمية, مبلغ] */
+/** صف: [يوم ISO, مادة, قسم, لي(1/0), كمية, 0 (عمود المبلغ قديم — فارغ دائماً)] */
 export type BrandRow = [string, number, number, number, number, number];
 /** فواتير: [يوم, قسم, لي, عدد] */
 export type BrandReceiptRow = [string, number, number, number];
@@ -54,27 +54,38 @@ export interface ProductStat {
   id: number;
   name: string;
   barcode: string;
-  price: number;
   qty: number;
-  amount: number;
+  /** حصة المادة من قطع المدة (%) */
   share: number;
 }
 
 export interface BrandReport {
-  amount: number;
   qty: number;
   receipts: number;
   productsSold: number;
   activeDays: number;
-  days: { day: string; amount: number; qty: number; receipts: number }[];
+  days: { day: string; qty: number; receipts: number }[];
   products: ProductStat[];
-  sections: { id: number; name: string; amount: number; qty: number; receipts: number; share: number }[];
+  sections: { id: number; name: string; qty: number; receipts: number; share: number }[];
   /** المدة السابقة بنفس الطول للمقارنة. */
-  prev: { amount: number; qty: number; receipts: number };
-  avgTicket: number;
+  prev: { qty: number; receipts: number };
+  /** متوسط القطع في الفاتورة */
+  avgPieces: number;
+  /** متوسط القطع في يوم البيع */
+  avgPerDay: number;
 }
 
-const CACHE = 'fot_seller_brand_';
+const CACHE = 'fot_seller_brand2_';
+
+// نسخ قديمة مخزّنة على الهاتف كانت تحمل مبالغ — تُمسح مرة واحدة
+try {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('fot_seller_brand_')) localStorage.removeItem(k);
+  }
+} catch {
+  /* ignore */
+}
 
 /** مفتاح تخزين خاص بالبائع — جهاز مشترك لا يعرض براندات بائع لبائع آخر. */
 function cacheKey(suffix: string) {
@@ -243,34 +254,26 @@ export function buildReport(pack: BrandPack, f: BrandFilter): BrandReport {
   const prevTo = addDays(f.from, -1);
   const ok = (row: { 2: number; 3: number }) => (f.scope === 'all' || row[3] === 1) && (f.sectionId == null || row[2] === f.sectionId);
 
-  const byDay = new Map<string, { amount: number; qty: number; receipts: number }>();
-  const byProduct = new Map<number, { qty: number; amount: number }>();
-  const bySection = new Map<number, { amount: number; qty: number; receipts: number }>();
-  let amount = 0;
+  const byDay = new Map<string, { qty: number; receipts: number }>();
+  const byProduct = new Map<number, number>();
+  const bySection = new Map<number, { qty: number; receipts: number }>();
   let qty = 0;
-  const prev = { amount: 0, qty: 0, receipts: 0 };
+  const prev = { qty: 0, receipts: 0 };
 
   for (const r of pack.rows) {
-    const [day, article, section, , q, m] = r;
+    const [day, article, section, , q] = r;
     if (!ok(r)) continue;
     if (day >= prevFrom && day <= prevTo) {
-      prev.amount += m;
       prev.qty += q;
       continue;
     }
     if (day < f.from || day > f.to) continue;
-    amount += m;
     qty += q;
-    const d = byDay.get(day) ?? { amount: 0, qty: 0, receipts: 0 };
-    d.amount += m;
+    const d = byDay.get(day) ?? { qty: 0, receipts: 0 };
     d.qty += q;
     byDay.set(day, d);
-    const p = byProduct.get(article) ?? { qty: 0, amount: 0 };
-    p.qty += q;
-    p.amount += m;
-    byProduct.set(article, p);
-    const s = bySection.get(section) ?? { amount: 0, qty: 0, receipts: 0 };
-    s.amount += m;
+    byProduct.set(article, (byProduct.get(article) ?? 0) + q);
+    const s = bySection.get(section) ?? { qty: 0, receipts: 0 };
     s.qty += q;
     bySection.set(section, s);
   }
@@ -290,10 +293,10 @@ export function buildReport(pack: BrandPack, f: BrandFilter): BrandReport {
     }
     if (day < f.from || day > f.to) continue;
     receipts += n;
-    const d = byDay.get(day) ?? { amount: 0, qty: 0, receipts: 0 };
+    const d = byDay.get(day) ?? { qty: 0, receipts: 0 };
     d.receipts += n;
     byDay.set(day, d);
-    const s = bySection.get(section) ?? { amount: 0, qty: 0, receipts: 0 };
+    const s = bySection.get(section) ?? { qty: 0, receipts: 0 };
     s.receipts += n;
     bySection.set(section, s);
   }
@@ -304,41 +307,34 @@ export function buildReport(pack: BrandPack, f: BrandFilter): BrandReport {
     for (let i = 0; i < span; i++) {
       const day = addDays(f.from, i);
       const v = byDay.get(day);
-      days.push({ day, amount: v?.amount ?? 0, qty: v?.qty ?? 0, receipts: v?.receipts ?? 0 });
+      days.push({ day, qty: v?.qty ?? 0, receipts: v?.receipts ?? 0 });
     }
   }
 
   const productStats: ProductStat[] = [...byProduct.entries()]
-    .map(([id, v]) => {
+    .map(([id, q]) => {
       const p = products.get(id);
-      return {
-        id,
-        name: p?.name || `مادة #${id}`,
-        barcode: p?.barcode || '',
-        price: p?.price ?? 0,
-        qty: v.qty,
-        amount: v.amount,
-        share: amount > 0 ? (v.amount / amount) * 100 : 0,
-      };
+      return { id, name: p?.name || `مادة #${id}`, barcode: p?.barcode || '', qty: q, share: qty > 0 ? (q / qty) * 100 : 0 };
     })
-    .filter(p => Math.abs(p.qty) > 0.0001 || Math.abs(p.amount) > 0.5)
-    .sort((a, b) => b.amount - a.amount || b.qty - a.qty);
+    .filter(p => Math.abs(p.qty) > 0.0001)
+    .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name, 'ar'));
 
   const sections = [...bySection.entries()]
-    .map(([id, v]) => ({ id, name: sectionName.get(id) || (id ? `قسم #${id}` : 'بلا قسم'), ...v, share: amount > 0 ? (v.amount / amount) * 100 : 0 }))
-    .sort((a, b) => b.amount - a.amount);
+    .map(([id, v]) => ({ id, name: sectionName.get(id) || (id ? `قسم #${id}` : 'بلا قسم'), ...v, share: qty > 0 ? (v.qty / qty) * 100 : 0 }))
+    .sort((a, b) => b.qty - a.qty);
 
+  const activeDays = [...byDay.values()].filter(d => d.qty !== 0).length;
   return {
-    amount,
     qty,
     receipts,
     productsSold: productStats.filter(p => p.qty > 0).length,
-    activeDays: [...byDay.values()].filter(d => d.amount !== 0 || d.qty !== 0).length,
+    activeDays,
     days,
     products: productStats,
     sections,
     prev,
-    avgTicket: receipts > 0 ? amount / receipts : 0,
+    avgPieces: receipts > 0 ? qty / receipts : 0,
+    avgPerDay: activeDays > 0 ? qty / activeDays : 0,
   };
 }
 

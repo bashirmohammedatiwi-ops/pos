@@ -8,7 +8,7 @@ import { api } from '@/api/client';
  * ───────────────────────────────────────────────────────────────────────────── */
 
 /** أقل نسخة خادم يعمل معها هذا الإصدار (deploy/hub/version.js). */
-export const REQUIRED_HUB_VERSION = '2026.10.29';
+export const REQUIRED_HUB_VERSION = '2026.10.30';
 const UPDATE_CMD = 'cd ~/pos && git pull origin main && sh deploy/update.sh';
 
 export function hubIsOutdated(version?: string | null) {

@@ -6,17 +6,20 @@
  *   live  — حزمة اليوم + آخر الفواتير + نقاط البيع، خلال ثوانٍ من كل فاتورة (POST /api/sync/sales)
  *   days  — حزمة مفصّلة لكل يوم سابق (تُرفع الأيام الجديدة/المتغيّرة فقط حسب البصمة)
  *   totals— إجمالي كل يوم لسنة
- * المدير: /api/team/m/sales/{live,day,range} + حدث «sales» على القناة الحية مع كل تحديث.
+ * المدير: /api/team/m/sales/{live,day,range,alerts} + حدث «sales» على القناة الحية مع كل تحديث.
+ * تنبيهات المتابعة: فاتورة كبيرة، مرتجع كبير، نقطة بيع انقطعت، مبيعات أبطأ من المعتاد، ملخص الإغلاق.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-function createSales({ db, ctx, now, permsOf, managerIds, emit }) {
+function createSales({ db, ctx, now, audit, permsOf, managerIds, emit, notify }) {
   db.exec('CREATE TABLE IF NOT EXISTS _sales_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const MIGRATIONS = [
     `CREATE TABLE sales_days (day TEXT PRIMARY KEY, hash TEXT NOT NULL, pack TEXT NOT NULL, updated_at TEXT NOT NULL);
      CREATE TABLE sales_totals (day TEXT PRIMARY KEY, net REAL NOT NULL, receipts INTEGER NOT NULL, returns REAL NOT NULL, pieces REAL NOT NULL);`,
+    `CREATE TABLE sales_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+     CREATE TABLE sales_alert_log (day TEXT NOT NULL, key TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (day, key));`,
   ];
   const applied = new Set(db.prepare('SELECT id FROM _sales_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -64,6 +67,108 @@ function createSales({ db, ctx, now, permsOf, managerIds, emit }) {
   /** من يرى المبيعات: المدراء النشطون بصلاحية viewSales */
   const viewers = () => managerIds().filter(id => permsOf(id).perms.viewSales);
 
+  /* ── تنبيهات المتابعة ── */
+  const ALERT_DEFAULTS = { bigSale: 500000, bigReturn: 100000, terminalOffline: true, slowPace: true, dailyClose: true, closeAt: '22:30' };
+  function alertSettings() {
+    const row = db.prepare("SELECT value FROM sales_settings WHERE key = 'alerts'").get();
+    let saved = {};
+    try {
+      saved = row ? JSON.parse(row.value) : {};
+    } catch {
+      saved = {};
+    }
+    return { ...ALERT_DEFAULTS, ...saved };
+  }
+  function saveAlertSettings(body, actor) {
+    const cur = alertSettings();
+    const money = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : d);
+    const next = {
+      bigSale: money(body.bigSale, cur.bigSale),
+      bigReturn: money(body.bigReturn, cur.bigReturn),
+      terminalOffline: body.terminalOffline !== undefined ? !!body.terminalOffline : cur.terminalOffline,
+      slowPace: body.slowPace !== undefined ? !!body.slowPace : cur.slowPace,
+      dailyClose: body.dailyClose !== undefined ? !!body.dailyClose : cur.dailyClose,
+      closeAt: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.closeAt || '')) ? body.closeAt : cur.closeAt,
+    };
+    db.prepare("INSERT INTO sales_settings (key, value) VALUES ('alerts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(next));
+    audit?.(actor, 'sales.alerts', null, next);
+    return next;
+  }
+  const compact = n => {
+    const a = Math.abs(n);
+    const trim = (x, d) => x.toFixed(d).replace(/\.0+$/, '');
+    if (a >= 1e6) return `${trim(n / 1e6, a >= 1e8 ? 0 : a >= 1e7 ? 1 : 2)} مليون`;
+    if (a >= 1e3) return `${Math.round(n / 1e3)} ألف`;
+    return String(Math.round(n));
+  };
+  /** تنبيه مرة واحدة لكل مفتاح في اليوم */
+  function alertOnce(day, key, n) {
+    const ids = viewers();
+    if (!ids.length) return;
+    const r = db.prepare('INSERT INTO sales_alert_log (day, key, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').run(day, key, now());
+    if (!r.changes) return;
+    notify?.('manager', ids, { ...n, link: '/sales' });
+  }
+  const posLabel = (name, id) => (!name || /^win:/i.test(name) ? `نقطة بيع ${id}` : name);
+  function checkLiveAlerts(fresh) {
+    const s = alertSettings();
+    const day = live.pack.day;
+    for (const r of fresh) {
+      if (r.kind === 0 && s.bigSale > 0 && num(r.total) >= s.bigSale)
+        alertOnce(day, `sale:${r.id}`, { type: 'sales.big', title: `فاتورة كبيرة: ${compact(num(r.total))} د.ع`, body: [r.cashier, r.seller].filter(Boolean).join(' · ') });
+      if (r.kind === 1 && s.bigReturn > 0 && num(r.total) >= s.bigReturn)
+        alertOnce(day, `return:${r.id}`, { type: 'sales.return', title: `مرتجع كبير: ${compact(num(r.total))} د.ع`, body: r.cashier ? `الكاشير ${r.cashier}` : '' });
+    }
+    const atMs = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(live.at || '') ? live.at : `${live.at}+03:00`);
+    if (Number.isNaN(atMs)) return;
+    const local = new Date(atMs + 3 * 3600_000);
+    const hour = local.getUTCHours();
+    if (s.terminalOffline && hour >= 10 && hour < 22) {
+      for (const t of live.terminals || []) {
+        // فقط النقاط التي باعت اليوم: جهاز قديم غير مستخدم لا يُنبَّه عنه
+        if (!t.lastSaleAt || !t.lastSeen) continue;
+        const seen = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(t.lastSeen) ? t.lastSeen : `${t.lastSeen}+03:00`);
+        if (!Number.isNaN(seen) && atMs - seen > 15 * 60_000)
+          alertOnce(day, `off:${t.id}`, { type: 'sales.offline', title: `انقطعت ${posLabel(t.name, t.id)}`, body: 'لا اتصال منذ أكثر من 15 دقيقة — تحقق من الجهاز والشبكة' });
+      }
+    }
+    if (s.slowPace && hour >= 14 && hour < 22) {
+      const logged = db.prepare("SELECT 1 FROM sales_alert_log WHERE day = ? AND key = 'pace'").get(day);
+      if (!logged) {
+        const avg = sameWeekdayAvg(day);
+        if (avg && avg.weeks >= 2) {
+          const frac = local.getUTCMinutes() / 60;
+          let expected = 0;
+          for (const h of avg.hours) expected += h.h < hour ? h.t : h.h === hour ? h.t * frac : 0;
+          const net = num(live.pack.totals?.net);
+          if (expected > 0 && net < expected * 0.7)
+            alertOnce(day, 'pace', { type: 'sales.pace', title: 'المبيعات أبطأ من المعتاد', body: `${compact(net)} حتى الآن مقابل ${compact(expected)} في مثل هذا الوقت عادةً` });
+        }
+      }
+    }
+  }
+  /** ملخص إغلاق اليوم بتبليغ واحد */
+  function checkClose() {
+    try {
+      if (!live?.pack) return;
+      const s = alertSettings();
+      if (!s.dailyClose) return;
+      const local = new Date(Date.now() + 3 * 3600_000);
+      const day = local.toISOString().slice(0, 10);
+      const hm = local.toISOString().slice(11, 16);
+      if (live.pack.day !== day || hm < s.closeAt) return;
+      const t = live.pack.totals || {};
+      if (!num(t.receipts)) return;
+      const week = packOf(shift(day, -7));
+      const pct = week && num(week.totals?.net) ? Math.round(((num(t.net) - num(week.totals.net)) / Math.abs(num(week.totals.net))) * 100) : null;
+      const cmp = pct == null ? '' : ` · ${pct >= 0 ? '+' : ''}${pct}% عن الأسبوع الماضي`;
+      alertOnce(day, 'close', { type: 'sales.close', title: `إغلاق اليوم: ${compact(num(t.net))} د.ع`, body: `${num(t.receipts)} فاتورة · ${Math.round(num(t.pieces))} قطعة${cmp}` });
+    } catch (err) {
+      console.error('sales close alert failed', err.message);
+    }
+  }
+  setInterval(checkClose, 60_000).unref();
+
   /* ── استقبال المزامنة ── */
   function applySync(body) {
     let changed = 0;
@@ -77,6 +182,11 @@ function createSales({ db, ctx, now, permsOf, managerIds, emit }) {
       const fresh = prev && prev.pack?.day === live.pack.day ? (live.recent || []).filter(r => r.id > lastId) : [];
       const summary = { day: live.pack.day, net: num(t.net), receipts: num(t.receipts), pieces: num(t.pieces), lastAt: t.lastAt || null, at: live.at || null, fresh: fresh.slice(0, 10) };
       for (const id of viewers()) emit(`manager:${id}`, 'sales', summary);
+      try {
+        checkLiveAlerts(fresh);
+      } catch (err) {
+        console.error('sales alerts failed', err.message);
+      }
     }
     if (Array.isArray(body.days) && body.days.length) {
       const up = db.prepare(`INSERT INTO sales_days (day, hash, pack, updated_at) VALUES (?, ?, ?, ?)
@@ -137,7 +247,10 @@ function createSales({ db, ctx, now, permsOf, managerIds, emit }) {
   function mergeNamed(target, rows, keyOf = r => r.id) {
     for (const r of rows || []) {
       const k = keyOf(r);
-      const cur = target.get(k) || { id: r.id, name: r.name, sub: r.sub ?? null, barcode: r.barcode ?? null, t: 0, n: 0, q: 0, days: 0, lastAt: null };
+      const cur = target.get(k) || { id: r.id, name: r.name, sub: r.sub ?? null, barcode: r.barcode ?? null, t: 0, n: 0, q: 0, d: 0, v: 0, va: 0, days: 0, lastAt: null };
+      cur.d += num(r.d);
+      cur.v += num(r.v);
+      cur.va += num(r.va);
       cur.t += num(r.t);
       cur.n += num(r.n);
       cur.q += num(r.q);
@@ -274,8 +387,21 @@ function createSales({ db, ctx, now, permsOf, managerIds, emit }) {
   }
 
   const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-  async function handleManage(req, res, url, sub, send) {
-    if (!/^sales(\/|$)/.test(sub) || req.method !== 'GET') return false;
+  async function handleManage(req, res, url, sub, send, actor) {
+    if (!/^sales(\/|$)/.test(sub)) return false;
+    if (sub === 'sales/alerts') {
+      if (req.method === 'GET') return send(200, alertSettings()), true;
+      if (req.method === 'PUT') {
+        let body = {};
+        try {
+          body = JSON.parse((await ctx.readBody(req)) || '{}');
+        } catch {
+          return send(400, { error: 'طلب غير صالح' }), true;
+        }
+        return send(200, saveAlertSettings(body, actor)), true;
+      }
+    }
+    if (req.method !== 'GET') return false;
     if (sub === 'sales/live') return send(200, dayView(today())), true;
     if (sub === 'sales/day') {
       const day = url.searchParams.get('date') || today();

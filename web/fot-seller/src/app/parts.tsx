@@ -256,6 +256,14 @@ const NOTIF_ICON: Record<string, { icon: ReactNode; tone: string }> = {
   'leave.approved': { icon: <I.check size={18} />, tone: 'ok' },
   'leave.rejected': { icon: <I.close size={18} />, tone: 'bad' },
   schedule: { icon: <I.calendar size={19} />, tone: '' },
+  'chat.group': { icon: <I.chat size={19} />, tone: '' },
+  'sales.big': { icon: <I.chart size={19} />, tone: 'ok' },
+  'sales.close': { icon: <I.chart size={19} />, tone: '' },
+  'sales.return': { icon: <I.receipt size={19} />, tone: 'bad' },
+  'sales.offline': { icon: <I.info size={19} />, tone: 'bad' },
+  'sales.pace': { icon: <I.chart size={19} />, tone: 'accent' },
+  'break.warn': { icon: <I.coffee size={19} />, tone: 'accent' },
+  'break.over': { icon: <I.coffee size={19} />, tone: 'bad' },
 };
 
 export function NotifList({ items, onOpen }: { items: Notif[]; onOpen: (n: Notif) => void }) {

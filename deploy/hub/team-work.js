@@ -23,13 +23,16 @@ const LEAVE_TYPES = {
   hours: 'استئذان',
 };
 const POST_KINDS = ['news', 'offer', 'instruction', 'congrats', 'alert'];
-const MEDIA_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif)$/;
+const MEDIA_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|webm|ogg|m4a)$/;
 const PRIVATE_PREFIX = '/api/team/private/';
 const PRIVATE_NAME_RE = /^[a-f0-9]{32}\.(jpg|png|webp)$/;
 // الرابط المخزّن بلا توقيع؛ ما يصل من التطبيق قد يحمل ?exp=&sig=
 const PRIVATE_RE = /^\/api\/team\/private\/([a-f0-9]{32}\.(?:jpg|png|webp))(?:\?.*)?$/;
-const MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
-const EXT_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
+const MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a' };
+/** حدود المحادثات: الهاتف يضغط الصورة قبل الرفع، والخادم يرفض ما يتجاوز الحد */
+const CHAT_IMAGE_MAX = 600 * 1024;
+const VOICE_MAX = 1536 * 1024;
+const EXT_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', webm: 'audio/webm', ogg: 'audio/ogg', m4a: 'audio/mp4' };
 
 /** تاريخ اليوم بتوقيت العراق YYYY-MM-DD */
 function iraqDate(ms = Date.now()) {
@@ -321,15 +324,30 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   function saveMedia(body, maxBytes, priv = false) {
     let data = String(body.data || '');
     let mime = String(body.mime || '');
-    const m = data.match(/^data:([\w/+.-]+);base64,(.*)$/s);
+    // data:audio/webm;codecs=opus;base64,… — قد يحمل النوع معاملات
+    const m = data.match(/^data:([\w/+.-]+)(?:;[\w=.-]+)*;base64,(.*)$/s);
     if (m) {
       mime = m[1];
       data = m[2];
     }
     const ext = MIME_EXT[mime];
-    if (!ext) return { status: 400, body: { error: 'نوع الصورة غير مدعوم (JPG/PNG/WebP)' } };
+    if (!ext) return { status: 400, body: { error: 'نوع الملف غير مدعوم (JPG/PNG/WebP أو تسجيل صوتي)' } };
     const buf = Buffer.from(data, 'base64');
-    if (!buf.length) return { status: 400, body: { error: 'الصورة فارغة' } };
+    if (!buf.length) return { status: 400, body: { error: 'الملف فارغ' } };
+    if (mime.startsWith('audio/')) {
+      if (priv) return { status: 400, body: { error: 'نوع الملف غير مدعوم هنا' } };
+      if (buf.length > VOICE_MAX) return { status: 413, body: { error: 'التسجيل الصوتي طويل جداً' } };
+      // المحتوى نفسه يجب أن يكون صوتاً: WebM (EBML) أو Ogg أو MP4
+      const isAudio =
+        buf.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) ||
+        buf.subarray(0, 4).toString('latin1') === 'OggS' ||
+        buf.subarray(4, 8).toString('latin1') === 'ftyp';
+      if (!isAudio) return { status: 400, body: { error: 'الملف ليس تسجيلاً صوتياً صالحاً' } };
+      const audioName = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+      fs.writeFileSync(path.join(mediaDir, audioName), buf);
+      return { status: 200, body: { url: `/api/team/media/${audioName}`, name: audioName, size: buf.length } };
+    }
+    if (body.purpose === 'chat' && buf.length > CHAT_IMAGE_MAX) return { status: 413, body: { error: 'الصورة كبيرة — أعد المحاولة بعد تحديث التطبيق' } };
     if (buf.length > maxBytes) return { status: 413, body: { error: `الصورة أكبر من ${Math.round(maxBytes / 1048576)} ميغابايت` } };
     // المحتوى نفسه يجب أن يكون صورة (لا نثق بالنوع المُعلَن)
     const isImg =
@@ -341,6 +359,17 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
     fs.writeFileSync(path.join(priv ? privateDir : mediaDir, name), buf);
     return { status: 200, body: { url: priv ? signPrivate(`${PRIVATE_PREFIX}${name}`) : `/api/team/media/${name}`, name, size: buf.length } };
+  }
+
+  /** حذف ملف وسائط لم يعد مستخدماً (رسالة أو مجموعة حُذفت) لتوفير مساحة الخادم */
+  function deleteMedia(url) {
+    const m = /^\/api\/team\/media\/([a-f0-9]{32}\.[a-z0-9]+)$/.exec(url || '');
+    if (!m || !MEDIA_RE.test(m[1])) return;
+    try {
+      fs.unlinkSync(path.join(mediaDir, m[1]));
+    } catch {
+      /* محذوف مسبقاً */
+    }
   }
 
   /* ── المرفقات الخاصة ── */
@@ -971,7 +1000,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
   const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
 
-  return { permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
+  return { deleteMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
 }
 
 module.exports = { createWork };

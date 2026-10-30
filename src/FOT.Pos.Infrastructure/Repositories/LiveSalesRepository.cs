@@ -45,6 +45,11 @@ public sealed class SalesNamed
     public int N { get; set; }
     public decimal Q { get; set; }
     public DateTime? LastAt { get; set; }
+    /// <summary>للكاشير: الخصم اليدوي.</summary>
+    public decimal D { get; set; }
+    /// <summary>للكاشير: عمليات الحذف من الفاتورة (عددها وقيمتها).</summary>
+    public int V { get; set; }
+    public decimal Va { get; set; }
 }
 
 public sealed class SalesProduct
@@ -161,7 +166,8 @@ public sealed class LiveSalesRepository(ISqlConnectionFactory db)
                    COALESCE(MAX(NULLIF(LTRIM(RTRIM(c.account_name)), N'')), MAX(c.username), N'—') AS Name, MAX(sec.name) AS Sub,
                    CAST(COALESCE(SUM({Net}),0) AS DECIMAL(18,2)) AS T, SUM(CASE WHEN r.kind = 0 THEN 1 ELSE 0 END) AS N,
                    CAST(SUM(CASE WHEN r.kind = 1 THEN 1 ELSE 0 END) AS DECIMAL(18,3)) AS Q,
-                   MAX(CASE WHEN r.kind = 0 THEN r.creation_date END) AS LastAt
+                   MAX(CASE WHEN r.kind = 0 THEN r.creation_date END) AS LastAt,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 0 THEN COALESCE(r.user_discount,0) ELSE 0 END),0) AS DECIMAL(18,2)) AS D
             FROM reciepts r
             LEFT JOIN cashiers c ON c.id = r.cashier_id
             LEFT JOIN point_of_sales pos ON pos.id = r.point_of_sale_id
@@ -192,6 +198,14 @@ public sealed class LiveSalesRepository(ISqlConnectionFactory db)
             LEFT JOIN articles a ON a.id = ri.article_id
             WHERE {Where} AND r.kind IN (0,1)
             GROUP BY ri.article_id ORDER BY T DESC;
+
+            SELECT CAST(v.cashier_id AS BIGINT) AS Id,
+                   COALESCE(MAX(NULLIF(LTRIM(RTRIM(c.account_name)), N'')), MAX(c.username), N'—') AS Name,
+                   COUNT(*) AS V, CAST(COALESCE(SUM(v.amount),0) AS DECIMAL(18,2)) AS Va
+            FROM ext_cashier_voids v
+            LEFT JOIN cashiers c ON c.id = v.cashier_id
+            WHERE v.created_at >= @day AND v.created_at < @next
+            GROUP BY v.cashier_id;
             """;
         var day = date.Date;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
@@ -208,6 +222,18 @@ public sealed class LiveSalesRepository(ISqlConnectionFactory db)
         var cashiers = (await multi.ReadAsync<SalesNamed>()).ToList();
         var sellers = (await multi.ReadAsync<SalesNamed>()).ToList();
         var products = (await multi.ReadAsync<SalesProduct>()).ToList();
+        foreach (var v in await multi.ReadAsync<SalesNamed>())
+        {
+            var c = cashiers.FirstOrDefault(x => x.Id == v.Id);
+            if (c is null)
+            {
+                // كاشير حذف مواد ولم يُصدر فاتورة
+                c = new SalesNamed { Id = v.Id, Name = v.Name };
+                cashiers.Add(c);
+            }
+            c.V = v.V;
+            c.Va = v.Va;
+        }
         return new SalesDayPack(day.ToString("yyyy-MM-dd"), totals, hours, sections, terminals, cashiers, sellers, products);
     }
 

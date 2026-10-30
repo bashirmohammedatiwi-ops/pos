@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Empty, ErrorLine, I, Screen, Skeleton } from '../kit';
+
+/** تصنيف التبليغات للتصفية */
+const FILTERS: { id: string; label: string; test: (n: Notif) => boolean }[] = [
+  { id: 'all', label: 'الكل', test: () => true },
+  { id: 'unread', label: 'غير مقروء', test: n => !n.readAt },
+  { id: 'leave', label: 'الطلبات', test: n => n.type.startsWith('leave') || n.type === 'schedule' },
+  { id: 'posts', label: 'الإعلانات', test: n => n.type === 'post' || n.type === 'broadcast' },
+  { id: 'attend', label: 'الدوام', test: n => n.type.startsWith('break') || n.type.startsWith('attend') || n.type.startsWith('shift') },
+  { id: 'chat', label: 'المحادثات', test: n => n.type.startsWith('chat') },
+  { id: 'sales', label: 'المبيعات', test: n => n.type.startsWith('sales') },
+];
 import { haptic } from '../native';
 import { BackBtn, NotifList } from '../parts';
 import { managerApi, onLive, staffApi, type Notif, type Role } from '../work';
@@ -18,6 +29,7 @@ export function Alerts({ role, back }: { role: Role; back?: string }) {
   const [err, setErr] = useState('');
   const [more, setMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [filter, setFilter] = useState('all');
 
   async function load() {
     try {
@@ -91,7 +103,18 @@ export function Alerts({ role, back }: { role: Role; back?: string }) {
         <Empty icon={<I.bell size={30} />} title="لا تبليغات بعد" text="هنا تصلك إعلانات الإدارة، ردود طلباتك، وتعديلات دوامك — فور حدوثها." />
       ) : items ? (
         <>
-          <NotifList items={items} onOpen={n => void open(n)} />
+          <div className="t-scroller" style={{ marginBottom: 10, gap: 8 }}>
+            {FILTERS.filter(f => f.id !== 'sales' || role === 'manager').map(f => (
+              <button key={f.id} type="button" className={`t-chip press ${filter === f.id ? 'on' : ''}`} style={{ flexShrink: 0 }} onClick={() => (haptic('select'), setFilter(f.id))}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {items.some(FILTERS.find(f => f.id === filter)!.test) ? (
+            <NotifList items={items.filter(FILTERS.find(f => f.id === filter)!.test)} onOpen={n => void open(n)} />
+          ) : (
+            <Empty icon={<I.bell size={28} />} title="لا تبليغات في هذا التصنيف" />
+          )}
           {more && (
             <button type="button" className="t-btn plain block sm press" style={{ marginTop: 14 }} disabled={loadingMore} onClick={() => void older()}>
               {loadingMore ? 'جارٍ التحميل…' : 'تبليغات أقدم'}

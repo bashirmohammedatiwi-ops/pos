@@ -8,6 +8,8 @@ import { Alerts } from '../screens/Alerts';
 import { ChatList, ChatRoom } from '../screens/Chat';
 import { AttendSummary, MAttend, MNetworks } from './ManagerAttend';
 import { MReports } from './ManagerReports';
+import { MPerformance } from './ManagerPerformance';
+import { MSales, SalesHomeCard } from './ManagerSales';
 import {
   LEAVE_LABEL,
   POST_KIND,
@@ -38,7 +40,7 @@ import { KIND_LABEL, registerPush, unregisterPush } from '../../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق المدير داخل «ديما · الفريق» — بنفس الهوية:
- * لوحة اليوم، الموافقات، الإعلانات بالصور، الفريق والعطل، إرسال التبليغات.
+ * لوحة اليوم، مبيعات المحل المباشرة، الموافقات، الإعلانات بالصور، الفريق والعطل، إرسال التبليغات.
  * التحليلات التفصيلية تبقى في «التحليلات الكاملة».
  * ───────────────────────────────────────────────────────────────────────────── */
 
@@ -100,9 +102,9 @@ export function ManagerApp() {
         toast(m.data.item.title);
       }
       // رسالة جديدة خارج غرفتها
-      if (m.event === 'chat' && m.data.message && m.data.message.sender.key !== `manager:${getManagerMe()?.id}` && locRef.current !== `/m/chat/${m.data.convId}`) {
+      if (m.event === 'chat' && m.data.message && m.data.message.kind !== 'system' && m.data.message.sender.key !== `manager:${getManagerMe()?.id}` && locRef.current !== `/m/chat/${m.data.convId}`) {
         haptic('tap');
-        toast(`💬 ${m.data.message.sender.name}: ${m.data.message.body || 'صورة'}`);
+        toast(`💬 ${m.data.message.sender.name}: ${m.data.message.body || (m.data.message.audio ? 'رسالة صوتية' : 'صورة')}`);
       }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -114,23 +116,28 @@ export function ManagerApp() {
   }
 
   const chatUnread = useChatUnread('manager');
+  const approvalsInMore = perms.viewSales && perms.viewAttendance;
   const tabs: { to: string; label: string; icon: (p: { filled?: boolean }) => ReactNode; badge?: number }[] = [
     { to: '/m', label: 'الرئيسية', icon: p => <I.home {...p} /> },
+    ...(perms.viewSales ? [{ to: '/m/sales', label: 'المبيعات', icon: (p: { filled?: boolean }) => <I.chart {...p} /> }] : []),
     ...(perms.viewAttendance ? [{ to: '/m/attend', label: 'الحضور', icon: (p: { filled?: boolean }) => <I.clock {...p} /> }] : []),
-    ...(perms.approveLeave ? [{ to: '/m/approvals', label: 'الموافقات', icon: (p: { filled?: boolean }) => <I.calendar {...p} />, badge: pending }] : []),
+    // خمسة تبويبات كحد أقصى: مع المبيعات تنتقل الموافقات إلى «المزيد» (وتبقى في الرئيسية)
+    ...(perms.approveLeave && !approvalsInMore ? [{ to: '/m/approvals', label: 'الموافقات', icon: (p: { filled?: boolean }) => <I.calendar {...p} />, badge: pending }] : []),
     { to: '/m/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
-    { to: '/m/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread },
+    { to: '/m/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread + (approvalsInMore ? pending : 0) },
   ];
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
-  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports'];
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', ...(approvalsInMore ? ['/m/approvals'] : [])];
 
   return (
     <PermsProvider value={perms}>
     <div className="t-app">
       <Routes>
         <Route index element={<MHome unread={unread} pending={pending} />} />
+        <Route path="sales" element={perms.viewSales ? <MSales /> : <Navigate to="/m" replace />} />
+        <Route path="performance" element={perms.viewSales ? <MPerformance /> : <Navigate to="/m" replace />} />
         <Route path="attend" element={<MAttend />} />
         <Route path="approvals" element={<MApprovals />} />
         <Route path="posts" element={<MPosts />} />
@@ -139,7 +146,7 @@ export function ManagerApp() {
         <Route path="reports" element={<MReports />} />
         <Route path="chat" element={<ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={<ChatRoom role="manager" base="/m/chat" />} />
-        <Route path="more" element={<MMore unread={unread} onLogout={logout} />} />
+        <Route path="more" element={<MMore unread={unread} pending={approvalsInMore ? pending : 0} onLogout={logout} />} />
         <Route path="alerts" element={<Alerts role="manager" back="/m/more" />} />
         <Route path="notify" element={<MNotify />} />
         <Route path="*" element={<Navigate to="/m" replace />} />
@@ -204,6 +211,7 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
       </header>
       <p className="t-date">{iraqToday()} · لوحة الفريق</p>
       <div className="t-page">
+        {perms.viewSales && <SalesHomeCard />}
         {err && !data && <ErrorLine text={err} onRetry={() => void reload()} />}
         {loading && !data ? (
           <Skeleton h={160} r={26} />
@@ -316,12 +324,14 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
                   </span>
                   الفريق
                 </Link>
-                <a href={MANAGER_URL} className="press">
-                  <span className="t-tile mute">
-                    <I.sparkle size={20} />
-                  </span>
-                  التحليلات
-                </a>
+                {perms.viewSales && (
+                  <Link to="/m/performance" className="press">
+                    <span className="t-tile accent">
+                      <I.target size={20} />
+                    </span>
+                    أداء الفريق
+                  </Link>
+                )}
               </div>
             </section>
 
@@ -1108,7 +1118,7 @@ function MNotify() {
 }
 
 /* ═════════════ المزيد ═════════════ */
-function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
+function MMore({ unread, pending, onLogout }: { unread: number; pending: number; onLogout: () => void }) {
   const perms = usePerms();
   const me = getManagerMe();
   const [theme, setTheme] = useState<ThemePref>(getThemePref);
@@ -1135,6 +1145,15 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             التبليغات
             {unread > 0 && <span className="badge num">{unread > 9 ? '9+' : unread}</span>}
           </Link>
+          {perms.approveLeave && perms.viewSales && perms.viewAttendance && (
+            <Link to="/m/approvals" className="press" onClick={() => haptic('tap')}>
+              <span className="t-tile lg ok">
+                <I.check size={22} />
+              </span>
+              الموافقات
+              {pending > 0 && <span className="badge num">{pending > 9 ? '9+' : pending}</span>}
+            </Link>
+          )}
           {perms.sendPosts && (
           <Link to="/m/notify" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg accent">
@@ -1174,12 +1193,22 @@ function MMore({ unread, onLogout }: { unread: number; onLogout: () => void }) {
             شبكات المحل
           </Link>
           )}
-          <a href={MANAGER_URL} className="press">
-            <span className="t-tile lg ok">
-              <I.sparkle size={22} />
-            </span>
-            التحليلات
-          </a>
+          {perms.viewSales && (
+            <Link to="/m/performance" className="press" onClick={() => haptic('tap')}>
+              <span className="t-tile lg accent">
+                <I.target size={22} />
+              </span>
+              أداء الفريق
+            </Link>
+          )}
+          {perms.viewSales && (
+            <a href={MANAGER_URL} className="press">
+              <span className="t-tile lg ok">
+                <I.sparkle size={22} />
+              </span>
+              التحليلات الكاملة
+            </a>
+          )}
         </div>
       </section>
 

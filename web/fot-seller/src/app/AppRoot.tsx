@@ -22,6 +22,7 @@ import { Login } from './screens/Login';
 import { More, type MoreItem } from './screens/More';
 import { Posts } from './screens/Posts';
 import { Shift } from './screens/Shift';
+import { MyMonth } from './screens/MyMonth';
 import { ChatList, ChatRoom } from './screens/Chat';
 import { getManagerToken, onLive, useChatUnread, useLiveChannel, useUnread } from './work';
 
@@ -126,9 +127,9 @@ function StaffLive() {
           toast(m.data.item.title);
         }
         const msg = m.data.message;
-        if (m.event === 'chat' && msg && msg.sender.key !== `staff:${getTeamMe()?.id}` && path.current !== `/chat/${m.data.convId}`) {
+        if (m.event === 'chat' && msg && msg.kind !== 'system' && msg.sender.key !== `staff:${getTeamMe()?.id}` && path.current !== `/chat/${m.data.convId}`) {
           haptic('tap');
-          toast(`💬 ${msg.sender.name}: ${msg.body || 'صورة'}`);
+          toast(`💬 ${msg.sender.name}: ${msg.body || (msg.audio ? 'رسالة صوتية' : 'صورة')}`);
         }
       }),
     [],
@@ -180,6 +181,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
     { to: '/goals', label: 'أهدافي', icon: <I.target size={22} />, badge: openGoals || undefined },
     ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent' }] : []),
     { to: '/shift', label: 'دوامي', icon: <I.calendar size={22} />, tone: 'accent' },
+    { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} /> },
     { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute' },
   ];
   const back = team ? '/more' : undefined;
@@ -195,6 +197,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         <Route path="/brands" element={<Brands back={back} />} />
         <Route path="/account" element={<Account onLogout={onLogout} back={back} />} />
         {team && <Route path="/shift" element={<Shift />} />}
+        {team && <Route path="/my-month" element={<MyMonth back="/more" />} />}
         {team && <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />}
         {team && <Route path="/chat" element={<ChatList role="staff" base="/chat" />} />}
         {team && <Route path="/chat/:id" element={<ChatRoom role="staff" base="/chat" />} />}
@@ -221,6 +224,7 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
   const moreItems: MoreItem[] = [
     { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
     { to: '/shift', label: 'دوامي', icon: <I.calendar size={22} />, tone: 'accent' },
+    { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} /> },
     { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok' },
     { to: '/chat', label: 'المحادثات', icon: <I.chat size={22} />, badge: chatUnread },
     { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute' },
@@ -231,6 +235,7 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
       <Routes>
         <Route path="/" element={<StaffHome />} />
         <Route path="/shift" element={<Shift />} />
+        <Route path="/my-month" element={<MyMonth back="/more" />} />
         <Route path="/posts" element={<Posts />} />
         <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />
         <Route path="/chat" element={<ChatList role="staff" base="/chat" />} />

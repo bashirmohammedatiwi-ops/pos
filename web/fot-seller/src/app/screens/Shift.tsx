@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, ErrorLine, Fab, I, Screen, Sheet, Skeleton, toast } from '../kit';
 import { haptic } from '../native';
 import { BackBtn, LEAVE_ICON, Lightbox, StatusBadge } from '../parts';
@@ -180,6 +180,9 @@ export function Shift({ back }: { back?: string }) {
             </div>
           </section>
 
+          <Link to="/my-month" className="t-btn soft block sm press" style={{ marginTop: 12 }} onClick={() => haptic('tap')}>
+            <I.chart size={18} /> تقريري الشهري
+          </Link>
           <AttendHistory />
 
           <section className="t-section">

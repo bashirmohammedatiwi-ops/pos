@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { KIND_LABEL } from '../../team';
-import { Badge, Empty, ErrorLine, I, Screen, Segmented, Skeleton } from '../kit';
+import { Badge, Empty, ErrorLine, I, Screen, Segmented, Skeleton, toast } from '../kit';
+import { haptic } from '../native';
 import { BackBtn } from '../parts';
 import { dur, hhmm } from '../screens/Attend';
 import { WEEK_DAYS, managerAttendApi, shortDay, useLoad, type SummaryRow } from '../work';
@@ -24,9 +25,44 @@ const shiftMonth = (d: string, n: number) => {
 };
 const monthLabel = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('ar-IQ-u-nu-latn', { month: 'long', year: 'numeric' });
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86400e3).toISOString().slice(0, 10);
-const OFF_REASON: Record<string, string> = { weekly: 'عطلة', swap: 'تبديل', day: 'إجازة', sick: 'مرضية', emergency: 'طارئة', annual: 'سنوية' };
+const OFF_REASON: Record<string, string> = { weekly: 'عطلة', swap: 'تبديل', day: 'إجازة', sick: 'مرضية', urgent: 'طارئة', hours: 'استئذان' };
 
 type View = 'month' | 'week';
+
+/** كشف الحضور الشهري بصيغة Excel (يُشارك من الهاتف) */
+async function exportMonth(label: string, rows: SummaryRow[]) {
+  const { downloadXlsxFile } = await import('../../xlsx');
+  const head = ['الموظف', 'القسم', 'أيام الدوام', 'حضر', 'غياب', 'إجازات', 'عطل', 'الساعات', 'تأخير (د)', 'استراحة (د)', 'تجاوز (د)', 'أوفر تايم (د)', 'مبلغ الأوفر تايم'];
+  downloadXlsxFile(
+    `حضور-الفريق-${label}`,
+    [
+      {
+        name: 'الحضور',
+        rtl: true,
+        columnWidths: [170, 110, 70, 60, 60, 60, 60, 70, 70, 80, 70, 90, 110],
+        rows: [
+          { height: 28, cells: [{ value: `حضور الفريق — ${label}`, style: 'title', mergeAcross: head.length - 1 }] },
+          { height: 22, cells: head.map(value => ({ value, style: 'head' })) },
+          ...rows.map(r => ({
+            cells: [
+              { value: r.name, style: 'text' },
+              { value: r.sectionName ?? '', style: 'text' },
+              ...[r.scheduledDays, r.presentDays, r.absentDays, r.leaveDays, r.offDays].map(value => ({ value, style: 'num', type: 'Number' as const })),
+              { value: hhmm(r.workedMinutes), style: 'num' },
+              ...[r.lateMinutes, r.breakMinutes, r.overMinutes, r.overtimeMinutes, r.overtimePay ?? 0].map(value => ({ value, style: 'num', type: 'Number' as const })),
+            ],
+          })),
+        ],
+      },
+    ],
+    [
+      { id: 'title', fontSize: 14, bold: true, color: 'FFFFFF', bg: '4C2A85', align: 'center', valign: 'center' },
+      { id: 'head', fontSize: 10, bold: true, color: 'FFFFFF', bg: '6D45C9', align: 'center', valign: 'center', wrap: true, border: 'thin' },
+      { id: 'text', fontSize: 10, valign: 'center', border: 'thin' },
+      { id: 'num', fontSize: 10, align: 'center', valign: 'center', border: 'thin', numFmt: '#,##0' },
+    ],
+  );
+}
 
 export function MReports() {
   const [view, setView] = useState<View>('month');
@@ -104,6 +140,18 @@ function MonthView() {
               </b>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="t-btn soft block sm press"
+            style={{ marginTop: 12 }}
+            onClick={() => {
+              haptic('tap');
+              void exportMonth(monthLabel(month), rows).catch(() => toast('تعذر تجهيز الكشف'));
+            }}
+          >
+            <I.sheet size={18} /> مشاركة كشف Excel
+          </button>
 
           <div className="t-chips" style={{ marginTop: 14 }}>
             {(

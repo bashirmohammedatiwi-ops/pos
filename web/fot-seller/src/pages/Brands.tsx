@@ -59,7 +59,7 @@ export function Brands() {
   const [scope, setScope] = useState<Scope>(init.scope);
   const [custom, setCustom] = useState(() => presetRange('last30'));
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<'amount' | 'qty'>('amount');
+  const [sort, setSort] = useState<'top' | 'low'>('top');
   const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
@@ -79,7 +79,7 @@ export function Brands() {
     if (!report) return [];
     const needle = q.trim();
     const list = needle ? report.products.filter(p => p.name.includes(needle) || p.barcode.includes(needle)) : report.products;
-    return [...list].sort((a, b) => (sort === 'qty' ? b.qty - a.qty : b.amount - a.amount));
+    return [...list].sort((a, b) => (sort === 'low' ? a.qty - b.qty : b.qty - a.qty));
   }, [report, q, sort]);
 
   if (list && brands.length === 0) {
@@ -93,7 +93,7 @@ export function Brands() {
     );
   }
 
-  const max = Math.max(1, ...(report?.days ?? []).map(d => d.amount));
+  const max = Math.max(1, ...(report?.days ?? []).map(d => d.qty));
   const shown = showAll ? products : products.slice(0, 30);
   const exportArgs = report && active ? { brand: active.name, seller: seller?.name || '', filter, report } : null;
 
@@ -164,11 +164,11 @@ export function Brands() {
 
         {report && (
           <div className="bx-total">
-            <span>صافي المبيعات</span>
+            <span>القطع المباعة</span>
             <b className="num">
-              {nf(report.amount)} <small>د.ع</small>
+              {nf(report.qty)} <small>قطعة</small>
             </b>
-            <Delta now={report.amount} prev={report.prev.amount} />
+            <Delta now={report.qty} prev={report.prev.qty} />
           </div>
         )}
       </section>
@@ -180,19 +180,19 @@ export function Brands() {
         <>
           <div className="bx-kpis">
             <div className="card bx-kpi">
-              <span>القطع المباعة</span>
-              <b className="num">{nf(report.qty)}</b>
-              <Delta now={report.qty} prev={report.prev.qty} />
-            </div>
-            <div className="card bx-kpi">
               <span>الفواتير</span>
               <b className="num">{nf(report.receipts)}</b>
               <Delta now={report.receipts} prev={report.prev.receipts} />
             </div>
             <div className="card bx-kpi">
-              <span>متوسط الفاتورة</span>
-              <b className="num">{nf(report.avgTicket)}</b>
-              <em>د.ع</em>
+              <span>قطعة لكل فاتورة</span>
+              <b className="num">{report.avgPieces.toFixed(1)}</b>
+              <em>في المتوسط</em>
+            </div>
+            <div className="card bx-kpi">
+              <span>معدل اليوم</span>
+              <b className="num">{nf(report.avgPerDay)}</b>
+              <em>قطعة في يوم البيع</em>
             </div>
             <div className="card bx-kpi">
               <span>مواد بيعت</span>
@@ -216,12 +216,12 @@ export function Brands() {
             <section className="card bx-chart">
               <div className="bx-sec-head">
                 <h3>المبيعات اليومية</h3>
-                <span>أعلى يوم {nf(max)} د.ع</span>
+                <span>أعلى يوم {nf(max)} قطعة</span>
               </div>
               <div className="bx-bars" dir="ltr">
                 {report.days.map(d => (
-                  <div key={d.day} className="bx-bar" title={`${dayName(d.day)} ${fmtDate(d.day)} — ${nf(d.amount)} د.ع · ${nf(d.qty)} قطعة`}>
-                    <i style={{ height: `${Math.max(d.amount > 0 ? 3 : 0, (Math.max(0, d.amount) / max) * 100)}%` }} />
+                  <div key={d.day} className="bx-bar" title={`${dayName(d.day)} ${fmtDate(d.day)} — ${nf(d.qty)} قطعة · ${nf(d.receipts)} فاتورة`}>
+                    <i style={{ height: `${Math.max(d.qty > 0 ? 3 : 0, (Math.max(0, d.qty) / max) * 100)}%` }} />
                   </div>
                 ))}
               </div>
@@ -236,11 +236,11 @@ export function Brands() {
             <div className="bx-sec-head">
               <h3>المواد ({products.length})</h3>
               <div className="bx-sort">
-                <button type="button" className={sort === 'amount' ? 'on' : ''} onClick={() => setSort('amount')}>
-                  بالمبلغ
+                <button type="button" className={sort === 'top' ? 'on' : ''} onClick={() => setSort('top')}>
+                  الأكثر بيعاً
                 </button>
-                <button type="button" className={sort === 'qty' ? 'on' : ''} onClick={() => setSort('qty')}>
-                  بالكمية
+                <button type="button" className={sort === 'low' ? 'on' : ''} onClick={() => setSort('low')}>
+                  الأقل بيعاً
                 </button>
               </div>
             </div>
@@ -260,8 +260,8 @@ export function Brands() {
                       </span>
                     </span>
                     <span className="bx-vals">
-                      <b className="num">{nf(p.amount)}</b>
-                      <small className="num">{nf(p.qty)} قطعة · {p.share.toFixed(1)}%</small>
+                      <b className="num">{nf(p.qty)}</b>
+                      <small className="num">قطعة · {p.share.toFixed(1)}%</small>
                     </span>
                   </li>
                 ))}
@@ -275,7 +275,7 @@ export function Brands() {
           </section>
 
           <p className="bx-note">
-            المبالغ صافية بعد المرتجعات ولا تشمل الهدايا · المقارنة مع نفس عدد الأيام قبل المدة
+            الأعداد صافية بعد المرتجعات ولا تشمل الهدايا · المقارنة مع نفس عدد الأيام قبل المدة
             {active?.builtAt ? ` · آخر تحديث ${new Date(active.builtAt).toLocaleTimeString('ar-IQ', { hour: 'numeric', minute: '2-digit' })}` : ''}
           </p>
         </>

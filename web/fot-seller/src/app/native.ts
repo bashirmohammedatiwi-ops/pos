@@ -272,6 +272,10 @@ export async function scanWifi(): Promise<WifiScanResult> {
     return { networks: [] };
   }
 }
+/** صفحة أذونات التطبيق (الموقع، الميكروفون…) */
+export async function openAppSettings() {
+  if (isNative()) await (await wifi()).plugin.openAppSettings().catch(() => undefined);
+}
 export async function openLocationSettings() {
   if (isNative()) await (await wifi()).plugin.openLocationSettings().catch(() => undefined);
 }

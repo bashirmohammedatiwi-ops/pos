@@ -1,14 +1,15 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar, Empty, ErrorLine, Fab, I, Screen, Sheet, Skeleton, Switch, toast } from '../kit';
-import { haptic, pushBack } from '../native';
+import { haptic, openAppSettings, pushBack } from '../native';
 import { Lightbox } from '../parts';
 import { KIND_LABEL } from '../../team';
-import { chatApi, compressImage, mediaUrl, onLive, useLoad, type ChatConv, type ChatMsg, type ChatPerson, type Role } from '../work';
+import { chatApi, compressChatImage, dataUrlBytes, mediaUrl, onLive, useLoad, usePerms, type ChatConv, type ChatMsg, type ChatPerson, type Role } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * المحادثات — «فريق ديما» لكل الفريق، محادثات خاصة، ومجموعات عمل من المدراء.
- * غرفة المحادثة بملء الشاشة: صور، رد على رسالة، حذف، «يكتب الآن»، تحميل الأقدم.
+ * غرفة المحادثة بملء الشاشة: صور مضغوطة مع معاينة وتعليق، رسائل صوتية، رد على رسالة، حذف،
+ * «يكتب الآن»، تحميل الأقدم، وإدارة المجموعة (الاسم، الأعضاء، الوسائط، المغادرة).
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const ROLE_LABEL: Record<string, string> = { ...KIND_LABEL, manager: 'مدير' };
@@ -46,6 +47,192 @@ function ConvAvatar({ c }: { c: ChatConv }) {
       </span>
     );
   return <Avatar name={c.title} />;
+}
+
+/* ═════════════ الرسائل الصوتية ═════════════ */
+const VOICE_MAX_MS = 180_000;
+const mmss = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+/** تسجيل صوتي بجودة منخفضة كافية للكلام (نحو 180 كيلوبايت للدقيقة) */
+function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
+  const [recording, setRecording] = useState(false);
+  const [ms, setMs] = useState(0);
+  const rec = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const timer = useRef(0);
+  const started = useRef(0);
+  const cancelled = useRef(false);
+  const deniedOnce = useRef(false);
+  const done = useRef(onDone);
+  done.current = onDone;
+
+  const release = useCallback(() => {
+    window.clearInterval(timer.current);
+    stream.current?.getTracks().forEach(t => t.stop());
+    stream.current = null;
+    rec.current = null;
+    setRecording(false);
+  }, []);
+
+  const stop = useCallback((send: boolean) => {
+    cancelled.current = !send;
+    if (rec.current && rec.current.state !== 'inactive') rec.current.stop();
+    else release();
+  }, [release]);
+
+  const start = useCallback(async () => {
+    if (rec.current) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      toast('التسجيل الصوتي غير مدعوم على هذا الجهاز');
+      return;
+    }
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported(t));
+      const r = new MediaRecorder(s, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 24000 });
+      const chunks: Blob[] = [];
+      r.ondataavailable = e => e.data.size && chunks.push(e.data);
+      r.onstop = () => {
+        const length = Date.now() - started.current;
+        const type = r.mimeType;
+        release();
+        if (cancelled.current) return;
+        if (length < 800) {
+          toast('التسجيل قصير جداً');
+          return;
+        }
+        done.current(new Blob(chunks, { type }), length);
+      };
+      stream.current = s;
+      rec.current = r;
+      cancelled.current = false;
+      started.current = Date.now();
+      setMs(0);
+      setRecording(true);
+      r.start();
+      haptic('heavy');
+      timer.current = window.setInterval(() => {
+        const t = Date.now() - started.current;
+        setMs(t);
+        if (t >= VOICE_MAX_MS) stop(true);
+      }, 250);
+    } catch (e) {
+      const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      if (!denied) toast('تعذر تشغيل الميكروفون');
+      else if (deniedOnce.current) {
+        toast('فعّل إذن الميكروفون من صفحة أذونات التطبيق');
+        void openAppSettings();
+      } else {
+        deniedOnce.current = true;
+        toast('اسمح للتطبيق باستخدام الميكروفون لإرسال رسالة صوتية');
+      }
+    }
+  }, [release, stop]);
+
+  // الخروج من المحادثة يلغي التسجيل ويحرّر الميكروفون
+  useEffect(
+    () => () => {
+      cancelled.current = true;
+      if (rec.current && rec.current.state !== 'inactive') rec.current.stop();
+      release();
+    },
+    [release],
+  );
+  return { recording, ms, start, stop };
+}
+
+/** صوت واحد يعمل في الوقت نفسه */
+let nowPlaying: HTMLAudioElement | null = null;
+
+function VoiceBubble({ src, ms }: { src: string; ms?: number | null }) {
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [pos, setPos] = useState(0);
+  const [rate, setRate] = useState(1);
+  const [length, setLength] = useState(ms ?? 0);
+  useEffect(
+    () => () => {
+      audio.current?.pause();
+      if (nowPlaying === audio.current) nowPlaying = null;
+    },
+    [],
+  );
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    haptic('tap');
+    let a = audio.current;
+    if (!a) {
+      a = new Audio(mediaUrl(src));
+      a.preload = 'auto';
+      a.onplaying = () => {
+        setLoading(false);
+        setPlaying(true);
+      };
+      a.onwaiting = () => setLoading(true);
+      a.onpause = () => setPlaying(false);
+      a.ontimeupdate = () => setPos((a as HTMLAudioElement).currentTime * 1000);
+      a.onloadedmetadata = () => {
+        const d = (a as HTMLAudioElement).duration;
+        if (!ms && Number.isFinite(d)) setLength(d * 1000);
+      };
+      a.onended = () => {
+        setPlaying(false);
+        setPos(0);
+      };
+      a.onerror = () => {
+        setLoading(false);
+        setPlaying(false);
+        toast('تعذر تشغيل الرسالة الصوتية');
+      };
+      audio.current = a;
+    }
+    if (!a.paused) {
+      a.pause();
+      return;
+    }
+    if (nowPlaying && nowPlaying !== a) nowPlaying.pause();
+    nowPlaying = a;
+    a.playbackRate = rate;
+    setLoading(true);
+    void a.play().catch(() => setLoading(false));
+  }
+  function changeRate(e: React.MouseEvent) {
+    e.stopPropagation();
+    const next = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1;
+    setRate(next);
+    if (audio.current) audio.current.playbackRate = next;
+  }
+  const progress = length ? Math.min(100, (pos / length) * 100) : 0;
+  return (
+    <div className="t-voice" onClick={e => e.stopPropagation()}>
+      <button type="button" className="play press" aria-label={playing ? 'إيقاف' : 'تشغيل'} onClick={toggle}>
+        {loading ? (
+          <span className="spinner" />
+        ) : playing ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <rect x="6" y="4.5" width="4.2" height="15" rx="1.2" />
+            <rect x="13.8" y="4.5" width="4.2" height="15" rx="1.2" />
+          </svg>
+        ) : (
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden style={{ transform: 'scaleX(-1)' }}>
+            <path d="M7 4.6v14.8c0 .8.9 1.3 1.6.8l11-7.4c.6-.4.6-1.2 0-1.6l-11-7.4C7.9 3.3 7 3.8 7 4.6z" />
+          </svg>
+        )}
+      </button>
+      <div className="track">
+        <span>
+          <i style={{ width: `${progress}%` }} />
+        </span>
+        <small className="num ltr">{mmss(playing || pos ? pos : length)}</small>
+      </div>
+      <button type="button" className="rate num press" aria-label="سرعة التشغيل" onClick={changeRate}>
+        {rate}x
+      </button>
+    </div>
+  );
 }
 
 /* ═════════════ قائمة المحادثات ═════════════ */
@@ -118,7 +305,9 @@ export function ChatList({ role, base, canGroup = role === 'manager' }: { role: 
                 <div className="preview">
                   <span>
                     {c.last
-                      ? `${c.last.mine ? 'أنت: ' : c.kind === 'group' ? `${c.last.senderName.split(' ')[0]}: ` : ''}${c.last.body}`
+                      ? c.last.system
+                        ? c.last.body
+                        : `${c.last.mine ? 'أنت: ' : c.kind === 'group' ? `${c.last.senderName.split(' ')[0]}: ` : ''}${c.last.body}`
                       : c.kind === 'group'
                         ? `${c.memberCount} عضو`
                         : 'ابدأ المحادثة'}
@@ -176,6 +365,7 @@ function PeopleSheet({
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<string[]>([]);
   const [title, setTitle] = useState('');
+  const [section, setSection] = useState('');
   useEffect(() => {
     if (!mode || people) return;
     void api.people().then(setPeople).catch(() => setPeople([]));
@@ -185,9 +375,12 @@ function PeopleSheet({
       setSel([]);
       setTitle('');
       setQ('');
+      setSection('');
     }
   }, [mode]);
-  const list = (people ?? []).filter(p => !q.trim() || p.name.includes(q.trim()));
+  const list = (people ?? []).filter(p => (!q.trim() || p.name.includes(q.trim())) && (!section || p.sub === section));
+  const sections = [...new Set((people ?? []).map(p => p.sub).filter((x): x is string => !!x))];
+  const allShown = list.length > 0 && list.every(p => sel.includes(p.key));
   return (
     <Sheet open={!!mode} onClose={onClose} title={mode === 'group' ? 'مجموعة جديدة' : 'محادثة جديدة'} subtitle={mode === 'group' ? 'اختر الأعضاء واسم المجموعة' : 'اختر زميلاً أو مديراً'}>
       {mode === 'group' && (
@@ -211,6 +404,29 @@ function PeopleSheet({
         <I.search />
         <input placeholder="ابحث بالاسم" value={q} onChange={e => setQ(e.target.value)} />
       </label>
+      {mode === 'group' && (
+        <>
+          <div className="t-scroller" style={{ gap: 8, marginBottom: 8 }}>
+            <button type="button" className={`t-chip press ${!section ? 'on' : ''}`} style={{ flexShrink: 0 }} onClick={() => setSection('')}>
+              الكل
+            </button>
+            {sections.map(x => (
+              <button key={x} type="button" className={`t-chip press ${section === x ? 'on' : ''}`} style={{ flexShrink: 0 }} onClick={() => setSection(x)}>
+                {x}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="t-btn soft block sm press"
+            style={{ marginBottom: 6 }}
+            disabled={!list.length}
+            onClick={() => setSel(s => (allShown ? s.filter(k => !list.some(p => p.key === k)) : [...new Set([...s, ...list.map(p => p.key)])]))}
+          >
+            {allShown ? 'إلغاء تحديد الظاهرين' : `تحديد الظاهرين (${list.length})`}
+          </button>
+        </>
+      )}
       {!people ? (
         <Skeleton h={200} r={16} />
       ) : (
@@ -258,6 +474,49 @@ function PeopleSheet({
   );
 }
 
+/** إضافة أعضاء لمجموعة موجودة */
+function AddMembers({ open, api, existing, onClose, onAdd }: { open: boolean; api: ReturnType<typeof chatApi>; existing: string[]; onClose: () => void; onAdd: (keys: string[]) => void }) {
+  const [people, setPeople] = useState<ChatPerson[] | null>(null);
+  const [sel, setSel] = useState<string[]>([]);
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    if (!open) {
+      setSel([]);
+      setQ('');
+      return;
+    }
+    void api.people().then(setPeople).catch(() => setPeople([]));
+  }, [open, api]);
+  const list: ReactNode = !people ? (
+    <Skeleton h={200} r={16} />
+  ) : (
+    people
+      .filter(p => !existing.includes(p.key) && (!q.trim() || p.name.includes(q.trim())))
+      .map(p => (
+        <button key={p.key} type="button" className={`t-check ${sel.includes(p.key) ? 'on' : ''}`} onClick={() => (haptic('select'), setSel(s => (s.includes(p.key) ? s.filter(x => x !== p.key) : [...s, p.key])))}>
+          <span className="box">{sel.includes(p.key) && <I.check size={14} />}</span>
+          <Avatar name={p.name} size="sm" />
+          <span style={{ flex: 1 }}>
+            <b style={{ display: 'block', fontWeight: 600 }}>{p.name}</b>
+            <small style={{ color: 'var(--ink-3)' }}>{ROLE_LABEL[p.role] ?? p.role}</small>
+          </span>
+        </button>
+      ))
+  );
+  return (
+    <Sheet open={open} onClose={onClose} title="إضافة أعضاء">
+      <label className="t-search" style={{ marginBottom: 8 }}>
+        <I.search />
+        <input placeholder="ابحث بالاسم" value={q} onChange={e => setQ(e.target.value)} />
+      </label>
+      {list}
+      <button type="button" className="t-btn block press" style={{ marginTop: 12 }} disabled={!sel.length} onClick={() => onAdd(sel)}>
+        إضافة ({sel.length})
+      </button>
+    </Sheet>
+  );
+}
+
 /* ═════════════ غرفة المحادثة ═════════════ */
 export function ChatRoom({ role, base }: { role: Role; base: string }) {
   const { id: idParam } = useParams();
@@ -276,6 +535,14 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
   const [info, setInfo] = useState(false);
   const [viewer, setViewer] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [shots, setShots] = useState<string[]>([]);
+  const [caption, setCaption] = useState('');
+  const [confirm, setConfirm] = useState<{ title: string; text: string; ok: string; run: () => void } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [mediaList, setMediaList] = useState<string[]>([]);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const perms = usePerms();
+  const leaving = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const lastTyping = useRef(0);
@@ -308,16 +575,33 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
     };
   }, [id, api]);
 
+  const reloadMembers = useCallback(() => {
+    void api
+      .messages(id)
+      .then(r => {
+        setConv(r.conversation);
+        setMembers(r.members);
+      })
+      .catch(() => undefined);
+  }, [api, id]);
+
   // رسائل حية
   useEffect(
     () =>
       onLive(m => {
         if (m.data.convId !== id) return;
+        if (m.event === 'chat' && m.data.removed) {
+          if (!leaving.current) toast(m.data.gone ? 'حُذفت هذه المجموعة' : 'أُزلت من هذه المجموعة');
+          nav(base, { replace: true });
+          return;
+        }
+        if (m.event === 'chat' && m.data.updated) reloadMembers();
+        if (m.event === 'chat' && m.data.message?.kind === 'system') reloadMembers();
         if (m.event === 'chat' && m.data.message) {
           const msg = m.data.message;
           setMsgs(list => {
             if (!list) return list;
-            const rest = list.filter(x => x.id !== msg.id && !(x.pending && x.sender.key === msg.sender.key && x.body === msg.body && x.image === msg.image));
+            const rest = list.filter(x => x.id !== msg.id && !(x.pending && x.sender.key === msg.sender.key && x.body === msg.body && x.image === msg.image && x.audio === msg.audio));
             return [...rest, msg];
           });
           if (msg.sender.key !== me) {
@@ -326,11 +610,11 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
             if (atBottom.current) scrollDown(true);
           }
         }
-        if (m.event === 'chat' && m.data.deletedId) setMsgs(list => list?.map(x => (x.id === m.data.deletedId ? { ...x, deleted: true, body: null, image: null } : x)) ?? null);
+        if (m.event === 'chat' && m.data.deletedId) setMsgs(list => list?.map(x => (x.id === m.data.deletedId ? { ...x, deleted: true, body: null, image: null, audio: null } : x)) ?? null);
         if (m.event === 'typing' && m.data.name) setTyping({ name: m.data.name, until: Date.now() + 4000 });
         if (m.event === 'chat-read' && m.data.key) setMembers(ms => ms.map(x => (x.key === m.data.key ? { ...x, lastRead: m.data.lastId ?? x.lastRead } : x)));
       }),
-    [id, api, me],
+    [id, api, me, nav, base, reloadMembers],
   );
   useEffect(() => {
     if (!typing) return;
@@ -356,9 +640,12 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
     setHasMore(r.hasMore);
   }
 
-  async function send(image?: string) {
-    const body = text.trim();
-    if (!body && !image) return;
+  /** نص الحقل، أو تعليق صورة، أو رسالة صوتية */
+  async function send(extra?: { image?: string; audio?: string; audioMs?: number; caption?: string }) {
+    const image = extra?.image;
+    const audio = extra?.audio;
+    const body = (extra ? extra.caption ?? '' : text).trim();
+    if (!body && !image && !audio) return;
     haptic('tap');
     const temp: ChatMsg = {
       id: -Date.now(),
@@ -366,40 +653,86 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
       sender: { key: me, name: 'أنت' },
       body: body || null,
       image: image ?? null,
-      replyTo: reply ? { id: reply.id, senderName: reply.sender.name, body: reply.body || (reply.image ? '📷 صورة' : '') } : null,
+      audio: audio ?? null,
+      audioMs: extra?.audioMs ?? null,
+      replyTo: reply ? { id: reply.id, senderName: reply.sender.name, body: reply.body || (reply.audio ? '🎤 رسالة صوتية' : reply.image ? '📷 صورة' : '') } : null,
       createdAt: new Date().toISOString(),
       deleted: false,
       pending: true,
     };
     setMsgs(list => [...(list ?? []), temp]);
-    setText('');
+    if (!extra) setText('');
     const replyId = reply?.id ?? null;
     setReply(null);
     scrollDown(true);
     try {
-      const saved = await api.send(id, { body: body || undefined, image: image ?? null, replyTo: replyId });
+      const saved = await api.send(id, { body: body || undefined, image: image ?? null, audio: audio ?? null, audioMs: extra?.audioMs ?? null, replyTo: replyId });
       setMsgs(list => (list ?? []).filter(x => x.id !== temp.id && x.id !== saved.id).concat(saved).sort((a, b) => Number(a.id < 0) - Number(b.id < 0) || (a.id < 0 ? 0 : a.id - b.id)));
     } catch (e) {
       setMsgs(list => (list ?? []).filter(x => x.id !== temp.id));
-      setText(body);
+      if (!extra) setText(body);
       toast(e instanceof Error ? e.message : 'لم تُرسل الرسالة');
     }
   }
 
-  async function pickImage(files: FileList | null) {
-    const f = files?.[0];
-    if (!f) return;
+  /** الصور تُضغط أولاً وتظهر للمعاينة مع تعليق، ثم تُرفع عند الإرسال */
+  async function pickImages(files: FileList | null) {
+    const list = Array.from(files ?? []).slice(0, 6);
+    if (!list.length) return;
+    if ((files?.length ?? 0) > 6) toast('يمكن إرسال 6 صور كحد أقصى في المرة');
     setUploading(true);
     try {
-      const r = await api.upload(await compressImage(f, 1400));
-      await send(r.url);
+      const out: string[] = [];
+      for (const f of list) out.push(await compressChatImage(f));
+      setShots(out);
+      setCaption(text.trim());
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'تعذر إرسال الصورة');
+      toast(e instanceof Error ? e.message : 'تعذر قراءة الصورة');
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
     }
   }
+
+  async function sendShots() {
+    const list = shots;
+    const note = caption.trim();
+    if (!list.length) return;
+    setShots([]);
+    setCaption('');
+    if (note && note === text.trim()) setText('');
+    setUploading(true);
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const r = await api.upload(list[i]);
+        await send({ image: r.url, caption: i === 0 ? note : '' });
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'تعذر إرسال الصورة');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const voice = useVoiceRecorder((blob, ms) => {
+    setUploading(true);
+    void new Promise<string>((ok, fail) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result));
+      fr.onerror = () => fail(new Error('تعذر قراءة التسجيل'));
+      fr.readAsDataURL(blob);
+    })
+      .then(data => api.upload(data))
+      .then(r => send({ audio: r.url, audioMs: ms }))
+      .catch(e => toast(e instanceof Error ? e.message : 'تعذر إرسال الرسالة الصوتية'))
+      .finally(() => setUploading(false));
+  });
+
+  const canManage = !!conv && conv.kind === 'group' && !conv.auto && conv.isAdmin && (role !== 'manager' || perms.manageChat);
+
+  useEffect(() => {
+    if (info) void api.media(id).then(setMediaList).catch(() => setMediaList([]));
+  }, [info, api, id]);
 
   function onType(v: string) {
     setText(v);
@@ -423,7 +756,7 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
         lastDay = d;
         prev = null;
       }
-      const cont = !!prev && prev.sender.key === m.sender.key && Date.parse(m.createdAt) - Date.parse(prev.createdAt) < 5 * 60_000;
+      const cont = !!prev && prev.kind !== 'system' && m.kind !== 'system' && prev.sender.key === m.sender.key && Date.parse(m.createdAt) - Date.parse(prev.createdAt) < 5 * 60_000;
       out.push({ msg: m, cont, showName: conv?.kind === 'group' && m.sender.key !== me && !cont });
       prev = m;
     }
@@ -468,6 +801,10 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
             <span key={`d${i}`} className="t-msg-day">
               {r.day}
             </span>
+          ) : r.msg.kind === 'system' ? (
+            <span key={r.msg.id} className="t-msg-sys">
+              {r.msg.body}
+            </span>
           ) : (
             <div key={r.msg.id} className={`t-msg ${r.msg.sender.key === me ? 'mine' : ''} ${r.cont ? 'cont' : ''}`} style={{ marginTop: r.cont ? 0 : 6 }}>
               {r.showName && <span className="from">{r.msg.sender.name}</span>}
@@ -481,7 +818,7 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
                   }
                 }}
                 onClick={() => {
-                  if (!r.msg.deleted && !r.msg.pending && !r.msg.image) setAction(r.msg);
+                  if (!r.msg.deleted && !r.msg.pending && !r.msg.image && !r.msg.audio) setAction(r.msg);
                 }}
               >
                 {r.msg.deleted ? (
@@ -506,6 +843,7 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
                         onLoad={() => atBottom.current && scrollDown()}
                       />
                     )}
+                    {r.msg.audio && <VoiceBubble src={r.msg.audio} ms={r.msg.audioMs} />}
                     {r.msg.body}
                   </>
                 )}
@@ -531,13 +869,31 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
           <div className="t-replying">
             <I.back size={16} />
             <span>
-              رد على <b>{reply.sender.name}</b>: {reply.body || '📷 صورة'}
+              رد على <b>{reply.sender.name}</b>: {reply.body || (reply.audio ? '🎤 رسالة صوتية' : '📷 صورة')}
             </span>
             <button type="button" aria-label="إلغاء الرد" onClick={() => setReply(null)}>
               <I.close size={16} />
             </button>
           </div>
         )}
+        {voice.recording ? (
+        <div className="bar t-recbar">
+          <button type="button" className="t-send ghost press" aria-label="إلغاء التسجيل" onClick={() => (haptic('warning'), voice.stop(false))}>
+            <I.close size={20} />
+          </button>
+          <div className="t-rec">
+            <i />
+            <b className="num ltr">{mmss(voice.ms)}</b>
+            <span>جارٍ التسجيل…</span>
+            {voice.ms > VOICE_MAX_MS - 15_000 && <small>ينتهي قريباً</small>}
+          </div>
+          <button type="button" className="t-send press" aria-label="إرسال التسجيل" onClick={() => voice.stop(true)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden style={{ transform: 'scaleX(-1)' }}>
+              <path d="M3.4 20.4 21 12 3.4 3.6l-.02 6.53L15 12 3.38 13.87z" />
+            </svg>
+          </button>
+        </div>
+        ) : (
         <div className="bar">
           <button type="button" className="t-send ghost press" aria-label="إرسال صورة" disabled={uploading} onClick={() => fileRef.current?.click()}>
             {uploading ? (
@@ -561,14 +917,41 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
             }}
             onFocus={() => scrollDown(true)}
           />
-          <button type="button" className="t-send press" aria-label="إرسال" disabled={!text.trim()} onClick={() => void send()}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden style={{ transform: 'scaleX(-1)' }}>
-              <path d="M3.4 20.4 21 12 3.4 3.6l-.02 6.53L15 12 3.38 13.87z" />
-            </svg>
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={e => void pickImage(e.target.files)} />
+          {text.trim() ? (
+            <button type="button" className="t-send press" aria-label="إرسال" onClick={() => void send()}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden style={{ transform: 'scaleX(-1)' }}>
+                <path d="M3.4 20.4 21 12 3.4 3.6l-.02 6.53L15 12 3.38 13.87z" />
+              </svg>
+            </button>
+          ) : (
+            <button type="button" className="t-send press" aria-label="تسجيل رسالة صوتية" disabled={uploading} onClick={() => void voice.start()}>
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden>
+                <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none" />
+                <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" />
+              </svg>
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => void pickImages(e.target.files)} />
         </div>
+        )}
       </footer>
+
+      <Sheet open={shots.length > 0} onClose={() => setShots([])} title={shots.length > 1 ? `إرسال ${shots.length} صور` : 'إرسال صورة'} subtitle={`بعد الضغط: ${Math.max(1, Math.round(shots.reduce((a, d) => a + dataUrlBytes(d), 0) / 1024))} كيلوبايت`}>
+        <div className={`t-shots ${shots.length === 1 ? 'one' : ''}`}>
+          {shots.map((d, i) => (
+            <div key={i}>
+              <img src={d} alt="" />
+              <button type="button" aria-label="إزالة" onClick={() => setShots(l => l.filter((_, x) => x !== i))}>
+                <I.close size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <input className="t-input sm" style={{ marginTop: 12 }} placeholder="أضف تعليقاً (اختياري)" maxLength={2000} value={caption} onChange={e => setCaption(e.target.value)} />
+        <button type="button" className="t-btn block press" style={{ marginTop: 12 }} onClick={() => void sendShots()}>
+          إرسال
+        </button>
+      </Sheet>
 
       <Sheet open={!!action} onClose={() => setAction(null)}>
         {action && (
@@ -617,7 +1000,7 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
                   setAction(null);
                   void api
                     .remove(target.id)
-                    .then(() => setMsgs(list => list?.map(x => (x.id === target.id ? { ...x, deleted: true, body: null, image: null } : x)) ?? null))
+                    .then(() => setMsgs(list => list?.map(x => (x.id === target.id ? { ...x, deleted: true, body: null, image: null, audio: null } : x)) ?? null))
                     .catch(e => toast(e instanceof Error ? e.message : 'تعذر الحذف'));
                 }}
               >
@@ -649,29 +1032,127 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
                 />
               </div>
             </div>
-            {members.length > 0 && (
+            {canManage && (
+              <div className="t-card" style={{ padding: '10px 14px', marginBottom: 12 }}>
+                {renaming == null ? (
+                  <button type="button" className="t-check" onClick={() => setRenaming(conv.title)}>
+                    <span style={{ flex: 1 }}>اسم المجموعة: <b>{conv.title}</b></span>
+                    <small style={{ color: 'var(--brand)', fontWeight: 650 }}>تعديل</small>
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="t-input sm" style={{ flex: 1 }} maxLength={80} autoFocus value={renaming} onChange={e => setRenaming(e.target.value)} />
+                    <button
+                      type="button"
+                      className="t-btn sm press"
+                      disabled={!renaming.trim()}
+                      onClick={() => {
+                        const title = renaming.trim();
+                        setRenaming(null);
+                        void api.updateGroup(id, { title }).then(setConv).catch(e => toast(e instanceof Error ? e.message : 'تعذر التعديل'));
+                      }}
+                    >
+                      حفظ
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {mediaList.length > 0 && (
+              <section style={{ marginBottom: 12 }}>
+                <p className="t-group-label">الصور ({mediaList.length})</p>
+                <div className="t-chat-media">
+                  {mediaList.slice(0, 18).map(u => (
+                    <img key={u} src={mediaUrl(u)} alt="" loading="lazy" onClick={() => setViewer(u)} />
+                  ))}
+                </div>
+              </section>
+            )}
+            {members.length > 0 && conv.kind === 'group' && (
+              <p className="t-group-label">الأعضاء ({members.length})</p>
+            )}
+            {canManage && (
+              <button type="button" className="t-btn soft block sm press" style={{ marginBottom: 8 }} onClick={() => setAdding(true)}>
+                إضافة أعضاء
+              </button>
+            )}
+            {members.length > 0 && conv.kind === 'group' && (
               <div className="t-list flat">
                 {members.map(p => (
                   <div key={p.key} className="t-row">
                     <Avatar name={p.name} size="sm" />
                     <div className="body">
-                      <div className="title">{p.name}</div>
-                      <div className="sub">{ROLE_LABEL[p.role] ?? p.role}</div>
+                      <div className="title">
+                        {p.name}
+                        {p.key === me ? ' (أنت)' : ''}
+                      </div>
+                      <div className="sub">
+                        {ROLE_LABEL[p.role] ?? p.role}
+                        {p.admin ? ' · مشرف المجموعة' : ''}
+                      </div>
                     </div>
+                    {canManage && p.key !== me && (
+                      <button
+                        type="button"
+                        className="t-icon-btn ghost press"
+                        aria-label={`إزالة ${p.name}`}
+                        onClick={() =>
+                          setConfirm({
+                            title: 'إزالة من المجموعة',
+                            text: `إزالة ${p.name} من «${conv.title}»؟`,
+                            ok: 'إزالة',
+                            run: () => void api.updateGroup(id, { remove: [p.key] }).then(() => reloadMembers()).catch(e => toast(e instanceof Error ? e.message : 'تعذرت الإزالة')),
+                          })
+                        }
+                      >
+                        <I.close size={17} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-            {conv.kind === 'group' && !conv.auto && conv.isAdmin && (
+            {conv.kind === 'group' && !conv.auto && (
               <button
                 type="button"
                 className="t-btn plain block press"
                 style={{ marginTop: 12, color: 'var(--bad)' }}
                 onClick={() =>
-                  void api
-                    .updateGroup(id, { delete: true })
-                    .then(() => nav(base, { replace: true }))
-                    .catch(e => toast(e instanceof Error ? e.message : 'تعذر الحذف'))
+                  setConfirm({
+                    title: 'مغادرة المجموعة',
+                    text: `لن تصلك رسائل «${conv.title}» بعد المغادرة.`,
+                    ok: 'مغادرة',
+                    run: () => {
+                      leaving.current = true;
+                      void api
+                        .leave(id)
+                        .then(() => nav(base, { replace: true }))
+                        .catch(e => toast(e instanceof Error ? e.message : 'تعذرت المغادرة'));
+                    },
+                  })
+                }
+              >
+                مغادرة المجموعة
+              </button>
+            )}
+            {canManage && (
+              <button
+                type="button"
+                className="t-btn plain block press"
+                style={{ marginTop: 6, color: 'var(--bad)' }}
+                onClick={() =>
+                  setConfirm({
+                    title: 'حذف المجموعة',
+                    text: `ستُحذف «${conv.title}» وكل رسائلها وصورها للجميع، ولا يمكن التراجع.`,
+                    ok: 'حذف نهائياً',
+                    run: () => {
+                      leaving.current = true;
+                      void api
+                        .updateGroup(id, { delete: true })
+                        .then(() => nav(base, { replace: true }))
+                        .catch(e => toast(e instanceof Error ? e.message : 'تعذر الحذف'));
+                    },
+                  })
                 }
               >
                 حذف المجموعة
@@ -680,6 +1161,39 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
           </>
         )}
       </Sheet>
+      <Sheet open={!!confirm} onClose={() => setConfirm(null)} title={confirm?.title}>
+        {confirm && (
+          <>
+            <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--ink-2)' }}>{confirm.text}</p>
+            <div className="t-actions">
+              <button type="button" className="t-btn plain press" onClick={() => setConfirm(null)}>
+                إلغاء
+              </button>
+              <button
+                type="button"
+                className="t-btn danger press"
+                onClick={() => {
+                  const c = confirm;
+                  setConfirm(null);
+                  c.run();
+                }}
+              >
+                {confirm.ok}
+              </button>
+            </div>
+          </>
+        )}
+      </Sheet>
+      <AddMembers
+        open={adding}
+        api={api}
+        existing={members.map(m => m.key)}
+        onClose={() => setAdding(false)}
+        onAdd={keys => {
+          setAdding(false);
+          void api.updateGroup(id, { add: keys }).then(() => reloadMembers()).catch(e => toast(e instanceof Error ? e.message : 'تعذرت الإضافة'));
+        }}
+      />
       {viewer && <Lightbox images={[viewer]} start={0} onClose={() => setViewer(null)} />}
     </div>
   );

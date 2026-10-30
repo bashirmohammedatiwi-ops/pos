@@ -1,0 +1,721 @@
+/* ═════════════════════════════════════════════════════════════════════════════
+ * مبيعات المحل للمدير — بنفس هوية التطبيق.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+.s-switch {
+  margin-bottom: 14px;
+}
+.s-live-tag,
+.s-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.s-live-tag i,
+.s-pulse i {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3ccf8e;
+}
+.s-live-tag i::after,
+.s-pulse i::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: #3ccf8e;
+  opacity: 0.45;
+  animation: s-ping 1.6s ease-out infinite;
+}
+.s-pulse.dark i,
+.s-pulse.dark i::after {
+  background: var(--ok);
+}
+@keyframes s-ping {
+  to {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* البطل */
+.s-hero {
+  display: block;
+}
+.s-hero .amount {
+  font-size: 40px;
+}
+.s-hero-cmp {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.82);
+}
+.s-hero-cmp > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.s-forecast {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+.s-forecast-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.s-forecast-top b {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+.s-forecast small {
+  display: block;
+  margin-top: 7px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.s-home {
+  display: block;
+  margin-bottom: 14px;
+}
+.s-mini {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 42px;
+  margin-top: 14px;
+}
+.s-mini span {
+  position: relative;
+  flex: 1;
+  height: 100%;
+}
+.s-mini i {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+.s-mini i.cmp {
+  background: rgba(255, 255, 255, 0.16);
+}
+.s-mini i.cur {
+  background: #f0b04f;
+  inset-inline: 2px;
+}
+
+/* مؤشرات */
+.s-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.s-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 13px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  text-align: start;
+}
+.s-kpi > span {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.s-kpi b {
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.s-kpi b small {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.s-kpi > small {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.s-muted {
+  color: var(--ink-3);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* الدفع */
+.s-split {
+  display: flex;
+  gap: 3px;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg-sunk);
+}
+.s-split i {
+  display: block;
+  border-radius: 3px;
+}
+i.cash {
+  background: var(--brand);
+}
+i.card {
+  background: var(--accent);
+}
+.s-split-legend {
+  display: grid;
+  gap: 6px;
+  margin-top: 11px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.s-split-legend span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.s-split-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.s-split-legend b {
+  margin-inline-start: auto;
+  font-weight: 700;
+  color: var(--ink);
+}
+.s-split-legend small {
+  min-width: 56px;
+  text-align: end;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.s-adj {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.s-pay > .s-adj:first-child {
+  margin-top: 0;
+  border-top: 0;
+}
+.s-adj-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.s-adj-row + .s-adj-row {
+  border-top: 1px solid var(--line);
+}
+.s-adj-row b {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.s-adj-row.warn b,
+.s-adj-row.warn span {
+  color: var(--warn);
+}
+
+/* المخططات */
+.s-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.s-chart .grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.s-chart .hit {
+  cursor: pointer;
+}
+.s-chart .bar {
+  fill: var(--brand-2);
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+.s-chart .bar.sel,
+.s-chart .bar.now {
+  opacity: 1;
+}
+.s-chart .bar.sel {
+  fill: var(--brand);
+}
+.s-chart .bar.fri {
+  fill: var(--accent);
+}
+.s-chart .cmp,
+.s-chart .avg {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.s-chart .cmp {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.s-chart .avg {
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+}
+.s-chart .avgline {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.s-chart .tick {
+  fill: var(--ink-3);
+  font-size: 9px;
+  text-anchor: middle;
+  font-family: inherit;
+}
+.s-chart .tick.on {
+  fill: var(--brand);
+  font-weight: 700;
+}
+.s-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--bg-sunk);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.s-readout b {
+  font-weight: 700;
+  color: var(--ink);
+}
+.s-readout small {
+  margin-inline-start: auto;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.s-open {
+  margin-inline-start: auto;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--brand);
+}
+.s-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  margin-top: 9px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.s-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.s-legend i {
+  display: block;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+}
+.s-legend i.bar {
+  background: var(--brand-2);
+}
+.s-legend i.cmp {
+  background: var(--accent);
+}
+.s-legend i.fri {
+  background: var(--accent);
+}
+.s-legend i.avg,
+.s-legend i.avgl {
+  height: 0;
+  border-top: 2px dashed var(--ink-3);
+  border-radius: 0;
+}
+
+/* القوائم المرتبة */
+.s-rank .t-row {
+  align-items: flex-start;
+}
+.s-rank .t-row:disabled {
+  opacity: 1;
+}
+.s-rank .t-row + .t-row::before {
+  inset-inline-start: 14px;
+}
+.s-pos {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  border-radius: 9px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+.s-pos.top1 {
+  background: var(--accent);
+  color: #fff;
+}
+.s-pos.top2,
+.s-pos.top3 {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.s-rank-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.s-rank-top .title {
+  min-width: 0;
+  -webkit-line-clamp: 1;
+}
+.s-rank-top b {
+  flex-shrink: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.s-bar {
+  height: 6px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--bg-sunk);
+}
+.s-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+}
+.s-rank-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.s-none {
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.s-prod .title {
+  direction: ltr;
+  text-align: right;
+  unicode-bidi: plaintext;
+  font-size: 13.5px;
+}
+.s-search {
+  margin-bottom: 10px;
+}
+.s-detail {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.s-stat {
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: var(--bg-sunk);
+}
+.s-stat span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.s-stat b {
+  display: block;
+  margin-top: 3px;
+  font-size: 16.5px;
+  font-weight: 700;
+}
+.s-stat b small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* نقاط البيع */
+.s-dot {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  margin-inline: 4px;
+  border-radius: 50%;
+}
+.s-dot.on {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px var(--ok-soft);
+}
+.s-dot.off {
+  background: var(--bad);
+  box-shadow: 0 0 0 4px var(--bad-soft);
+}
+.s-idle {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* الفواتير الحية */
+.s-feed .t-row.fresh {
+  animation: s-fresh 2.6s var(--ease);
+}
+@keyframes s-fresh {
+  0% {
+    background: var(--ok-soft);
+    transform: translateY(-6px);
+  }
+  18% {
+    transform: none;
+  }
+  100% {
+    background: transparent;
+  }
+}
+.s-card-tag {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 1px 7px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+.s-neg {
+  color: var(--bad);
+}
+.s-more {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--brand);
+}
+.s-foot {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+
+/* يوم سابق والتقويم */
+.s-daynav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.s-daynav .t-icon-btn:disabled {
+  opacity: 0.3;
+}
+.s-daynav-date {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 650;
+}
+.s-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+.s-cal-head .t-icon-btn:disabled {
+  opacity: 0.3;
+}
+.s-cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.s-cal .wd {
+  padding-bottom: 4px;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.s-cal .day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  border-radius: 10px;
+  background: var(--bg-sunk);
+  isolation: isolate;
+  overflow: hidden;
+}
+.s-cal .day::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--brand-2);
+  opacity: calc(var(--k, 0) * 0.55);
+}
+.s-cal .day:disabled {
+  opacity: 0.32;
+}
+.s-cal .day b {
+  font-size: 13px;
+  font-weight: 650;
+}
+.s-cal .day small {
+  font-size: 9px;
+  color: var(--ink-2);
+}
+.s-cal .day.today {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.s-cal .day.on {
+  box-shadow: inset 0 0 0 2px var(--brand);
+}
+
+/* الفترات */
+.s-presets {
+  flex-wrap: nowrap;
+  margin-bottom: 12px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.s-presets::-webkit-scrollbar {
+  display: none;
+}
+.s-presets .t-chip {
+  flex-shrink: 0;
+}
+.s-wd {
+  display: grid;
+  gap: 10px;
+}
+.s-wd-row {
+  display: grid;
+  grid-template-columns: 62px 1fr 72px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.s-wd-row .s-bar {
+  margin: 0;
+}
+.s-wd-row b {
+  text-align: end;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.s-wd-row.best .s-bar i {
+  background: var(--accent);
+}
+.s-wd-row.best span {
+  font-weight: 700;
+  color: var(--ink);
+}
+.s-heat {
+  display: grid;
+  grid-template-columns: 46px repeat(var(--cols), 1fr);
+  gap: 3px;
+  align-items: center;
+}
+.s-heat .hh {
+  height: 14px;
+  overflow: visible;
+  white-space: nowrap;
+  font-size: 8.5px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.s-heat .wd {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.s-heat i {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  min-height: 14px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bg-sunk);
+}
+.s-heat i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--brand);
+  opacity: var(--k, 0);
+}
+
+/* تقريري الشهري */
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.m-head b {
+  display: block;
+  font-size: 22px;
+  font-weight: 750;
+}
+.m-head b small {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.m-head span:not(.label) {
+  display: block;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.m-days .end small {
+  color: var(--warn);
+}

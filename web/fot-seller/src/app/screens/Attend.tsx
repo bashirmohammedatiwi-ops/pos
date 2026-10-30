@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { deviceInfo } from '../../team';
-import { Badge, I, Skeleton, clockLabel, toast } from '../kit';
+import { Badge, I, Sheet, Skeleton, clockLabel, toast } from '../kit';
 import {
   allowLocation,
   cancelBreakAlarms,
@@ -98,9 +98,51 @@ function NetLine({ wifi, probe, onRetry }: { wifi: WifiState | null; probe: { ok
   );
 }
 
+type AttendAction = 'in' | 'out' | 'break/start' | 'break/end';
+
+/** رسالة تأكيد قبل كل حركة دوام: الضغطة الخاطئة لا تُسجَّل */
+function ConfirmPunch({ action, data, onCancel, onConfirm }: { action: AttendAction | null; data: AttendState; onCancel: () => void; onConfirm: (a: AttendAction) => void }) {
+  // يبقى آخر إجراء ظاهراً أثناء حركة إغلاق النافذة
+  const last = useRef<AttendAction>('in');
+  if (action) last.current = action;
+  const a = last.current;
+  const iraqNow = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Baghdad', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  const nowText = new Date().toLocaleTimeString('ar-IQ-u-nu-latn', { timeZone: 'Asia/Baghdad', hour: 'numeric', minute: '2-digit', hour12: true });
+  const s = data.shift;
+  const early = a === 'out' && !data.day?.off && s.start < s.end && iraqNow < s.end;
+  const late = a === 'in' && !data.day?.off && s.start < s.end && iraqNow > s.start;
+  const info: Record<AttendAction, { title: string; text: string; ok: string; tone: string; icon: ReactNode }> = {
+    in: { title: 'تأكيد تسجيل الحضور', text: `سيُسجَّل حضورك الآن الساعة ${nowText}${data.day?.off ? ' — اليوم عطلتك، يُحسب حضوراً إضافياً' : ''}.`, ok: 'نعم، سجّل حضوري', tone: 'ok', icon: <I.store size={24} /> },
+    out: { title: 'تأكيد الانصراف', text: `سيُسجَّل انصرافك الآن الساعة ${nowText}، ولن تتمكن من التعديل بعدها.`, ok: 'نعم، سجّل انصرافي', tone: 'bad', icon: <I.out size={24} /> },
+    'break/start': { title: 'بدء الاستراحة', text: `يبدأ العدّاد فوراً. المتبقي من استراحتك اليوم ${data.breakLeftMinutes} دقيقة.`, ok: 'نعم، ابدأ الاستراحة', tone: 'accent', icon: <I.coffee size={24} /> },
+    'break/end': { title: 'إنهاء الاستراحة', text: `ستُسجَّل عودتك للعمل الآن الساعة ${nowText}.`, ok: 'نعم، عدت للعمل', tone: 'ok', icon: <I.check size={24} /> },
+  };
+  const c = info[a];
+  return (
+    <Sheet open={!!action} onClose={onCancel}>
+      <div className="t-confirm">
+        <span className={`t-tile lg ${c.tone}`}>{c.icon}</span>
+        <h3>{c.title}</h3>
+        <p>{c.text}</p>
+        {early && <p className="warn">لم ينتهِ دوامك بعد — ينتهي الساعة {s.end}.</p>}
+        {late && <p className="warn">موعد دوامك كان الساعة {s.start}، وسيُحتسب التأخير.</p>}
+        <div className="t-actions">
+          <button type="button" className="t-btn plain press" onClick={onCancel}>
+            إلغاء
+          </button>
+          <button type="button" className={`t-btn press ${a === 'out' ? 'danger' : ''}`} onClick={() => onConfirm(a)}>
+            {c.ok}
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 export function AttendCard({ compact }: { compact?: boolean }) {
   const { data, err, reload, setData } = useLoad(() => attendApi.state(), ['attend']);
   const [busy, setBusy] = useState('');
+  const [ask, setAsk] = useState<AttendAction | null>(null);
   const net = useNetwork(!!data && (!data.attendance?.checkOut || !!data.openBreak));
   const ob = data?.openBreak ?? null;
   useTick(!!data?.attendance && !data.attendance.checkOut);
@@ -127,7 +169,13 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     });
   }, [data, ob]);
 
-  async function act(action: 'in' | 'out' | 'break/start' | 'break/end') {
+  function askFor(action: AttendAction) {
+    if (busy) return;
+    haptic('tap');
+    setAsk(action);
+  }
+
+  async function act(action: AttendAction) {
     if (busy) return;
     haptic('tap');
     setBusy(action);
@@ -189,6 +237,18 @@ export function AttendCard({ compact }: { compact?: boolean }) {
     <NetLine wifi={net.wifi} probe={net.probe} onRetry={() => void net.check()} />
   );
 
+  const confirmEl = (
+    <ConfirmPunch
+      action={ask}
+      data={data}
+      onCancel={() => setAsk(null)}
+      onConfirm={a => {
+        setAsk(null);
+        void act(a);
+      }}
+    />
+  );
+
   // في استراحة: عداد تنازلي حي
   if (a && !a.checkOut && ob) {
     const end = Date.parse(ob.endsAt);
@@ -222,10 +282,11 @@ export function AttendCard({ compact }: { compact?: boolean }) {
             </div>
           </div>
         </div>
-        <button type="button" className="t-btn white block press" style={{ marginTop: 14 }} disabled={!!busy} onClick={() => void act('break/end')}>
+        <button type="button" className="t-btn white block press" style={{ marginTop: 14 }} disabled={!!busy} onClick={() => askFor('break/end')}>
           {busy === 'break/end' ? <span className="spinner" style={{ borderTopColor: '#241245' }} /> : 'انتهت استراحتي — عدت للعمل'}
         </button>
         {netLine}
+        {confirmEl}
       </section>
     );
   }
@@ -261,14 +322,14 @@ export function AttendCard({ compact }: { compact?: boolean }) {
           ساعات العمل اليوم · ينتهي دوامك {s.end} · استراحة متبقية {data.breakLeftMinutes} د ({data.breaksLeft} مرات)
         </div>
         <div className="acts">
-          <button type="button" className="t-btn glass press" disabled={!!busy || data.breakLeftMinutes <= 0 || data.breaksLeft <= 0} onClick={() => void act('break/start')}>
+          <button type="button" className="t-btn glass press" disabled={!!busy || data.breakLeftMinutes <= 0 || data.breaksLeft <= 0} onClick={() => askFor('break/start')}>
             {busy === 'break/start' ? <span className="spinner" /> : (
               <>
                 <I.coffee size={18} /> استراحة
               </>
             )}
           </button>
-          <button type="button" className="t-btn white press" disabled={!!busy} onClick={() => void act('out')}>
+          <button type="button" className="t-btn white press" disabled={!!busy} onClick={() => askFor('out')}>
             {busy === 'out' ? <span className="spinner" style={{ borderTopColor: '#241245' }} /> : (
               <>
                 <I.out size={18} /> انصراف
@@ -277,6 +338,7 @@ export function AttendCard({ compact }: { compact?: boolean }) {
           </button>
         </div>
         {netLine}
+        {confirmEl}
       </section>
     );
   }
@@ -334,11 +396,12 @@ export function AttendCard({ compact }: { compact?: boolean }) {
           <small>{noNets ? 'البصمة تُفعَّل حين تضيف الإدارة واي فاي المحل' : `استراحة ${s.breakMinutes} د · من واي فاي المحل`}</small>
         </div>
         {!noNets && (
-          <button type="button" className="t-punch-mini press" disabled={!!busy} onClick={() => void act('in')} aria-label="تسجيل الحضور">
+          <button type="button" className="t-punch-mini press" disabled={!!busy} onClick={() => askFor('in')} aria-label="تسجيل الحضور">
             {busy === 'in' ? <span className="spinner" /> : <I.store size={26} />}
             <span>{off ? 'حضور إضافي' : 'حضور'}</span>
           </button>
         )}
+        {confirmEl}
       </section>
     );
   return (
@@ -356,7 +419,7 @@ export function AttendCard({ compact }: { compact?: boolean }) {
           تُفعَّل البصمة حين تضيف الإدارة واي فاي المحل.
         </p>
       ) : (
-        <button type="button" className="t-punch" disabled={!!busy} onClick={() => void act('in')}>
+        <button type="button" className="t-punch" disabled={!!busy} onClick={() => askFor('in')}>
           <span>
             {busy === 'in' ? <span className="spinner" style={{ width: 30, height: 30 }} /> : <I.store size={40} />}
             <b>تسجيل الحضور</b>
@@ -365,6 +428,7 @@ export function AttendCard({ compact }: { compact?: boolean }) {
         </button>
       )}
       {!compact && netLine}
+      {confirmEl}
     </section>
   );
 }

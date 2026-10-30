@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { CountUp, Delta, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, fmt } from '../kit';
+import { CountUp, Delta, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, Switch, fmt, toast } from '../kit';
 import { haptic } from '../native';
-import { onLive, salesApi, type SaleHour, type SaleNamed, type SalePack, type SaleReceipt, type SalesDay, type SalesRange, type SaleTerminal } from '../work';
+import { onLive, salesApi, type SalesAlerts, type SaleHour, type SaleNamed, type SalePack, type SaleReceipt, type SalesDay, type SalesRange, type SaleTerminal } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * مبيعات المحل للمدير:
@@ -93,8 +93,18 @@ export function MSales() {
     setSp(next, { replace: true });
   };
   const refresh = useRef<() => Promise<unknown>>(() => Promise.resolve());
+  const [alerts, setAlerts] = useState(false);
   return (
-    <Screen title="المبيعات" subtitle={view === 'live' ? <LiveTag /> : view === 'day' ? 'تفصيل يوم كامل' : 'الاتجاهات والمقارنات'} onRefresh={() => refresh.current()}>
+    <Screen
+      title="المبيعات"
+      subtitle={view === 'live' ? <LiveTag /> : view === 'day' ? 'تفصيل يوم كامل' : 'الاتجاهات والمقارنات'}
+      onRefresh={() => refresh.current()}
+      end={
+        <button type="button" className="t-icon-btn press" aria-label="تنبيهات المبيعات" onClick={() => (haptic('tap'), setAlerts(true))}>
+          <I.bell size={20} />
+        </button>
+      }
+    >
       <div className="s-switch">
         <Segmented
           items={[
@@ -109,7 +119,137 @@ export function MSales() {
       {view === 'live' && <LiveView bindRefresh={f => (refresh.current = f)} />}
       {view === 'day' && <DayView day={sp.get('d')} onDay={d => set({ d })} bindRefresh={f => (refresh.current = f)} />}
       {view === 'range' && <RangeView preset={(sp.get('r') as Preset) || '30'} onPreset={r => set({ r })} onDay={d => set({ v: 'day', d })} bindRefresh={f => (refresh.current = f)} />}
+      <AlertsSheet open={alerts} onClose={() => setAlerts(false)} />
     </Screen>
+  );
+}
+
+/** إعدادات تنبيهات المتابعة (تصل لكل مدير يملك صلاحية المبيعات) */
+function AlertsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [s, setS] = useState<SalesAlerts | null>(null);
+  useEffect(() => {
+    if (open) void salesApi.alerts().then(setS).catch(e => toast(e instanceof Error ? e.message : 'تعذر التحميل'));
+  }, [open]);
+  const toggle = (k: 'terminalOffline' | 'slowPace' | 'dailyClose', label: string, hint: string) =>
+    s && (
+      <div className="t-check" style={{ cursor: 'default' }}>
+        <span style={{ flex: 1 }}>
+          <b style={{ display: 'block', fontWeight: 600 }}>{label}</b>
+          <small style={{ color: 'var(--ink-3)' }}>{hint}</small>
+        </span>
+        <Switch label={label} on={s[k]} onChange={v => setS({ ...s, [k]: v })} />
+      </div>
+    );
+  return (
+    <Sheet open={open} onClose={onClose} title="تنبيهات المبيعات" subtitle="تصل في «التبليغات» لكل من يملك صلاحية المبيعات">
+      {!s ? (
+        <Skeleton h={260} r={16} />
+      ) : (
+        <>
+          <label className="t-field" style={{ marginBottom: 10 }}>
+            <span>فاتورة كبيرة من (د.ع) — 0 للإيقاف</span>
+            <input className="t-input sm num" inputMode="numeric" value={s.bigSale} onChange={e => setS({ ...s, bigSale: Number(e.target.value.replace(/\D/g, '')) })} />
+          </label>
+          <label className="t-field" style={{ marginBottom: 10 }}>
+            <span>مرتجع كبير من (د.ع) — 0 للإيقاف</span>
+            <input className="t-input sm num" inputMode="numeric" value={s.bigReturn} onChange={e => setS({ ...s, bigReturn: Number(e.target.value.replace(/\D/g, '')) })} />
+          </label>
+          {toggle('terminalOffline', 'انقطاع نقطة بيع', 'نقطة باعت اليوم وانقطعت أكثر من 15 دقيقة')}
+          {toggle('slowPace', 'مبيعات أبطأ من المعتاد', 'أقل من 70% من معدل نفس اليوم والوقت (بعد 2 ظهراً)')}
+          {toggle('dailyClose', 'ملخص إغلاق اليوم', 'مرة واحدة يومياً')}
+          {s.dailyClose && (
+            <label className="t-field" style={{ marginTop: 6 }}>
+              <span>وقت ملخص الإغلاق</span>
+              <input className="t-input sm" type="time" value={s.closeAt} onChange={e => e.target.value && setS({ ...s, closeAt: e.target.value })} />
+            </label>
+          )}
+          <button
+            type="button"
+            className="t-btn block press"
+            style={{ marginTop: 14 }}
+            onClick={() =>
+              void salesApi
+                .saveAlerts(s)
+                .then(() => {
+                  haptic('success');
+                  toast('حُفظت التنبيهات');
+                  onClose();
+                })
+                .catch(e => toast(e instanceof Error ? e.message : 'تعذر الحفظ'))
+            }
+          >
+            حفظ
+          </button>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+/** كشف Excel ليوم أو فترة */
+async function exportSales(title: string, d: { totals: SalePack['totals']; sections: SaleNamed[]; cashiers: SaleNamed[]; sellers: SaleNamed[]; products: SaleNamed[] }, days?: SalesRange['days']) {
+  const { downloadXlsxFile } = await import('../../xlsx');
+  const t = d.totals;
+  const sheet = (name: string, head: string[], rows: (string | number)[][], widths: number[]) => ({
+    name,
+    rtl: true,
+    columnWidths: widths,
+    rows: [
+      { height: 28, cells: [{ value: `${name} — ${title}`, style: 'title', mergeAcross: head.length - 1 }] },
+      { height: 22, cells: head.map(value => ({ value, style: 'head' })) },
+      ...rows.map(r => ({ cells: r.map(value => (typeof value === 'number' ? { value: Math.round(value), style: 'num', type: 'Number' as const } : { value, style: 'text' })) })),
+    ],
+  });
+  const named = (rows: SaleNamed[], fn: (r: SaleNamed) => string = r => r.name) => rows.map(r => [fn(r), r.t, r.n, r.q]);
+  downloadXlsxFile(
+    `مبيعات-${title}`.replace(/[\\/:*?"<>|]+/g, '-'),
+    [
+      sheet(
+        'الملخص',
+        ['البند', 'القيمة'],
+        [
+          ['صافي المبيعات', t.net],
+          ['المبيعات قبل المرتجعات', t.gross],
+          ['الفواتير', t.receipts],
+          ['القطع', t.pieces],
+          ['نقداً', t.net - t.cardTotal],
+          ['بطاقة', t.cardTotal],
+          ['المرتجعات', t.returnsTotal],
+          ['عدد المرتجعات', t.returnsCount],
+          ['خصم العروض', t.offersDiscount],
+          ['الخصم اليدوي', t.userDiscount],
+          ['فواتير الهدايا', t.gifts],
+        ],
+        [220, 140],
+      ),
+      ...(days ? [sheet('الأيام', ['اليوم', 'الصافي', 'الفواتير', 'القطع', 'المرتجعات'], days.map(x => [x.day, x.net, x.receipts, x.pieces, x.returnsTotal]), [110, 120, 80, 80, 100])] : []),
+      sheet('الأقسام', ['القسم', 'الصافي', 'الفواتير', '—'], named(d.sections), [200, 120, 80, 60]),
+      sheet('الكاشيرية', ['الكاشير', 'الصافي', 'الفواتير', 'المرتجعات', 'الخصم اليدوي', 'عمليات الحذف', 'قيمة الحذف'], d.cashiers.map(r => [r.name, r.t, r.n, r.q, r.d ?? 0, r.v ?? 0, r.va ?? 0]), [160, 120, 80, 80, 100, 100, 100]),
+      sheet('البائعون', ['البائع', 'الصافي', 'الفواتير', 'القطع'], named(d.sellers, sellerName), [200, 120, 80, 80]),
+      sheet('المنتجات', ['المنتج', 'الباركود', 'الصافي', 'القطع', 'الفواتير'], d.products.map(r => [r.name, r.barcode ?? '', r.t, r.q, r.n]), [300, 130, 110, 70, 70]),
+    ],
+    [
+      { id: 'title', fontSize: 14, bold: true, color: 'FFFFFF', bg: '4C2A85', align: 'center', valign: 'center' },
+      { id: 'head', fontSize: 10, bold: true, color: 'FFFFFF', bg: '6D45C9', align: 'center', valign: 'center', wrap: true, border: 'thin' },
+      { id: 'text', fontSize: 10, valign: 'center', border: 'thin' },
+      { id: 'num', fontSize: 10, align: 'center', valign: 'center', border: 'thin', numFmt: '#,##0' },
+    ],
+  );
+}
+
+function ExportBtn({ run }: { run: () => Promise<void> }) {
+  return (
+    <button
+      type="button"
+      className="t-btn soft block sm press"
+      style={{ marginTop: 16 }}
+      onClick={() => {
+        haptic('tap');
+        void run().catch(() => toast('تعذر تجهيز الكشف'));
+      }}
+    >
+      <I.sheet size={18} /> مشاركة كشف Excel
+    </button>
   );
 }
 
@@ -400,7 +540,7 @@ function DayBody({ v, live, fresh }: { v: SalesDay; live?: boolean; fresh?: Set<
           rows={p.cashiers}
           total={t.net}
           name={r => r.name}
-          sub={r => `${fmt(r.n)} فاتورة · متوسط ${compact(r.n ? r.t / r.n : 0)}${r.q ? ` · ${fmt(r.q)} مرتجع` : ''}${live && r.lastAt ? ` · ${ago(r.lastAt)}` : ''}`}
+          sub={r => cashierSub(r, live)}
         />
       </section>
 
@@ -424,11 +564,24 @@ function DayBody({ v, live, fresh }: { v: SalesDay; live?: boolean; fresh?: Set<
         </section>
       )}
 
+      <ExportBtn run={() => exportSales(dayTitle(v.day), p)} />
+
       <p className="s-foot">
         {live ? `آخر تحديث من المحل ${ago(v.at)} · ` : ''}الصافي = المبيعات − المرتجعات · الهدايا لا تدخل في المبيعات
       </p>
     </>
   );
+}
+
+/** سطر الكاشير: الفواتير والمرتجعات والخصم اليدوي وعمليات الحذف (للمتابعة) */
+function cashierSub(r: SaleNamed, live?: boolean) {
+  const parts = [`${fmt(r.n)} فاتورة`];
+  if (r.q) parts.push(`${fmt(r.q)} مرتجع`);
+  if (r.d) parts.push(`خصم يدوي ${compact(r.d)}`);
+  if (r.v) parts.push(`${fmt(r.v)} حذف (${compact(r.va ?? 0)})`);
+  if (r.days && r.days > 1) parts.push(`${r.days} يوم`);
+  if (live && r.lastAt) parts.push(ago(r.lastAt));
+  return parts.join(' · ');
 }
 
 function Kpi({ label, value, unit, cmp }: { label: string; value: string; unit?: string; cmp?: ReactNode }) {
@@ -496,7 +649,7 @@ function HourChart({ hours, compare, avg, nowHour }: { hours: SaleHour[]; compar
             <g key={h} onClick={() => (haptic('select'), setPick(h))} className="hit">
               <rect x={xOf(i) - slot / 2} y={0} width={slot} height={H} fill="transparent" />
               {t > 0 && <rect x={xOf(i) - bw / 2} y={yOf(t)} width={bw} height={Math.max(2, bh)} rx={Math.min(4, bw / 2)} className={`bar ${h === sel ? 'sel' : ''} ${h === nowHour ? 'now' : ''}`} />}
-              {(i % (span > 14 ? 2 : 1) === 0 || h === sel) && (
+              {(i % (span > 9 ? 2 : 1) === 0 || h === sel) && (
                 <text x={xOf(i)} y={H - 6} className={`tick ${h === sel ? 'on' : ''}`}>
                   {hourLabel(h)}
                 </text>
@@ -966,7 +1119,7 @@ function RangeBody({ r, onDay }: { r: SalesRange; onDay: (d: string) => void }) 
             <div className="t-section-head">
               <h2>الكاشيرية</h2>
             </div>
-            <RankList rows={d.cashiers} total={d.totals.net} name={x => x.name} sub={x => `${fmt(x.n)} فاتورة · ${x.days} يوم${x.q ? ` · ${fmt(x.q)} مرتجع` : ''}`} />
+            <RankList rows={d.cashiers} total={d.totals.net} name={x => x.name} sub={x => cashierSub(x)} />
           </section>
           <section className="t-section">
             <SellersBlock rows={d.sellers} total={d.totals.net} />
@@ -993,6 +1146,7 @@ function RangeBody({ r, onDay }: { r: SalesRange; onDay: (d: string) => void }) 
       ) : (
         <p className="s-foot">التفصيل حسب الكاشيرية والبائعين والمنتجات متاح للفترات حتى 120 يوماً.</p>
       )}
+      {d && <ExportBtn run={() => exportSales(`${r.from}_${r.to}`, d, r.days)} />}
       {d && d.dayCount < r.sum.days && <p className="s-foot">التفصيل يشمل {d.dayCount} يوماً من {r.sum.days} (الأيام الأقدم بإجمالياتها فقط).</p>}
     </>
   );

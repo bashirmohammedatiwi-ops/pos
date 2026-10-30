@@ -290,14 +290,13 @@ function to12(hm) {
 function brandPackFor(pack, sellerId) {
   const rows = new Map();
   for (const r of pack.rows || pack.Rows || []) {
-    const [day, article, section, salesman, qty, amount] = r;
+    const [day, article, section, salesman, qty] = r;
     const mine = Number(salesman) === sellerId ? 1 : 0;
     const key = `${day}|${article}|${section}|${mine}`;
     const cur = rows.get(key);
-    if (cur) {
-      cur[4] += Number(qty) || 0;
-      cur[5] += Number(amount) || 0;
-    } else rows.set(key, [day, Number(article), Number(section), mine, Number(qty) || 0, Number(amount) || 0]);
+    if (cur) cur[4] += Number(qty) || 0;
+    // تقارير الشجرات للموظفين بالأعداد فقط: المبلغ والسعر لا يخرجان من الخادم (يبقى العمود 0 لتوافق النسخ الأقدم)
+    else rows.set(key, [day, Number(article), Number(section), mine, Number(qty) || 0, 0]);
   }
   const receipts = new Map();
   for (const r of pack.receiptRows || pack.ReceiptRows || []) {
@@ -320,7 +319,7 @@ function brandPackFor(pack, sellerId) {
       id: Number(p.id ?? p.Id),
       name: p.name ?? p.Name ?? '',
       barcode: p.barcode ?? p.Barcode ?? '',
-      price: Number(p.price ?? p.Price ?? 0),
+      price: 0,
     })),
     // أسماء الفروع لا تُعرض للبائع (نفس سياسة الخصوصية في بقية الويب)
     sections: [],
@@ -1409,6 +1408,11 @@ const server = http.createServer(async (req, res) => {
       const acc = managerFromReq(req);
       if (!acc) {
         sendOpen(res, 401, { error: 'انتهت الجلسة — أعد الدخول' });
+        return;
+      }
+      // بيانات المبيعات والعمولات بصلاحية «مبيعات المحل» من لوحة التحكم
+      if (url.pathname !== '/api/manager/me' && !team.canViewSales(acc.id)) {
+        sendOpen(res, 403, { error: 'لا تملك صلاحية عرض المبيعات — راجع الإدارة', code: 'perm', perm: 'viewSales' });
         return;
       }
       const snapshot = ensureManagerSnapshot() || { weeks: [], weekPacks: [] };

@@ -5,14 +5,17 @@
  *   · «فريق ديما»: مجموعة عامة تلقائية لكل الموظفين والمدراء.
  *   · محادثات خاصة بين أي اثنين (موظف/مدير).
  *   · مجموعات عمل ينشئها المدراء بأعضاء محددين.
- * رسائل نصية وصور ورد على رسالة، حذف خلال 15 دقيقة، «يكتب الآن»، غير المقروء لكل محادثة.
+ * رسائل نصية وصور ورسائل صوتية ورد على رسالة، حذف خلال 15 دقيقة، «يكتب الآن»، غير المقروء لكل محادثة،
+ * وإدارة المجموعات (تسمية، أعضاء، مغادرة) مع رسائل نظام وتبليغ من يُضاف.
  * المستخدم يُعرَّف بمفتاح «staff:12» أو «manager:3» (نفس مفاتيح القناة الحية).
  */
 
 const DELETE_WINDOW_MS = 15 * 60_000;
 const MEDIA_RE = /^\/api\/team\/media\/[a-f0-9]{32}\.(jpg|png|webp|gif)$/;
+const AUDIO_RE = /^\/api\/team\/media\/[a-f0-9]{32}\.(webm|ogg|m4a)$/;
+const previewOf = m => (m.deleted_at ? 'رسالة محذوفة' : m.body || (m.audio ? '🎤 رسالة صوتية' : m.image ? '📷 صورة' : ''));
 
-function createChat({ db, ctx, now, audit, emit }) {
+function createChat({ db, ctx, now, audit, emit, notify, deleteMedia }) {
   db.exec('CREATE TABLE IF NOT EXISTS _chat_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const MIGRATIONS = [
     `CREATE TABLE conversations (
@@ -30,6 +33,10 @@ function createChat({ db, ctx, now, audit, emit }) {
        body TEXT, image TEXT, reply_to INTEGER, created_at TEXT NOT NULL, deleted_at TEXT
      );
      CREATE INDEX ix_messages_conv ON messages(conv_id, id);`,
+    // رسائل صوتية، ورسائل النظام («فلان أضاف فلان»)
+    `ALTER TABLE messages ADD COLUMN audio TEXT;
+     ALTER TABLE messages ADD COLUMN audio_ms INTEGER;
+     ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _chat_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -88,8 +95,8 @@ function createChat({ db, ctx, now, audit, emit }) {
     let reply = null;
     if (m.reply_to) {
       // الرد يُعرض فقط إن كانت الرسالة الأصلية من نفس المحادثة
-      const r = db.prepare('SELECT id, sender_key, body, image, deleted_at FROM messages WHERE id = ? AND conv_id = ?').get(m.reply_to, m.conv_id);
-      if (r) reply = { id: r.id, senderName: person(r.sender_key)?.name ?? '—', body: r.deleted_at ? 'رسالة محذوفة' : r.body || (r.image ? '📷 صورة' : '') };
+      const r = db.prepare('SELECT id, sender_key, body, image, audio, deleted_at FROM messages WHERE id = ? AND conv_id = ?').get(m.reply_to, m.conv_id);
+      if (r) reply = { id: r.id, senderName: person(r.sender_key)?.name ?? '—', body: previewOf(r) };
     }
     return {
       id: m.id,
@@ -97,6 +104,9 @@ function createChat({ db, ctx, now, audit, emit }) {
       sender: { key: m.sender_key, name: p?.name ?? '—', role: p?.role ?? null },
       body: m.deleted_at ? null : m.body,
       image: m.deleted_at ? null : m.image,
+      audio: m.deleted_at ? null : m.audio,
+      audioMs: m.deleted_at ? null : m.audio_ms,
+      kind: m.kind,
       replyTo: reply,
       createdAt: m.created_at,
       deleted: !!m.deleted_at,
@@ -105,7 +115,7 @@ function createChat({ db, ctx, now, audit, emit }) {
   function convView(c, me) {
     const last = db.prepare('SELECT * FROM messages WHERE conv_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
     const row = memberRow(c.id, me.key);
-    const unread = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE conv_id = ? AND id > ? AND sender_key != ? AND deleted_at IS NULL').get(c.id, row?.last_read ?? 0, me.key).n;
+    const unread = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE conv_id = ? AND id > ? AND sender_key != ? AND deleted_at IS NULL AND kind != \'system\'').get(c.id, row?.last_read ?? 0, me.key).n;
     let title = c.title;
     let other = null;
     if (c.kind === 'direct') {
@@ -123,7 +133,7 @@ function createChat({ db, ctx, now, audit, emit }) {
       memberCount: c.auto === 'all' ? everyone().length : db.prepare('SELECT COUNT(*) AS n FROM chat_members WHERE conv_id = ?').get(c.id).n,
       lastAt: c.last_at,
       last: lastView
-        ? { body: lastView.deleted ? 'رسالة محذوفة' : lastView.body || (lastView.image ? '📷 صورة' : ''), senderName: lastView.sender.name, mine: last.sender_key === me.key, at: last.created_at }
+        ? { body: previewOf(last), senderName: lastView.sender.name, mine: last.sender_key === me.key, at: last.created_at, system: last.kind === 'system' }
         : null,
       unread: row?.muted ? 0 : unread,
       muted: !!row?.muted,
@@ -136,6 +146,35 @@ function createChat({ db, ctx, now, audit, emit }) {
       .map(c => convView(c, me));
   }
   const totalUnread = me => listFor(me).reduce((s, c) => s + c.unread, 0);
+
+  /** رسالة نظام داخل المحادثة (بلا إشعار هاتف) */
+  function systemMessage(c, actorKey, text) {
+    const t = now();
+    const r = db.prepare("INSERT INTO messages (conv_id, sender_key, body, kind, created_at) VALUES (?, ?, ?, 'system', ?)").run(c.id, actorKey, text, t);
+    db.prepare('UPDATE conversations SET last_at = ? WHERE id = ?').run(t, c.id);
+    const view = msgView(db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(r.lastInsertRowid)));
+    for (const k of memberKeys(c)) emit(k, 'chat', { convId: c.id, message: view });
+  }
+  /** تبليغ من أُضيف لمجموعة (يصل للتبليغات والهاتف) */
+  function notifyAdded(keys, actorName, c) {
+    const groups = { staff: [], manager: [] };
+    for (const k of keys) {
+      const [kind, uid] = k.split(':');
+      if (groups[kind]) groups[kind].push(Number(uid));
+    }
+    for (const kind of ['staff', 'manager']) {
+      if (groups[kind].length) notify?.(kind, groups[kind], { type: 'chat.group', title: `أضافك ${actorName} إلى «${c.title}»`, body: 'يمكنك الآن المشاركة في محادثة المجموعة', link: `/chat/${c.id}` });
+    }
+  }
+  const firstName = key => (person(key)?.name ?? '—').split(' ').slice(0, 2).join(' ');
+  /** حذف رسائل وملفات مجموعة كاملة */
+  function purgeMessages(id) {
+    for (const m of db.prepare('SELECT image, audio FROM messages WHERE conv_id = ? AND (image IS NOT NULL OR audio IS NOT NULL)').all(id)) {
+      deleteMedia?.(m.image);
+      deleteMedia?.(m.audio);
+    }
+    db.prepare('DELETE FROM messages WHERE conv_id = ?').run(id);
+  }
 
   /* ── الإجراءات ── */
   function direct(me, otherKey) {
@@ -165,35 +204,67 @@ function createChat({ db, ctx, now, audit, emit }) {
     for (const k of keys) ensureRow(id, k);
     audit(me.key, 'chat.group.create', id, { title, members: keys.length });
     const c = conv(id);
+    const actorName = person(me.key)?.name ?? '';
+    systemMessage(c, me.key, `${firstName(me.key)} أنشأ المجموعة`);
     for (const k of memberKeys(c)) emit(k, 'chat', { convId: id, created: true });
+    notifyAdded(keys.filter(k => k !== me.key), actorName, c);
     return { status: 200, body: convView(c, me) };
   }
   function updateGroup(me, id, body) {
     const c = conv(id);
     if (!c || c.kind !== 'group' || c.auto) return { status: 404, body: { error: 'المجموعة غير موجودة' } };
     if (me.kind !== 'manager' && memberRow(id, me.key)?.role !== 'admin') return { status: 403, body: { error: 'لا تملك صلاحية تعديل المجموعة' } };
-    if (body.title) db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(String(body.title).trim().slice(0, 80), id);
-    for (const k of Array.isArray(body.add) ? body.add : []) if (person(String(k))) ensureRow(id, String(k));
-    for (const k of Array.isArray(body.remove) ? body.remove : []) db.prepare('DELETE FROM chat_members WHERE conv_id = ? AND user_key = ?').run(id, String(k));
     if (body.delete) {
+      for (const k of memberKeys(c)) emit(k, 'chat', { convId: id, removed: true, gone: true });
+      purgeMessages(id);
       db.prepare('DELETE FROM chat_members WHERE conv_id = ?').run(id);
       db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
       audit(me.key, 'chat.group.delete', id, null);
       return { status: 200, body: { ok: true } };
     }
-    audit(me.key, 'chat.group.update', id, body);
+    const actorShort = firstName(me.key);
+    const newTitle = String(body.title || '').trim().slice(0, 80);
+    if (newTitle && newTitle !== c.title) {
+      db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(newTitle, id);
+      systemMessage(conv(id), me.key, `${actorShort} غيّر اسم المجموعة إلى «${newTitle}»`);
+    }
+    const before = new Set(memberKeys(c));
+    const added = [...new Set((Array.isArray(body.add) ? body.add : []).map(String))].filter(k => person(k) && !before.has(k));
+    for (const k of added) ensureRow(id, k);
+    const removed = [...new Set((Array.isArray(body.remove) ? body.remove : []).map(String))].filter(k => before.has(k) && k !== me.key);
+    for (const k of removed) {
+      db.prepare('DELETE FROM chat_members WHERE conv_id = ? AND user_key = ?').run(id, k);
+      emit(k, 'chat', { convId: id, removed: true });
+    }
+    if (added.length) {
+      systemMessage(conv(id), me.key, `${actorShort} أضاف ${added.map(firstName).join('، ')}`);
+      notifyAdded(added, person(me.key)?.name ?? '', conv(id));
+    }
+    if (removed.length) systemMessage(conv(id), me.key, `${actorShort} أزال ${removed.map(firstName).join('، ')}`);
+    audit(me.key, 'chat.group.update', id, { title: newTitle || undefined, added, removed });
     for (const k of memberKeys(conv(id))) emit(k, 'chat', { convId: id, updated: true });
     return { status: 200, body: convView(conv(id), me) };
+  }
+  /** مغادرة مجموعة (غير «فريق ديما») */
+  function leave(me, id) {
+    const c = conv(id);
+    if (!c || c.kind !== 'group' || c.auto || !memberRow(id, me.key)) return { status: 404, body: { error: 'المجموعة غير موجودة' } };
+    systemMessage(c, me.key, `${firstName(me.key)} غادر المجموعة`);
+    db.prepare('DELETE FROM chat_members WHERE conv_id = ? AND user_key = ?').run(id, me.key);
+    audit(me.key, 'chat.group.leave', id, null);
+    return { status: 200, body: { ok: true } };
   }
   function send(me, id, body) {
     const c = conv(id);
     if (!isMember(c, me.key)) return { status: 404, body: { error: 'المحادثة غير موجودة' } };
     const text = String(body.body || '').trim().slice(0, 2000);
     const image = typeof body.image === 'string' && MEDIA_RE.test(body.image) ? body.image : null;
-    if (!text && !image) return { status: 400, body: { error: 'الرسالة فارغة' } };
+    const audio = typeof body.audio === 'string' && AUDIO_RE.test(body.audio) ? body.audio : null;
+    const audioMs = audio ? Math.max(0, Math.min(600_000, Math.round(Number(body.audioMs) || 0))) : null;
+    if (!text && !image && !audio) return { status: 400, body: { error: 'الرسالة فارغة' } };
     const replyTo = Number(body.replyTo) && db.prepare('SELECT id FROM messages WHERE id = ? AND conv_id = ?').get(Number(body.replyTo), id) ? Number(body.replyTo) : null;
     const t = now();
-    const r = db.prepare('INSERT INTO messages (conv_id, sender_key, body, image, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, me.key, text || null, image, replyTo, t);
+    const r = db.prepare('INSERT INTO messages (conv_id, sender_key, body, image, audio, audio_ms, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, me.key, text || null, image, audio, audioMs, replyTo, t);
     const mid = Number(r.lastInsertRowid);
     db.prepare('UPDATE conversations SET last_at = ? WHERE id = ?').run(t, id);
     ensureRow(id, me.key);
@@ -210,7 +281,7 @@ function createChat({ db, ctx, now, audit, emit }) {
     }
     const sender = person(me.key)?.name ?? '';
     const title = c.kind === 'direct' ? sender : `${c.title || 'فريق ديما'} · ${sender}`;
-    const preview = text ? text.slice(0, 140) : '📷 صورة';
+    const preview = text ? text.slice(0, 140) : audio ? '🎤 رسالة صوتية' : '📷 صورة';
     for (const kind of ['staff', 'manager']) if (targets[kind].length) ctx.pushTo?.(kind, targets[kind], { title, body: preview, link: `/chat/${id}` });
     return { status: 200, body: view };
   }
@@ -221,8 +292,9 @@ function createChat({ db, ctx, now, audit, emit }) {
     const rows = before
       ? db.prepare('SELECT * FROM messages WHERE conv_id = ? AND id < ? ORDER BY id DESC LIMIT 50').all(id, before)
       : db.prepare('SELECT * FROM messages WHERE conv_id = ? ORDER BY id DESC LIMIT 50').all(id);
+    // role: دور الموظف للعرض (كما تتوقعه الواجهة)، admin: مشرف المجموعة
     const members = c.auto === 'all' ? [] : db.prepare('SELECT user_key, role, last_read FROM chat_members WHERE conv_id = ?').all(id)
-      .map(r => ({ ...person(r.user_key), role: r.role, lastRead: r.last_read }))
+      .map(r => ({ ...person(r.user_key), admin: r.role === 'admin', lastRead: r.last_read }))
       .filter(x => x.key);
     return { status: 200, body: { conversation: convView(c, me), messages: rows.reverse().map(msgView), members, hasMore: rows.length === 50 } };
   }
@@ -244,6 +316,9 @@ function createChat({ db, ctx, now, audit, emit }) {
     if (!(me.kind === 'manager' || (own && Date.now() - Date.parse(m.created_at) < DELETE_WINDOW_MS)))
       return { status: 403, body: { error: own ? 'يمكن حذف الرسالة خلال 15 دقيقة فقط' : 'لا يمكنك حذف رسائل الآخرين' } };
     db.prepare('UPDATE messages SET deleted_at = ? WHERE id = ?').run(now(), mid);
+    // الملف نفسه يُحذف من الخادم
+    deleteMedia?.(m.image);
+    deleteMedia?.(m.audio);
     if (!own) audit(me.key, 'chat.message.delete', mid, { conv: m.conv_id });
     const c = conv(m.conv_id);
     for (const k of memberKeys(c)) emit(k, 'chat', { convId: c.id, deletedId: mid });
@@ -276,6 +351,15 @@ function createChat({ db, ctx, now, audit, emit }) {
     if (m && req.method === 'POST') return r(send(me, Number(m[1]), await json(req))), true;
     m = sub.match(/^\/(\d+)\/read$/);
     if (m && req.method === 'POST') return r(markRead(me, Number(m[1]), (await json(req)).lastId)), true;
+    m = sub.match(/^\/(\d+)\/leave$/);
+    if (m && req.method === 'POST') return r(leave(me, Number(m[1]))), true;
+    m = sub.match(/^\/(\d+)\/media$/);
+    if (m && req.method === 'GET') {
+      const c = conv(Number(m[1]));
+      if (!isMember(c, me.key)) return out(404, { error: 'المحادثة غير موجودة' }), true;
+      const rows = db.prepare('SELECT image FROM messages WHERE conv_id = ? AND image IS NOT NULL AND deleted_at IS NULL ORDER BY id DESC LIMIT 60').all(c.id);
+      return out(200, rows.map(x => x.image)), true;
+    }
     m = sub.match(/^\/(\d+)\/typing$/);
     if (m && req.method === 'POST') {
       const c = conv(Number(m[1]));

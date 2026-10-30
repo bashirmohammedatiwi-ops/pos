@@ -207,12 +207,12 @@ function createTeam(ctx) {
     emitManagers: work.emitManagers,
     dayFor: work.dayFor,
   });
-  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit });
+  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia });
   // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
   const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf });
   ctx.pushTo = (kind, ids, n) => void extra.pushTo(kind, ids, n);
   // مبيعات المحل المباشرة والأيام السابقة للمدراء
-  const sales = require('./team-sales').createSales({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
+  const sales = require('./team-sales').createSales({ db, ctx, now, audit, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit, notify: work.notify });
 
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
@@ -349,7 +349,7 @@ function createTeam(ctx) {
       if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       if (await attend.handleManage(req, res, url, sub, actorName, false, allow)) return true;
       if (await extra.handleManage(req, res, url, sub, actorName, false, allow)) return true;
-      if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
+      if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -467,6 +467,11 @@ function createTeam(ctx) {
         ctx.send(res, 200, { ok: true });
         return true;
       }
+      // تقريري الشهري: حضوري، تأخيري، إضافي، إجازاتي
+      if (req.method === 'GET' && p === '/api/team/attend/month') {
+        ctx.send(res, 200, extra.myMonth(s, url.searchParams.get('month')));
+        return true;
+      }
       if (await work.handleStaff(req, res, url, s)) return true;
       if (await attend.handleStaff(req, res, url, s)) return true;
       if (p === '/api/team/chat' || p.startsWith('/api/team/chat/')) {
@@ -534,7 +539,7 @@ function createTeam(ctx) {
 
   /** طلب مزامنة صحيح من سيرفر المحل: عنوانه = عنوان إنترنت المحل */
   const noteShopIp = req => attend.noteShopIp(require('./team-attend').clientIp(req), 'sync');
-  return { db, applyStaff, handle, audit, withImages: work.withImages, recheckStreams: work.recheckStreams, noteShopIp };
+  return { canViewSales: id => work.permsOf(Number(id)).perms.viewSales, db, applyStaff, handle, audit, withImages: work.withImages, recheckStreams: work.recheckStreams, noteShopIp };
 }
 
 module.exports = { createTeam };
