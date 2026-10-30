@@ -2,7 +2,7 @@ import { downloadXlsxFile, type XlsxRowInput, type XlsxStyleDef } from './xlsx';
 import type { BrandReport, BrandFilter } from './brands';
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * كشف البراند بالأعداد فقط — Excel منظم (ملخص · المواد · يومي) و PDF رسمي بهوية ديما الحياة.
+ * كشف البراند بالأعداد فقط — Excel منظم (المواد · يومي) و PDF رسمي بهوية ديما الحياة.
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const GREEN = '0F9F76';
@@ -28,7 +28,13 @@ const STYLES: XlsxStyleDef[] = [
   { id: 'xTotL', fontSize: 10.5, bold: true, color: 'FFFFFF', bg: NAVY, valign: 'center', border: 'thin' },
   { id: 'xTotN', fontSize: 10.5, bold: true, color: 'FFFFFF', bg: NAVY, align: 'center', valign: 'center', border: 'thin', numFmt: '#,##0' },
   { id: 'xNote', fontSize: 9, color: '64748B', valign: 'center', wrap: true },
+  { id: 'xNone', fontSize: 10, color: '94A3B8', align: 'center', valign: 'center', border: 'thin' },
+  { id: 'xNoneZ', fontSize: 10, color: '94A3B8', bg: 'F8FAFC', align: 'center', valign: 'center', border: 'thin' },
+  { id: 'xSumL', fontSize: 10, bold: true, color: '134E4A', bg: 'F0FDF9', valign: 'center', border: 'thin' },
+  { id: 'xSumN', fontSize: 10, bold: true, color: '134E4A', bg: 'F0FDF9', align: 'center', valign: 'center', border: 'thin', numFmt: '#,##0' },
 ];
+
+const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
 
 import { dayName, fmtDate } from './dates';
 export { dayName, fmtDate };
@@ -45,109 +51,80 @@ export function exportBrandExcel(opts: { brand: string; seller: string; filter: 
   const { brand, seller, filter: f, report: r } = opts;
   const period = `من ${fmtDate(f.from)} إلى ${fmtDate(f.to)}`;
   const generated = new Date().toLocaleString('ar-IQ');
-
-  /* ── ملخص ── */
-  const summary: XlsxRowInput[] = [
-    { height: 34, cells: [{ value: `كشف مبيعات ${brand}`, style: 'xTitle', mergeAcross: 3 }] },
-    { height: 20, cells: [{ value: `${period} · ${scopeLabel(f)}`, style: 'xSub', mergeAcross: 3 }] },
-    { height: 18, cells: [{ value: `الموظف: ${seller} · أُعد: ${generated}`, style: 'xSub', mergeAcross: 3 }] },
-    { cells: [{ value: '' }] },
-    { height: 22, cells: [{ value: 'المؤشرات الرئيسية', style: 'xBand', mergeAcross: 3 }] },
-    { height: 22, cells: [{ value: 'المؤشر', style: 'xHead' }, { value: 'هذه المدة', style: 'xHead' }, { value: 'المدة السابقة', style: 'xHead' }, { value: 'التغيّر', style: 'xHead' }] },
+  /** رأس موحّد لكل صفحة: العنوان، المدة، ومن أعدّ الكشف */
+  const header = (title: string, cols: number): XlsxRowInput[] => [
+    { height: 32, cells: [{ value: title, style: 'xTitle', mergeAcross: cols - 1 }] },
+    { height: 20, cells: [{ value: `${period} · كل المحل`, style: 'xSub', mergeAcross: cols - 1 }] },
+    { height: 18, cells: [{ value: `الموظف: ${seller} · أُعد: ${generated}`, style: 'xSub', mergeAcross: cols - 1 }] },
   ];
-  const kpi = (label: string, now: number, prev: number, style = 'xInt') => {
-    summary.push({
-      height: 22,
-      cells: [
-        { value: label, style: 'xLbl' },
-        { value: Math.round(now), style, type: 'Number' },
-        { value: Math.round(prev), style, type: 'Number' },
-        prev ? { value: (now - prev) / Math.abs(prev), style: 'xPctV', type: 'Number' } : { value: '—', style: 'xCode' },
-      ],
-    });
-  };
-  kpi('القطع المباعة', r.qty, r.prev.qty);
-  kpi('عدد الفواتير', r.receipts, r.prev.receipts);
-  summary.push({ height: 22, cells: [{ value: 'قطعة لكل فاتورة', style: 'xLbl' }, { value: Number(r.avgPieces.toFixed(1)), style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
-  summary.push({ height: 22, cells: [{ value: 'معدل القطع في يوم البيع', style: 'xLbl' }, { value: Math.round(r.avgPerDay), style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
-  summary.push({ height: 22, cells: [{ value: 'مواد بيعت', style: 'xLbl' }, { value: r.productsSold, style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
-  summary.push({ height: 22, cells: [{ value: 'أيام فيها بيع', style: 'xLbl' }, { value: r.activeDays, style: 'xInt', type: 'Number' }, { value: '', style: 'xCode' }, { value: '', style: 'xCode' }] });
-  summary.push({ cells: [{ value: '' }] });
-  summary.push({ height: 22, cells: [{ value: 'أكثر 10 مواد مبيعاً', style: 'xBand', mergeAcross: 3 }] });
-  summary.push({ height: 22, cells: [{ value: 'المادة', style: 'xHead', mergeAcross: 1 }, { value: 'الكمية', style: 'xHead' }, { value: 'الحصة', style: 'xHead' }] });
-  r.products.slice(0, 10).forEach((p, i) => {
-    const z = i % 2 === 1;
-    summary.push({
-      height: 20,
-      cells: [
-        { value: p.name, style: z ? 'xTxtZ' : 'xTxt', mergeAcross: 1 },
-        { value: p.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: p.share / 100, style: z ? 'xPctZ' : 'xPct', type: 'Number' },
-      ],
-    });
-  });
-  summary.push({ cells: [{ value: '' }] });
-  summary.push({ cells: [{ value: 'الأعداد صافية بعد طرح المرتجعات، والهدايا غير محسوبة. المدة السابقة = نفس عدد الأيام قبل بداية المدة.', style: 'xNote', mergeAcross: 3 }], height: 30 });
+  const note = (cols: number): XlsxRowInput => ({ height: 22, cells: [{ value: 'الأعداد صافية بعد طرح المرتجعات، والهدايا غير محسوبة.', style: 'xNote', mergeAcross: cols - 1 }] });
 
-  /* ── المواد ── */
-  const prod: XlsxRowInput[] = [
-    { height: 30, cells: [{ value: `مواد ${brand} — ${period}`, style: 'xTitle', mergeAcross: 4 }] },
-    { height: 22, cells: ['#', 'المادة', 'الباركود', 'الكمية', 'الحصة'].map(v => ({ value: v, style: 'xHead' })) },
-  ];
+  /* ── المواد: الأكثر بيعاً أولاً ── */
+  const prod: XlsxRowInput[] = [...header(`مواد ${brand}`, 4), { height: 24, cells: ['#', 'المادة', 'الباركود', 'الكمية'].map(v => ({ value: v, style: 'xHead' })) }];
   r.products.forEach((p, i) => {
     const z = i % 2 === 1;
     prod.push({
-      height: 19,
+      height: 20,
       cells: [
         { value: i + 1, style: 'xRank', type: 'Number' },
         { value: p.name, style: z ? 'xTxtZ' : 'xTxt' },
         { value: p.barcode, style: z ? 'xCodeZ' : 'xCode', type: 'String' },
         { value: p.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: p.share / 100, style: z ? 'xPctZ' : 'xPct', type: 'Number' },
       ],
     });
   });
+  if (!r.products.length) prod.push({ height: 24, cells: [{ value: 'لا مبيعات في هذه المدة', style: 'xCode', mergeAcross: 3 }] });
   prod.push({
-    height: 22,
+    height: 24,
     cells: [
-      { value: 'المجموع', style: 'xTotL', mergeAcross: 2 },
+      { value: `المجموع — ${r.products.length} مادة`, style: 'xTotL', mergeAcross: 2 },
       { value: r.qty, style: 'xTotN', type: 'Number' },
-      { value: '', style: 'xTotN' },
     ],
   });
+  prod.push(note(4));
 
-  /* ── يومي ── */
-  const daily: XlsxRowInput[] = [
-    { height: 30, cells: [{ value: `المبيعات اليومية — ${brand}`, style: 'xTitle', mergeAcross: 3 }] },
-    { height: 22, cells: ['التاريخ', 'اليوم', 'الفواتير', 'القطع'].map(v => ({ value: v, style: 'xHead' })) },
-  ];
-  r.days.forEach((d, i) => {
-    const z = i % 2 === 1;
-    daily.push({
-      height: 19,
-      cells: [
-        { value: fmtDate(d.day), style: z ? 'xCodeZ' : 'xCode' },
-        { value: dayName(d.day), style: z ? 'xCodeZ' : 'xCode' },
-        { value: d.receipts, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-        { value: d.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' },
-      ],
+  /* ── يومي: بالتسلسل، وعند تعدد الأشهر كل شهر بعنوانه ومجموعه ── */
+  const daily: XlsxRowInput[] = [...header(`المبيعات اليومية — ${brand}`, 3), { height: 24, cells: ['التاريخ', 'اليوم', 'القطع'].map(v => ({ value: v, style: 'xHead' })) }];
+  const months = [...new Set(r.days.map(d => d.day.slice(0, 7)))];
+  for (const m of months) {
+    const list = r.days.filter(d => d.day.startsWith(m));
+    if (months.length > 1) daily.push({ height: 22, cells: [{ value: `${MONTHS[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`, style: 'xBand', mergeAcross: 2 }] });
+    list.forEach((d, i) => {
+      const z = i % 2 === 1;
+      daily.push({
+        height: 20,
+        cells: [
+          { value: fmtDate(d.day), style: z ? 'xCodeZ' : 'xCode' },
+          { value: dayName(d.day), style: z ? 'xCodeZ' : 'xCode' },
+          d.qty ? { value: d.qty, style: z ? 'xNumZ' : 'xNum', type: 'Number' } : { value: '—', style: z ? 'xNoneZ' : 'xNone' },
+        ],
+      });
     });
-  });
+    if (months.length > 1) {
+      daily.push({
+        height: 22,
+        cells: [
+          { value: 'مجموع الشهر', style: 'xSumL', mergeAcross: 1 },
+          { value: list.reduce((s, d) => s + d.qty, 0), style: 'xSumN', type: 'Number' },
+        ],
+      });
+    }
+  }
+  if (!r.days.length) daily.push({ height: 24, cells: [{ value: 'المدة طويلة جداً للعرض اليومي — اختر مدة أقصر', style: 'xCode', mergeAcross: 2 }] });
   daily.push({
-    height: 22,
+    height: 24,
     cells: [
       { value: 'المجموع', style: 'xTotL', mergeAcross: 1 },
-      { value: r.receipts, style: 'xTotN', type: 'Number' },
       { value: r.qty, style: 'xTotN', type: 'Number' },
     ],
   });
+  daily.push(note(3));
 
   downloadXlsxFile(
     fileBase(brand, f),
     [
-      { name: 'ملخص', rtl: true, columnWidths: [230, 140, 140, 100], rows: summary },
-      { name: 'المواد', rtl: true, columnWidths: [44, 340, 140, 90, 80], rows: prod },
-      { name: 'يومي', rtl: true, columnWidths: [110, 90, 90, 90], rows: daily },
+      { name: 'المواد', rtl: true, columnWidths: [44, 360, 150, 90], rows: prod },
+      { name: 'يومي', rtl: true, columnWidths: [130, 110, 100], rows: daily },
     ],
     STYLES,
   );

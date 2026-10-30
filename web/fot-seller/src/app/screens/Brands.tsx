@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getSeller } from '../../api';
-import { PRESETS, buildReport, firstDataDay, presetRange, useBrandList, useBrandPack, type BrandFilter, type PresetId, type Scope } from '../../brands';
+import { PRESETS, buildReport, firstDataDay, presetRange, useBrandList, useBrandPack, type BrandFilter, type PresetId } from '../../brands';
 import { dayName } from '../../dates';
 import { Delta, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, fmt, shortDate as fmtDate, toast } from '../kit';
 import { BackBtn } from '../parts';
@@ -9,19 +9,19 @@ import { haptic } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * براندي — حركة كل شجرة مرتبطة بالموظف **بالأعداد فقط** (لا مبالغ ولا أسعار):
- * القطع والفواتير لأي مدة، كل المحل أو مبيعاتي، مقارنة بالمدة السابقة،
+ * القطع والفواتير لكل المحل لأي مدة، مقارنة بالمدة السابقة،
  * ترتيب المواد، وكشف Excel بالأعداد يُشارك من الهاتف.
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const PREF = 'fot_team_brand_prefs';
 type Order = 'top' | 'low' | 'name';
 
-function loadPrefs(): { preset: PresetId; scope: Scope } {
+function loadPrefs(): { preset: PresetId } {
   try {
-    const p = JSON.parse(localStorage.getItem(PREF) || '{}') as { preset?: PresetId; scope?: Scope };
-    return { preset: p.preset && p.preset !== 'custom' ? p.preset : 'month', scope: p.scope === 'mine' ? 'mine' : 'all' };
+    const p = JSON.parse(localStorage.getItem(PREF) || '{}') as { preset?: PresetId };
+    return { preset: p.preset && p.preset !== 'custom' ? p.preset : 'month' };
   } catch {
-    return { preset: 'month', scope: 'all' };
+    return { preset: 'month' };
   }
 }
 
@@ -36,7 +36,6 @@ export function Brands({ back }: { back?: string }) {
 
   const init = loadPrefs();
   const [preset, setPreset] = useState<PresetId>(init.preset);
-  const [scope, setScope] = useState<Scope>(init.scope);
   const [custom, setCustom] = useState(() => presetRange('last30'));
   const [pickRange, setPickRange] = useState(false);
   const [q, setQ] = useState('');
@@ -46,11 +45,11 @@ export function Brands({ back }: { back?: string }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(PREF, JSON.stringify({ preset, scope }));
+      localStorage.setItem(PREF, JSON.stringify({ preset }));
     } catch {
       /* ignore */
     }
-  }, [preset, scope]);
+  }, [preset]);
 
   // الفترة المختارة تبقى ظاهرة في شريط الفترات
   useEffect(() => {
@@ -58,8 +57,8 @@ export function Brands({ back }: { back?: string }) {
   }, [preset]);
 
   const range = preset === 'custom' ? (custom.from <= custom.to ? custom : { from: custom.to, to: custom.from }) : presetRange(preset, firstDataDay(pack));
-  const filter: BrandFilter = { from: range.from, to: range.to, scope, sectionId: null };
-  const report = useMemo(() => (pack ? buildReport(pack, filter) : null), [pack, filter.from, filter.to, filter.scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filter: BrandFilter = { from: range.from, to: range.to, scope: 'all', sectionId: null };
+  const report = useMemo(() => (pack ? buildReport(pack, filter) : null), [pack, filter.from, filter.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const products = useMemo(() => {
     if (!report) return [];
@@ -129,16 +128,7 @@ export function Brands({ back }: { back?: string }) {
       )}
 
       <section className="t-hero">
-        <Segmented
-          glass
-          items={[
-            { id: 'all', label: 'كل المحل' },
-            { id: 'mine', label: 'مبيعاتي' },
-          ]}
-          value={scope}
-          onChange={setScope}
-        />
-        <div className="t-hero-row" style={{ marginTop: 16 }}>
+        <div className="t-hero-row">
           <div>
             <p className="kicker">القطع المباعة</p>
             <div className="amount">

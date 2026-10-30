@@ -56,7 +56,7 @@ export function Brands() {
 
   const init = loadPrefs();
   const [preset, setPreset] = useState<PresetId>(init.preset);
-  const [scope, setScope] = useState<Scope>(init.scope);
+  const scope: Scope = 'all';
   const [custom, setCustom] = useState(() => presetRange('last30'));
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<'top' | 'low'>('top');
@@ -64,11 +64,11 @@ export function Brands() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(PREF, JSON.stringify({ preset, scope }));
+      localStorage.setItem(PREF, JSON.stringify({ preset }));
     } catch {
       /* ignore */
     }
-  }, [preset, scope]);
+  }, [preset]);
 
   const first = firstDataDay(pack);
   const range = preset === 'custom' ? (custom.from <= custom.to ? custom : { from: custom.to, to: custom.from }) : presetRange(preset, first);
@@ -131,14 +131,6 @@ export function Brands() {
               {fmtDate(range.from)} — {fmtDate(range.to)}
               {loading && <span className="bx-sync"> · جارٍ التحديث…</span>}
             </p>
-          </div>
-          <div className="bx-scope" role="radiogroup" aria-label="نطاق المبيعات">
-            <button type="button" className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
-              كل المحل
-            </button>
-            <button type="button" className={scope === 'mine' ? 'on' : ''} onClick={() => setScope('mine')}>
-              مبيعاتي
-            </button>
           </div>
         </div>
 
