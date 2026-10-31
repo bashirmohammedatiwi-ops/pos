@@ -1794,3 +1794,11 @@ svg {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* العمولات والأهداف خارج الوقت: داخل الصفحة لا فوق التطبيق */
+.t-lock.t-lock-inline {
+  min-height: 0;
+  margin-top: 6px;
+  padding: 30px 18px;
+  border-radius: 26px;
+}

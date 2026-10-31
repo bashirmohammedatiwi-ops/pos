@@ -5,6 +5,7 @@ import { useBrandList } from '../../brands';
 import { fillWeekDays, groupDays } from '../../insights';
 import { useSeller, useWeekCompare } from '../../store';
 import { KIND_LABEL, getTeamMe } from '../../team';
+import { useAccessLocked, useLockInfo, to12 } from '../../access';
 import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
 import { haptic } from '../native';
 import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
@@ -340,11 +341,27 @@ export function StaffHome() {
   const me = getTeamMe();
   const name = me?.name || 'أهلاً';
   const unread = useUnread('staff');
+  const locked = useAccessLocked();
+  const lockInfo = useLockInfo();
   return (
     <>
       <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} unread={unread} />
       <div className="t-page">
         <AttendCard compact />
+        {locked && (
+          <section className="t-section">
+            <Link to="/commission" className="t-row t-card press" onClick={() => haptic('tap')}>
+              <span className="t-tile mute">
+                <I.lock size={20} />
+              </span>
+              <div className="body">
+                <div className="title">العمولات والأهداف مقفلة الآن</div>
+                <div className="sub">{lockInfo?.schedule.fromMin != null ? `تُفتح من ${to12(lockInfo.schedule.fromMin)} إلى ${to12(lockInfo.schedule.toMin)}` : 'متاحة في الأيام المحددة فقط'}</div>
+              </div>
+              <I.chevron size={18} />
+            </Link>
+          </section>
+        )}
 
         <section className="t-section">
           <div className="t-quick">

@@ -1523,7 +1523,8 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, access);
       return;
     }
-    if (!access.open) {
+    // خارج الوقت تُقفل العمولات والأهداف وتفاصيلها فقط؛ الحساب والبراندات تبقى متاحة
+    if (!access.open && !/^\/api\/seller\/(me|brands(\/\d+)?)$/.test(url.pathname)) {
       sendClosed(res, access);
       return;
     }

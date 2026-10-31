@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { AccessGate, wipeSellerData } from '../access';
+import { AccessGate, useAccessLocked, wipeSellerData } from '../access';
 import { getToken, refreshSession, setSeller, setToken } from '../api';
 import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
@@ -15,7 +15,7 @@ import { Alerts } from './screens/Alerts';
 import { Brands } from './screens/Brands';
 import { Catalog } from './screens/Catalog';
 import { Commission } from './screens/Commission';
-import { Lock, Splash } from './screens/Gate';
+import { Lock, LockedFeature, Splash } from './screens/Gate';
 import { Goals } from './screens/Goals';
 import { SellerHome, StaffHome } from './screens/Home';
 import { Login } from './screens/Login';
@@ -229,7 +229,13 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-function StaffShell({ onLogout }: { onLogout: () => void }) {
+/** بائع خارج وقت العمولات: نفس التطبيق، وصفحات العمولة والأهداف مقفلة والبراندات مفتوحة */
+function LockedSellerShell({ onLogout }: { onLogout: () => void }) {
+  const { list } = useBrandList();
+  return <StaffShell onLogout={onLogout} seller brands={!!list?.length} />;
+}
+
+function StaffShell({ onLogout, seller, brands }: { onLogout: () => void; seller?: boolean; brands?: boolean }) {
   useTabScroll();
   const unread = useUnread('staff');
   const chatUnread = useChatUnread('staff');
@@ -238,7 +244,7 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
     { to: '/', label: 'الرئيسية', icon: p => <I.home {...p} /> },
     { to: '/shift', label: 'دوامي', icon: p => <I.calendar {...p} /> },
     { to: '/chat', label: 'المحادثات', icon: p => <I.chat {...p} />, badge: chatUnread },
-    { to: '/posts', label: 'الإعلانات', icon: p => <I.megaphone {...p} /> },
+    seller ? { to: '/commission', label: 'عمولتي', icon: () => <I.lock size={21} /> } : { to: '/posts', label: 'الإعلانات', icon: p => <I.megaphone {...p} /> },
     { to: '/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread + account.pending },
   ];
   const moreItems: MoreItem[] = [
@@ -246,7 +252,9 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
     { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
     { to: '/shift', label: 'دوامي', icon: <I.calendar size={22} />, tone: 'accent' },
     { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} /> },
+    ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent' }] : []),
     { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok' },
+    ...(seller ? [{ to: '/goals', label: 'أهدافي', icon: <I.lock size={22} />, tone: 'mute' }] : []),
     { to: '/chat', label: 'المحادثات', icon: <I.chat size={22} />, badge: chatUnread },
     { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute' },
   ];
@@ -257,7 +265,11 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
         <Route path="/" element={<StaffHome />} />
         <Route path="/shift" element={<Shift />} />
         <Route path="/my-month" element={<MyMonth back="/more" />} />
-        <Route path="/posts" element={<Posts />} />
+        <Route path="/posts" element={<Posts back={seller ? '/more' : undefined} />} />
+        {seller && <Route path="/commission" element={<LockedFeature title="عمولتي" />} />}
+        {seller && <Route path="/goals" element={<LockedFeature title="أهدافي" back="/more" />} />}
+        {seller && <Route path="/catalog" element={<LockedFeature title="منتجات عمولتي" back="/more" />} />}
+        {brands && <Route path="/brands" element={<Brands back="/more" />} />}
         <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />
         <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={account.canGroup} />} />
         <Route path="/chat/:id" element={<ChatRoom role="staff" base="/chat" />} />
@@ -271,6 +283,9 @@ function StaffShell({ onLogout }: { onLogout: () => void }) {
 }
 
 function Guard({ onLogout }: { onLogout: () => void }) {
+  const locked = useAccessLocked();
+  // خارج الوقت لا تُحمَّل بيانات العمولة أصلاً (لا مزوّد بيانات البائع)
+  if (getToken() && locked) return <LockedSellerShell onLogout={onLogout} />;
   if (getToken())
     return (
       <SellerProvider>
@@ -326,7 +341,7 @@ export function TeamApp() {
 
   return (
     <>
-      <AccessGate renderSplash={offline => <Splash offline={offline} />} renderLock={p => <Lock {...p} onLogout={logout} />} onLogout={clearTeam}>
+      <AccessGate soft={() => !!getTeamToken()} renderSplash={offline => <Splash offline={offline} />} renderLock={p => <Lock {...p} onLogout={logout} />} onLogout={clearTeam}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/m/*" element={<ManagerGuard />} />

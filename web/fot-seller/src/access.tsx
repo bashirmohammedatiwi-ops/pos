@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ACCESS_EVENT, api, getSeller, getToken, publishAccess, refreshSession, setSeller, setToken, type SellerAccess } from './api';
 import { apiUrl } from './config';
@@ -121,6 +121,12 @@ export function onBrandsChanged(fn: () => void) {
 
 export type LockProps = { schedule: Schedule; opensAt: number | null; now: number };
 
+/** الإغلاق الجزئي (تطبيق الفريق): العمولات والأهداف مقفلة وباقي التطبيق يعمل */
+const LockedCtx = createContext(false);
+const LockInfoCtx = createContext<LockProps | null>(null);
+export const useAccessLocked = () => useContext(LockedCtx);
+export const useLockInfo = () => useContext(LockInfoCtx);
+
 /**
  * تطبيق الهاتف يمرّر واجهاته الخاصة (شاشة البدء والقفل) — المنطق نفسه في الويب والتطبيق.
  */
@@ -129,11 +135,14 @@ export function AccessGate({
   renderSplash,
   renderLock,
   onLogout,
+  soft,
 }: {
   children: ReactNode;
   renderSplash?: (offline: boolean) => ReactNode;
   renderLock?: (p: LockProps) => ReactNode;
   onLogout?: () => void;
+  /** يعيد true إن كان الإغلاق جزئياً: لا شاشة قفل، والشاشات تقرأ useAccessLocked */
+  soft?: () => boolean;
 }) {
   const nav = useNavigate();
   const [schedule, setSchedule] = useState<Schedule | null>(() => (getToken() ? loadSchedule() : null));
@@ -240,13 +249,18 @@ export function AccessGate({
     wasLocked.current = locked;
   }, [locked]);
 
-  if (token && !checked) return <>{renderSplash ? renderSplash(false) : <Splash />}</>;
-  if (locked && state) {
+  const partial = !!soft?.();
+  if (token && !checked && !partial) return <>{renderSplash ? renderSplash(false) : <Splash />}</>;
+  if (locked && state && !partial) {
     const p = { schedule: schedule!, opensAt: state.opensAt, now };
     return <>{renderLock ? renderLock(p) : <LockScreen {...p} />}</>;
   }
-  if (token && offline && !schedule) return <>{renderSplash ? renderSplash(true) : <Splash offline />}</>;
-  return <>{children}</>;
+  if (token && offline && !schedule && !partial) return <>{renderSplash ? renderSplash(true) : <Splash offline />}</>;
+  return (
+    <LockedCtx.Provider value={locked && partial}>
+      <LockInfoCtx.Provider value={locked && partial && state ? { schedule: schedule!, opensAt: state.opensAt, now } : null}>{children}</LockInfoCtx.Provider>
+    </LockedCtx.Provider>
+  );
 }
 
 function Splash({ offline }: { offline?: boolean }) {

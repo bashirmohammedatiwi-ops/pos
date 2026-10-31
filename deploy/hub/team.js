@@ -457,17 +457,14 @@ function createTeam(ctx) {
       } else if (bound) {
         touchDevice(s.id, body);
       }
-      // البائع: نفس قيود أوقات الفتح ورمز البائع للخصائص الحالية
+      // البائع: رمز البائع للعمولة والأهداف والبراندات
       let sellerToken = null;
       let access = null;
       if (s.salesman_id) {
         const acc = ctx.getSellerAccount(s.salesman_id);
         if (acc) {
+          // خارج الوقت يدخل التطبيق عادياً: الخادم يقفل العمولات والأهداف وحدها
           access = ctx.accessState(acc);
-          if (!access.open) {
-            ctx.send(res, 423, { error: 'التطبيق مغلق الآن خارج وقت عملك', code: 'outside_hours', access });
-            return true;
-          }
           sellerToken = ctx.issueSellerToken(acc);
         }
       }
