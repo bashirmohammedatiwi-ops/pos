@@ -110,13 +110,15 @@ export function MyMonth({ back = '/shift' }: { back?: string }) {
                         </>
                       ) : d.off ? (
                         REASON[d.reason ?? ''] ?? 'عطلة'
+                      ) : d.before ? (
+                        'قبل بدء استخدام التطبيق'
                       ) : (
                         'لا حضور'
                       )}
                     </div>
                   </div>
                   <div className="end">
-                    {d.checkIn ? <b className="num ltr">{hhmm(d.workedMinutes)}</b> : d.off ? <Badge tone="mute">{REASON[d.reason ?? ''] ?? 'عطلة'}</Badge> : <Badge tone="bad">غياب</Badge>}
+                    {d.checkIn ? <b className="num ltr">{hhmm(d.workedMinutes)}</b> : d.before ? <span className="muted">—</span> : d.off ? <Badge tone="mute">{REASON[d.reason ?? ''] ?? 'عطلة'}</Badge> : <Badge tone="bad">غياب</Badge>}
                     {d.lateMinutes > 0 && <small className="num">تأخير {dur(d.lateMinutes)}</small>}
                     {d.overtimeMinutes > 0 && <small className="num">إضافي {dur(d.overtimeMinutes)}</small>}
                     {d.autoClosed && <small>أُغلق تلقائياً</small>}

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { API_BASE, apiUrl, isNative } from '../config';
+import { cleanName, cleanNames } from '../names';
 import { getTeamMe, getTeamToken, type TeamStaff } from '../team';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ export function getManagerMe(): { id: number; username: string; displayName: str
   try {
     if (supervisorMode()) {
       const me = getTeamMe();
-      return me ? { id: me.id, username: me.code, displayName: me.name } : null;
+      return me ? { id: me.id, username: me.code, displayName: cleanName(me.name) } : null;
     }
     const raw = localStorage.getItem(MANAGER_ME);
     return raw ? JSON.parse(raw) : null;
@@ -241,7 +242,7 @@ async function call<T>(role: Role, path: string, init?: { method?: string; body?
     throw new HttpError((body as { error?: string })?.error || 'تعذر الاتصال', res.status);
   }
   if (body === null && text.trimStart().startsWith('<')) throw new HttpError('الخادم لا يدعم هذه الميزة بعد — حدّث الـ VPS', 404);
-  return body as T;
+  return cleanNames(body as T);
 }
 
 export const staffApi = {
@@ -362,6 +363,8 @@ export interface AttendState {
 }
 export type BoardStatus = 'in' | 'break' | 'over' | 'out' | 'off' | 'soon' | 'missing' | 'absent' | 'hourly';
 export interface BoardRow {
+  /** دخل التطبيق: من لم يدخل لا يُعدّ غائباً */
+  joined?: boolean;
   staffId: number;
   name: string;
   kind: string;
@@ -375,7 +378,7 @@ export interface Board {
   date: string;
   now: string;
   rows: BoardRow[];
-  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number>;
+  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number> & { notJoined?: number };
   network: { enforced: boolean; count: number };
 }
 export interface ShopNetwork {
@@ -407,7 +410,7 @@ let attendInflight: Promise<AttendState> | null = null;
 export type MyMonthData = {
   month: string;
   row: SummaryRow | null;
-  days: { date: string; off: boolean; reason?: string | null; checkIn?: string | null; checkOut?: string | null; lateMinutes: number; workedMinutes: number; breakMinutes: number; overtimeMinutes: number; autoClosed: boolean }[];
+  days: { date: string; before?: boolean; off: boolean; reason?: string | null; checkIn?: string | null; checkOut?: string | null; lateMinutes: number; workedMinutes: number; breakMinutes: number; overtimeMinutes: number; autoClosed: boolean }[];
   leaves: { type: string; n: number }[];
 };
 /** تجربة إشعارات الهاتف: count = الهواتف المسجلة، ok = ما قبله Firebase */
@@ -437,6 +440,9 @@ export const managerAttendApi = {
 };
 export interface SummaryRow {
   staffId: number;
+  /** دخل التطبيق: قبل ذلك لا تُحسب عليه أيام غياب */
+  joined?: boolean;
+  hourly?: boolean;
   name: string;
   kind: string;
   sectionName?: string | null;

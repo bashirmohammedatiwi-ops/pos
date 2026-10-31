@@ -427,7 +427,7 @@ export function AttendCard({ compact }: { compact?: boolean }) {
         {!noNets && (
           <button type="button" className="t-punch-mini press" disabled={!!busy} onClick={() => askFor('in')} aria-label="تسجيل الحضور">
             {busy === 'in' ? <span className="spinner" /> : <I.store size={26} />}
-            <span>{off ? 'حضور إضافي' : 'حضور'}</span>
+            <span>حضور</span>
           </button>
         )}
         {confirmEl}

@@ -71,6 +71,14 @@ function cumUntil(hours: SaleHour[] | undefined, h: number, frac: number) {
   }
   return t;
 }
+function cumCount(hours: SaleHour[] | undefined, h: number, frac: number) {
+  let n = 0;
+  for (const x of hours || []) {
+    if (x.h < h) n += x.n;
+    else if (x.h === h) n += x.n * frac;
+  }
+  return n;
+}
 function nowOf(v: SalesDay) {
   const t = iraqMs(v.at);
   if (Number.isNaN(t)) return null;
@@ -403,6 +411,8 @@ function DayBody({ v, live, fresh }: { v: SalesDay; live?: boolean; fresh?: Set<
   const projected = avg && now && avgSoFar > avg.net * 0.12 ? (t.net / avgSoFar) * avg.net : null;
   const avgTicket = t.receipts ? t.net / t.receipts : 0;
   const prevT = v.compare.prev?.totals;
+  // أثناء اليوم تُقارن الفواتير بأمس حتى الوقت نفسه؛ القطع لا تتوفر بالساعة فلا تُقارن
+  const prevReceipts = v.compare.prev ? (now ? cumCount(v.compare.prev.hours, now.h, now.frac) : (prevT?.receipts ?? 0)) : 0;
   const cash = t.net - t.cardTotal;
 
   return (
@@ -461,9 +471,9 @@ function DayBody({ v, live, fresh }: { v: SalesDay; live?: boolean; fresh?: Set<
       </section>
 
       <div className="s-kpis">
-        <Kpi label="الفواتير" value={fmt(t.receipts)} cmp={prevT ? <Delta now={t.receipts} prev={prevT.receipts} /> : null} />
-        <Kpi label="متوسط الفاتورة" value={fmt(avgTicket)} unit="د.ع" cmp={prevT && prevT.receipts ? <Delta now={avgTicket} prev={prevT.net / prevT.receipts} /> : null} />
-        <Kpi label="القطع المباعة" value={fmt(t.pieces)} cmp={prevT ? <Delta now={t.pieces} prev={prevT.pieces} /> : null} />
+        <Kpi label="الفواتير" value={fmt(t.receipts)} cmp={prevT ? <Delta now={t.receipts} prev={prevReceipts} /> : null} />
+        <Kpi label="متوسط الفاتورة" value={fmt(avgTicket)} unit="د.ع" cmp={prevT && prevT.receipts && !now ? <Delta now={avgTicket} prev={prevT.net / prevT.receipts} /> : null} />
+        <Kpi label="القطع المباعة" value={fmt(t.pieces)} cmp={prevT && !now ? <Delta now={t.pieces} prev={prevT.pieces} /> : null} />
         <Kpi label="قطعة لكل فاتورة" value={t.receipts ? (t.pieces / t.receipts).toFixed(1) : '0'} />
       </div>
 

@@ -222,7 +222,7 @@ export function PostCard({ post, onOpen, onImage, footer }: { post: Post; onOpen
           <I.megaphone size={19} />
         </span>
         <div className="meta">
-          <b>{post.createdBy?.replace(/^manager:/, '') || 'الإدارة'}</b>
+          <b>{/^(manager|supervisor):/.test(post.createdBy ?? '') ? post.createdBy!.replace(/^(manager|supervisor):/, '') : 'الإدارة'}</b>
           {relTime(post.createdAt)}
         </div>
         {post.pinned && <Badge tone="accent">📌 مثبّت</Badge>}

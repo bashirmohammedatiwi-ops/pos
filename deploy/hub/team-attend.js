@@ -561,6 +561,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const t = Date.now();
     const staff = db.prepare('SELECT * FROM staff WHERE is_active = 1 ORDER BY name').all().filter(s => allow(s.id));
     const st = settings();
+    const devices = new Set(db.prepare('SELECT staff_id FROM devices').all().map(r => r.staff_id));
     const rows = staff.map(s => {
       const shift = shiftOf(s.id);
       if (!showPay) shift.overtimeRate = null;
@@ -577,14 +578,16 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       else if (t < w.start + st.graceMinutes * 60_000) status = 'soon';
       else if (t > w.end) status = 'absent';
       else status = 'missing';
-      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, shift, day, status, attendance: a };
+      // من لم يدخل التطبيق بعد لا يُعدّ غائباً: لا يستطيع تسجيل حضوره أصلاً
+      const joined = !!a || devices.has(s.id);
+      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, shift, day, status, attendance: a, joined };
     });
-    const count = k => rows.filter(r => r.status === k).length;
+    const count = k => rows.filter(r => r.status === k && r.joined).length;
     return {
       date,
       now: now(),
       rows,
-      counts: { in: count('in'), break: count('break') + count('over'), over: count('over'), out: count('out'), off: count('off'), missing: count('missing') + count('absent'), soon: count('soon'), late: rows.filter(r => (r.attendance?.lateMinutes ?? 0) > 0).length },
+      counts: { in: count('in'), break: count('break') + count('over'), over: count('over'), out: count('out'), off: count('off'), missing: count('missing') + count('absent'), soon: count('soon'), notJoined: rows.filter(r => !r.joined && r.status !== 'off').length, late: rows.filter(r => (r.attendance?.lateMinutes ?? 0) > 0).length },
       network: { enforced: st.enforceNetwork, count: networks().filter(n => n.is_active).length },
     };
   }

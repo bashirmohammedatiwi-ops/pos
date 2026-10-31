@@ -6,6 +6,7 @@ import { fillWeekDays, groupDays } from '../../insights';
 import { useSeller, useWeekCompare } from '../../store';
 import { KIND_LABEL, getTeamMe } from '../../team';
 import { useAccessLocked, useLockInfo, to12 } from '../../access';
+import { cleanName } from '../../names';
 import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
 import { haptic } from '../native';
 import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
@@ -60,7 +61,7 @@ export function SellerHome() {
   const { list: brands } = useBrandList();
   const { cur, prev } = useWeekCompare(weeks, weekStart);
   const me = getTeamMe();
-  const name = me?.name || dash?.seller.name || 'أهلاً';
+  const name = cleanName(me?.name || dash?.seller.name) || 'أهلاً';
   const pull = usePull(reload);
   const team = !!getTeamToken();
   const unread = useUnread(team ? 'staff' : null);
@@ -339,7 +340,7 @@ function TeamWidgets() {
 /* ═════════════ الموظف غير البائع ═════════════ */
 export function StaffHome() {
   const me = getTeamMe();
-  const name = me?.name || 'أهلاً';
+  const name = cleanName(me?.name) || 'أهلاً';
   const unread = useUnread('staff');
   const locked = useAccessLocked();
   const lockInfo = useLockInfo();

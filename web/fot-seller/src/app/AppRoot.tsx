@@ -192,15 +192,14 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         { to: '/account', label: 'حسابي', icon: p => <I.user {...p} /> },
       ];
   const moreItems: MoreItem[] = [
-    ...(account.supervisor ? [{ to: '/m', label: 'إدارة الفريق', icon: <I.user size={22} />, badge: account.pending, tone: 'ok' }] : []),
-    { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
-    { to: '/catalog', label: 'منتجات عمولتي', icon: <I.box size={22} />, tone: 'ok' },
-    { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok' },
-    { to: '/goals', label: 'أهدافي', icon: <I.target size={22} />, badge: openGoals || undefined },
-    ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent' }] : []),
-    { to: '/shift', label: 'دوامي', icon: <I.calendar size={22} />, tone: 'accent' },
-    { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} /> },
-    { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute' },
+    ...(account.supervisor ? [{ to: '/m', label: 'إدارة الفريق', icon: <I.user size={22} />, badge: account.pending, tone: 'ok', group: 'مسؤوليتي' }] : []),
+    { to: '/goals', label: 'أهدافي', icon: <I.target size={22} />, badge: openGoals || undefined, group: 'عملي' },
+    { to: '/catalog', label: 'منتجات عمولتي', icon: <I.box size={22} />, tone: 'ok', group: 'عملي' },
+    ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent', group: 'عملي' }] : []),
+    { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} />, group: 'عملي' },
+    { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent', group: 'التواصل' },
+    { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok', group: 'التواصل' },
+    { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute', group: 'التواصل' },
   ];
   const back = team ? '/more' : undefined;
   const canGroup = account.canGroup;
@@ -248,15 +247,13 @@ function StaffShell({ onLogout, seller, brands }: { onLogout: () => void; seller
     { to: '/more', label: 'المزيد', icon: () => <MoreIcon />, badge: unread + account.pending },
   ];
   const moreItems: MoreItem[] = [
-    ...(account.supervisor ? [{ to: '/m', label: 'إدارة الفريق', icon: <I.user size={22} />, badge: account.pending, tone: 'ok' }] : []),
-    { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent' },
-    { to: '/shift', label: 'دوامي', icon: <I.calendar size={22} />, tone: 'accent' },
-    { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} /> },
-    ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent' }] : []),
-    { to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok' },
-    ...(seller ? [{ to: '/goals', label: 'أهدافي', icon: <I.lock size={22} />, tone: 'mute' }] : []),
-    { to: '/chat', label: 'المحادثات', icon: <I.chat size={22} />, badge: chatUnread },
-    { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute' },
+    ...(account.supervisor ? [{ to: '/m', label: 'إدارة الفريق', icon: <I.user size={22} />, badge: account.pending, tone: 'ok', group: 'مسؤوليتي' }] : []),
+    ...(seller ? [{ to: '/goals', label: 'أهدافي', icon: <I.lock size={22} />, tone: 'mute', group: 'عملي' }] : []),
+    ...(brands ? [{ to: '/brands', label: 'براندي', icon: <I.tag size={22} />, tone: 'accent', group: 'عملي' }] : []),
+    { to: '/my-month', label: 'تقريري الشهري', icon: <I.chart size={22} />, group: 'عملي' },
+    { to: '/alerts', label: 'التبليغات', icon: <I.bell size={22} />, badge: unread, tone: 'accent', group: 'التواصل' },
+    ...(seller ? [{ to: '/posts', label: 'الإعلانات', icon: <I.megaphone size={22} />, tone: 'ok', group: 'التواصل' }] : []),
+    { to: '/account', label: 'حسابي', icon: <I.user size={22} />, tone: 'mute', group: 'التواصل' },
   ];
   return (
     <div className="t-app">

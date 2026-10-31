@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { getSeller } from '../../api';
+import { cleanName } from '../../names';
 import { APP_VERSION, PUSH_ENABLED, apiUrl, platform } from '../../config';
 import { KIND_LABEL, getTeamMe, getTeamToken } from '../../team';
 import { Avatar, Badge, I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
@@ -29,7 +30,7 @@ function Row({ icon, tone, title, value, children }: { icon: ReactNode; tone?: s
 export function Account({ onLogout, back }: { onLogout: () => void; back?: string }) {
   const me = getTeamMe();
   const seller = getSeller();
-  const name = me?.name || seller?.name || 'حسابي';
+  const name = cleanName(me?.name || seller?.name) || 'حسابي';
   const [device, setDevice] = useState<Device | null>(null);
   const [theme, setTheme] = useState<ThemePref>(getThemePref);
   const [vib, setVib] = useState(hapticsOn);
@@ -79,7 +80,7 @@ export function Account({ onLogout, back }: { onLogout: () => void; back?: strin
             title={device?.label || (platform() === 'web' ? 'متصفح' : 'هذا الهاتف')}
             value={bound ? `مربوط بحسابك منذ ${bound}` : 'يُربط الحساب بأول هاتف تدخل منه'}
           />
-          <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'داخل التطبيق · تنبيهات الدوام والاستراحة تعمل والتطبيق مغلق'} />
+          {!PUSH_ENABLED && <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'داخل التطبيق · تنبيهات الدوام والاستراحة تعمل والتطبيق مغلق'} />}
         </div>
       </section>
 

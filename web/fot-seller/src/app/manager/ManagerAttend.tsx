@@ -40,6 +40,7 @@ function line(r: BoardRow) {
   if (r.status === 'over' && ob) return `تجاوز الاستراحة ${Math.max(0, Math.floor((Date.now() - Date.parse(ob.endsAt)) / 60_000))} دقيقة`;
   if (a && r.status === 'in') return `حضر ${clockLabel(a.checkIn)}${a.lateMinutes ? ` · متأخر ${dur(a.lateMinutes)}` : ''}`;
   if (a && r.status === 'out') return `${clockLabel(a.checkIn)} – ${clockLabel(a.checkOut)} · ${hhmm(a.workedMinutes)} ساعة`;
+  if (r.joined === false && !a && r.status !== 'off') return 'لم يدخل التطبيق بعد';
   if (r.status === 'hourly') return 'دوام بالساعات — غير موجود الآن';
   if (r.status === 'off') return r.day?.reason === 'weekly' ? 'عطلة أسبوعية' : 'في إجازة';
   if (r.status === 'soon') return `دوامه ${r.shift.start}`;
@@ -60,7 +61,7 @@ export function MAttend() {
     const all = data?.rows ?? [];
     const wanted = FILTER_OF[filter];
     const order: BoardStatus[] = ['over', 'missing', 'break', 'in', 'soon', 'out', 'hourly', 'off', 'absent'];
-    return (wanted.length ? all.filter(r => wanted.includes(r.status)) : all).sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+    return (wanted.length ? all.filter(r => wanted.includes(r.status)) : all).sort((a, b) => Number(a.joined === false) - Number(b.joined === false) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name, 'ar'));
   }, [data, filter]);
   const c = data?.counts;
 
@@ -126,13 +127,13 @@ export function MAttend() {
                 <Avatar name={r.name} size="sm" />
                 <div className="body">
                   <div className="title">{r.name}</div>
-                  <div className="sub" style={r.status === 'over' || r.status === 'missing' ? { color: 'var(--bad)' } : undefined}>
+                  <div className="sub" style={r.status === 'over' || (r.status === 'missing' && r.joined !== false) ? { color: 'var(--bad)' } : undefined}>
                     {line(r)}
                   </div>
                 </div>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink-3)' }}>
-                  <span className="t-status-dot" style={{ background: STATUS[r.status].color }} />
-                  {STATUS[r.status].label}
+                  <span className="t-status-dot" style={{ background: r.joined === false && !r.attendance ? 'var(--ink-4)' : STATUS[r.status].color }} />
+                  {r.joined === false && !r.attendance && r.status !== 'off' ? 'غير مسجّل' : STATUS[r.status].label}
                 </span>
               </button>
             ))}
@@ -319,6 +320,7 @@ export function AttendSummary() {
   if (!data) return null;
   const c = data.counts;
   const alert = c.over + c.missing;
+  const notJoined = c.notJoined ?? 0;
   return (
     <Link to="/m/attend" className="t-card pad press" style={{ display: 'block', marginTop: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -342,6 +344,7 @@ export function AttendSummary() {
           </span>
         ))}
       </div>
+      {notJoined > 0 && <small style={{ display: 'block', marginTop: 10, fontSize: 12, color: 'var(--ink-3)' }}>{notJoined} موظف لم يدخلوا التطبيق بعد</small>}
     </Link>
   );
 }

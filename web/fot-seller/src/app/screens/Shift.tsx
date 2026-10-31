@@ -167,6 +167,10 @@ export function Shift({ back }: { back?: string }) {
             </div>
           </section>
 
+          <div style={{ marginTop: 14 }}>
+            <AttendCard />
+          </div>
+
           {monthly && (
             <section className="t-section" style={{ marginTop: 14 }}>
               <div className="t-section-head">
@@ -186,10 +190,6 @@ export function Shift({ back }: { back?: string }) {
               </div>
             </section>
           )}
-
-          <div style={{ marginTop: 14 }}>
-            <AttendCard />
-          </div>
 
           <section className="t-card pad" style={{ marginTop: 14 }}>
             <div className="t-cal">

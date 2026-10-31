@@ -135,6 +135,13 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
   }
 
   /* ═════════════ ملخص الحضور لكل موظف ═════════════ */
+  /** أول يوم استخدم فيه الموظف التطبيق: أول دخول مسجّل أو أول حضور (بتوقيت العراق) */
+  function joinedSince(staffId) {
+    const login = db.prepare("SELECT MIN(at) AS at FROM audit WHERE action = 'login' AND actor = ?").get(`staff:${staffId}`).at;
+    const first = db.prepare('SELECT MIN(date) AS d FROM attendance WHERE staff_id = ?').get(staffId).d;
+    const a = login ? iraqDate(Date.parse(login)) : null;
+    return a && first ? (a < first ? a : first) : a || first || null;
+  }
   function summary(url, allow, showPay = true) {
     const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : iraqDate();
     const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : `${to.slice(0, 8)}01`;
@@ -160,7 +167,10 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
         let absent = 0;
         let leaveDays = 0;
         let offDays = 0;
+        const since = joinedSince(s.id);
         for (const d of dates) {
+          // قبل أول دخول للتطبيق لا يوجد ما يُحاسَب عليه
+          if (!since || d < since) continue;
           const st = dayFor(s.id, d);
           if (st?.off) {
             if (st.reason === 'weekly' || st.reason === 'swap') offDays++;
@@ -212,6 +222,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
           breakMinutes: breakMin,
           overMinutes: over,
           hourly: !!sh.hourly,
+          joined: !!since,
           overtimeEnabled: !!sh.overtime,
           overtimeRate: showPay ? sh.overtimeRate ?? null : null,
           overtimeMinutes: ot,
@@ -236,6 +247,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
     const params = new URLSearchParams({ from, to });
     const row = from <= today ? summary({ searchParams: params }, id => id === s.id).rows[0] ?? null : null;
     const recs = new Map(db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND date BETWEEN ? AND ?').all(s.id, from, to).map(r => [r.date, r]));
+    const since = joinedSince(s.id);
     const days = [];
     for (let d = to; d >= from; d = addDays(d, -1)) {
       const r = recs.get(d);
@@ -249,6 +261,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
       }
       days.push({
         date: d,
+        before: !since || d < since,
         off: !!st?.off,
         reason: st?.reason ?? null,
         checkIn: r?.check_in ?? null,

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { APP_VERSION } from '../../config';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Avatar, Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, greet, iraqToday, toast, usePull } from '../kit';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
@@ -17,6 +18,7 @@ import {
   getManagerMe,
   getManagerToken,
   leaveWhen,
+  offNames,
   managerApi,
   mediaUrl,
   onLive,
@@ -209,7 +211,7 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
   const { data, err, loading, reload } = useLoad(() => managerApi.overview(), ['leave', 'post']);
   const pull = usePull(reload);
   const perms = usePerms();
-  const working = data ? data.staffCount - data.offToday.length : 0;
+  const sup = supervisorMode();
 
   return (
     <>
@@ -230,55 +232,67 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
           <Skeleton h={160} r={26} />
         ) : data ? (
           <>
-            <section className="t-hero">
-              <p className="kicker">الفريق اليوم · {data.weekday}</p>
-              <div className="amount">
-                <span className="num">{working}</span>
-                <small>في الدوام من {data.staffCount}</small>
-              </div>
-              <div className="meta">
-                <span>
-                  <b className="num">{data.offToday.length}</b> في عطلة أو إجازة
-                </span>
-                {data.partial.length > 0 && (
-                  <span>
-                    <b className="num">{data.partial.length}</b> استئذان
-                  </span>
-                )}
-              </div>
-              <div style={{ marginTop: 14 }}>
-                <div className="t-track" style={{ background: 'rgba(255,255,255,.18)' }}>
-                  <i style={{ width: `${data.staffCount ? (working / data.staffCount) * 100 : 0}%`, background: '#F0B04F' }} />
-                </div>
-              </div>
-            </section>
+            {perms.approveLeave && pending > 0 && (
+              <Link to="/m/approvals" className="t-kpi alert press" style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>طلبات بانتظار موافقتك</span>
+                <b className="num">{pending}</b>
+              </Link>
+            )}
 
             {perms.viewAttendance && <AttendSummary />}
 
-            <div className="t-kpis" style={{ marginTop: 14 }}>
-              {perms.approveLeave && (
-                <Link to="/m/approvals" className={`t-kpi press ${pending ? 'alert' : ''}`}>
-                  <span>طلبات بانتظارك</span>
-                  <b className="num">{pending}</b>
-                </Link>
-              )}
-              <Link to="/m/team" className="t-kpi press">
-                <span>هواتف مربوطة</span>
-                <b className="num">
-                  {data.devices}
-                  <small style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 500 }}> / {data.staffCount}</small>
-                </b>
-              </Link>
-            </div>
+            <section className="t-section">
+              <div className="t-quick">
+                {perms.approveLeave && (
+                  <Link to="/m/approvals" className="press">
+                    <span className="t-tile ok">
+                      <I.check size={20} />
+                    </span>
+                    الموافقات
+                  </Link>
+                )}
+                {perms.sendPosts && (
+                  <Link to="/m/notify" className="press">
+                    <span className="t-tile accent">
+                      <I.bell size={20} />
+                    </span>
+                    تبليغ سريع
+                  </Link>
+                )}
+                {perms.sendPosts && (
+                  <Link to="/m/posts?new=1" className="press">
+                    <span className="t-tile">
+                      <I.megaphone size={20} />
+                    </span>
+                    إعلان جديد
+                  </Link>
+                )}
+                {perms.viewSales && !sup ? (
+                  <Link to="/m/performance" className="press">
+                    <span className="t-tile accent">
+                      <I.target size={20} />
+                    </span>
+                    التحليلات
+                  </Link>
+                ) : (
+                  <Link to="/m/team" className="press">
+                    <span className="t-tile mute">
+                      <I.user size={20} />
+                    </span>
+                    الفريق
+                  </Link>
+                )}
+              </div>
+            </section>
 
             <section className="t-section">
               <div className="t-section-head">
-                <h2>غائبون اليوم</h2>
-                <small>{data.offToday.length ? `${data.offToday.length} موظف` : ''}</small>
+                <h2>في إجازة اليوم</h2>
+                <small className="num">{data.staffCount - data.offToday.length} من {data.staffCount} مجدولون اليوم</small>
               </div>
               {data.offToday.length === 0 && data.partial.length === 0 ? (
                 <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5 }}>
-                  الفريق كامل اليوم 👌
+                  الفريق كامل اليوم
                 </div>
               ) : (
                 <div className="t-people">
@@ -300,52 +314,6 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
                   ))}
                 </div>
               )}
-            </section>
-
-            <section className="t-section">
-              <div className="t-section-head">
-                <h2>إجراءات سريعة</h2>
-              </div>
-              <div className="t-quick">
-                {perms.sendPosts && (
-                  <Link to="/m/posts?new=1" className="press">
-                    <span className="t-tile">
-                      <I.megaphone size={20} />
-                    </span>
-                    إعلان جديد
-                  </Link>
-                )}
-                {perms.sendPosts && (
-                  <Link to="/m/notify" className="press">
-                    <span className="t-tile accent">
-                      <I.bell size={20} />
-                    </span>
-                    تبليغ سريع
-                  </Link>
-                )}
-                {perms.approveLeave && (
-                  <Link to="/m/approvals" className="press">
-                    <span className="t-tile ok">
-                      <I.check size={20} />
-                    </span>
-                    الموافقات
-                  </Link>
-                )}
-                <Link to="/m/team" className="press">
-                  <span className="t-tile mute">
-                    <I.user size={20} />
-                  </span>
-                  الفريق
-                </Link>
-                {perms.viewSales && (
-                  <Link to="/m/performance" className="press">
-                    <span className="t-tile accent">
-                      <I.target size={20} />
-                    </span>
-                    التحليلات
-                  </Link>
-                )}
-              </div>
             </section>
 
             {data.posts.length > 0 && (
@@ -904,7 +872,7 @@ function MTeam() {
   const noOff = (data ?? []).filter(s => s.isActive && !s.weeklyOff && (s.plan ?? 'weekly') === 'weekly').length;
 
   return (
-    <Screen title="الفريق" subtitle={data ? `${list.length} موظف${noOff ? ` · ${noOff} بلا عطلة محددة` : ''}` : 'الموظفون وعطلهم'} onRefresh={reload}>
+    <Screen title="الفريق" subtitle={data ? `${list.length} موظف · ${(data ?? []).filter(x => x.lastSeen).length} دخلوا التطبيق${noOff ? ` · ${noOff} بلا عطلة` : ''}` : 'الموظفون وعطلهم'} onRefresh={reload}>
       <label className="t-search" style={{ marginBottom: 12 }}>
         <I.search />
         <input placeholder="ابحث بالاسم أو الكود أو القسم" value={q} onChange={e => setQ(e.target.value)} />
@@ -936,12 +904,10 @@ function MTeam() {
                 <Badge tone="accent">بالساعات</Badge>
               ) : s.plan === 'monthly' ? (
                 <Badge tone="ok">{s.monthlyDays ?? 0} بالشهر</Badge>
+              ) : s.weeklyOff ? (
+                <Badge tone="mute">{offNames(s.weeklyOff).join(' و')}</Badge>
               ) : (
-                <div className="t-mini-off" aria-label="العطلة الأسبوعية">
-                  {WEEK_DAYS.map((d, i) => (
-                    <i key={d} className={(s.weeklyOff >> i) & 1 ? 'on' : ''} title={d} />
-                  ))}
-                </div>
+                <Badge tone="warn">بلا عطلة</Badge>
               )}
             </button>
           ))}
@@ -1172,15 +1138,45 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
         </div>
       </section>
 
+      {perms.viewSales || perms.viewAttendance ? (
+        <section className="t-section">
+          <div className="t-section-head">
+            <h2>المتابعة</h2>
+          </div>
+          <div className="t-menu">
+            {perms.viewSales && !sup && (
+              <Link to="/m/performance" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg accent">
+                  <I.target size={22} />
+                </span>
+                التحليلات
+              </Link>
+            )}
+            {perms.viewAttendance && (
+              <Link to="/m/reports" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg accent">
+                  <I.chart size={22} />
+                </span>
+                تقارير الحضور
+              </Link>
+            )}
+            {perms.viewAttendance && (
+              <Link to="/m/hours" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg">
+                  <I.clock size={22} />
+                </span>
+                الدوام بالساعات
+              </Link>
+            )}
+          </div>
+        </section>
+      ) : null}
+
       <section className="t-section">
+        <div className="t-section-head">
+          <h2>الفريق والتواصل</h2>
+        </div>
         <div className="t-menu">
-          <Link to="/m/alerts" className="press" onClick={() => haptic('tap')}>
-            <span className="t-tile lg">
-              <I.bell size={22} />
-            </span>
-            التبليغات
-            {unread > 0 && <span className="badge num">{unread > 9 ? '9+' : unread}</span>}
-          </Link>
           {perms.approveLeave && perms.viewSales && perms.viewAttendance && (
             <Link to="/m/approvals" className="press" onClick={() => haptic('tap')}>
               <span className="t-tile lg ok">
@@ -1190,59 +1186,42 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
               {pending > 0 && <span className="badge num">{pending > 9 ? '9+' : pending}</span>}
             </Link>
           )}
-          {perms.sendPosts && (
-          <Link to="/m/notify" className="press" onClick={() => haptic('tap')}>
-            <span className="t-tile lg accent">
-              <I.megaphone size={22} />
-            </span>
-            تبليغ سريع
-          </Link>
-          )}
-          <Link to="/m/posts" className="press" onClick={() => haptic('tap')}>
-            <span className="t-tile lg ok">
-              <I.megaphone size={22} />
-            </span>
-            الإعلانات
-          </Link>
           <Link to="/m/team" className="press" onClick={() => haptic('tap')}>
             <span className="t-tile lg">
               <I.user size={22} />
             </span>
             الفريق والعطل
           </Link>
-          {perms.viewAttendance && (
-          <Link to="/m/reports" className="press" onClick={() => haptic('tap')}>
-            <span className="t-tile lg accent">
-              <I.chart size={22} />
+          <Link to="/m/alerts" className="press" onClick={() => haptic('tap')}>
+            <span className="t-tile lg">
+              <I.bell size={22} />
             </span>
-            تقارير الحضور والأوفر تايم
+            التبليغات
+            {unread > 0 && <span className="badge num">{unread > 9 ? '9+' : unread}</span>}
           </Link>
-          )}
-          {perms.viewAttendance && (
-            <Link to="/m/hours" className="press" onClick={() => haptic('tap')}>
-              <span className="t-tile lg">
-                <I.clock size={22} />
+          <Link to="/m/posts" className="press" onClick={() => haptic('tap')}>
+            <span className="t-tile lg ok">
+              <I.megaphone size={22} />
+            </span>
+            الإعلانات
+          </Link>
+          {perms.sendPosts && (
+            <Link to="/m/notify" className="press" onClick={() => haptic('tap')}>
+              <span className="t-tile lg accent">
+                <I.megaphone size={22} />
               </span>
-              الدوام بالساعات
+              تبليغ سريع
             </Link>
           )}
           {perms.viewAttendance && !sup && (
-          <Link to="/m/networks" className="press" onClick={() => haptic('tap')}>
-            <span className="t-tile lg mute">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-                <path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0" />
-                <circle cx="12" cy="19.3" r="1.2" fill="currentColor" />
-              </svg>
-            </span>
-            شبكات المحل
-          </Link>
-          )}
-          {perms.viewSales && !sup && (
-            <Link to="/m/performance" className="press" onClick={() => haptic('tap')}>
-              <span className="t-tile lg accent">
-                <I.target size={22} />
+            <Link to="/m/networks" className="press" onClick={() => haptic('tap')}>
+              <span className="t-tile lg mute">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+                  <path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0" />
+                  <circle cx="12" cy="19.3" r="1.2" fill="currentColor" />
+                </svg>
               </span>
-              التحليلات
+              شبكات المحل
             </Link>
           )}
         </div>
@@ -1305,7 +1284,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
         </div>
       </section>
       <p className="t-foot">
-        ديما · الفريق — واجهة المدير
+        ديما · الفريق — الإصدار <span className="num">{APP_VERSION}</span>
       </p>
 
       <Sheet open={askOut} onClose={() => setAskOut(false)} title="تسجيل الخروج؟" subtitle="ستحتاج اسم المستخدم وكلمة المرور للدخول مرة أخرى.">

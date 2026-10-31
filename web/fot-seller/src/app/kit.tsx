@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { cleanName } from '../names';
 import { createPortal } from 'react-dom';
 import { haptic, pushBack } from './native';
 
@@ -221,7 +222,7 @@ export function Mark({ size = 30 }: { size?: number }) {
 
 /* ═════════════ أدوات ═════════════ */
 export function initials(name?: string | null) {
-  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  const parts = cleanName(name).trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '؟';
   // «الكاشير» ← «ك» لا «ا»
   const lead = (w: string) => (w.startsWith('ال') && w.length > 3 ? w[2] : w[0]);

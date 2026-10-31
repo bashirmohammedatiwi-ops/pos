@@ -53,9 +53,10 @@ export function haptic(kind: HapticKind = 'tap') {
 export function getThemePref(): ThemePref {
   try {
     const v = localStorage.getItem(THEME_KEY);
-    return v === 'light' || v === 'dark' ? v : 'system';
+    // الوضع الداكن هو الافتراضي لمن لم يختر مظهراً
+    return v === 'light' || v === 'system' ? v : 'dark';
   } catch {
-    return 'system';
+    return 'dark';
   }
 }
 

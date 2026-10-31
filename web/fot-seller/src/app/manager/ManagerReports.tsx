@@ -83,14 +83,14 @@ export function MReports() {
 
 function MonthView() {
   const [month, setMonth] = useState(() => monthStart(iraqDate()));
-  const [sort, setSort] = useState<'ot' | 'absent' | 'name'>('ot');
+  const [sort, setSort] = useState<'ot' | 'absent' | 'name'>('absent');
   const { data, err, reload } = useLoad(() => managerAttendApi.summary(month, monthEnd(month)), ['attend'], [month]);
   const isCurrent = month === monthStart(iraqDate());
 
   const rows = useMemo(() => {
     const list = [...(data?.rows ?? [])];
     if (sort === 'ot') list.sort((a, b) => b.overtimeMinutes - a.overtimeMinutes || a.name.localeCompare(b.name, 'ar'));
-    else if (sort === 'absent') list.sort((a, b) => b.absentDays - a.absentDays || b.lateMinutes - a.lateMinutes);
+    else if (sort === 'absent') list.sort((a, b) => Number(a.joined === false) - Number(b.joined === false) || b.absentDays - a.absentDays || b.lateMinutes - a.lateMinutes);
     else list.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
     return list;
   }, [data, sort]);
@@ -191,7 +191,7 @@ function SummaryItem({ r }: { r: SummaryRow }) {
           {r.name} <small className="muted">{r.sectionName ?? KIND_LABEL[r.kind] ?? ''}</small>
         </div>
         <div className="sub">
-          حضر {r.presentDays} من {r.scheduledDays}
+          {r.joined === false ? 'لم يدخل التطبيق بعد' : r.hourly ? `حضر ${r.presentDays} يوم بالساعات` : `حضر ${r.presentDays} من ${r.scheduledDays}`}
           {r.absentDays ? <span style={{ color: 'var(--bad)' }}> · غياب {r.absentDays}</span> : null}
           {r.lateDays ? ` · تأخير ${dur(r.lateMinutes)}` : ''}
           {r.leaveDays ? ` · إجازة ${r.leaveDays}` : ''}
