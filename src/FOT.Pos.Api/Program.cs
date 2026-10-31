@@ -81,6 +81,7 @@ if (!exportOpenApi)
 {
     builder.Services.AddHostedService(sp => sp.GetRequiredService<SellerHubSyncService>());
     builder.Services.AddHostedService<LiveSalesSyncService>();
+    builder.Services.AddHostedService<InvoiceSyncService>();
     builder.Services.AddHostedService<EdariSyncBackgroundService>();
     builder.Services.AddHostedService<EdariDataFolderWatcher>();
     builder.Services.AddHostedService<LanDiscoveryHostedService>();

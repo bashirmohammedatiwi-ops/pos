@@ -18,6 +18,7 @@ const PERMS: { key: keyof TeamManagerPermsDto['perms']; label: string; hint: str
   { key: 'sendPosts', label: 'الإعلانات والتبليغات', hint: 'نشر إعلانات وإرسال تبليغات للفريق' },
   { key: 'manageChat', label: 'إدارة المحادثات', hint: 'إنشاء المجموعات وحذف الرسائل المسيئة' },
   { key: 'viewSales', label: 'مبيعات المحل', hint: 'المبيعات المباشرة والأيام السابقة والكاشيرية والبائعين والمنتجات' },
+  { key: 'viewInvoices', label: 'الفواتير', hint: 'كل فواتير المحل بتفاصيلها وتصديرها PDF' },
   { key: 'viewPay', label: 'المبالغ والرواتب', hint: 'مستحقات الساعات والأوفر تايم في التقارير' },
 ];
 
@@ -95,6 +96,34 @@ function ManagerCard({ m, sections, onSaved }: { m: TeamManagerPermsDto; section
   );
 }
 
+/** هل وصلت فواتير المحل لخادم الفريق؟ تظهر في تطبيق المدير لمن يملك صلاحية «الفواتير» */
+function InvoiceSyncCard() {
+  const q = useQuery({ queryKey: ['team-invoice-status'], queryFn: api.teamInvoiceStatus, retry: 0, refetchInterval: 60_000 });
+  if (q.isError || !q.data) return null;
+  const s = q.data;
+  const stamp = (v?: string | null) => (v ? new Date(/(?:[zZ]|[+-]dd:dd)$/.test(v) ? v : `${v}+03:00`).toLocaleString('ar-IQ-u-nu-latn', { timeZone: 'Asia/Baghdad', day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
+  const waiting = !s.count && s.checkedAt == null;
+  const moving = (s.pendingDays ?? 0) > 0;
+  return (
+    <div className="card mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 p-3 text-[12.5px] text-slate-600">
+      <span className="flex items-center gap-2 font-bold text-slate-800">
+        فواتير التطبيق
+        <Badge tone={waiting ? 'warn' : moving ? 'info' : 'ok'}>{waiting ? 'بانتظار تحديث السيرفر' : moving ? `ينقل · بقي ${s.pendingDays} يوم` : 'مكتملة'}</Badge>
+      </span>
+      {!waiting && (
+        <>
+          <span>
+            على الخادم: <b className="tabular-nums">{s.count.toLocaleString('en-US')}</b>
+            {s.shopCount != null && <> من <b className="tabular-nums">{s.shopCount.toLocaleString('en-US')}</b></>}
+          </span>
+          <span>أحدث فاتورة: <b className="tabular-nums">{stamp(s.lastAt)}</b></span>
+          <span>آخر فحص: <b className="tabular-nums">{stamp(s.checkedAt)}</b></span>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function TeamManagersPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['team-managers'], queryFn: api.teamManagers, retry: 0 });
@@ -102,6 +131,7 @@ export function TeamManagersPage() {
   if (q.isLoading || !q.data) return <TableSkeleton rows={6} />;
   return (
     <div className="min-h-0 flex-1 overflow-auto">
+      <InvoiceSyncCard />
       <p className="mb-3 text-[12.5px] leading-6 text-slate-500">
         المدراء هم حسابات «حسابات المدراء والويب». كل صلاحية تُفرض على الخادم، وما ليس من صلاحية المدير يختفي من تطبيقه فوراً. تحديد الأقسام يجعله يرى ويتصرف بموظفي أقسامه فقط.
       </p>

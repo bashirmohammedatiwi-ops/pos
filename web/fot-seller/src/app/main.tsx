@@ -8,6 +8,7 @@ import './work.css';
 import './live.css';
 import './leave.css';
 import './sales.css';
+import './invoices.css';
 
 /* نقطة دخول تطبيق الهاتف — منفصلة عن الويب (تصميم وترتيب مختلفان تماماً). */
 

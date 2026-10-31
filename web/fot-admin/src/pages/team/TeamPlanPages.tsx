@@ -268,6 +268,7 @@ const PERMS: { key: TeamPermKey; label: string; hint: string }[] = [
   { key: 'manageChat', label: 'إنشاء المجموعات', hint: 'إنشاء مجموعات المحادثة وإدارتها' },
   { key: 'viewPay', label: 'المبالغ والرواتب', hint: 'مستحقات ساعات فريقه وأوفر تايمهم' },
   { key: 'viewSales', label: 'مبيعات المحل', hint: 'مبيعات المحل كله مباشرة والأيام السابقة' },
+  { key: 'viewInvoices', label: 'الفواتير', hint: 'كل فواتير المحل بتفاصيلها وتصديرها PDF — تشمل المبالغ' },
 ];
 
 function SupervisorCard({ sv, staff, onSaved }: { sv: TeamSupervisorDto; staff: TeamDirStaffDto[]; onSaved: () => void }) {

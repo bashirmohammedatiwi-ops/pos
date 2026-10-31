@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CountUp, Delta, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, Switch, fmt, toast } from '../kit';
 import { haptic } from '../native';
-import { onLive, salesApi, type SalesAlerts, type SaleHour, type SaleNamed, type SalePack, type SaleReceipt, type SalesDay, type SalesRange, type SaleTerminal } from '../work';
+import { onLive, salesApi, usePerms, type SalesAlerts, type SaleHour, type SaleNamed, type SalePack, type SaleReceipt, type SalesDay, type SalesRange, type SaleTerminal } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * مبيعات المحل للمدير:
@@ -857,10 +857,12 @@ function Terminals({ rows, sales, at }: { rows: SaleTerminal[]; sales: SaleNamed
 /* ═════════════ الفواتير الحية ═════════════ */
 function ReceiptFeed({ rows, fresh }: { rows: SaleReceipt[]; fresh?: Set<number> }) {
   const [n, setN] = useState(12);
+  const canOpen = !!usePerms().viewInvoices;
+  const nav = useNavigate();
   return (
     <div className="t-list flat s-feed">
       {rows.slice(0, n).map(r => (
-        <div key={r.id} className={`t-row ${fresh?.has(r.id) ? 'fresh' : ''}`}>
+        <div key={r.id} className={`t-row ${canOpen ? 'press' : ''} ${fresh?.has(r.id) ? 'fresh' : ''}`} onClick={canOpen ? () => nav(`/m/invoices/${r.id}`) : undefined}>
           <span className={`t-tile ${r.kind === 1 ? 'bad' : r.kind === 2 ? 'accent' : 'ok'}`}>
             {r.kind === 1 ? '↩' : r.kind === 2 ? '🎁' : <I.receipt size={17} />}
           </span>

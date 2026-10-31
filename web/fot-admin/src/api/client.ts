@@ -639,6 +639,8 @@ export const api = {
   teamPushStatus: () => request<TeamPushStatusDto>('/api/team/hub/push/status'),
   teamPushTest: (kind: 'staff' | 'manager', id: number) =>
     request<TeamPushStatusDto>('/api/team/hub/push/test', { method: 'POST', body: JSON.stringify({ kind, id }) }),
+  teamInvoiceStatus: () =>
+    request<{ count: number; firstDay: string | null; lastAt: string | null; shopCount: number | null; pendingDays: number | null; checkedAt: string | null }>('/api/team/hub/invoices/status'),
   teamManagers: () => request<{ managers: TeamManagerPermsDto[]; sections: { id: number; name: string; staffCount: number }[] }>('/api/team/hub/managers'),
   saveTeamManagerPerms: (id: number, body: { perms: Record<string, boolean>; sections: number[] }) =>
     request<{ id: number }>(`/api/team/hub/managers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),

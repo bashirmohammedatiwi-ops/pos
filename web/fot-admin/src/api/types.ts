@@ -312,7 +312,7 @@ export interface TeamManagerPermsDto {
   sections: number[];
   sectionNames: string[];
 }
-export type TeamPermKey = 'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales' | 'viewPay';
+export type TeamPermKey = 'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales' | 'viewInvoices' | 'viewPay';
 export interface TeamSupervisorDto {
   staffId: number;
   name: string;

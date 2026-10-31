@@ -169,11 +169,12 @@ export interface ManagerPerms {
   sendPosts: boolean;
   manageChat: boolean;
   viewSales: boolean;
+  viewInvoices?: boolean;
   viewPay?: boolean;
 }
-export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewPay: true };
+export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewInvoices: true, viewPay: true };
 /** المسؤول: كل شيء مطفأ حتى يصل رد الخادم */
-export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewPay: false };
+export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewInvoices: false, viewPay: false };
 const PermsCtx = createContext<ManagerPerms>(ALL_PERMS);
 export const PermsProvider = PermsCtx.Provider;
 export const usePerms = () => useContext(PermsCtx);
@@ -717,6 +718,63 @@ export type SalesRange = {
   bounds: { min: string | null; max: string };
 };
 export type SalesAlerts = { bigSale: number; bigReturn: number; terminalOffline: boolean; slowPace: boolean; dailyClose: boolean; closeAt: string };
+/* ═════════════ الفواتير الكاملة (المدير — صلاحية viewInvoices) ═════════════ */
+export type InvoiceRow = {
+  id: number;
+  number: number;
+  at: string;
+  day: string;
+  kind: number;
+  total: number;
+  lines: number;
+  pieces: number;
+  card: boolean;
+  cashier?: string | null;
+  pos?: string | null;
+  seller?: string | null;
+  preview?: string | null;
+  edited: boolean;
+  returnOf?: number | null;
+};
+export type InvoiceBrief = { id: number; number: number; at: string; kind: number; total: number };
+export type InvoiceLine = { name: string; barcode?: string | null; qty: number; price: number; original: number; discount: number; seller?: string | null; group?: string | null };
+export type InvoiceDetail = Omit<InvoiceRow, 'lines' | 'card'> & {
+  systemNumber: number;
+  itemsDiscount: number;
+  offersDiscount: number;
+  userDiscount: number;
+  payment: number;
+  cashBack: number;
+  section?: string | null;
+  remarks?: string | null;
+  voucher?: string | null;
+  discountPerson?: string | null;
+  card: { type?: string | null; acquirer?: string | null; last4?: string | null; ref?: string | null; terminal?: string | null } | null;
+  lines: InvoiceLine[];
+  returnOfInvoice: InvoiceBrief | null;
+  returns: InvoiceBrief[];
+  newer: number | null;
+  older: number | null;
+};
+export type InvoiceSync = { count: number; firstDay: string | null; lastAt: string | null; shopCount: number | null; pendingDays: number | null; checkedAt: string | null };
+export type InvoiceList = {
+  rows: InvoiceRow[];
+  summary: { count: number; net: number; sales: number; salesTotal: number; returns: number; returnsTotal: number; gifts: number; giftsTotal: number; pieces: number; cardTotal: number };
+  days: Record<string, { n: number; net: number }>;
+  hasMore: boolean;
+  sync: InvoiceSync;
+};
+export type InvoiceFacets = { cashiers: string[]; pos: string[]; sellers: string[] };
+export const invoicesApi = {
+  list: (params: URLSearchParams, offset: number) => {
+    const q = new URLSearchParams(params);
+    if (offset) q.set('offset', String(offset));
+    return call<InvoiceList>('manager', `/api/team/m/invoices?${q}`);
+  },
+  facets: (params: URLSearchParams) => call<InvoiceFacets>('manager', `/api/team/m/invoices/facets?${params}`),
+  get: (id: number) => call<InvoiceDetail>('manager', `/api/team/m/invoices/${id}`),
+};
+
 export const salesApi = {
   alerts: () => call<SalesAlerts>('manager', '/api/team/m/sales/alerts'),
   saveAlerts: (b: Partial<SalesAlerts>) => call<SalesAlerts>('manager', '/api/team/m/sales/alerts', { method: 'PUT', body: b }),
@@ -746,7 +804,7 @@ export const performanceApi = {
 
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
 const LIVE_EVENT = 'fot-team-live';
-export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales';
+export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales' | 'invoices';
 export type LiveMsg = {
   event: LiveEvent;
   data: {

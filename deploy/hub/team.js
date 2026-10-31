@@ -219,6 +219,9 @@ function createTeam(ctx) {
   // مبيعات المحل المباشرة والأيام السابقة للمدراء
   const sales = require('./team-sales').createSales({ db, ctx, now, audit, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit, notify: work.notify });
 
+  // الفواتير الكاملة بتفاصيلها
+  const invoices = require('./team-invoices').createInvoices({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
+
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
     if (sub === 'leave' || /^leave\//.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return 'approveLeave';
@@ -228,6 +231,7 @@ function createTeam(ctx) {
     if (sub === 'chat/groups' || /^chat\/groups\//.test(sub)) return 'manageChat';
     if (/^product-images\//.test(sub) && method !== 'GET') return 'admin';
     if (/^sales(\/|$)/.test(sub)) return 'viewSales';
+    if (/^invoices(\/|$)/.test(sub)) return 'viewInvoices';
     return null;
   }
 
@@ -239,7 +243,7 @@ function createTeam(ctx) {
     if (/^staff\/\d+\/shift$/.test(sub)) return method === 'PUT' || method === 'GET';
     if (/^staff\/\d+\/schedule$/.test(sub)) return method === 'GET';
     if (sub === 'posts' || /^posts\/\d+(\/readers)?$/.test(sub)) return true;
-    return /^sales(\/|$)/.test(sub);
+    return /^(sales|invoices)(\/|$)/.test(sub);
   }
   /** المسؤول: موظف برمز حسابه العادي، صلاحياته ونطاقه من لوحة التحكم */
   async function handleSupervisor(req, res, url, sub, s) {
@@ -270,6 +274,7 @@ function createTeam(ctx) {
     if (await attend.handleManage(req, res, url, sub, actor, false, allow, perms.viewPay)) return true;
     if (await extra.handleManage(req, res, url, sub, actor, false, allow, perms.viewPay)) return true;
     if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actor)) return true;
+    if (await invoices.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
     ctx.send(res, 404, { error: 'not found' });
     return true;
   }
@@ -286,6 +291,7 @@ function createTeam(ctx) {
     const p = url.pathname;
 
     // مبيعات المحل من سيرفر المحل (مفتاح المزامنة)
+    if (p.startsWith('/api/sync/sales/invoices') && (await invoices.handleSync(req, res, url))) return true;
     if (p.startsWith('/api/sync/sales') && (await sales.handleSync(req, res, url))) return true;
 
     // فحص التحديث وتنزيل التطبيق (عام)
@@ -405,6 +411,7 @@ function createTeam(ctx) {
       if (await attend.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
       if (await extra.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
       if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
+      if (await invoices.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }
@@ -583,6 +590,7 @@ function createTeam(ctx) {
       if (await work.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       if (await attend.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
       if (await extra.handleManage(req, res, url, p.slice('/api/admin/team/'.length), actor, true)) return true;
+      if (await invoices.handleManage(req, res, url, p.slice('/api/admin/team/'.length), (st, b) => ctx.sendOpen(res, st, b))) return true;
       // عنوان المحل العام كما يراه الخادم (الطلب يصل من سيرفر المحل مباشرة)
       if (req.method === 'GET' && p === '/api/admin/team/whoami') {
         ctx.sendOpen(res, 200, { ip: require('./team-attend').clientIp(req), shopIp: attend.shopIp() });

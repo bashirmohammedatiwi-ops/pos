@@ -207,6 +207,44 @@ async function wifi(): Promise<{ plugin: WifiPlugin }> {
   return { plugin: wifiPlugin };
 }
 
+type PdfPlugin = {
+  fromHtml(o: { html: string; fileName: string }): Promise<{ uri: string }>;
+  printDialog(o: { html: string; fileName: string }): Promise<void>;
+};
+/**
+ * يحوّل صفحة HTML إلى PDF ويفتح المشاركة (واتساب، حفظ في الملفات…). window.print لا يعمل داخل WebView.
+ * إن رفض جهاز الكتابة المباشرة تفتح نافذة الطباعة وفيها «حفظ PDF». في المتصفح: نافذة الطباعة أيضاً.
+ */
+export async function exportHtmlPdf(fileBase: string, html: string) {
+  if (!isNative()) {
+    const frame = document.createElement('iframe');
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0;inset-inline-start:-9999px';
+    frame.srcdoc = html;
+    frame.onload = () => {
+      frame.contentWindow?.print();
+      setTimeout(() => frame.remove(), 60_000);
+    };
+    document.body.appendChild(frame);
+    return;
+  }
+  const { registerPlugin } = await import('@capacitor/core');
+  const pdf = registerPlugin<PdfPlugin>('PdfExport');
+  let uri: string;
+  try {
+    ({ uri } = await pdf.fromHtml({ html, fileName: fileBase }));
+  } catch {
+    await pdf.printDialog({ html, fileName: fileBase });
+    return;
+  }
+  const { Share } = await import('@capacitor/share');
+  try {
+    await Share.share({ title: `${fileBase}.pdf`, url: uri, dialogTitle: 'مشاركة الفاتورة' });
+  } catch (e) {
+    // إغلاق نافذة المشاركة دون اختيار ليس خطأ
+    if (!/cancel/i.test(e instanceof Error ? e.message : String(e))) throw e;
+  }
+}
+
 /** يقرأ شبكة الواي فاي الحالية. في المتصفح (تطوير): fot_dev_bssid من التخزين المحلي. */
 export async function readWifi(): Promise<WifiState> {
   if (!isNative()) {

@@ -10,6 +10,7 @@ import { AttendSummary, MAttend, MNetworks } from './ManagerAttend';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
 import { MSales, SalesHomeCard } from './ManagerSales';
+import { MInvoice, MInvoices } from './ManagerInvoices';
 import {
   LEAVE_LABEL,
   POST_KIND,
@@ -143,7 +144,7 @@ export function ManagerApp() {
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
-  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/hours', ...(approvalsInMore ? ['/m/approvals'] : [])];
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/invoices', '/m/hours', ...(approvalsInMore ? ['/m/approvals'] : [])];
 
   return (
     <PermsProvider value={perms}>
@@ -151,6 +152,8 @@ export function ManagerApp() {
       <Routes>
         <Route index element={<MHome unread={unread} pending={pending} />} />
         <Route path="sales" element={perms.viewSales ? <MSales /> : <Navigate to="/m" replace />} />
+        <Route path="invoices" element={perms.viewInvoices ? <MInvoices /> : <Navigate to="/m" replace />} />
+        <Route path="invoices/:id" element={perms.viewInvoices ? <MInvoice /> : <Navigate to="/m" replace />} />
         <Route path="performance" element={perms.viewSales && !sup ? <MPerformance /> : <Navigate to="/m" replace />} />
         <Route path="attend" element={<MAttend />} />
         <Route path="approvals" element={<MApprovals />} />
@@ -1138,12 +1141,20 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
         </div>
       </section>
 
-      {perms.viewSales || perms.viewAttendance ? (
+      {perms.viewSales || perms.viewAttendance || perms.viewInvoices ? (
         <section className="t-section">
           <div className="t-section-head">
             <h2>المتابعة</h2>
           </div>
           <div className="t-menu">
+            {perms.viewInvoices && (
+              <Link to="/m/invoices" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg accent">
+                  <I.receipt size={22} />
+                </span>
+                الفواتير
+              </Link>
+            )}
             {perms.viewSales && !sup && (
               <Link to="/m/performance" className="press" onClick={() => haptic('tap')}>
                 <span className="t-tile lg accent">

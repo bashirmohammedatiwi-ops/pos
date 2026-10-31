@@ -22,6 +22,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // إضافة شبكة الواي فاي (الحضور من شبكة المحل) — تُسجَّل قبل تشغيل الجسر
         registerPlugin(WifiInfoPlugin.class);
+        registerPlugin(PdfExportPlugin.class);
         super.onCreate(savedInstanceState);
         createNotificationChannel();
         installMediaProxy();
