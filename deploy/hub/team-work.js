@@ -1154,7 +1154,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
   const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
 
-  return { planOf, rateOn, supervisorOf, supervisorScope, notifySupervisors, deleteMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
+  return { isOnline: key => (streams.get(key)?.size ?? 0) > 0, planOf, rateOn, supervisorOf, supervisorScope, notifySupervisors, deleteMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
 }
 
 module.exports = { createWork };

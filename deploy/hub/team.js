@@ -212,7 +212,7 @@ function createTeam(ctx) {
     rateOn: work.rateOn,
     notifySupervisors: work.notifySupervisors,
   });
-  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia });
+  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia, isOnline: work.isOnline });
   // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
   const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf });
   ctx.pushTo = (kind, ids, n) => void extra.pushTo(kind, ids, n);
@@ -225,7 +225,7 @@ function createTeam(ctx) {
     if (/^attend\/(board|log|summary|hours)$/.test(sub) || sub === 'roster' || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
     if (/^attend\//.test(sub) || /^networks/.test(sub) || /^staff\/\d+\/shift$/.test(sub)) return 'editAttendance';
     if ((sub === 'posts' && method !== 'GET') || /^posts\/\d+$/.test(sub) || sub === 'notify') return 'sendPosts';
-    if (sub === 'chat/groups' || /^chat\/groups\//.test(sub) || (method === 'DELETE' && /^chat\/messages\//.test(sub))) return 'manageChat';
+    if (sub === 'chat/groups' || /^chat\/groups\//.test(sub)) return 'manageChat';
     if (/^product-images\//.test(sub) && method !== 'GET') return 'admin';
     if (/^sales(\/|$)/.test(sub)) return 'viewSales';
     return null;
@@ -398,7 +398,7 @@ function createTeam(ctx) {
         return true;
       }
       if (sub === 'chat' || sub.startsWith('chat/')) {
-        if (await chat.handle(req, res, url, sub.slice(4), { key: `manager:${mid}`, kind: 'manager', id: mid })) return true;
+        if (await chat.handle(req, res, url, sub.slice(4), { key: `manager:${mid}`, kind: 'manager', id: mid, canModerate: perms.manageChat })) return true;
       }
       const actorName = `manager:${m.displayName || m.username}`;
       if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;

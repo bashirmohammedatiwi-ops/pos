@@ -477,6 +477,10 @@ export interface ChatPerson {
   /** مشرف المجموعة */
   admin?: boolean;
 }
+export interface ChatPresence {
+  online?: boolean;
+  lastSeen?: string | null;
+}
 export interface ChatMsg {
   id: number;
   convId: number;
@@ -486,6 +490,10 @@ export interface ChatMsg {
   audio?: string | null;
   audioMs?: number | null;
   kind?: 'text' | 'system';
+  edited?: boolean;
+  forwarded?: boolean;
+  pinned?: boolean;
+  reactions?: { key: string; emoji: string; name: string }[];
   replyTo?: { id: number; senderName: string; body: string } | null;
   createdAt: string;
   deleted: boolean;
@@ -503,6 +511,7 @@ export interface ChatConv {
   last?: { body: string; senderName: string; mine: boolean; at: string; system?: boolean } | null;
   unread: number;
   muted: boolean;
+  pinned?: boolean;
   isAdmin: boolean;
 }
 
@@ -516,8 +525,21 @@ export function chatApi(role: Role) {
     direct: (key: string) => call<ChatConv>(role, `${base}/direct`, { method: 'POST', body: { key } }),
     createGroup: (title: string, members: string[]) => call<ChatConv>(role, `${base}/groups`, { method: 'POST', body: { title, members } }),
     updateGroup: (id: number, b: { title?: string; add?: string[]; remove?: string[]; delete?: boolean }) => call<ChatConv>(role, `${base}/groups/${id}`, { method: 'PUT', body: b }),
-    messages: (id: number, before?: number) =>
-      call<{ conversation: ChatConv; messages: ChatMsg[]; members: (ChatPerson & { lastRead: number })[]; hasMore: boolean }>(role, `${base}/${id}/messages${before ? `?before=${before}` : ''}`),
+    messages: (id: number, before?: number, from?: number) =>
+      call<{ conversation: ChatConv; messages: ChatMsg[]; members: (ChatPerson & { lastRead: number })[]; hasMore: boolean; pinned?: ChatMsg[]; lastRead?: number; presence?: ChatPresence | null }>(
+        role,
+        `${base}/${id}/messages${from ? `?from=${from}` : before ? `?before=${before}` : ''}`,
+      ),
+    edit: (mid: number, body: string) => call<ChatMsg>(role, `${base}/messages/${mid}`, { method: 'PUT', body: { body } }),
+    react: (mid: number, emoji: string | null) => call<{ id: number; reactions: NonNullable<ChatMsg['reactions']> }>(role, `${base}/messages/${mid}/react`, { method: 'POST', body: { emoji } }),
+    pin: (mid: number, pinned: boolean) => call<{ pinned: ChatMsg[] }>(role, `${base}/messages/${mid}/pin`, { method: 'POST', body: { pinned } }),
+    hide: (mid: number) => call<{ ok: true }>(role, `${base}/messages/${mid}/hide`, { method: 'POST', body: {} }),
+    info: (mid: number) => call<{ createdAt: string; editedAt?: string | null; read: { key: string; name: string }[]; unread: { key: string; name: string }[] }>(role, `${base}/messages/${mid}/info`),
+    forward: (messageIds: number[], convIds: number[]) => call<{ ok: true; sent: number }>(role, `${base}/forward`, { method: 'POST', body: { messageIds, convIds } }),
+    search: (id: number, q: string) => call<ChatMsg[]>(role, `${base}/${id}/search?q=${encodeURIComponent(q)}`),
+    clear: (id: number) => call<{ ok: true }>(role, `${base}/${id}/clear`, { method: 'POST', body: {} }),
+    presence: (id: number) => call<ChatPresence>(role, `${base}/${id}/presence`),
+    pinConv: (id: number, pinned: boolean) => call<ChatConv>(role, `${base}/${id}/pin-conv`, { method: 'POST', body: { pinned } }),
     send: (id: number, b: { body?: string; image?: string | null; audio?: string | null; audioMs?: number | null; replyTo?: number | null }) => call<ChatMsg>(role, `${base}/${id}/messages`, { method: 'POST', body: b }),
     leave: (id: number) => call<{ ok: true }>(role, `${base}/${id}/leave`, { method: 'POST', body: {} }),
     media: (id: number) => call<string[]>(role, `${base}/${id}/media`),
@@ -701,10 +723,16 @@ export const salesApi = {
 export type PerfWeek = { weekStart: string; weekEnd: string; isCurrent: boolean; salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number; sellerCount: number; cashierCount: number };
 export type PerfSeller = { salesmanId: number; name: string; salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number; goalCount: number; goalsHit: number; goalPercent: number; balanceDue: number };
 export type PerfGoal = { ruleId: number; ruleName: string; targetType: string; salesmanId: number; salesmanName: string; sold: number; weeklyTarget: number; percent: number };
-export type PerfLine = { id: number; productName: string; quantity: number; salesAmount: number; commissionAmount: number; occurredAt: string };
+export type PerfLine = { id: number; salesmanId?: number; salesmanName?: string | null; productName: string; groupName?: string | null; quantity: number; salesAmount: number; commissionAmount: number; receiptNumber?: number | null; occurredAt: string; cashierName?: string | null; mallName?: string | null };
+export type PerfCashier = { cashierId: number; name: string; salesAmount: number; commissionAmount: number; receiptCount: number; pieceCount: number };
+export type PerfProduct = { name: string; quantity: number; salesAmount: number; commissionAmount: number; count: number };
+export type PerfDay = { day: string; salesAmount: number; receiptCount: number; pieceCount: number };
+export type PerfDash = { week: PerfWeek; sellers: PerfSeller[]; cashiers: PerfCashier[]; goals: PerfGoal[]; products: PerfProduct[]; lines: PerfLine[]; days?: PerfDay[]; lastSyncAt?: string | null };
 export type PerfSellerDetail = { seller: PerfSeller; goals: PerfGoal[]; lines: PerfLine[] };
 export const performanceApi = {
   weeks: () => call<PerfWeek[]>('manager', '/api/manager/weeks'),
+  dashboard: (week: string) => call<PerfDash>('manager', `/api/manager/dashboard?weekStart=${encodeURIComponent(week)}`),
+  products: (week: string) => call<PerfProduct[]>('manager', `/api/manager/products?weekStart=${encodeURIComponent(week)}`),
   sellers: (week: string) => call<PerfSeller[]>('manager', `/api/manager/sellers?weekStart=${encodeURIComponent(week)}`),
   goals: (week: string) => call<PerfGoal[]>('manager', `/api/manager/goals?weekStart=${encodeURIComponent(week)}`),
   seller: (id: number, week: string) => call<PerfSellerDetail>('manager', `/api/manager/sellers/${id}?weekStart=${encodeURIComponent(week)}`),
@@ -725,6 +753,9 @@ export type LiveMsg = {
     // المحادثات
     convId?: number;
     message?: ChatMsg;
+    edited?: ChatMsg;
+    reacted?: { id: number; reactions: NonNullable<ChatMsg['reactions']> };
+    pins?: ChatMsg[];
     deletedId?: number;
     key?: string;
     name?: string;

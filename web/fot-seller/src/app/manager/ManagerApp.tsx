@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { MANAGER_URL } from '../../config';
 import { Avatar, Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, greet, iraqToday, toast, usePull } from '../kit';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, StatusBadge } from '../parts';
@@ -343,7 +342,7 @@ function MHome({ unread, pending }: { unread: number; pending: number }) {
                     <span className="t-tile accent">
                       <I.target size={20} />
                     </span>
-                    أداء الفريق
+                    التحليلات
                   </Link>
                 )}
               </div>
@@ -1243,16 +1242,8 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
               <span className="t-tile lg accent">
                 <I.target size={22} />
               </span>
-              أداء الفريق
+              التحليلات
             </Link>
-          )}
-          {perms.viewSales && !sup && (
-            <a href={MANAGER_URL} className="press">
-              <span className="t-tile lg ok">
-                <I.sparkle size={22} />
-              </span>
-              التحليلات الكاملة
-            </a>
           )}
         </div>
       </section>

@@ -1,6 +1,6 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-/* تطبيق فريق ديما الحياة: www = تطبيق الموظفين (تصميم الهاتف)، و www/manager = المدراء. */
+/* تطبيق فريق ديما الحياة: www = واجهة الموظفين والمدراء. */
 const config: CapacitorConfig = {
   appId: 'com.deemaalhayat.team',
   appName: 'ديما الفريق',

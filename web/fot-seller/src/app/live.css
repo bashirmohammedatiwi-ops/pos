@@ -1134,3 +1134,55 @@
 .t-confirm .t-actions {
   width: 100%;
 }
+
+/* ── المحادثات: التفاعلات، التثبيت، التحديد، الانتقال ── */
+.t-room-head .who small.online { color: var(--ok); }
+.t-selbar { gap: 6px; }
+.t-pinbar {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 14px;
+  background: var(--bg-elev); border: 0; border-bottom: 1px solid var(--line);
+  color: var(--brand); text-align: start; font: inherit; flex-shrink: 0;
+}
+.t-pinbar span {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--ink-3); font-size: 12.5px;
+}
+.t-pinbar b { display: block; color: var(--brand); font-size: 11.5px; }
+.t-msg { transition: background 0.3s; border-radius: 12px; }
+.t-msg.flash { background: var(--accent-soft); }
+.t-msg.picked { background: var(--accent-soft); }
+.t-msg-new {
+  display: block; margin: 10px auto; padding: 3px 14px; width: fit-content; border-radius: 99px;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 650;
+}
+.t-forwarded {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 3px; font-size: 11.5px; font-style: italic; opacity: 0.72;
+}
+.t-forwarded svg { width: 13px; height: 13px; }
+.t-reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: -4px; padding-inline: 8px; position: relative; z-index: 1; }
+.t-reacts button {
+  display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 99px; font-size: 13px; line-height: 1.5;
+  background: var(--bg-elev); border: 1px solid var(--line); color: var(--ink-2);
+}
+.t-reacts button.on { border-color: var(--brand); background: var(--accent-soft); }
+.t-reacts small { font-size: 11px; }
+.t-react-bar { display: flex; justify-content: space-between; gap: 4px; padding: 2px 4px 12px; }
+.t-react-bar button {
+  width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--bg-elev); font-size: 23px; line-height: 1;
+}
+.t-react-bar button.on { outline: 2px solid var(--brand); }
+.t-godown {
+  position: absolute; inset-inline-end: 14px; bottom: 84px; z-index: 5; width: 42px; height: 42px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--bg-elev); border: 1px solid var(--line); color: var(--ink-2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.t-godown span {
+  position: absolute; top: -6px; inset-inline-end: -4px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 99px;
+  background: var(--brand); color: #fff; font-size: 11px; line-height: 19px; text-align: center;
+}
+.t-pick {
+  width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--line-2);
+  display: grid; place-items: center; color: #fff;
+}
+.t-pick.on { background: var(--brand); border-color: var(--brand); }
+.t-pick svg { width: 15px; height: 15px; }

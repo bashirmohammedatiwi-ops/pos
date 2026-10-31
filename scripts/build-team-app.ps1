@@ -1,5 +1,5 @@
 # بناء تطبيق «ديما الفريق» لأندرويد (APK موقّع):
-#   ويب الموظفين -> mobile/www ، ويب المدراء -> mobile/www/manager ، ثم Capacitor + Gradle.
+#   واجهة التطبيق -> mobile/www ، ثم Capacitor + Gradle.
 # الاستخدام: powershell -File scripts/build-team-app.ps1 -Version 1.0.0 [-ApiBase http://187.124.23.65:4700] [-Push]
 param(
     [string]$Version = "1.0.0",
@@ -40,16 +40,6 @@ finally {
     Remove-Item Env:VITE_TARGET -ErrorAction SilentlyContinue
     Pop-Location
 }
-
-Write-Host "Building manager web..." -ForegroundColor Cyan
-Push-Location (Join-Path $root "web\fot-manager")
-try {
-    & npx tsc -b
-    if ($LASTEXITCODE -ne 0) { throw "fot-manager typecheck failed" }
-    & npx vite build --base ./ --outDir (Join-Path $www "manager") --emptyOutDir
-    if ($LASTEXITCODE -ne 0) { throw "fot-manager build failed" }
-}
-finally { Pop-Location }
 
 $sdk = $env:ANDROID_HOME
 if (-not $sdk) { $sdk = $env:ANDROID_SDK_ROOT }
