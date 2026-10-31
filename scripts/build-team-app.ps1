@@ -19,6 +19,8 @@ $versionCode = [int]$Matches[1] * 10000 + [int]$Matches[2] * 100 + [int]$Matches
 # الإشعارات تحتاج google-services.json من Firebase
 $googleServices = Join-Path $androidDir "app\google-services.json"
 if ($Push -and -not (Test-Path $googleServices)) { throw "Push requested but mobile\android\app\google-services.json is missing" }
+# وجود ملف Firebase يفعّل الإشعارات دائماً: لا يخرج إصدار بلا إشعارات بالخطأ
+if (Test-Path $googleServices) { $Push = $true }
 
 $env:VITE_API_BASE = $ApiBase
 $env:VITE_APP_VERSION = $Version

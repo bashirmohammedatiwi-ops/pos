@@ -102,6 +102,36 @@ export const teamApi = {
 
 const PUSH_PATH = { staff: '/api/team/push-token', manager: '/api/team/m/push-token' } as const;
 let pushValue: string | null = null;
+let pushOpen: ((link: string) => void) | undefined;
+
+/** إرسال رمز الهاتف للخادم مع إعادة المحاولة: انقطاع الشبكة لحظة التشغيل لا يترك الهاتف بلا إشعارات */
+async function sendPushToken(path: string, bearer: string, body: object) {
+  for (const wait of [0, 5_000, 30_000, 120_000]) {
+    if (wait) await new Promise(r => setTimeout(r, wait));
+    try {
+      const res = await fetch(apiUrl(path), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+        body: JSON.stringify(body),
+      });
+      if (res.ok || res.status === 401 || res.status === 403) return;
+    } catch {
+      /* نعيد المحاولة */
+    }
+  }
+}
+
+/** حالة إذن الإشعارات على هذا الهاتف */
+export async function pushPermission(): Promise<'granted' | 'denied' | 'prompt' | 'off'> {
+  if (!PUSH_ENABLED) return 'off';
+  try {
+    const { PushNotifications } = await import('@capacitor/push-notifications');
+    const p = await PushNotifications.checkPermissions();
+    return p.receive === 'granted' ? 'granted' : p.receive === 'denied' ? 'denied' : 'prompt';
+  } catch {
+    return 'off';
+  }
+}
 
 /**
  * تسجيل الهاتف لإشعارات Firebase (يُتجاهل بهدوء إن لم تُفعَّل في البناء).
@@ -111,6 +141,8 @@ export async function registerPush(role: 'staff' | 'manager', bearer: string | n
   if (!PUSH_ENABLED || !bearer) return;
   try {
     const { PushNotifications } = await import('@capacitor/push-notifications');
+    // إعادة التسجيل من شاشة الحساب تُبقي فتح الصفحة عند الضغط على الإشعار
+    if (onOpen) pushOpen = onOpen;
     const perm = await PushNotifications.requestPermissions();
     if (perm.receive !== 'granted') return;
     await PushNotifications.removeAllListeners();
@@ -120,15 +152,11 @@ export async function registerPush(role: 'staff' | 'manager', bearer: string | n
     await PushNotifications.addListener('registration', async t => {
       pushValue = t.value;
       const dev = await deviceInfo();
-      await fetch(apiUrl(PUSH_PATH[role]), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
-        body: JSON.stringify({ token: t.value, platform: platform(), deviceId: dev.deviceId }),
-      }).catch(() => undefined);
+      await sendPushToken(PUSH_PATH[role], bearer, { token: t.value, platform: platform(), deviceId: dev.deviceId });
     });
     await PushNotifications.addListener('pushNotificationActionPerformed', a => {
       const link = String((a.notification.data as { link?: string } | undefined)?.link || '');
-      if (link && onOpen) onOpen(link);
+      if (link) pushOpen?.(link);
     });
     await PushNotifications.register();
   } catch {

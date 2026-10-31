@@ -129,7 +129,7 @@ function StaffLogin() {
           setLastId(String(res.staff.salesmanId));
         }
         if (res.access) publishAccess(res.access as never);
-        void registerPush('staff', getTeamToken());
+        void registerPush('staff', getTeamToken(), link => nav(link));
       } else {
         const res = await api.login(Number(code), value);
         setToken(res.token);

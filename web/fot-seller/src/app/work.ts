@@ -410,6 +410,8 @@ export type MyMonthData = {
   days: { date: string; off: boolean; reason?: string | null; checkIn?: string | null; checkOut?: string | null; lateMinutes: number; workedMinutes: number; breakMinutes: number; overtimeMinutes: number; autoClosed: boolean }[];
   leaves: { type: string; n: number }[];
 };
+/** تجربة إشعارات الهاتف: count = الهواتف المسجلة، ok = ما قبله Firebase */
+export const pushTest = (role: Role) => call<{ configured: boolean; count: number; ok: number }>(role, role === 'manager' ? '/api/team/m/push-test' : '/api/team/push-test', { method: 'POST', body: {} });
 export const attendApi = {
   state: () => (attendInflight ??= call<AttendState>('staff', '/api/team/attend').finally(() => (attendInflight = null))),
   month: (month: string) => call<MyMonthData>('staff', `/api/team/attend/month?month=${month}`),

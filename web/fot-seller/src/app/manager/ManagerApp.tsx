@@ -40,6 +40,7 @@ import {
 } from '../work';
 import { KIND_LABEL, getTeamMe, registerPush, setTeamMe, unregisterPush } from '../../team';
 import { MHours } from './ManagerHours';
+import { PushHealth } from '../PushHealth';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق المدير داخل «ديما · الفريق» — بنفس الهوية:
@@ -1255,6 +1256,8 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
           )}
         </div>
       </section>
+
+      {!sup && <PushHealth role="manager" />}
 
       <section className="t-section">
         <div className="t-section-head">

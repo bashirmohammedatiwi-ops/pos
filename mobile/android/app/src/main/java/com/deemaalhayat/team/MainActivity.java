@@ -1,6 +1,10 @@
 package com.deemaalhayat.team;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.net.http.HttpResponseCache;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebView;
 
@@ -19,8 +23,19 @@ public class MainActivity extends BridgeActivity {
         // إضافة شبكة الواي فاي (الحضور من شبكة المحل) — تُسجَّل قبل تشغيل الجسر
         registerPlugin(WifiInfoPlugin.class);
         super.onCreate(savedInstanceState);
+        createNotificationChannel();
         installMediaProxy();
         applyTextZoom();
+    }
+
+    /** قناة الإشعارات موجودة من أول تشغيل، فلا يصل إشعار بأولوية منخفضة قبل تسجيل الهاتف */
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationChannel channel = new NotificationChannel("team", "تنبيهات الفريق", NotificationManager.IMPORTANCE_HIGH);
+        channel.setDescription("الطلبات والإعلانات والمحادثات والحضور");
+        channel.enableVibration(true);
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
 
     private void installMediaProxy() {

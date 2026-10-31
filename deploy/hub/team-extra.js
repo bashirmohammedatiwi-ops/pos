@@ -20,6 +20,8 @@ const VERSION_RE = /^\d+\.\d+\.\d+$/;
 const APK_RE = /^DeemaTeam-\d+\.\d+\.\d+\.apk$/;
 const vcode = v => v.split('.').reduce((s, n) => s * 1000 + Number(n), 0);
 
+const PUSH_RETRY_MS = [1500, 5000];
+
 function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftOf = () => ({}) }) {
   db.exec('CREATE TABLE IF NOT EXISTS _extra_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const MIGRATIONS = [
@@ -298,42 +300,76 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
   }
   const pushLog = [];
   async function sendOne(acc, bearer, deviceToken, n) {
-    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${acc.project_id}/messages:send`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: {
-          token: deviceToken,
-          notification: { title: n.title, body: n.body || '' },
-          data: { link: n.link || '', type: n.type || '' },
-          android: { priority: 'high', notification: { channel_id: 'team', sound: 'default', default_vibrate_timings: true } },
-          apns: { payload: { aps: { sound: 'default' } } },
-        },
-      }),
-    });
-    if (res.ok) return 'ok';
-    const text = await res.text();
-    // رمز لم يعد صالحاً (حُذف التطبيق أو تغيّر الهاتف) — نزيله
-    if (res.status === 404 || /UNREGISTERED|INVALID_ARGUMENT/.test(text)) {
-      db.prepare('DELETE FROM push_tokens WHERE token = ?').run(deviceToken);
-      return 'removed';
+    // عطل عابر عند Google أو في الشبكة: يُعاد الإرسال بدل أن يضيع الإشعار
+    for (let attempt = 0; ; attempt++) {
+      let res = null;
+      try {
+        res = await fetch(`https://fcm.googleapis.com/v1/projects/${acc.project_id}/messages:send`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: {
+              token: deviceToken,
+              notification: { title: n.title, body: n.body || '' },
+              data: { link: n.link || '', type: n.type || '' },
+              android: { priority: 'high', notification: { channel_id: 'team', sound: 'default', default_vibrate_timings: true } },
+              apns: { headers: { 'apns-priority': '10' }, payload: { aps: { sound: 'default' } } },
+            },
+          }),
+        });
+      } catch (err) {
+        if (attempt >= PUSH_RETRY_MS.length) return `error ${err.message}`;
+      }
+      if (res?.ok) return 'ok';
+      if (res) {
+        const text = await res.text();
+        // الرمز نفسه لم يعد صالحاً (حُذف التطبيق أو تغيّر الهاتف) — نزيله.
+        // خطأ في محتوى الإشعار لا يمس تسجيل الهاتف.
+        if (res.status === 404 || /UNREGISTERED/.test(text) || (/INVALID_ARGUMENT/.test(text) && /registration token/i.test(text))) {
+          db.prepare('DELETE FROM push_tokens WHERE token = ?').run(deviceToken);
+          return 'removed';
+        }
+        if ((res.status !== 429 && res.status < 500) || attempt >= PUSH_RETRY_MS.length) return `error ${res.status}`;
+      }
+      await new Promise(r => setTimeout(r, PUSH_RETRY_MS[attempt]));
     }
-    return `error ${res.status}`;
   }
   /** يرسل لمستخدمين (staff/manager) — يُستدعى من التبليغات والمحادثات */
   async function pushTo(kind, ids, n) {
     const acc = serviceAccount();
-    if (!acc || !ids.length) return;
+    if (!acc || !ids.length) return { configured: !!acc, count: 0, ok: 0 };
     const list = db.prepare(`SELECT token FROM push_tokens WHERE user_kind = ? AND user_id IN (${ids.map(() => '?').join(',')})`).all(kind, ...ids.map(Number));
-    if (!list.length) return;
+    if (!list.length) return { configured: true, count: 0, ok: 0 };
     try {
-      const bearer = await accessToken();
+      let bearer;
+      try {
+        bearer = await accessToken();
+      } catch {
+        await new Promise(r => setTimeout(r, PUSH_RETRY_MS[1]));
+        bearer = await accessToken();
+      }
       const results = await Promise.all(list.map(t => sendOne(acc, bearer, t.token, n).catch(e => `error ${e.message}`)));
-      pushLog.unshift({ at: now(), kind, count: list.length, ok: results.filter(r => r === 'ok').length, title: n.title });
+      const ok = results.filter(r => r === 'ok').length;
+      const failed = results.filter(r => r.startsWith('error'));
+      pushLog.unshift({ at: now(), kind, count: list.length, ok, title: n.title, error: failed[0] });
       pushLog.length = Math.min(pushLog.length, 50);
+      if (failed.length) console.error('push failed', failed[0]);
+      return { configured: true, count: list.length, ok };
     } catch (err) {
       pushLog.unshift({ at: now(), kind, count: list.length, ok: 0, title: n.title, error: err.message });
+      pushLog.length = Math.min(pushLog.length, 50);
+      console.error('push failed', err.message);
+      return { configured: true, count: list.length, ok: 0 };
     }
+  }
+  /** الموظف أو المدير يجرّب إشعارات هاتفه بنفسه (مرة كل 20 ثانية) */
+  const selfTests = new Map();
+  async function pushSelf(kind, id) {
+    const key = `${kind}:${id}`;
+    if (Date.now() - (selfTests.get(key) || 0) < 20_000) return { status: 429, body: { error: 'انتظر قليلاً ثم جرّب مرة أخرى' } };
+    selfTests.set(key, Date.now());
+    const r = await pushTo(kind, [id], { title: 'تجربة الإشعارات ✅', body: 'وصلك هذا الإشعار — الإشعارات تعمل على هاتفك', link: kind === 'manager' ? '/more' : '/account' });
+    return { status: 200, body: r };
   }
   function pushStatus() {
     const acc = serviceAccount();
@@ -389,7 +425,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
     return false;
   }
 
-  return { handlePublic, handleManage, pushTo, check, myMonth };
+  return { handlePublic, handleManage, pushTo, pushSelf, check, myMonth };
 }
 
 module.exports = { createExtra };

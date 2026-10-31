@@ -345,6 +345,11 @@ function createTeam(ctx) {
         return true;
       }
       const { perms, sections } = work.permsOf(mid);
+      if (req.method === 'POST' && sub === 'push-test') {
+        const out = await extra.pushSelf('manager', mid);
+        ctx.send(res, out.status, out.body);
+        return true;
+      }
       if (req.method === 'GET' && sub === 'me') {
         ctx.send(res, 200, { id: mid, username: m.username, displayName: m.displayName, unread: work.unreadCount('manager', mid), perms, sections });
         return true;
@@ -515,6 +520,11 @@ function createTeam(ctx) {
           ON CONFLICT(token) DO UPDATE SET user_kind='staff', user_id=excluded.user_id, platform=excluded.platform, device_id=excluded.device_id, updated_at=excluded.updated_at`)
           .run(token, s.id, String(body.platform || '').slice(0, 20) || null, String(body.deviceId || '').slice(0, 120) || null, now());
         ctx.send(res, 200, { ok: true });
+        return true;
+      }
+      if (req.method === 'POST' && p === '/api/team/push-test') {
+        const out = await extra.pushSelf('staff', s.id);
+        ctx.send(res, out.status, out.body);
         return true;
       }
       // تقريري الشهري: حضوري، تأخيري، إضافي، إجازاتي

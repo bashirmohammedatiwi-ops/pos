@@ -4,6 +4,7 @@ import { APP_VERSION, PUSH_ENABLED, apiUrl, platform } from '../../config';
 import { KIND_LABEL, getTeamMe, getTeamToken } from '../../team';
 import { Avatar, Badge, I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
 import { BackBtn } from '../parts';
+import { PushHealth } from '../PushHealth';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -81,6 +82,8 @@ export function Account({ onLogout, back }: { onLogout: () => void; back?: strin
           <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'داخل التطبيق · تنبيهات الدوام والاستراحة تعمل والتطبيق مغلق'} />
         </div>
       </section>
+
+      {getTeamToken() && <PushHealth role="staff" />}
 
       <section className="t-section">
         <div className="t-section-head">
