@@ -192,7 +192,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
           over += bl.reduce((x, b) => x + (b.over_minutes || 0), 0);
           const w = Math.max(0, Math.round(((r.check_out ? Date.parse(r.check_out) : Date.now()) - Date.parse(r.check_in)) / 60_000) - bm);
           worked += w;
-          const o = overtimeOf(s.id, r.date, w);
+          const o = overtimeOf(s.id, r.date, w, r);
           if (o > 0) {
             ot += o;
             otDays++;

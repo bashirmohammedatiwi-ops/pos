@@ -4,7 +4,8 @@ const { HUB_VERSION } = require('./version');
 /*
  * تطبيق الفريق — الحضور والانصراف والاستراحة (على خادم الـ VPS).
  *   · الشبكات المسموحة: BSSID للواي فاي و/أو عنوان IP العام للمحل (يقرؤه الخادم لا الهاتف).
- *   · الدوام: افتراضي عام + ورديات لكل موظف؛ التأخير يُحسب بتوقيت العراق مع مهلة سماح.
+ *   · الدوام: افتراضي عام + وردية لكل موظف + وقت خاص لكل يوم من أسبوعه؛ التأخير يُحسب بتوقيت العراق مع مهلة سماح.
+ *   · كل سجل حضور يحفظ دوام يومه، فتغيير الدوام لاحقاً لا يغيّر حساب الأيام الماضية.
  *   · الاستراحة: رصيد يومي وعدد مرات؛ تنبيه وتجاوز يُبلَّغان للموظف والمدراء.
  *   · مؤقت كل دقيقة: تجاوز الاستراحات، وإغلاق الحضور المنسي تلقائياً.
  */
@@ -39,6 +40,18 @@ const atIraq = (date, minutes) => Date.parse(`${date}T00:00:00Z`) - IRAQ_MS + mi
 const isTime = v => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const isDateStr = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`));
 const HOURLY_CLOSE_GRACE_MS = 8 * 3600_000;
+const DAY_NAMES = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+/** 0 = السبت … 6 = الجمعة (نفس ترتيب العطلة الأسبوعية) */
+const dayIdx = iso => (new Date(`${iso}T12:00:00Z`).getUTCDay() + 1) % 7;
+/** دوام الأسبوع المخزَّن: مصفوفة من 7 أيام، واليوم الفارغ يتبع وردية الموظف */
+function parseWeek(raw) {
+  try {
+    const list = raw ? JSON.parse(raw) : null;
+    return Array.isArray(list) && list.length === 7 && list.some(Boolean) ? list : null;
+  } catch {
+    return null;
+  }
+}
 
 /** بداية ونهاية الوردية بالدقائق؛ النهاية <= البداية تعني وردية ليلية تنتهي في اليوم التالي. */
 function shiftSpan(shift) {
@@ -50,13 +63,14 @@ function shiftSpan(shift) {
 /**
  * الوردية التي تخص لحظة ما: { date, start, end } (date = يوم بداية الوردية).
  * داخل نافذتها [البداية − مهلة الحضور المبكر، النهاية] هي هي؛ وبين ورديتين الأقرب: نهاية السابقة أم فتح التالية.
+ * shiftFor(date) تعطي دوام ذلك اليوم لأنه قد يختلف من يوم لآخر.
  */
-function shiftWindow(shift, ms, earlyMinutes) {
-  const span = shiftSpan(shift);
+function shiftWindow(shiftFor, ms, earlyMinutes) {
   const early = earlyMinutes * 60_000;
   const today = iraqDate(ms);
   const list = [-1, 0, 1].map(k => {
     const date = addDays(today, k);
+    const span = shiftSpan(shiftFor(date));
     return { date, start: atIraq(date, span.start), end: atIraq(date, span.end) };
   });
   const hit = list.find(w => ms >= w.start - early && ms <= w.end);
@@ -138,6 +152,11 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     // الشبكة الواحدة بكل نقاط بثها (راوتر + مقويات + نطاقا 2.4/5 GHz)
     `ALTER TABLE networks ADD COLUMN bssids TEXT;
      UPDATE networks SET bssids = json_array(bssid) WHERE bssid IS NOT NULL;`,
+    // دوام كل يوم من الأسبوع لكل موظف، ودوام اليوم محفوظاً في سجل الحضور
+    `ALTER TABLE staff_shift ADD COLUMN week TEXT;
+     ALTER TABLE attendance ADD COLUMN shift_start TEXT;
+     ALTER TABLE attendance ADD COLUMN shift_end TEXT;
+     ALTER TABLE attendance ADD COLUMN shift_break INTEGER;`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _attend_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -152,6 +171,13 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       throw err;
     }
   });
+
+  // السجلات الأقدم من حفظ الدوام تأخذ الدوام الساري قبل أول تعديل على الأسبوع، فلا يتغير ما حُسب لها
+  {
+    const d = settings();
+    const pick = col => `(SELECT ${col} FROM staff_shift x WHERE x.staff_id = attendance.staff_id)`;
+    db.prepare(`UPDATE attendance SET shift_start = COALESCE(${pick('start')}, ?), shift_end = COALESCE(${pick('end')}, ?), shift_break = COALESCE(${pick('break_minutes')}, ?) WHERE shift_start IS NULL`).run(d.shiftStart, d.shiftEnd, d.breakMinutes);
+  }
 
   /* ── الإعدادات والورديات ── */
   function settings() {
@@ -180,15 +206,23 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     audit(actor, 'attend.settings', null, next);
     return next;
   }
-  function shiftOf(staffId) {
+  /** دوام الموظف في يوم معيّن: وقت ذلك اليوم إن حُدّد، وإلا ورديته، وإلا الافتراضي العام */
+  function shiftOf(staffId, date = iraqDate()) {
     const s = settings();
     const o = db.prepare('SELECT * FROM staff_shift WHERE staff_id = ?').get(staffId);
+    const baseStart = o?.start || s.shiftStart;
+    const baseEnd = o?.end || s.shiftEnd;
+    const week = parseWeek(o?.week);
+    const day = week?.[dayIdx(date)];
     return {
-      start: o?.start || s.shiftStart,
-      end: o?.end || s.shiftEnd,
+      start: day?.start || baseStart,
+      end: day?.end || baseEnd,
+      baseStart,
+      baseEnd,
+      week,
       breakMinutes: o?.break_minutes ?? s.breakMinutes,
       maxBreaks: o?.max_breaks ?? s.maxBreaks,
-      custom: !!(o && (o.start || o.end || o.break_minutes != null || o.max_breaks != null)),
+      custom: !!(o && (o.start || o.end || week || o.break_minutes != null || o.max_breaks != null)),
       // حساب بالساعات: بلا وردية ولا تأخير ولا أوفر تايم — كل ساعة مدفوعة
       hourly: planOf(staffId).plan === 'hourly',
       overtime: !!o?.overtime && planOf(staffId).plan !== 'hourly',
@@ -206,9 +240,14 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     emit(`staff:${staffId}`, 'attend', { overtime: true });
     return { status: 200, body: shiftOf(staffId) };
   }
+  /** دوام سجل حضور كما حُفظ يومها؛ الدوام الحالي لا يغيّر حساب يوم مضى */
+  const rowShift = a => {
+    const sh = shiftOf(a.staff_id, a.date);
+    return { ...sh, start: a.shift_start || sh.start, end: a.shift_end || sh.end, plannedBreak: a.shift_break ?? sh.breakMinutes };
+  };
   /** دقائق الأوفر تايم ليوم: العمل الفعلي ناقص الدوام الصافي (أو كل العمل في يوم العطلة) */
-  function overtimeOf(staffId, date, workedMinutes) {
-    const sh = shiftOf(staffId);
+  function overtimeOf(staffId, date, workedMinutes, row) {
+    const sh = row ? rowShift(row) : shiftOf(staffId, date);
     if (!sh.overtime) return 0;
     const st = settings();
     const day = dayFor(staffId, date);
@@ -218,29 +257,91 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       raw = workedMinutes;
     } else {
       const span = shiftSpan(sh);
-      raw = workedMinutes - Math.max(0, span.end - span.start - sh.breakMinutes);
+      raw = workedMinutes - Math.max(0, span.end - span.start - (sh.plannedBreak ?? sh.breakMinutes));
     }
     if (raw < st.otMinMinutes || raw <= 0) return 0;
     const r = Math.max(1, st.otRoundMinutes);
     return Math.floor(raw / r) * r;
   }
+  /** يفحص دوام الأسبوع: أيام فارغة أو { start, end }، ولا يتداخل دوام يوم مع بداية اليوم التالي */
+  function readWeek(raw, baseStart, baseEnd) {
+    if (raw == null) return { week: null };
+    if (!Array.isArray(raw) || raw.length !== 7) return { error: 'دوام الأسبوع غير صالح' };
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const d = raw[i];
+      if (!d) {
+        week.push(null);
+        continue;
+      }
+      if (!isTime(d.start) || !isTime(d.end)) return { error: `وقت ${DAY_NAMES[i]} غير صالح` };
+      if (d.start === d.end) return { error: `بداية ${DAY_NAMES[i]} ونهايته متساويتان` };
+      week.push({ start: d.start, end: d.end });
+    }
+    const base = { start: baseStart, end: baseEnd };
+    for (let i = 0; i < 7; i++) {
+      const k = (i + 1) % 7;
+      if (!week[i] && !week[k]) continue;
+      if (shiftSpan(week[i] || base).end - 1440 > shiftSpan(week[k] || base).start) return { error: `دوام ${DAY_NAMES[i]} ينتهي بعد بداية دوام ${DAY_NAMES[k]}` };
+    }
+    return { week: week.some(Boolean) ? week : null };
+  }
+  /** تعديل الدوام يسري على الحضور المفتوح ويوم الوردية الحالية، أما الأيام الماضية فتبقى كما هي */
+  function refreshRows(staffId) {
+    const rows = db.prepare('SELECT id, date FROM attendance WHERE staff_id = ? AND (check_out IS NULL OR date >= ?)').all(staffId, windowOf(staffId).date);
+    for (const r of rows) {
+      const sh = shiftOf(staffId, r.date);
+      db.prepare('UPDATE attendance SET shift_start = ?, shift_end = ?, shift_break = ? WHERE id = ?').run(sh.start, sh.end, sh.breakMinutes, r.id);
+    }
+  }
+  /** الأسبوع كما سيراه الموظف، للمقارنة ولنص التبليغ؛ أيام العطلة الأسبوعية لا تظهر */
+  function weekText(staffId) {
+    const today = iraqDate();
+    const days = Array.from({ length: 7 }, (_, k) => addDays(today, k)).sort((a, b) => dayIdx(a) - dayIdx(b));
+    const list = days.filter(d => !['weekly', 'swap'].includes(dayFor(staffId, d)?.reason)).map(d => ({ name: DAY_NAMES[dayIdx(d)], ...shiftOf(staffId, d) }));
+    if (list.length && list.every(d => d.start === list[0].start && d.end === list[0].end)) return `${list[0].start} – ${list[0].end}`;
+    return list.map(d => `${d.name} ${d.start} – ${d.end}`).join('، ');
+  }
   function setShift(staffId, body, actor) {
     if (!getStaff(staffId)) return { status: 404, body: { error: 'الموظف غير موجود' } };
-    if (body.reset) {
-      db.prepare('UPDATE staff_shift SET start = NULL, end = NULL, break_minutes = NULL, max_breaks = NULL WHERE staff_id = ?').run(staffId);
-      audit(actor, 'shift.reset', staffId, null);
+    const before = weekText(staffId);
+    const done = () => {
+      refreshRows(staffId);
+      const text = weekText(staffId);
+      if (text !== before && planOf(staffId).plan !== 'hourly') notify('staff', [staffId], { type: 'schedule', title: 'تم تحديث وقت دوامك', body: text, link: '/shift' });
+      emit(`staff:${staffId}`, 'attend', { shift: true });
       return { status: 200, body: shiftOf(staffId) };
+    };
+    if (body.reset) {
+      db.prepare('UPDATE staff_shift SET start = NULL, end = NULL, break_minutes = NULL, max_breaks = NULL, week = NULL WHERE staff_id = ?').run(staffId);
+      audit(actor, 'shift.reset', staffId, null);
+      return done();
     }
-    const start = isTime(body.start) ? body.start : null;
-    const end = isTime(body.end) ? body.end : null;
+    const cur = db.prepare('SELECT * FROM staff_shift WHERE staff_id = ?').get(staffId);
+    const curWeek = parseWeek(cur?.week);
+    let start = isTime(body.start) ? body.start : null;
+    let end = isTime(body.end) ? body.end : null;
+    let week = curWeek;
+    if (body.week !== undefined) {
+      const st = settings();
+      const read = readWeek(body.week, start || st.shiftStart, end || st.shiftEnd);
+      if (read.error) return { status: 400, body: { error: read.error } };
+      week = read.week;
+    } else if (curWeek) {
+      // نسخ التطبيق الحالية لا تعرف الأسبوع وترسل دوام اليوم؛ الاستراحة تُحفظ ولا يُستبدل الأسبوع بوقت يوم واحد
+      const day = shiftOf(staffId, windowOf(staffId).date);
+      if ((start && start !== day.start) || (end && end !== day.end)) return { status: 409, body: { error: 'دوام هذا الموظف يختلف حسب الأيام — عدّل أوقاته من لوحة التحكم' } };
+      start = cur.start;
+      end = cur.end;
+    }
     const bm = body.breakMinutes === '' || body.breakMinutes == null ? null : Math.max(0, Math.min(240, Math.round(Number(body.breakMinutes))));
     const mb = body.maxBreaks === '' || body.maxBreaks == null ? null : Math.max(0, Math.min(10, Math.round(Number(body.maxBreaks))));
-    db.prepare(`INSERT INTO staff_shift (staff_id, start, end, break_minutes, max_breaks, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(staff_id) DO UPDATE SET start=excluded.start, end=excluded.end, break_minutes=excluded.break_minutes, max_breaks=excluded.max_breaks, updated_at=excluded.updated_at`)
-      .run(staffId, start, end, Number.isFinite(bm) ? bm : null, Number.isFinite(mb) ? mb : null, now());
-    audit(actor, 'shift.set', staffId, { start, end, bm, mb });
-    emit(`staff:${staffId}`, 'attend', { shift: true });
-    return { status: 200, body: shiftOf(staffId) };
+    const json = week ? JSON.stringify(week) : null;
+    db.prepare(`INSERT INTO staff_shift (staff_id, start, end, break_minutes, max_breaks, week, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(staff_id) DO UPDATE SET start=excluded.start, end=excluded.end, break_minutes=excluded.break_minutes, max_breaks=excluded.max_breaks, week=excluded.week, updated_at=excluded.updated_at`)
+      .run(staffId, start, end, Number.isFinite(bm) ? bm : null, Number.isFinite(mb) ? mb : null, json, now());
+    audit(actor, 'shift.set', staffId, { start, end, bm, mb, week });
+    return done();
   }
 
   /* ── الشبكات ── */
@@ -349,7 +450,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   /* ── الحضور ── */
-  const windowOf = (staffId, ms = Date.now()) => (planOf(staffId).plan === 'hourly' ? { date: iraqDate(ms), start: ms, end: ms } : shiftWindow(shiftOf(staffId), ms, settings().earlyMinutes));
+  const windowOf = (staffId, ms = Date.now()) => (planOf(staffId).plan === 'hourly' ? { date: iraqDate(ms), start: ms, end: ms } : shiftWindow(d => shiftOf(staffId, d), ms, settings().earlyMinutes));
   /**
    * سجل الوردية الجارية: الحضور المفتوح (آخر 24 ساعة — يعبر منتصف الليل)، وإلا سجل يوم الوردية الحالية.
    * الحضور المنسي الذي حان إغلاقه يُغلق هنا أولاً كي لا يحجب حضور الوردية التالية.
@@ -386,7 +487,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       edited: !!a.edited_by,
       note: a.note,
       workedMinutes: Math.max(0, Math.round((end - Date.parse(a.check_in)) / 60_000) - breakMin),
-      overtimeMinutes: overtimeOf(a.staff_id, a.date, Math.max(0, Math.round((end - Date.parse(a.check_in)) / 60_000) - breakMin)),
+      overtimeMinutes: overtimeOf(a.staff_id, a.date, Math.max(0, Math.round((end - Date.parse(a.check_in)) / 60_000) - breakMin), a),
       breakMinutes: breakMin,
       overMinutes: list.reduce((s, b) => s + (b.end_at ? b.over_minutes : breakView(b).overMinutes), 0),
       breaks: list.map(breakView),
@@ -394,12 +495,12 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   function myState(s) {
-    const shift = shiftOf(s.id);
     const a = currentRow(s.id);
     const view = attView(a);
     const used = view?.breakMinutes ?? 0;
     // يوم الوردية لا يوم التقويم: وردية 18:00–02:00 تبقى «اليوم» بعد منتصف الليل
     const shiftDate = a?.date ?? windowOf(s.id).date;
+    const shift = a ? rowShift(a) : shiftOf(s.id, shiftDate);
     const history = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND date < ? ORDER BY date DESC LIMIT 14').all(s.id, shiftDate).map(attView);
     const day = dayFor(s.id, shiftDate);
     const nets = networks().filter(n => n.is_active);
@@ -506,16 +607,16 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       return { status: 200, body: myState(s) };
     }
     if (cur) return { status: 409, body: { error: 'سجّلت حضورك اليوم مسبقاً' } };
-    const shift = shiftOf(s.id);
     const st = settings();
     const t = now();
     // التأخير مقابل بداية الوردية التي تخص هذه اللحظة (23:45 لوردية 00:30 = مبكر لا تأخير يوم كامل)
     const w = windowOf(s.id, Date.parse(t));
+    const shift = shiftOf(s.id, w.date);
     if (!hourly && Date.parse(t) < w.start - st.earlyMinutes * 60_000) return { status: 400, body: { error: `الحضور يبدأ قبل الدوام بـ ${st.earlyMinutes} دقيقة فقط (دوامك ${shift.start})` } };
     const lateRaw = Math.floor((Date.parse(t) - w.start) / 60_000);
     const late = !hourly && lateRaw > st.graceMinutes ? lateRaw : 0;
-    const r = db.prepare('INSERT INTO attendance (staff_id, date, check_in, in_ip, in_bssid, network_id, device_id, late_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(s.id, w.date, t, net.ip, net.bssid, net.network?.id ?? null, String(body.deviceId || '').slice(0, 120) || null, late);
+    const r = db.prepare('INSERT INTO attendance (staff_id, date, check_in, in_ip, in_bssid, network_id, device_id, late_minutes, shift_start, shift_end, shift_break) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(s.id, w.date, t, net.ip, net.bssid, net.network?.id ?? null, String(body.deviceId || '').slice(0, 120) || null, late, shift.start, shift.end, shift.breakMinutes);
     audit(`staff:${s.id}`, 'attend.in', Number(r.lastInsertRowid), { ip: net.ip, bssid: net.bssid, late });
     if (late > 0) {
       const lateNote = { type: 'attend.late', title: `تأخر ${s.name} ${late} دقيقة`, body: `سجّل حضوره ${new Date(Date.parse(t) + IRAQ_MS).toISOString().slice(11, 16)} — دوامه ${shift.start}`, link: '/attend' };
@@ -586,11 +687,11 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const st = settings();
     const devices = new Set(db.prepare('SELECT staff_id FROM devices').all().map(r => r.staff_id));
     const rows = staff.map(s => {
-      const shift = shiftOf(s.id);
-      if (!showPay) shift.overtimeRate = null;
       const a = attView(currentRow(s.id));
       // الحالة مقابل نافذة الوردية (الليلية تعبر منتصف الليل) لا ساعات يوم التقويم
-      const w = shiftWindow(shift, t, st.earlyMinutes);
+      const w = shiftWindow(d => shiftOf(s.id, d), t, st.earlyMinutes);
+      const shift = shiftOf(s.id, a?.date ?? w.date);
+      if (!showPay) shift.overtimeRate = null;
       const day = dayFor(s.id, a?.date ?? w.date);
       let status;
       if (a) {
@@ -635,14 +736,16 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (!a) return { status: 404, body: { error: 'السجل غير موجود' } };
     const ci = body.checkIn && !Number.isNaN(Date.parse(body.checkIn)) ? new Date(body.checkIn).toISOString() : a.check_in;
     let co = body.checkOut === null ? null : body.checkOut && !Number.isNaN(Date.parse(body.checkOut)) ? new Date(body.checkOut).toISOString() : a.check_out;
-    const shift = shiftOf(a.staff_id);
+    const shift = rowShift(a);
     const st = settings();
     // وردية ليلية: انصراف بساعة أصغر من الحضور (إصدارات تطبيق أقدم تبنيه على يوم الحضور) = اليوم التالي
     if (!shift.hourly && co && co <= ci && hm(shift.end) != null && hm(shift.end) <= (hm(shift.start) ?? 600) && Date.parse(co) + 86_400_000 > Date.parse(ci)) {
       co = new Date(Date.parse(co) + 86_400_000).toISOString();
     }
     if (co && co <= ci) return { status: 400, body: { error: 'وقت الانصراف قبل الحضور' } };
-    const lateRaw = Math.floor((Date.parse(ci) - shiftWindow(shift, Date.parse(ci), st.earlyMinutes).start) / 60_000);
+    // نفس يوم السجل: مقابل دوامه المحفوظ؛ وإن نُقل الحضور ليوم آخر: مقابل دوام ذلك اليوم
+    const ciWindow = windowOf(a.staff_id, Date.parse(ci));
+    const lateRaw = Math.floor((Date.parse(ci) - (ciWindow.date === a.date ? atIraq(a.date, shiftSpan(shift).start) : ciWindow.start)) / 60_000);
     const late = !shift.hourly && lateRaw > st.graceMinutes ? lateRaw : 0;
     db.prepare('UPDATE attendance SET check_in = ?, check_out = ?, late_minutes = ?, note = ?, edited_by = ?, edited_at = ?, auto_closed = CASE WHEN ? IS NULL THEN auto_closed ELSE 0 END WHERE id = ?')
       .run(ci, co, late, String(body.note || a.note || '').slice(0, 300) || null, actor, now(), co, id);
@@ -667,8 +770,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (Number.isNaN(ci)) return { status: 400, body: { error: 'وقت الحضور مطلوب' } };
     const date = windowOf(staffId, ci).date;
     if (db.prepare('SELECT id FROM attendance WHERE staff_id = ? AND date = ?').get(staffId, date)) return { status: 409, body: { error: 'يوجد سجل لهذا اليوم — عدّله بدلاً من إضافة جديد' } };
-    const r = db.prepare("INSERT INTO attendance (staff_id, date, check_in, note, edited_by, edited_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(staffId, date, new Date(ci).toISOString(), String(body.note || 'إضافة يدوية').slice(0, 300), actor, now());
+    const sh = shiftOf(staffId, date);
+    const r = db.prepare("INSERT INTO attendance (staff_id, date, check_in, note, edited_by, edited_at, shift_start, shift_end, shift_break) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(staffId, date, new Date(ci).toISOString(), String(body.note || 'إضافة يدوية').slice(0, 300), actor, now(), sh.start, sh.end, sh.breakMinutes);
     // التحقق من الانصراف في correct (يعرف الوردية الليلية)؛ السجل يُحذف إن رُفض
     const out = correct(Number(r.lastInsertRowid), { checkIn: body.checkIn, checkOut: body.checkOut, note: body.note || 'إضافة يدوية' }, actor);
     if (out.status !== 200) db.prepare('DELETE FROM attendance WHERE id = ?').run(Number(r.lastInsertRowid));
@@ -681,7 +785,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
    * يحين بعد نهاية الدوام بعدة ساعات — ومن فُعّل له الأوفر تايم يبقى مفتوحاً حتى تُفتح نافذة ورديته التالية.
    */
   function autoClose(a) {
-    const shift = shiftOf(a.staff_id);
+    const shift = rowShift(a);
     const st = settings();
     // بالساعات: لا وردية له — نسيان الانصراف يُغلق قبل صباح اليوم التالي ويعتمد وقت إغلاق المحل، ويراجعه المدير لأنه يمسّ الراتب
     if (shift.hourly) {
@@ -702,7 +806,8 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     }
     const span = shiftSpan(shift);
     const end = atIraq(a.date, span.end);
-    const nextOpen = atIraq(addDays(a.date, 1), span.start) - st.earlyMinutes * 60_000;
+    const nextDate = addDays(a.date, 1);
+    const nextOpen = atIraq(nextDate, shiftSpan(shiftOf(a.staff_id, nextDate)).start) - st.earlyMinutes * 60_000;
     const due = Math.max(end, Math.min(shift.overtime ? Infinity : end + st.autoCloseHours * 3600_000, nextOpen));
     if (Date.now() < due) return false;
     const t = new Date(Math.max(end, Date.parse(a.check_in))).toISOString();
