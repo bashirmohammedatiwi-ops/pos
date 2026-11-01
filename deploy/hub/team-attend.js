@@ -89,6 +89,12 @@ function ipMatch(rule, ip) {
   const mask = n === 0 ? 0 : (~0 << (32 - n)) >>> 0;
   return (a & mask) === (b & mask);
 }
+/** الشبكة /24 لعنوان IPv4: مزوّد الإنترنت يبدّل عنوان المحل داخلها عدة مرات في اليوم */
+const net24 = ip => {
+  const p = String(ip || '').split('.');
+  return p.length === 4 ? p.slice(0, 3).join('.') : null;
+};
+const SHOP_IP_FRESH_MS = 30 * 60_000;
 const PRIVATE = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd)/;
 /** عنوان المرسل الحقيقي: نثق بترويسة البوابة فقط إذا جاء الطلب من شبكة Docker الداخلية. */
 function clientIp(req) {
@@ -265,7 +271,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const cur = shopIp();
     // كتابة عند التغيّر، أو كل 10 دقائق لتحديث «آخر ظهور»
     if (cur && cur.ip === ip && Date.now() - Date.parse(cur.at) < 10 * 60_000) return;
-    db.prepare("INSERT INTO settings (key, value) VALUES ('shop_ip', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ip, at: now(), source }));
+    // نحفظ العناوين السابقة: قد يتغير العنوان وسيرفر المحل مطفأ فلا يصلنا الجديد إلا بعد تشغيله
+    const recent = [...new Set([...(cur && cur.ip !== ip ? [cur.ip] : []), ...(cur?.recent ?? [])])].slice(0, 10);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('shop_ip', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ip, at: now(), source, recent }));
     if (cur && cur.ip !== ip) audit('system', 'shop_ip.changed', null, { from: cur.ip, to: ip, source });
   }
 
@@ -304,9 +312,12 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const bssid = normBssid(bssidRaw);
     const s = settings();
     const nets = networks().filter(n => n.is_active);
-    const shop = shopIp()?.ip ?? null;
-    // العنوان: الثابت إن حُدّد، وإلا عنوان المحل الحالي (يُتعلَّم تلقائياً)
-    const ipOk = n => (n.ip ? ipMatch(n.ip, ip) : !s.requireIp || (!!shop && ip === shop));
+    const shopInfo = shopIp();
+    const shop = shopInfo?.ip ?? null;
+    const ipNear = !!net24(ip) && [shop, ...(shopInfo?.recent ?? [])].some(x => net24(x) === net24(ip));
+    // العنوان: الثابت إن حُدّد، وإلا عنوان المحل الحالي (يُتعلَّم تلقائياً).
+    // نقطة بث مسجّلة مع عنوان من شبكة المحل نفسها تكفي: عنوان المحل المعروف قد يتأخر عن تبديل المزوّد
+    const ipOk = n => (n.ip ? ipMatch(n.ip, ip) : !s.requireIp || (!!shop && ip === shop) || (ipNear && bssidsOf(n).length > 0));
     const apOk = n => {
       const list = bssidsOf(n);
       return !list.length || (!!bssid && list.includes(bssid));
@@ -315,6 +326,15 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (!s.enforceNetwork) return { ok: true, ip, bssid, network: match || null, enforced: false };
     if (!nets.length) return { ok: false, ip, bssid, error: 'لم تُضبط شبكات المحل بعد — راجع الإدارة' };
     if (match) return { ok: true, ip, bssid, network: match, enforced: true };
+    // نقطة بث جديدة من أجهزة المحل نفسها (نفس أول 3 مقاطع) على عنوان المحل المؤكد حديثاً: تُضاف للشبكة تلقائياً
+    const fresh = s.requireIp && !!shop && ip === shop && Date.now() - Date.parse(shopInfo.at) < SHOP_IP_FRESH_MS;
+    const sibling = fresh && bssid ? nets.find(n => !n.ip && bssidsOf(n).some(b => b.slice(0, 8) === bssid.slice(0, 8))) : null;
+    if (sibling && bssidsOf(sibling).length < 64) {
+      const list = [...bssidsOf(sibling), bssid];
+      db.prepare('UPDATE networks SET bssid = ?, bssids = ? WHERE id = ?').run(list[0], JSON.stringify(list), sibling.id);
+      audit('system', 'network.learn', sibling.id, { bssid, ip });
+      return { ok: true, ip, bssid, network: sibling, enforced: true };
+    }
     const apMatch = bssid && nets.some(n => bssidsOf(n).includes(bssid));
     if (s.requireIp && apMatch && !shop && nets.some(n => !n.ip && bssidsOf(n).includes(bssid)))
       return { ok: false, ip, bssid, error: 'عنوان إنترنت المحل غير معروف بعد — تأكد أن سيرفر المحل متصل بالإنترنت ثم حاول بعد دقيقة' };
@@ -469,7 +489,10 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
 
   function checkIn(req, s, body) {
     const net = checkNetwork(req, body.bssid);
-    if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
+    if (!net.ok) {
+      audit(`staff:${s.id}`, 'attend.refused', null, { ip: net.ip, bssid: net.bssid, error: net.error });
+      return { status: 403, body: { error: net.error, code: 'network' } };
+    }
     const hourly = planOf(s.id).plan === 'hourly';
     const cur = currentRow(s.id);
     // بالساعات: خرج وعاد في اليوم نفسه — يُفتح السجل وتُخصم مدة الغياب من ساعاته
