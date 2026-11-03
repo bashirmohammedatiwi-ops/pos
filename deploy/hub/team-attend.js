@@ -23,6 +23,8 @@ const DEFAULTS = {
   breakWarnMinutes: 2,
   // يجب أن يطابق عنوان الإنترنت قاعدةً (BSSID وحده يمكن تزويره)
   requireIp: true,
+  // هاتف لا يقرأ نقطة البث (إذن الموقع أو الموقع مطفأ) يُقبل إن جاء من عنوان إنترنت المحل المؤكد حديثاً
+  allowIpOnly: true,
   // الأوفر تايم (للموظفين المفعّل لهم فقط)
   otMinMinutes: 15,
   otRoundMinutes: 15,
@@ -202,6 +204,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     num('otRoundMinutes', 1, 60);
     if (typeof body.otCountDayOff === 'boolean') next.otCountDayOff = body.otCountDayOff;
     if (typeof body.requireIp === 'boolean') next.requireIp = body.requireIp;
+    if (typeof body.allowIpOnly === 'boolean') next.allowIpOnly = body.allowIpOnly;
     db.prepare("INSERT INTO settings (key, value) VALUES ('attend', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(next));
     audit(actor, 'attend.settings', null, next);
     return next;
@@ -427,8 +430,11 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (!s.enforceNetwork) return { ok: true, ip, bssid, network: match || null, enforced: false };
     if (!nets.length) return { ok: false, ip, bssid, error: 'لم تُضبط شبكات المحل بعد — راجع الإدارة' };
     if (match) return { ok: true, ip, bssid, network: match, enforced: true };
+    const shopFresh = !!shop && ip === shop && Date.now() - Date.parse(shopInfo.at) < SHOP_IP_FRESH_MS;
+    // بعض الهواتف لا تعطي التطبيق نقطة البث مع أنها على واي فاي المحل: عنوان إنترنت المحل نفسه يكفي حينها
+    if (!bssid && s.allowIpOnly && shopFresh) return { ok: true, ip, bssid, network: nets.find(n => !n.ip) || null, enforced: true, viaIp: true };
     // نقطة بث جديدة من أجهزة المحل نفسها (نفس أول 3 مقاطع) على عنوان المحل المؤكد حديثاً: تُضاف للشبكة تلقائياً
-    const fresh = s.requireIp && !!shop && ip === shop && Date.now() - Date.parse(shopInfo.at) < SHOP_IP_FRESH_MS;
+    const fresh = s.requireIp && shopFresh;
     const sibling = fresh && bssid ? nets.find(n => !n.ip && bssidsOf(n).some(b => b.slice(0, 8) === bssid.slice(0, 8))) : null;
     if (sibling && bssidsOf(sibling).length < 64) {
       const list = [...bssidsOf(sibling), bssid];
