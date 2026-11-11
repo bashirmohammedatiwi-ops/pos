@@ -262,12 +262,12 @@ public sealed class ReportRepository(ISqlConnectionFactory db)
                 SELECT a.id AS ArticleId,
                        LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))) AS Name,
                        COALESCE(NULLIF(LTRIM(RTRIM(a.Barcode)), N''), LTRIM(RTRIM(a.Num))) AS Barcode,
-                       CAST(COALESCE(a.CurTot1, 0) AS DECIMAL(18,2)) AS Stock,
+                       CAST((COALESCE(a.CurTot1, 0) - COALESCE(a.ext_pending_qty, 0)) AS DECIMAL(18,2)) AS Stock,
                        CAST(COALESCE(a.SellPr4, 0) AS DECIMAL(18,0)) AS Price,
                        CAST(s.net_qty AS DECIMAL(18,2)) AS SoldQty,
                        CAST(s.net_qty / @effDays AS DECIMAL(18,3)) AS DailyRate,
-                       CAST(CASE WHEN COALESCE(a.CurTot1, 0) <= 0 THEN 0
-                                 ELSE COALESCE(a.CurTot1, 0) / (s.net_qty / @effDays) END AS DECIMAL(18,1)) AS CoverDays,
+                       CAST(CASE WHEN (COALESCE(a.CurTot1, 0) - COALESCE(a.ext_pending_qty, 0)) <= 0 THEN 0
+                                 ELSE (COALESCE(a.CurTot1, 0) - COALESCE(a.ext_pending_qty, 0)) / (s.net_qty / @effDays) END AS DECIMAL(18,1)) AS CoverDays,
                        s.last_sale AS LastSaleDate
                 INTO #reorder_base
                 FROM sales s
@@ -318,14 +318,14 @@ public sealed class ReportRepository(ISqlConnectionFactory db)
                 SELECT a.id AS ArticleId,
                        LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))) AS Name,
                        COALESCE(NULLIF(LTRIM(RTRIM(a.Barcode)), N''), LTRIM(RTRIM(a.Num))) AS Barcode,
-                       CAST(COALESCE(a.CurTot1, 0) AS DECIMAL(18,2)) AS Stock,
+                       CAST((COALESCE(a.CurTot1, 0) - COALESCE(a.ext_pending_qty, 0)) AS DECIMAL(18,2)) AS Stock,
                        CAST(COALESCE(a.SellPr4, 0) AS DECIMAL(18,0)) AS Price,
-                       CAST(COALESCE(a.CurTot1, 0) * COALESCE(a.SellPr4, 0) AS DECIMAL(18,0)) AS StockValue,
+                       CAST((COALESCE(a.CurTot1, 0) - COALESCE(a.ext_pending_qty, 0)) * COALESCE(a.SellPr4, 0) AS DECIMAL(18,0)) AS StockValue,
                        s.last_sale AS LastSaleDate,
                        COALESCE(s.total_qty, 0) AS TotalSoldQty
                 FROM articles a
                 LEFT JOIN sales s ON s.article_id = a.id
-                WHERE COALESCE(a.CurTot1, 0) >= @minStock
+                WHERE (COALESCE(a.CurTot1, 0) - COALESCE(a.ext_pending_qty, 0)) >= @minStock
                   AND (s.last_sale IS NULL OR s.last_sale < @since){filter}
             )
             SELECT COUNT(*) AS TotalCount, CAST(COALESCE(SUM(StockValue), 0) AS DECIMAL(18,0)) AS TotalValue,

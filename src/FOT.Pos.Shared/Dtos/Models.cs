@@ -396,7 +396,9 @@ public record ProductDto(
     int DiscountPercent,
     string? OfferName,
     long ChangeVersion = 0,
-    int StoredDiscountPercent = 0);
+    int StoredDiscountPercent = 0,
+    // Sold at the cashiers and not merged in Edari yet; Stock already has it taken off.
+    decimal PendingQty = 0);
 
 public partial record OfferDto(
     long Id,
@@ -1005,9 +1007,47 @@ public partial record DiscountQrPersonDto(
     bool Active,
     DateTime CreatedAt,
     int ReceiptCount = 0,
-    decimal TotalDiscount = 0);
+    decimal TotalDiscount = 0,
+    decimal? MaxPercent = null,
+    decimal? MaxAmount = null,
+    decimal? MinInvoice = null,
+    int? Weekdays = null,
+    int? TimeFrom = null,
+    int? TimeTo = null,
+    string? ValidFrom = null,
+    string? ValidTo = null,
+    int? MaxUses = null,
+    int? MaxUsesPerDay = null,
+    decimal? BudgetTotal = null,
+    decimal? BudgetMonth = null,
+    bool AllowGift = true,
+    string? Note = null,
+    DateTime? UsageSince = null,
+    int UsesToday = 0,
+    int UsesSince = 0,
+    decimal SpentMonth = 0,
+    decimal SpentSince = 0,
+    DateTime? UsageAt = null,
+    int ViolationCount = 0);
 
-public record CreateDiscountQrPersonRequest(string Name);
+/// <summary>شروط رمز الخصم: كل حقل فارغ يعني بلا حد.</summary>
+public record DiscountQrRulesRequest(
+    decimal? MaxPercent = null,
+    decimal? MaxAmount = null,
+    decimal? MinInvoice = null,
+    int? Weekdays = null,
+    int? TimeFrom = null,
+    int? TimeTo = null,
+    string? ValidFrom = null,
+    string? ValidTo = null,
+    int? MaxUses = null,
+    int? MaxUsesPerDay = null,
+    decimal? BudgetTotal = null,
+    decimal? BudgetMonth = null,
+    bool AllowGift = true,
+    string? Note = null);
+
+public record CreateDiscountQrPersonRequest(string Name, DiscountQrRulesRequest? Rules = null);
 public record UpdateDiscountQrPersonRequest(string? Name = null, bool? Active = null);
 
 public partial record DiscountQrReceiptDto(
@@ -1017,7 +1057,8 @@ public partial record DiscountQrReceiptDto(
     decimal TotalAmount,
     decimal UserDiscount,
     string? CashierName = null,
-    string? PersonName = null);
+    string? PersonName = null,
+    string? Violation = null);
 
 /// <summary>
 /// Result of a successful charge on the card terminal, as reported by the local
@@ -2313,3 +2354,46 @@ public record ApiPlatformOverviewDto(
     IReadOnlyList<NetworkEventDto> RecentEvents);
 
 
+
+// ── Live stock: Edari stock minus what is sold and not merged yet ──────────────────────────────
+
+/// <summary>One cashier's sales that Edari has not merged yet (and its parked manual-transfer receipts).</summary>
+public record PendingStockCashierDto(
+    long PosId,
+    string PosName,
+    int Receipts,
+    int InEdari,
+    int NotInEdari,
+    decimal Pieces,
+    DateTime? Oldest,
+    DateTime? Newest,
+    int HeldReceipts,
+    decimal HeldPieces,
+    DateTime? HoldsReportedAt);
+
+public record PendingStockStatusDto(
+    bool Enabled,
+    int MaxHours,
+    int Products,
+    decimal Pieces,
+    DateTime? LastCheckAt,
+    string? LastMessage,
+    int ExpiredLastWeek,
+    IReadOnlyList<PendingStockCashierDto> Cashiers);
+
+public record PendingStockCheckResultDto(
+    bool Ok,
+    string Message,
+    int Checked,
+    int Settled,
+    int StillOpen,
+    int StockChanged);
+
+public record PendingStockSettingsRequest(bool Enabled, int MaxHours);
+
+public record StockHoldItemDto(long ArticleId, decimal Quantity);
+
+/// <summary>A receipt parked on the cashier for manual transfer — already sold, not on the server yet.</summary>
+public record StockHoldReceiptDto(Guid ClientReceiptId, int Kind, DateTime? SoldAt, IReadOnlyList<StockHoldItemDto> Items);
+
+public record StockHoldsReplaceRequest(IReadOnlyList<StockHoldReceiptDto> Receipts, string? HwId = null);

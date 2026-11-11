@@ -72,7 +72,8 @@ public static class CatalogEndpoints
             var items = await repo.SyncBatchAsync(sinceSeq, Math.Clamp(pageSize, 1, 2000), default);
             if (!string.IsNullOrWhiteSpace(hwId))
             {
-                var maxSeq = items.Count > 0 ? items.Max(p => p.Seq) : sinceSeq;
+                // The terminal's watermark is the rowversion it has reached, not an article Seq.
+                var maxSeq = items.Count > 0 ? Math.Max(sinceSeq, items.Max(p => p.ChangeVersion)) : sinceSeq;
                 var terminal = await terminals.GetByHwIdAsync(hwId, default);
                 if (terminal is not null)
                     await versions.TouchTerminalSeqAsync(terminal.Id, maxSeq, default);

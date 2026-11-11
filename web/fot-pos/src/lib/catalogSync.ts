@@ -114,17 +114,42 @@ export async function findDiscountQr(code: string, online: boolean): Promise<Dis
   if (!isDiscountQrCode(normalized)) return null;
   const people = await db.loadDiscountQrPeople();
   const local = people.find(p => normalizeDiscountQrCode(p.code) === normalized);
-  if (local) return local;
-  if (!online || isServerUnreachable()) return null;
+  // رمز له حدود استخدام يُسأل عنه السيرفر إن أمكن ليكون العدّاد حديثاً؛ وغيره يكفيه المحفوظ
+  const counted = local && [local.maxUses, local.maxUsesPerDay, local.budgetTotal, local.budgetMonth].some(v => v != null);
+  if (local && !counted) return local;
+  if (!online || isServerUnreachable()) return local ?? null;
   try {
     const remote = await api.lookupDiscountQr(normalized);
-    const person: DiscountQrPerson = { id: remote.id, name: remote.name, code: remote.code || normalized };
+    const person: DiscountQrPerson = { ...remote, code: remote.code || normalized };
     await db.saveDiscountQrPeople([...people.filter(p => p.id !== person.id), person]);
     return person;
-  } catch {
-    return null;
+  } catch (e) {
+    // 404 = أوقفته الإدارة؛ وأي خطأ شبكة لا يعطّل رمزاً نعرفه
+    if (e instanceof ApiError && e.status === 404) return null;
+    return local ?? null;
   }
 }
+
+/** يحسب الفاتورة في عدّاد الرمز المحفوظ فوراً، فلا يتجاوز الكاشير الحد قبل أن يصله العدّ من السيرفر */
+export async function noteDiscountQrUse(personId: number, discount: number) {
+  if (!(discount > 0)) return;
+  const now = toLocalDay(new Date());
+  const people = await db.loadDiscountQrPeople();
+  await db.saveDiscountQrPeople(people.map(p => {
+    if (p.id !== personId) return p;
+    const at = String(p.usageAt ?? '').slice(0, 10);
+    return {
+      ...p,
+      usesToday: (at === now ? p.usesToday ?? 0 : 0) + 1,
+      usesSince: (p.usesSince ?? 0) + 1,
+      spentMonth: (at.slice(0, 7) === now.slice(0, 7) ? p.spentMonth ?? 0 : 0) + discount,
+      spentSince: (p.spentSince ?? 0) + discount,
+      usageAt: now,
+    };
+  }));
+}
+
+const toLocalDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export async function searchProductsSmart(q: string, online: boolean): Promise<ProductDto[]> {
   const local = withOfferSalePrices(await db.searchProducts(q));
@@ -267,7 +292,7 @@ export async function cacheReferenceData(force = false) {
   if (accountsRes.ok && Array.isArray(accountsRes.value)) await db.saveAccounts(accountsRes.value);
   if (qrRes.ok) {
     const people = Array.isArray(qrRes.value) ? qrRes.value : [];
-    await db.saveDiscountQrPeople(people.map(p => ({ id: p.id, name: p.name, code: p.code })));
+    await db.saveDiscountQrPeople(people);
   }
   if (printRes.ok && printRes.value) await db.savePrintSettings(printRes.value);
   await syncBundleOffers();
@@ -281,6 +306,59 @@ export function isDeadOutboxRow(row: OutboxRow) {
 
 export async function outboxStats() {
   return db.outboxCounts();
+}
+
+// ── Live stock: receipts still on this terminal ────────────────────────────────────────────
+// Edari only lowers stock after «دمج الإيصالات», so the server subtracts what was sold and not
+// merged yet. Receipts parked for manual transfer (or stuck offline) are not on the server yet, so
+// the terminal reports them; each one stops counting as a hold once the receipt itself arrives.
+
+type HoldPayload = {
+  clientReceiptId?: string;
+  kind?: number;
+  isPending?: boolean;
+  soldAt?: string;
+  posId?: number | null;
+  items?: { articleId?: number; quantity?: number }[];
+};
+
+const HOLDS_REFRESH_MS = 5 * 60_000;
+let holdsPosId: number | null = null;
+let holdsSignature = '';
+let holdsSentAt = 0;
+let holdsUnsupported = false;
+let holdsInFlight: Promise<void> | null = null;
+
+export function reportStockHolds(posId?: number | null): Promise<void> {
+  if (posId && posId > 0) holdsPosId = posId;
+  if (!holdsPosId || holdsUnsupported || isServerUnreachable()) return Promise.resolve();
+  if (holdsInFlight) return holdsInFlight;
+  const pos = holdsPosId;
+  holdsInFlight = (async () => {
+    try {
+      const rows = await db.pending();
+      const receipts = rows.flatMap(row => {
+        const p = row.payload as HoldPayload | null;
+        if (!p?.clientReceiptId || p.isPending) return [];
+        const items = (p.items ?? [])
+          .filter(i => (i.articleId ?? 0) > 0 && Number(i.quantity ?? 0) !== 0)
+          .map(i => ({ articleId: i.articleId as number, quantity: Math.abs(Number(i.quantity)) }));
+        if (!items.length) return [];
+        return [{ clientReceiptId: p.clientReceiptId, kind: p.kind ?? 0, soldAt: p.soldAt ?? row.createdAt, items }];
+      });
+      const signature = JSON.stringify(receipts);
+      if (signature === holdsSignature && Date.now() - holdsSentAt < HOLDS_REFRESH_MS) return;
+      await api.replaceStockHolds(pos, { receipts, hwId: getHwId() || undefined });
+      holdsSignature = signature;
+      holdsSentAt = Date.now();
+    } catch (e) {
+      // A server older than the live-stock feature: stop asking until the app restarts.
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) holdsUnsupported = true;
+    } finally {
+      holdsInFlight = null;
+    }
+  })();
+  return holdsInFlight;
 }
 
 /** Invoices parked for manual transfer — editable locally until the cashier posts them. */
@@ -313,6 +391,8 @@ export async function enqueueReceipt(
   } catch (e) {
     console.error('rememberSale failed after enqueue', e);
   }
+  // A parked sale is not on the server yet — report it so it comes off the live stock now.
+  if (status === 'deferred') void reportStockHolds((payload as HoldPayload).posId);
   return localNumber;
 }
 
@@ -324,10 +404,12 @@ export async function seedLocalReceiptSeq(year: number, serverSeq: number, cashi
 
 export async function updateDeferredPayload(id: number, payload: unknown) {
   await db.updateOutbox(id, { payload });
+  void reportStockHolds();
 }
 
 export async function removeLocalReceipt(id: number) {
   await db.removeOutbox(id);
+  void reportStockHolds();
 }
 
 export async function resetDeadReceipt(id: number) {

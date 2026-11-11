@@ -52,9 +52,10 @@ import {
 import { Clip, CompactSearch, FieldBox, StatusLine } from '@/components/operations/opsUi';
 import { useSaveShortcut } from '@/hooks/useSaveShortcut';
 import { useUnsavedWarning } from '@/hooks/useUnsavedWarning';
+import { EdariMergeTab, usePendingStockStatus } from './EdariMergeTab';
 
-type EdariTab = 'queue' | 'dead' | 'logs' | 'sync' | 'settings';
-const EDARI_TABS: EdariTab[] = ['queue', 'dead', 'logs', 'sync', 'settings'];
+type EdariTab = 'queue' | 'merge' | 'dead' | 'logs' | 'sync' | 'settings';
+const EDARI_TABS: EdariTab[] = ['queue', 'merge', 'dead', 'logs', 'sync', 'settings'];
 /** v2: التبويبات تغيّرت (الطابور صار تبويباً مستقلاً بجدول كامل). */
 const TAB_KEY = 'fot_admin_edari_tab_v2';
 
@@ -203,6 +204,8 @@ export function EdariPage() {
   const logsQ = useQuery({ queryKey: ['edari-logs'], queryFn: api.edariLogs, refetchInterval: 20_000 });
   const unsyncedQ = useQuery({ queryKey: ['edari-unsynced'], queryFn: api.edariUnsynced, refetchInterval: 20_000 });
   const deadQ = useQuery({ queryKey: ['edari-dead-letters'], queryFn: api.edariDeadLetters, refetchInterval: 30_000 });
+  const pendingQ = usePendingStockStatus();
+  const unmergedCount = (pendingQ.data?.cashiers ?? []).reduce((n, c) => n + c.receipts + c.heldReceipts, 0);
 
   const retryDead = useMutation({
     mutationFn: (id: number) => {
@@ -637,6 +640,16 @@ export function EdariPage() {
             },
             { label: 'فواتير مُرحّلة', value: formatNum(live?.syncedCount ?? 0), tone: 'ok' },
             {
+              label: 'بانتظار الدمج',
+              value: formatNum(unmergedCount),
+              hint: pendingQ.data?.enabled === false
+                ? 'الخصم من العدد موقوف'
+                : unmergedCount ? `مطروحة من عدد ${formatNum(pendingQ.data?.products ?? 0)} مادة` : 'العدد مطابق للإداري',
+              tone: pendingQ.data?.enabled === false ? 'warn' : undefined,
+              onClick: () => setTab('merge'),
+              active: tab === 'merge',
+            },
+            {
               label: 'متوقفة — تحتاج تدخلاً',
               value: formatNum(deadCount),
               hint: deadCount ? 'اضغط لعرضها ومعالجتها' : 'لا شيء',
@@ -675,6 +688,7 @@ export function EdariPage() {
           onChange={setTab}
           items={[
             { id: 'queue', label: 'بانتظار الترحيل', icon: <IconClock size={14} />, count: unsyncedCount },
+            { id: 'merge', label: 'بانتظار الدمج', icon: <IconPackage size={14} />, count: unmergedCount },
             { id: 'dead', label: 'الفواتير المتوقفة', icon: <IconAlert size={14} />, count: deadCount },
             { id: 'logs', label: 'سجل العمليات', icon: <IconHistory size={14} />, count: logs.length },
             { id: 'sync', label: 'المزامنة اليدوية', icon: <IconRefresh size={14} /> },
@@ -739,6 +753,9 @@ export function EdariPage() {
             </WorkspaceBody>
           </>
         )}
+
+        {/* ── بانتظار الدمج (المخزون الحيّ) ── */}
+        {tab === 'merge' && <EdariMergeTab edariEnabled={enabled} />}
 
         {/* ── الفواتير المتوقفة ── */}
         {tab === 'dead' && (

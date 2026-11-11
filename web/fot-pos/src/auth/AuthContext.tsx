@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { ApiError, api, getToken, refreshSessionToken, setToken, TOKEN_REFRESHED_EVENT } from '@/api/client';
 import type { PosSessionDto } from '@/api/types';
 import { db } from '@/lib/db';
-import { outboxStats, seedLocalReceiptSeq } from '@/lib/catalogSync';
+import { outboxStats, reportStockHolds, seedLocalReceiptSeq } from '@/lib/catalogSync';
 import { lastSeenCatalogVersion } from '@/hooks/usePosHub';
 import { resolveHwId } from '@/lib/money';
 import { getApiBase, persistApiBase } from '@/lib/apiBase';
@@ -208,6 +208,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         outbox = { ready: stats.queued, dead: stats.dead, deferred: stats.deferred };
       } catch { /* stats are best-effort */ }
       await api.heartbeat(session.posTerminalId, outbox, lastSeenCatalogVersion());
+      // Live stock: receipts still on this terminal (manual transfer, offline) come off the stock.
+      await reportStockHolds(session.posTerminalId);
     };
     void ping();
     const t = window.setInterval(() => { void ping(); }, 45_000);

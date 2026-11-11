@@ -40,6 +40,9 @@ public static class DependencyInjection
         services.AddHttpClient("edari-text");
         services.AddScoped<EdariTextQueryService>();
         services.AddScoped<EdariDataPullService>();
+        // Live stock (Edari stock minus what is sold and not merged yet). Singleton: it caches its options.
+        services.AddSingleton<PendingStockRepository>();
+        services.AddScoped<StockSettlementService>();
 
         services.AddScoped<ProductRepository>();
         services.AddScoped<StoreCatalogRepository>();

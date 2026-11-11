@@ -503,7 +503,7 @@ public sealed class ApiPlatformRepository(ISqlConnectionFactory db, IMemoryCache
         if (!string.IsNullOrWhiteSpace(req.DiscountQrCode))
         {
             var person = await qrRepo.FindByCodeAsync(req.DiscountQrCode.Trim(), ct);
-            if (person is not null && person.Active)
+            if (person is not null && person.Active && DiscountQrRepository.Evaluate(person, DateTime.Now) is null)
             {
                 qrValid = true;
                 qrHolder = person.Name;

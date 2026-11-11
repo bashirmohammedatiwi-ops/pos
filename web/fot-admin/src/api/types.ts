@@ -164,6 +164,12 @@ export interface TeamBroadcastDto {
 export interface TeamShiftDto {
   start: string;
   end: string;
+  /** وردية الموظف قبل وقت اليوم؛ start/end هما وقت اليوم الحالي */
+  baseStart?: string;
+  baseEnd?: string;
+  /** من السبت إلى الجمعة؛ اليوم الفارغ يتبع baseStart/baseEnd */
+  week?: ({ start: string; end: string } | null)[] | null;
+  hourly?: boolean;
   breakMinutes: number;
   maxBreaks: number;
   custom?: boolean;
@@ -481,6 +487,43 @@ export interface ProductDto {
   changeVersion?: number;
   /** Stored per-product discount percent (ext_discount_percent). */
   storedDiscountPercent?: number;
+  /** Sold at the cashiers and not merged in Edari yet — `stock` already has it taken off. */
+  pendingQty?: number;
+}
+
+/** مبيعات كاشير لم يدمجها الإداري بعد (+ فواتير التحويل اليدوي المؤجلة على جهازه). */
+export interface PendingStockCashierDto {
+  posId: number;
+  posName: string;
+  receipts: number;
+  inEdari: number;
+  notInEdari: number;
+  pieces: number;
+  oldest?: string | null;
+  newest?: string | null;
+  heldReceipts: number;
+  heldPieces: number;
+  holdsReportedAt?: string | null;
+}
+
+export interface PendingStockStatusDto {
+  enabled: boolean;
+  maxHours: number;
+  products: number;
+  pieces: number;
+  lastCheckAt?: string | null;
+  lastMessage?: string | null;
+  expiredLastWeek: number;
+  cashiers: PendingStockCashierDto[];
+}
+
+export interface PendingStockCheckResultDto {
+  ok: boolean;
+  message: string;
+  checked: number;
+  settled: number;
+  stillOpen: number;
+  stockChanged: number;
 }
 
 export interface UpdateProductRequest {
@@ -838,7 +881,25 @@ export interface ReceiptDetailDto {
   printedNumber?: number | null;
 }
 
-export interface DiscountQrPersonDto {
+/** شروط رمز الخصم: كل حقل فارغ يعني بلا حد */
+export interface DiscountQrRules {
+  maxPercent?: number | null;
+  maxAmount?: number | null;
+  minInvoice?: number | null;
+  weekdays?: number | null;
+  timeFrom?: number | null;
+  timeTo?: number | null;
+  validFrom?: string | null;
+  validTo?: string | null;
+  maxUses?: number | null;
+  maxUsesPerDay?: number | null;
+  budgetTotal?: number | null;
+  budgetMonth?: number | null;
+  allowGift?: boolean;
+  note?: string | null;
+}
+
+export interface DiscountQrPersonDto extends DiscountQrRules {
   id: number;
   name: string;
   code: string;
@@ -846,6 +907,13 @@ export interface DiscountQrPersonDto {
   createdAt: string;
   receiptCount: number;
   totalDiscount: number;
+  usageSince?: string | null;
+  usesToday?: number;
+  usesSince?: number;
+  spentMonth?: number;
+  spentSince?: number;
+  usageAt?: string | null;
+  violationCount?: number;
 }
 
 export interface DiscountQrReceiptDto {
@@ -856,6 +924,7 @@ export interface DiscountQrReceiptDto {
   userDiscount: number;
   cashierName?: string | null;
   personName?: string | null;
+  violation?: string | null;
 }
 
 export interface TerminalDto {

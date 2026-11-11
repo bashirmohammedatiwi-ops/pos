@@ -59,6 +59,8 @@ import type {
   EdariArabicNamesBackfillResult,
   EdariDataPullResult,
   EdariDeadLetterDto,
+  PendingStockCheckResultDto,
+  PendingStockStatusDto,
   EdariFullSyncResult,
   EdariSettingsDto,
   EdariSyncLogDto,
@@ -93,7 +95,7 @@ import type {
   ReceiptDetailDto,
   HoldReceiptDto,
   ReceiptSearchResult,
-  DiscountQrPersonDto,
+  DiscountQrPersonDto, DiscountQrRules,
   DiscountQrReceiptDto,
   PortalPublishResult,
   PortalSellerAccountDto,
@@ -483,8 +485,12 @@ export const api = {
   completeHold: (id: number, payment: number) =>
     request<ReceiptDetailDto>(`/api/receipts/hold/${id}/complete${qs({ payment })}`, { method: 'POST' }),
   discountQrPeople: () => request<DiscountQrPersonDto[]>('/api/discount-qr-people'),
-  createDiscountQrPerson: (name: string) =>
-    request<DiscountQrPersonDto>('/api/discount-qr-people', { method: 'POST', body: JSON.stringify({ name }) }),
+  createDiscountQrPerson: (name: string, rules?: DiscountQrRules) =>
+    request<DiscountQrPersonDto>('/api/discount-qr-people', { method: 'POST', body: JSON.stringify({ name, rules }) }),
+  updateDiscountQrRules: (id: number, rules: DiscountQrRules) =>
+    request<DiscountQrPersonDto>(`/api/discount-qr-people/${id}/rules`, { method: 'PUT', body: JSON.stringify(rules) }),
+  resetDiscountQrUsage: (id: number) =>
+    request<DiscountQrPersonDto>(`/api/discount-qr-people/${id}/reset-usage`, { method: 'POST' }),
   updateDiscountQrPerson: (id: number, req: { name?: string; active?: boolean }) =>
     request<void>(`/api/discount-qr-people/${id}`, { method: 'PATCH', body: JSON.stringify(req) }),
   discountQrReceipts: (id: number) =>
@@ -921,6 +927,18 @@ export const api = {
       '/api/edari/sync/accounts',
       { method: 'POST' },
     ),
+
+  // المخزون الحيّ: عدد الإداري − ما بيع ولم يُدمج بعد
+  pendingStockStatus: () => request<PendingStockStatusDto>('/api/stock/pending/status'),
+  checkPendingStock: () =>
+    request<PendingStockCheckResultDto>('/api/stock/pending/check', { method: 'POST', timeoutMs: 120_000 }),
+  settlePendingStock: (posId: number) =>
+    request<{ settled: number }>(`/api/stock/pending/settle/${posId}`, { method: 'POST' }),
+  savePendingStockSettings: (enabled: boolean, maxHours: number) =>
+    request<PendingStockStatusDto>('/api/stock/pending/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled, maxHours }),
+    }),
 
   edariDeadLetters: () => request<EdariDeadLetterDto[]>('/api/edari/dead-letters?limit=100'),
   retryEdariDeadLetter: (id: number) =>

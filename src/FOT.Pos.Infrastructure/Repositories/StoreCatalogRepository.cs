@@ -10,6 +10,10 @@ namespace FOT.Pos.Infrastructure.Repositories;
 /// control panel is visible on the next request. Offer edits also bump the article rowversion,
 /// which <see cref="ChangesAsync"/> uses as the sync cursor.
 /// </summary>
+public sealed record StorePushRow(long Seq, StoreProductDto Product);
+
+public sealed record StorePushPage(IReadOnlyList<StorePushRow> Rows, long NextSince, bool HasMore);
+
 public sealed class StoreCatalogRepository(ISqlConnectionFactory db)
 {
     private sealed record Head(int ProductCount, long Revision);
@@ -18,7 +22,7 @@ public sealed class StoreCatalogRepository(ISqlConnectionFactory db)
         long Id, string? Num, string? Name, string? Barcode,
         decimal OriginalPrice, decimal StoredFinalPrice, decimal Stock,
         decimal? DiscountValue, int DiscountType, string? OfferName,
-        int StoredDiscountPercent, long ChangeVersion);
+        int StoredDiscountPercent, long ChangeVersion, long Seq);
 
     public async Task<StoreCatalogVersionDto> VersionAsync(CancellationToken ct)
     {
@@ -48,7 +52,7 @@ public sealed class StoreCatalogRepository(ISqlConnectionFactory db)
         if (offersOnly)
             where += " AND ao.item_id IS NOT NULL";
         if (inStockOnly)
-            where += " AND COALESCE(a.CurTot1,0) > 0";
+            where += $" AND {ProductSql.EffectiveStock} > 0";
 
         var sql = $"""
             ;WITH {ProductSql.ActiveOffersCte}
@@ -230,6 +234,30 @@ public sealed class StoreCatalogRepository(ISqlConnectionFactory db)
         return new StoreCatalogChangesDto(items, head.Revision, nextSince, hasMore, head.ProductCount);
     }
 
+    /// <summary>
+    /// Same feed as <see cref="ChangesAsync"/>, with each product's Edari Seq — the store site
+    /// keys its products on it (see StoreSitePushService).
+    /// </summary>
+    public async Task<StorePushPage> PushChangesAsync(long since, int limit, CancellationToken ct)
+    {
+        limit = Math.Clamp(limit, 1, 5000);
+        var sql = $"""
+            ;WITH {ProductSql.ActiveOffersCte}
+            SELECT TOP (@take) {SelectColumns}
+            FROM dbo.articles a
+            LEFT JOIN ActiveOffers ao ON a.Seq = ao.item_id AND ao.rn = 1
+            WHERE a.ext_row_version > @since AND COALESCE(a.SellPr4, 0) > 0
+            ORDER BY a.ext_row_version ASC
+            """;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var rows = (await conn.QueryAsync<Row>(new CommandDefinition(
+            sql, new { since, take = limit + 1 }, cancellationToken: ct))).ToList();
+        var hasMore = rows.Count > limit;
+        if (hasMore) rows.RemoveAt(rows.Count - 1);
+        var items = rows.Select(r => new StorePushRow(r.Seq, Map(r))).ToList();
+        return new StorePushPage(items, items.Count > 0 ? items[^1].Product.Revision : since, hasMore);
+    }
+
     public async Task<IReadOnlyList<long>> LiveIdsAsync(CancellationToken ct)
     {
         const string sql = """
@@ -279,12 +307,13 @@ public sealed class StoreCatalogRepository(ISqlConnectionFactory db)
         LTRIM(RTRIM(a.Barcode)) AS Barcode,
         CAST(COALESCE(NULLIF(a.SellPr4,0),0) AS decimal(18,0)) AS OriginalPrice,
         CAST(0 AS decimal(18,0)) AS StoredFinalPrice,
-        CAST(COALESCE(a.CurTot1,0) AS decimal(18,2)) AS Stock,
+        CAST((COALESCE(a.CurTot1,0) - COALESCE(a.ext_pending_qty,0)) AS decimal(18,2)) AS Stock,
         CAST(ao.discount AS decimal(18,2)) AS DiscountValue,
         CAST(COALESCE(ao.discount_type,0) AS int) AS DiscountType,
         ao.offer_name AS OfferName,
         CAST(COALESCE(a.ext_discount_percent,0) AS int) AS StoredDiscountPercent,
-        CONVERT(BIGINT, a.ext_row_version) AS ChangeVersion
+        CONVERT(BIGINT, a.ext_row_version) AS ChangeVersion,
+        CONVERT(BIGINT, a.Seq) AS Seq
         """;
 
     private static StoreProductDto Map(Row r)

@@ -81,6 +81,44 @@ public sealed class OfferRepository(
         return ids.Count;
     }
 
+    /// <summary>
+    /// Offer prices are computed live, so a detail whose start day arrives (or whose end day
+    /// passes while the offer stays on) changes the sale price without touching any article.
+    /// Touch those articles so their rowversion moves and they reach the catalog delta feed.
+    /// Covers every day that began after <paramref name="lastRunDay"/> up to <paramref name="today"/>;
+    /// the conditions mirror <see cref="ProductSql.ActiveOffersCte"/>. Returns articles touched.
+    /// </summary>
+    public async Task<int> TouchOfferDayBoundariesAsync(DateOnly lastRunDay, DateOnly today, CancellationToken ct)
+    {
+        if (lastRunDay >= today) return 0;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        // Active on day X means X >= from_date and X <= to_date (X promoted to midnight),
+        // so "started" = off on lastRunDay, on today; "ended" = on lastRunDay, off today.
+        return await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE a SET a.ext_discount_percent = a.ext_discount_percent
+            FROM dbo.articles a
+            WHERE a.Seq IN (
+                SELECT od.item_id FROM dbo.offer_details od
+                INNER JOIN dbo.offers o ON o.id = od.offer_id
+                WHERE o.enabled = 1 AND COALESCE(o.type, 0) <> 1
+                  AND od.detail_role = 0
+                  AND COALESCE(od.excluded, 0) = 0
+                  AND COALESCE(od.Unlimited, 0) = 0
+                  AND od.item_id IS NOT NULL
+                  AND (od.discount > 0 OR od.discount_type = 2)
+                  AND (
+                      (od.from_date > @lastRunDay AND od.from_date <= @today)
+                      OR (od.to_date >= @lastRunDay AND od.to_date < @today)
+                  ))
+            """,
+            new
+            {
+                lastRunDay = lastRunDay.ToDateTime(TimeOnly.MinValue),
+                today = today.ToDateTime(TimeOnly.MinValue),
+            },
+            cancellationToken: ct));
+    }
+
     public async Task<PagedResult<OfferDto>> ListAsync(int page, int pageSize, CancellationToken ct)
     {
         await ExpireElapsedAsync(ct);
@@ -498,6 +536,38 @@ public sealed class OfferRepository(
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         return await conn.ExecuteAsync(new CommandDefinition(sql, new { offerId }, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// Products an offer (or one of its tree batches, or one detail) prices. Read before a delete,
+    /// then passed to <see cref="TouchArticlesAsync"/> after it — touching by offer id once the rows
+    /// are gone misses exactly the products that lost their offer.
+    /// </summary>
+    public async Task<IReadOnlyList<long>> GetOfferItemSeqsAsync(
+        long offerId, CancellationToken ct, long? treeSeq = null, long? detailId = null)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return (await conn.QueryAsync<long>(new CommandDefinition("""
+            SELECT DISTINCT CAST(item_id AS BIGINT) FROM offer_details
+            WHERE offer_id = @offerId AND item_id IS NOT NULL
+              AND (@treeSeq IS NULL OR source_tree_seq = @treeSeq)
+              AND (@detailId IS NULL OR id = @detailId)
+            """, new { offerId, treeSeq, detailId }, cancellationToken: ct))).ToList();
+    }
+
+    /// <summary>Bumps the rowversion of these products so terminals re-pull their price.</summary>
+    public async Task<int> TouchArticlesAsync(IReadOnlyCollection<long> seqs, CancellationToken ct)
+    {
+        if (seqs.Count == 0) return 0;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var touched = 0;
+        foreach (var chunk in seqs.Distinct().Chunk(1000))
+        {
+            touched += await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE articles SET ext_discount_percent = ext_discount_percent WHERE Seq IN @seqs",
+                new { seqs = chunk }, cancellationToken: ct));
+        }
+        return touched;
     }
 
     /// <summary>Offer a detail belongs to — needed to refresh prices when only the detail id is known.</summary>

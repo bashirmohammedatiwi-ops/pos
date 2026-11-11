@@ -1,3 +1,4 @@
+import type { DiscountQrPerson } from '@fot/shared';
 import { fetchLan } from '@fot/shared';
 import { getApiBase } from '@/lib/apiBase';
 import { isServerUnreachable, markServerReachable, markServerUnreachable } from '@/lib/connectionGate';
@@ -280,10 +281,10 @@ export const api = {
   myCashBoxes: () => request<SectionCashBoxDto[]>('/api/pos/my-cashboxes'),
 
   discountQrPeople: () =>
-    request<Array<{ id: number; name: string; code: string; active: boolean }>>('/api/pos/discount-qr-people'),
+    request<Array<DiscountQrPerson & { active: boolean }>>('/api/pos/discount-qr-people'),
 
   lookupDiscountQr: (code: string) =>
-    request<{ id: number; name: string; code: string }>('/api/pos/discount-qr?code=' + encodeURIComponent(code), LOOKUP),
+    request<DiscountQrPerson>('/api/pos/discount-qr?code=' + encodeURIComponent(code), LOOKUP),
 
   productByBarcode: (code: string) =>
     request<ProductDto>(`/api/products/barcode/${encodeURIComponent(code)}`, LOOKUP),
@@ -331,6 +332,22 @@ export const api = {
     request<CreateReceiptResponse>('/api/receipts', {
       method: 'POST',
       timeoutMs: SALE_TIMEOUT_MS,
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Live stock: the full list of receipts still on this terminal (manual-transfer, offline queue).
+   * Replaces the previous list; the server takes them off the stock until the receipt itself arrives.
+   */
+  replaceStockHolds: (
+    posId: number,
+    body: {
+      receipts: { clientReceiptId: string; kind: number; soldAt?: string; items: { articleId: number; quantity: number }[] }[];
+      hwId?: string;
+    },
+  ) =>
+    request<{ changed: number }>(`/api/stock/holds/${posId}`, {
+      method: 'PUT',
       body: JSON.stringify(body),
     }),
 

@@ -14,7 +14,7 @@ import type {
   SalesmanDto,
 } from '@/api/types';
 import type { DiscountQrPerson, PrinterInfo } from '@fot/shared';
-import { isDiscountQrCode, normalizeDiscountQrCode } from '@fot/shared';
+import { discountQrCap, discountQrLimitText, evaluateDiscountQr, isDiscountQrCode, normalizeDiscountQrCode } from '@fot/shared';
 import { totalRoundingDiscount, totalRoundingStep } from '@fot/shared';
 import type { OutboxRow } from '@/lib/db';
 import {
@@ -22,6 +22,7 @@ import {
   enqueueReceipt,
   ensureNumberBlock,
   findDiscountQr,
+  noteDiscountQrUse,
   findProductSmart,
   flushOutbox,
   takeReceiptNumber,
@@ -253,6 +254,8 @@ export function SalesPage({
   const [returnSource, setReturnSource] = useState<ReceiptReturnSourceDto | null>(null);
   const [returnChoices, setReturnChoices] = useState<ReceiptReturnSourceDto[]>([]);
   const [discountQr, setDiscountQr] = useState<DiscountQrPerson | null>(null);
+  // رمز له حد نسبة قد لا يفتح الهدية، وإلا صارت الهدية طريقاً حول الحد
+  const qrAllowsGift = !!discountQr && discountQr.allowGift !== false;
   const [invoiceDraft, setInvoiceDraft] = useState('');
   const [priceScan, setPriceScan] = useState('');
   const [priceHit, setPriceHit] = useState<ProductDto | null>(null);
@@ -326,14 +329,14 @@ export function SalesPage({
     }
     if (saleKind === 1 && px.invoiceBoundReturn && !returnSource) setSaleKind(0);
     if (saleKind === 2 && !px.allowGiftReceipt) setSaleKind(0);
-    if (saleKind === 2 && px.giftViaDiscountQr && !discountQr) setSaleKind(0);
+    if (saleKind === 2 && px.giftViaDiscountQr && !qrAllowsGift) setSaleKind(0);
     if (accountId > 0 && !px.allowCreditReceipt) setAccountId(0);
     if (!px.allowSearchArticles && groupFilter) setGroupFilter('');
     if (!px.makeDiscount && !discountQr && userDiscount > 0) {
       setUserDiscount(0);
       setDiscountInput('');
     }
-  }, [px, saleKind, accountId, groupFilter, userDiscount, returnSource, discountQr]);
+  }, [px, saleKind, accountId, groupFilter, userDiscount, returnSource, discountQr, qrAllowsGift]);
 
   overlayRef.current = overlay;
   qtyDraftRef.current = qtyDraft;
@@ -428,9 +431,18 @@ export function SalesPage({
   }, [online, applyReferenceUi, showToast]);
 
   const syncingRef = useRef(false);
+  // A catalog push that lands mid-sync used to be dropped, so an offer saved in several steps
+  // reached this terminal only on the next 90 s poll while price checkers showed it at once.
+  const syncAgainRef = useRef(false);
+  const runSyncRef = useRef<() => Promise<void>>(async () => {});
   const runSync = useCallback(async () => {
-    if (!canUseServer(online) || syncingRef.current) return;
+    if (!canUseServer(online)) return;
+    if (syncingRef.current) {
+      syncAgainRef.current = true;
+      return;
+    }
     syncingRef.current = true;
+    syncAgainRef.current = false;
     setSyncing(true);
     try {
       const flushed = await flushOutbox();
@@ -458,8 +470,13 @@ export function SalesPage({
     } finally {
       syncingRef.current = false;
       setSyncing(false);
+      if (syncAgainRef.current) {
+        syncAgainRef.current = false;
+        void runSyncRef.current();
+      }
     }
   }, [online, applyReferenceUi, refreshLocal, showToast, session.cashierId, session.cashierReceiptNum]);
+  runSyncRef.current = runSync;
 
   const scheduleFullSync = useMemo(() => createDebouncedSync(() => { void runSync(); }, 1500), [runSync]);
   usePosHub(canUseServer(online), scheduleFullSync, () => {
@@ -833,11 +850,18 @@ export function SalesPage({
         focusScan();
         return;
       }
+      const verdict = evaluateDiscountQr(person);
+      if (!verdict.ok) {
+        showToast(verdict.reason);
+        setScan('');
+        focusScan();
+        return;
+      }
       setDiscountQr(person);
       showToast(
-        px.giftViaDiscountQr && px.allowGiftReceipt
-          ? `خصم غير محدود — معتمد من ${person.name} · يمكنك الآن إصدار هدية`
-          : `خصم غير محدود — معتمد من ${person.name}`,
+        px.giftViaDiscountQr && px.allowGiftReceipt && person.allowGift !== false
+          ? `خصم ${discountQrLimitText(person)} — معتمد من ${person.name} · يمكنك الآن إصدار هدية`
+          : `خصم ${discountQrLimitText(person)} — معتمد من ${person.name}`,
       );
       setScan('');
       setScanError(null);
@@ -1019,8 +1043,8 @@ export function SalesPage({
       showToast('لا صلاحية للهدايا');
       return;
     }
-    if (next === 2 && px.giftViaDiscountQr && !discountQr) {
-      showToast('امسح رمز QR للخصم غير المحدود لتفعيل الهدية');
+    if (next === 2 && px.giftViaDiscountQr && !qrAllowsGift) {
+      showToast(discountQr ? `رمز ${discountQr.name} لا يفتح الهدايا` : 'امسح رمز QR للخصم لتفعيل الهدية');
       return;
     }
     if (next === 1 && px.invoiceBoundReturn) {
@@ -1185,23 +1209,24 @@ export function SalesPage({
   useEffect(() => {
     if ((!px.makeDiscount && !discountQr) || discountMode !== 'percent') return;
     const n = Number(discountInput) || 0;
-    setUserDiscount(capUserDiscount(subtotal * n / 100, discountQr ? 0 : px.userDiscountLimit, subtotal));
+    const value = capUserDiscount(subtotal * n / 100, discountQr ? 0 : px.userDiscountLimit, subtotal);
+    setUserDiscount(discountQr ? Math.min(value, discountQrCap(discountQr, subtotal)) : value);
   }, [discountInput, discountMode, discountQr, px.makeDiscount, px.userDiscountLimit, subtotal]);
   // An amount discount was capped against the subtotal when typed; removing lines afterwards
   // must pull it down with the subtotal (never raise it back on its own).
   useEffect(() => {
     if (discountMode !== 'amount') return;
     setUserDiscount(prev => {
-      const capped = capUserDiscount(prev, 0, subtotal);
+      const capped = Math.min(capUserDiscount(prev, 0, subtotal), discountQr ? discountQrCap(discountQr, subtotal) : Infinity);
       return capped < prev ? capped : prev;
     });
-  }, [discountMode, subtotal]);
+  }, [discountMode, discountQr, subtotal]);
   const cash = Number(cashGiven || 0);
   const change = cash - total;
   const creditMode = accountId > 0;
   const giftMode = saleKind === 2;
   const returnMode = saleKind === 1;
-  const canShowGift = px.allowGiftReceipt && (!px.giftViaDiscountQr || Boolean(discountQr));
+  const canShowGift = px.allowGiftReceipt && (!px.giftViaDiscountQr || qrAllowsGift);
   const giftBarcodeOnly = giftMode && px.giftViaDiscountQr;
   const selectedAccount = accounts.find(a => a.id === accountId);
   const needsCash = !giftMode && !creditMode;
@@ -1256,8 +1281,12 @@ export function SalesPage({
       showToast('لا صلاحية لخصم الفاتورة — امسح رمز الاعتماد');
       return 0;
     }
-    const next = capUserDiscount(value, invoiceDiscountLimit, subtotal);
+    const allowed = capUserDiscount(value, invoiceDiscountLimit, subtotal);
+    const next = discountQr ? Math.min(allowed, discountQrCap(discountQr, subtotal)) : allowed;
     setUserDiscount(next);
+    if (discountQr && next < allowed) {
+      showToast(next > 0 ? `الحد لهذا الرمز على هذه الفاتورة ${formatIqd(next)}` : `رمز ${discountQr.name}: ${discountQrLimitText(discountQr)}`);
+    }
     return next;
   }
 
@@ -1828,6 +1857,18 @@ export function SalesPage({
       showToast('لا صلاحية للهدايا');
       return;
     }
+    // الرمز مُسح قبل قليل أو في فاتورة معلّقة: قد تكون ساعاته انتهت أو ميزانيته نفدت منذ ذلك الوقت
+    if (discountQr && (userDiscount > 0 || giftMode) && !returnMode) {
+      const verdict = evaluateDiscountQr(discountQr);
+      if (!verdict.ok) {
+        showToast(`${verdict.reason} — أُلغي الخصم`);
+        setDiscountQr(null);
+        setUserDiscount(0);
+        setDiscountInput('');
+        if (giftMode && px.giftViaDiscountQr) setSaleKind(0);
+        return;
+      }
+    }
     if (userDiscount > 0 && !canInvoiceDiscount) {
       showToast('لا صلاحية لخصم الفاتورة — امسح رمز الاعتماد');
       return;
@@ -1896,6 +1937,7 @@ export function SalesPage({
           kind: saleKind,
           local: true,
         };
+        if (discountQr && saleKind === 0) void noteDiscountQrUse(discountQr.id, postedDiscount);
         finishSale(
           'حُفظت مؤجلة — بانتظار الترحيل',
           `مؤجلة #${localNumber} — تُرحَّل من الفواتير المحلية`,
@@ -1950,6 +1992,7 @@ export function SalesPage({
             : method === 'card'
               ? 'تم الدفع بماستر كارد'
               : 'تم حفظ الفاتورة';
+      if (discountQr && saleKind === 0) void noteDiscountQrUse(discountQr.id, postedDiscount);
       finishSale(done, `${kindLabel(saleKind)} ${localNumber} — ${formatIqd(total)}`, total);
       runSaleSideEffects(printed, summary, true);
       if (canUseServer(online)) {
@@ -2242,7 +2285,7 @@ export function SalesPage({
                   <span>
                     خصم الفاتورة
                     {discountQr
-                      ? <small> (غير محدود · {discountQr.name})</small>
+                      ? <small> ({discountQrLimitText(discountQr)} · {discountQr.name})</small>
                       : px.userDiscountLimit > 0 && (
                         <small> (حد {formatIqd(px.userDiscountLimit)})</small>
                       )}
@@ -2257,7 +2300,7 @@ export function SalesPage({
         <section className="pos-panel pos-panel-cart">
           {discountQr && (
             <div className="pos-mode-banner is-gift">
-              خصم غير محدود — معتمد من {discountQr.name}
+              خصم {discountQrLimitText(discountQr)} — معتمد من {discountQr.name}
               <button
                 type="button"
                 className="ms-2 underline"
@@ -2717,7 +2760,10 @@ export function SalesPage({
               <b className="num">{formatIqd(userDiscount)}</b>
             </div>
             {discountQr ? (
-              <p className="mb-2 text-center text-[12px] text-emerald-700">غير محدود · {discountQr.name}</p>
+              <p className="mb-2 text-center text-[12px] text-emerald-700">
+                {discountQrLimitText(discountQr)} · {discountQr.name}
+                {Number.isFinite(discountQrCap(discountQr, subtotal)) && <> · المتاح الآن {formatIqd(discountQrCap(discountQr, subtotal))}</>}
+              </p>
             ) : px.userDiscountLimit > 0 && (
               <p className="mb-2 text-center text-[12px] text-slate-500">الحد {formatIqd(px.userDiscountLimit)}</p>
             )}

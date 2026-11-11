@@ -181,9 +181,11 @@ public static class AdminEndpoints
         });
         api.MapDelete("/offers/details/{detailId:long}", async (OfferRepository repo, long detailId, IHubContext<PosHub> hub) =>
         {
-            // Read the offer before the row is gone — the article still needs a price refresh.
+            // Read the offer and its product before the row is gone — that product loses its offer price.
             var offerId = await repo.GetDetailOfferIdAsync(detailId, default) ?? 0;
+            var removed = offerId > 0 ? await repo.GetOfferItemSeqsAsync(offerId, default, detailId: detailId) : [];
             await repo.DeleteDetailAsync(detailId, default);
+            await repo.TouchArticlesAsync(removed, default);
             await NotifyOfferPricesChangedAsync(repo, hub, offerId);
             return Results.NoContent();
         });
@@ -230,16 +232,18 @@ public static class AdminEndpoints
         });
         api.MapDelete("/offers/{id:long}/tree/{treeSeq:long}", async (OfferRepository repo, long id, long treeSeq, IHubContext<PosHub> hub) =>
         {
-            // Refresh prices while the rows still name the products, then remove them.
-            await repo.TouchOfferArticlesAsync(id, default);
+            // Remember the products while the rows still name them, remove, then refresh their prices.
+            var removed = await repo.GetOfferItemSeqsAsync(id, default, treeSeq: treeSeq);
             var count = await repo.DeleteTreeBatchAsync(id, treeSeq, default);
+            await repo.TouchArticlesAsync(removed, default);
             await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Products);
             return Results.Ok(new { removed = count });
         });
         api.MapDelete("/offers/{id:long}", async (OfferRepository repo, long id, IHubContext<PosHub> hub) =>
         {
-            await repo.TouchOfferArticlesAsync(id, default);
+            var removed = await repo.GetOfferItemSeqsAsync(id, default);
             await repo.DeleteAsync(id, default);
+            await repo.TouchArticlesAsync(removed, default);
             await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Products);
             return Results.NoContent();
         });
@@ -939,7 +943,7 @@ public static class AdminEndpoints
         {
             try
             {
-                var created = await repo.CreateAsync(req.Name, default);
+                var created = await repo.CreateAsync(req.Name, req.Rules, default);
                 await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Settings);
                 return Results.Ok(created);
             }
@@ -961,6 +965,27 @@ public static class AdminEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+        });
+        api.MapPut("/discount-qr-people/{id:long}/rules", async (
+            DiscountQrRepository repo, long id, DiscountQrRulesRequest req, IHubContext<PosHub> hub) =>
+        {
+            try
+            {
+                await repo.UpdateRulesAsync(id, req, default);
+                await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Settings);
+                return Results.Ok(await repo.GetByIdAsync(id, default));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+        api.MapPost("/discount-qr-people/{id:long}/reset-usage", async (
+            DiscountQrRepository repo, long id, IHubContext<PosHub> hub) =>
+        {
+            await repo.ResetUsageAsync(id, default);
+            await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Settings);
+            return Results.Ok(await repo.GetByIdAsync(id, default));
         });
         api.MapGet("/discount-qr-people/{id:long}/receipts", async (DiscountQrRepository repo, long id) =>
             Results.Ok(await repo.ListReceiptsAsync(id, default)));

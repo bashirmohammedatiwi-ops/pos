@@ -16,7 +16,8 @@ public sealed class ReceiptRepository(
     ReceiptNumberAllocator receiptNumbers,
     SectionRepository sections,
     PosCashBoxSettingsRepository cashBoxSettings,
-    DiscountQrRepository discountQr)
+    DiscountQrRepository discountQr,
+    PendingStockRepository pendingStock)
 {
     private static bool IsMissingColumn(SqlException ex) =>
         ex.Number == 207 || ex.Message.Contains("Invalid column name", StringComparison.OrdinalIgnoreCase);
@@ -362,7 +363,11 @@ public sealed class ReceiptRepository(
             long? printedNumber = !req.IsPending && req.Number is > 0 && req.Number.Value != number
                 ? req.Number
                 : null;
-            var receiptId = await InsertReceiptAsync(conn, tx, req, number, total, offersDiscount, cashBack, masterAccount, qrPerson, printedNumber, ct);
+            // الفاتورة قد تكون بيعت دون اتصال والمال استُلم: مخالفة شروط الرمز تُسجَّل للمراجعة ولا تمنع الحفظ
+            var qrViolation = qrPerson is { } qp && req.Kind == 0 && !req.IsPending && schema.DiscountQrViolation
+                ? await discountQr.AuditAsync(qp.Id, NormalizeSoldAt(req.SoldAt) ?? DateTime.Now, subtotal, req.UserDiscount, ct)
+                : null;
+            var receiptId = await InsertReceiptAsync(conn, tx, req, number, total, offersDiscount, cashBack, masterAccount, qrPerson, printedNumber, ct, qrViolation);
 
             var headerSalesman = ResolveHeaderSalesman(req);
             foreach (var item in req.Items)
@@ -377,7 +382,11 @@ public sealed class ReceiptRepository(
             await tx.CommitAsync(ct);
 
             if (!req.IsPending)
+            {
                 sideEffects.ScheduleSaleCommitted(receiptId, number, req.CashierId, req.PosId, ResolveHeaderSalesman(req));
+                // Live stock: the sold items drop at once on every screen, not after «دمج الإيصالات».
+                await pendingStock.RecomputeForReceiptAsync(receiptId, CancellationToken.None);
+            }
 
             return new CreateReceiptResponse(receiptId, number, total, cashBack, renumbered);
         }
@@ -556,7 +565,8 @@ public sealed class ReceiptRepository(
         long masterAccount,
         (long Id, string Name)? qrPerson,
         long? printedNumber,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? qrViolation = null)
     {
         var soldAt = NormalizeSoldAt(req.SoldAt);
         var args = new
@@ -579,7 +589,8 @@ public sealed class ReceiptRepository(
             returnOfReceiptId = req.Kind == 1 ? req.ReturnOfReceiptId : null,
             discountQrPersonId = qrPerson?.Id,
             discountQrPersonName = qrPerson?.Name,
-            printedNumber
+            printedNumber,
+            qrViolation
         };
         var createdExpr = soldAt.HasValue ? "@creationDate" : "GETDATE()";
 
@@ -594,6 +605,11 @@ public sealed class ReceiptRepository(
         {
             extraCols += ", return_of_receipt_id";
             extraVals += ", @returnOfReceiptId";
+        }
+        if (schema.DiscountQrViolation)
+        {
+            extraCols += ", discount_qr_violation";
+            extraVals += ", @qrViolation";
         }
         if (schema.DiscountQrPerson)
         {
@@ -819,6 +835,7 @@ public sealed class ReceiptRepository(
         }
 
         sideEffects.ScheduleHoldCompleted(holdId, number, salesmanId);
+        await pendingStock.RecomputeForReceiptAsync(holdId, CancellationToken.None);
 
         return await GetByIdAsync(holdId, ct);
     }

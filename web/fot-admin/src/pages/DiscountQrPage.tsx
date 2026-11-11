@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, formatDate, formatDateOnly, formatNum } from '@/api/client';
-import type { DiscountQrPersonDto, DiscountQrReceiptDto } from '@/api/types';
+import type { DiscountQrPersonDto, DiscountQrReceiptDto, DiscountQrRules } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 import {
   FilterBar,
@@ -36,11 +36,22 @@ import {
 } from '@/components/people/PeopleKit';
 import { discountQrDataUrl, printDiscountQr } from '@/lib/qrPng';
 import { downloadCsv } from '@/utils/exportCsv';
+import { DiscountQrNowBadge, DiscountQrRulesModal, discountQrRuleLines } from './DiscountQrRules';
 
 type StatusFilter = 'all' | 'active' | 'off';
 type ViewMode = 'table' | 'cards';
 
 const VIEW_KEY = 'fot_admin_discount_qr_view';
+
+function IconSliders({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="8" cy="17" r="2" />
+    </svg>
+  );
+}
 
 function Money({ value }: { value: number }) {
   return (
@@ -137,6 +148,8 @@ export function DiscountQrPage() {
   const [renaming, setRenaming] = useState<{ person: DiscountQrPersonDto; value: string } | null>(null);
   const [freshId, setFreshId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [rulesForId, setRulesForId] = useState<number | null>(null);
 
   const peopleQ = useQuery({
     queryKey: ['discount-qr-people'],
@@ -145,6 +158,7 @@ export function DiscountQrPage() {
   const people = useMemo(() => peopleQ.data ?? [], [peopleQ.data]);
   // نافذة الرمز تقرأ أحدث نسخة (بعد إعادة التسمية/الإيقاف)
   const qrFor = qrForId != null ? people.find(p => p.id === qrForId) ?? null : null;
+  const rulesFor = rulesForId != null ? people.find(p => p.id === rulesForId) ?? null : null;
 
   const receiptsQ = useQuery({
     queryKey: ['discount-qr-receipts', receiptsFor?.id],
@@ -158,8 +172,9 @@ export function DiscountQrPage() {
   );
 
   const createM = useMutation({
-    mutationFn: () => api.createDiscountQrPerson(name.trim()),
+    mutationFn: (rules: DiscountQrRules) => api.createDiscountQrPerson(name.trim(), rules),
     onSuccess: created => {
+      setCreating(false);
       setName('');
       setFreshId(created.id);
       setSelectedId(created.id);
@@ -192,9 +207,37 @@ export function DiscountQrPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const rulesM = useMutation({
+    mutationFn: (req: { id: number; rules: DiscountQrRules }) => api.updateDiscountQrRules(req.id, req.rules),
+    onSuccess: () => {
+      setRulesForId(null);
+      toast.success('تم حفظ شروط الرمز');
+      void qc.invalidateQueries({ queryKey: ['discount-qr-people'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resetM = useMutation({
+    mutationFn: (id: number) => api.resetDiscountQrUsage(id),
+    onSuccess: () => {
+      toast.success('تم تصفير عدّاد الاستخدام');
+      void qc.invalidateQueries({ queryKey: ['discount-qr-people'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   function create() {
     if (!name.trim() || createM.isPending) return;
-    createM.mutate();
+    setCreating(true);
+  }
+
+  async function resetUsage(p: DiscountQrPersonDto) {
+    const ok = await confirm({
+      title: `تصفير عدّاد رمز ${p.name}؟`,
+      message: 'تبدأ حدود الاستخدام والميزانية من الصفر من الآن. الفواتير السابقة تبقى في التقارير.',
+      confirmLabel: 'تصفير العدّاد',
+    });
+    if (ok) resetM.mutate(p.id);
   }
 
   async function toggleActive(p: DiscountQrPersonDto) {
@@ -239,6 +282,7 @@ export function DiscountQrPage() {
   const offCount = people.length - activeCount;
   const receiptTotal = people.reduce((s, p) => s + p.receiptCount, 0);
   const discountTotal = people.reduce((s, p) => s + p.totalDiscount, 0);
+  const violationTotal = people.reduce((s, p) => s + (p.violationCount ?? 0), 0);
   const hasFilters = !!search.trim() || status !== 'all';
 
   function clearFilters() {
@@ -248,6 +292,7 @@ export function DiscountQrPage() {
 
   const menuItems = (p: DiscountQrPersonDto) => [
     { label: 'عرض الرمز', icon: <IconQr size={15} />, onClick: () => setQrForId(p.id) },
+    { label: 'الشروط', icon: <IconSliders size={15} />, onClick: () => setRulesForId(p.id) },
     { label: 'تغيير الاسم', icon: <IconPencil size={15} />, onClick: () => setRenaming({ person: p, value: p.name }) },
     { label: 'نسخ الرمز', icon: <IconCopy size={15} />, onClick: () => void copy(p.code, 'الرمز') },
     { label: 'تنزيل صورة PNG', icon: <IconDownload size={15} />, onClick: () => void download(p) },
@@ -293,7 +338,27 @@ export function DiscountQrPage() {
       width: 96,
       sortValue: p => (p.active ? 'فعّال' : 'متوقف'),
       filterValue: p => (p.active ? 'فعّال' : 'متوقف'),
-      render: p => (p.active ? <Badge tone="ok" dot>فعّال</Badge> : <Badge dot>متوقف</Badge>),
+      render: p => <DiscountQrNowBadge person={p} />,
+    },
+    {
+      key: 'rules',
+      header: 'الشروط',
+      width: 280,
+      sortValue: p => discountQrRuleLines(p).length,
+      filterValue: p => discountQrRuleLines(p).join(' · ') || 'بلا شروط',
+      render: p => {
+        const lines = discountQrRuleLines(p);
+        return (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); setRulesForId(p.id); }}
+            className="block max-w-full truncate text-start text-[12px] text-slate-600 hover:text-brand-700 hover:underline"
+            title={lines.join('\n') || 'خصم غير محدود في كل وقت — اضغط لإضافة شروط'}
+          >
+            {lines.length ? lines.join(' · ') : <span className="text-slate-400">بلا شروط</span>}
+          </button>
+        );
+      },
     },
     {
       key: 'receiptCount',
@@ -309,6 +374,7 @@ export function DiscountQrPage() {
           title="عرض فواتير الخصم"
         >
           {formatNum(p.receiptCount)}
+          {(p.violationCount ?? 0) > 0 && <span className="ms-1 text-rose-600" title="فواتير خالفت شروط الرمز">({formatNum(p.violationCount ?? 0)} مخالفة)</span>}
         </button>
       ) : <span className="text-slate-300">0</span>),
     },
@@ -330,7 +396,7 @@ export function DiscountQrPage() {
     {
       key: 'actions',
       header: '',
-      width: 170,
+      width: 200,
       align: 'end',
       sortable: false,
       exportable: false,
@@ -338,6 +404,9 @@ export function DiscountQrPage() {
         <div className="flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
           <RowIconButton label="عرض الرمز" tone="brand" onClick={() => setQrForId(p.id)}>
             <IconQr size={15} />
+          </RowIconButton>
+          <RowIconButton label="الشروط" onClick={() => setRulesForId(p.id)}>
+            <IconSliders size={15} />
           </RowIconButton>
           <RowIconButton label="طباعة" onClick={() => void print(p)}>
             <IconPrinter size={15} />
@@ -360,6 +429,12 @@ export function DiscountQrPage() {
     { key: 'cashierName', header: 'الكاشير', width: 130, render: r => r.cashierName ?? '—' },
     { key: 'userDiscount', header: 'الخصم', width: 120, mono: true, footer: 'sum', render: r => <Money value={r.userDiscount} /> },
     { key: 'totalAmount', header: 'الصافي', width: 120, mono: true, footer: 'sum', render: r => <Money value={r.totalAmount} /> },
+    {
+      key: 'violation',
+      header: 'مخالفة الشروط',
+      width: 200,
+      render: r => (r.violation ? <Badge tone="danger">{r.violation}</Badge> : <span className="text-slate-300">—</span>),
+    },
   ], []);
 
   let body;
@@ -422,7 +497,7 @@ export function DiscountQrPage() {
                   <p className="text-[11px] text-slate-500">أُنشئ {formatDateOnly(p.createdAt)}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  {p.active ? <Badge tone="ok" dot>فعّال</Badge> : <Badge dot>متوقف</Badge>}
+                  <DiscountQrNowBadge person={p} />
                   <RowMenu items={menuItems(p)} />
                 </div>
               </header>
@@ -457,6 +532,15 @@ export function DiscountQrPage() {
                     {p.totalDiscount > 0 ? formatNum(p.totalDiscount) : '—'}
                   </span>
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRulesForId(p.id)}
+                className="mx-3 mt-2 line-clamp-2 min-h-[34px] rounded-lg bg-slate-50 px-2 py-1 text-start text-[11.5px] leading-[17px] text-slate-600 transition hover:bg-brand-50/60"
+                title="تعديل الشروط"
+              >
+                {discountQrRuleLines(p).join(' · ') || 'بلا شروط — خصم غير محدود'}
               </button>
 
               <footer className="mt-2 flex items-center gap-1 border-t border-slate-100 bg-slate-50/60 px-2 py-1.5">
@@ -507,7 +591,7 @@ export function DiscountQrPage() {
                 <span className="ms-auto text-[11.5px] font-semibold text-amber-700">الاسم موجود مسبقاً — سيُولَّد رمز آخر بنفس الاسم</span>
               ) : (
                 <span className="ms-auto hidden text-[11.5px] text-slate-500 xl:inline">
-                  يُمسح الرمز في نقطة البيع كمنتج لفتح خصم غير محدود على الفاتورة، وتُسجَّل الفاتورة باسم صاحبه.
+                  يُمسح الرمز في نقطة البيع فيفتح الخصم حسب شروطه، وتُسجَّل الفاتورة باسم صاحبه.
                 </span>
               )}
             </>
@@ -572,6 +656,7 @@ export function DiscountQrPage() {
             { label: 'متوقفة', value: formatNum(offCount), onClick: () => setStatus('off'), active: status === 'off' },
             { label: 'فواتير بخصم', value: formatNum(receiptTotal) },
             { label: 'مجموع الخصم', value: formatNum(discountTotal), hint: 'IQD', tone: discountTotal > 0 ? 'warn' : undefined },
+            ...(violationTotal > 0 ? [{ label: 'فواتير خالفت الشروط', value: formatNum(violationTotal), tone: 'warn' as const }] : []),
           ]}
         />
 
@@ -608,7 +693,7 @@ export function DiscountQrPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {qrFor.active ? <Badge tone="ok" dot>فعّال</Badge> : <Badge dot>متوقف</Badge>}
+              <DiscountQrNowBadge person={qrFor} />
               {qrFor.totalDiscount > 0 && (
                 <span className="text-[12px] text-slate-500">مجموع الخصم <b className="text-header"><Money value={qrFor.totalDiscount} /></b></span>
               )}
@@ -622,6 +707,14 @@ export function DiscountQrPage() {
             >
               <span className="truncate">{qrFor.code}</span>
               <IconCopy size={12} className="shrink-0" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRulesForId(qrFor.id); setQrForId(null); }}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-start text-[12px] leading-5 text-slate-600 transition hover:border-brand-200"
+            >
+              <b className="text-header">الشروط: </b>
+              {discountQrRuleLines(qrFor).join(' · ') || 'بلا شروط — خصم غير محدود في كل وقت'}
             </button>
           </div>
         </Modal>
@@ -651,6 +744,32 @@ export function DiscountQrPage() {
             />
           )}
         </Modal>
+      )}
+
+      {creating && (
+        <DiscountQrRulesModal
+          mode="create"
+          name={name}
+          others={people}
+          saving={createM.isPending}
+          onNameChange={setName}
+          onSave={rules => createM.mutate(rules)}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
+      {rulesFor && (
+        <DiscountQrRulesModal
+          key={rulesFor.id}
+          mode="edit"
+          name={rulesFor.name}
+          person={rulesFor}
+          others={people}
+          saving={rulesM.isPending}
+          onSave={rules => rulesM.mutate({ id: rulesFor.id, rules })}
+          onResetUsage={() => void resetUsage(rulesFor)}
+          onClose={() => setRulesForId(null)}
+        />
       )}
 
       {renaming && (

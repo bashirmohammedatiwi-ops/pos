@@ -1,6 +1,8 @@
+using FOT.Pos.Api.Hubs;
 using FOT.Pos.Infrastructure.Edari;
 using FOT.Pos.Infrastructure.Repositories;
 using FOT.Pos.Infrastructure.Services;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,6 +12,7 @@ namespace FOT.Pos.Api.HostedServices;
 public sealed class EdariSyncBackgroundService(
     IServiceScopeFactory scopeFactory,
     EdariSyncGate gate,
+    IHubContext<PosHub> hub,
     ILogger<EdariSyncBackgroundService> logger) : BackgroundService
 {
     private readonly DateTime _startedUtc = DateTime.UtcNow;
@@ -20,6 +23,32 @@ public sealed class EdariSyncBackgroundService(
     private static readonly TimeSpan NamesInterval = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan ArticleBootDelay = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ArticleMinInterval = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan PendingReconcileInterval = TimeSpan.FromMinutes(5);
+    private DateTime _lastPendingReconcileUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// Which receipts Edari has merged since the last look (see <see cref="StockSettlementService"/>).
+    /// Failures only log: the next tick tries again and the shown stock just stays conservative.
+    /// </summary>
+    private async Task CheckStockSettlementAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var settlement = scope.ServiceProvider.GetRequiredService<StockSettlementService>();
+            var result = await settlement.CheckAsync(ct);
+            if (result.Settled > 0 || result.StockChanged > 0)
+                await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Products);
+        }
+        catch (EdariCircuitOpenException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Pending stock settlement check failed");
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -38,6 +67,7 @@ public sealed class EdariSyncBackgroundService(
         var lastDetect = DateTime.MinValue;
         var lastReceiptSync = DateTime.MinValue;
         var lastOfferExpire = DateOnly.MinValue;
+        var offerNotifyPending = false; // an expiry whose broadcast must survive a retry of this job
         var lastDetectSeconds = -1;
         var receiptInterval = TimeSpan.FromSeconds(120);
 
@@ -49,12 +79,30 @@ public sealed class EdariSyncBackgroundService(
                 if (lastOfferExpire != today)
                 {
                     using var expireScope = scopeFactory.CreateScope();
-                    var expired = await expireScope.ServiceProvider
-                        .GetRequiredService<OfferRepository>()
-                        .ExpireElapsedAsync(stoppingToken);
-                    lastOfferExpire = today;
+                    var offers = expireScope.ServiceProvider.GetRequiredService<OfferRepository>();
+                    var expired = await offers.ExpireElapsedAsync(stoppingToken);
                     if (expired > 0)
+                    {
+                        offerNotifyPending = true;
                         logger.LogInformation("Stopped {Count} offer(s) whose end date has passed", expired);
+                    }
+
+                    // The shop server is switched off overnight and sometimes for whole days, so after
+                    // boot look back a week (re-sending a few products is harmless); while running,
+                    // catch up every day since the last run.
+                    var lastRunDay = lastOfferExpire == DateOnly.MinValue ? today.AddDays(-7) : lastOfferExpire;
+                    var touched = await offers.TouchOfferDayBoundariesAsync(lastRunDay, today, stoppingToken);
+                    if (touched > 0)
+                        logger.LogInformation("Offer dates started or ended today for {Count} product(s)", touched);
+
+                    lastOfferExpire = today;
+                    if (offerNotifyPending || touched > 0)
+                    {
+                        offerNotifyPending = false;
+                        // Products, not Offers: cashiers only re-pull products on a products/all
+                        // event, and these touches change sale prices.
+                        await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Products);
+                    }
                 }
 
                 // detect interval is configurable from ext_edari_settings — re-read when it changes
@@ -79,6 +127,19 @@ public sealed class EdariSyncBackgroundService(
                         lastDetect = DateTime.UtcNow;
                         // Pull path; also refreshes the receipt-push interval from effective settings.
                         (lastReceiptSync, receiptInterval) = await TickAsync(fileHit, lastReceiptSync, stoppingToken);
+
+                        // «دمج الإيصالات» writes Edari's files, so the folder watcher fires right after it:
+                        // the merged receipts stop being subtracted within seconds of the merge.
+                        await CheckStockSettlementAsync(stoppingToken);
+                    }
+
+                    if (DateTime.UtcNow - _lastPendingReconcileUtc >= PendingReconcileInterval)
+                    {
+                        _lastPendingReconcileUtc = DateTime.UtcNow;
+                        using var reconcileScope = scopeFactory.CreateScope();
+                        var pendingRepo = reconcileScope.ServiceProvider.GetRequiredService<PendingStockRepository>();
+                        if (await pendingRepo.ReconcileAllAsync(stoppingToken) > 0)
+                            await PosHubEvents.NotifyCatalogUpdated(hub, CatalogScopes.Products);
                     }
 
                     // Receipt posting runs on its own cadence, decoupled from pull/fingerprint ticks,

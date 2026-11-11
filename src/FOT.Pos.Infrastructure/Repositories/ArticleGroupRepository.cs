@@ -21,23 +21,23 @@ public sealed class ArticleGroupRepository(ISqlConnectionFactory db, ArticleTree
 
     public async Task<IReadOnlyList<ArticleGroupItemDto>> GetItemsAsync(long groupId, CancellationToken ct)
     {
+        // Same offer rules as a scan (dates, exclusions, bundle-only rows, stored discount) —
+        // a looser join here made a group button sell at a different price than the barcode.
         var sql = $"""
+            ;WITH {ProductSql.ActiveOffersCte}
             SELECT i.id AS Id, a.id AS ProductId, a.Seq AS Seq,
                    LTRIM(RTRIM(CONVERT(NVARCHAR(4000), a.Name1))) AS Name,
                    LTRIM(RTRIM(a.Barcode)) AS Barcode,
                    CAST(COALESCE(NULLIF(a.SellPr4,0), 0) AS decimal(18,0)) AS StoredPrice,
                    CAST(COALESCE(NULLIF(a.SellPr4,0), 0) AS decimal(18,0)) AS OriginalPrice,
-                   CAST(COALESCE(ao.discount,0) AS decimal(18,2)) AS DiscountValue,
+                   CAST(ao.discount AS decimal(18,2)) AS DiscountValue,
                    CAST(COALESCE(ao.discount_type,0) AS int) AS DiscountType,
                    ao.offer_name AS OfferName,
+                   CAST(COALESCE(a.ext_discount_percent,0) AS int) AS StoredDiscountPercent,
                    i.back_colour AS BackColour, i.fore_colour AS ForeColour
             FROM article_group_items i
             INNER JOIN articles a ON a.Seq = i.barcode_id
-            LEFT JOIN (
-                SELECT od.item_id, od.discount, od.discount_type, o.name AS offer_name,
-                       ROW_NUMBER() OVER (PARTITION BY od.item_id ORDER BY o.priority DESC) AS rn
-                FROM offer_details od INNER JOIN offers o ON od.offer_id = o.id WHERE o.enabled = 1
-            ) ao ON a.Seq = ao.item_id AND ao.rn = 1
+            LEFT JOIN ActiveOffers ao ON a.Seq = ao.item_id AND ao.rn = 1
             WHERE i.article_group_id = @groupId AND COALESCE(a.SellPr4,0) > 0
             ORDER BY i.id
             """;
@@ -45,7 +45,8 @@ public sealed class ArticleGroupRepository(ISqlConnectionFactory db, ArticleTree
         var rows = await conn.QueryAsync<Row>(new CommandDefinition(sql, new { groupId }, cancellationToken: ct));
         return rows.Select(r =>
         {
-            var (price, _, _, _) = ProductPricing.Compute(r.OriginalPrice, r.StoredPrice, r.DiscountValue, r.DiscountType, r.OfferName);
+            var (price, _, _, _) = ProductPricing.Compute(r.OriginalPrice, r.StoredPrice, r.DiscountValue, r.DiscountType, r.OfferName,
+                r.StoredDiscountPercent);
             return new ArticleGroupItemDto(r.Id, r.ProductId, r.Seq, r.Name, r.Barcode, price, r.OriginalPrice, r.BackColour, r.ForeColour);
         }).ToList();
     }
@@ -164,5 +165,5 @@ public sealed class ArticleGroupRepository(ISqlConnectionFactory db, ArticleTree
 
     private sealed record Row(long Id, long ProductId, long Seq, string? Name, string? Barcode,
         decimal StoredPrice, decimal OriginalPrice, decimal? DiscountValue, int DiscountType, string? OfferName,
-        int BackColour, int ForeColour);
+        int StoredDiscountPercent, int BackColour, int ForeColour);
 }

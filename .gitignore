@@ -42,6 +42,7 @@ desktop/dist-build/
 desktop/dist-out/
 desktop/dist-out73/
 desktop/dist-out82/
+desktop/win7-build/
 desktop/tts/*.exe
 desktop/tts/*.dll
 desktop/tts/*.onnx

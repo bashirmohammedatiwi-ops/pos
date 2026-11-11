@@ -27,8 +27,8 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
         var extra = kind switch
         {
             "offer" or "discount" => " AND ao.item_id IS NOT NULL",
-            "zero" => " AND COALESCE(a.CurTot1,0) <= 0",
-            "negative" => " AND COALESCE(a.CurTot1,0) < 0",
+            "zero" => $" AND {ProductSql.EffectiveStock} <= 0",
+            "negative" => $" AND {ProductSql.EffectiveStock} < 0",
             _ => ""
         };
         var countNeedsOffer = kind is "offer" or "discount";
@@ -56,10 +56,26 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
         p.Add("pageSize", pageSize);
 
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        using var multi = await conn.QueryMultipleAsync(new CommandDefinition(sql, p, cancellationToken: ct));
-        var rows = (await multi.ReadAsync<Row>()).ToList();
-        var total = await multi.ReadSingleAsync<int>();
-        return new PagedResult<ProductDto>(rows.Select(Map).ToList(), total, page, pageSize);
+        List<Row> rows;
+        int total;
+        using (var multi = await conn.QueryMultipleAsync(new CommandDefinition(sql, p, cancellationToken: ct)))
+        {
+            rows = (await multi.ReadAsync<Row>()).ToList();
+            total = await multi.ReadSingleAsync<int>();
+        }
+        var items = rows.Select(Map).ToList();
+
+        // Shown in the products table as «الإداري X − بانتظار الدمج Y».
+        if (items.Count > 0)
+        {
+            var pending = (await conn.QueryAsync<(long Id, double Qty)>(new CommandDefinition(
+                "SELECT id, ext_pending_qty FROM articles WHERE id IN @ids AND ext_pending_qty <> 0",
+                new { ids = items.Select(i => i.Id).ToArray() }, cancellationToken: ct)))
+                .ToDictionary(x => x.Id, x => (decimal)x.Qty);
+            if (pending.Count > 0)
+                items = items.Select(i => pending.TryGetValue(i.Id, out var q) ? i with { PendingQty = q } : i).ToList();
+        }
+        return new PagedResult<ProductDto>(items, total, page, pageSize);
     }
 
     public async Task<ProductDto?> GetByIdAsync(long id, CancellationToken ct) =>
@@ -68,7 +84,11 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
     public async Task<ProductDto?> GetByBarcodeAsync(string code, CancellationToken ct)
     {
         var trimmed = code.Trim();
-        return await QueryOneAsync("(a.Barcode = @code OR a.Num = @code)", new { code = trimmed }, ct);
+        // A code can be one product's barcode and another product's item number. The cashier's
+        // local catalog takes the barcode match first, so the price checker must too — otherwise
+        // the two show different products (and different offers) for the same scan.
+        return await QueryOneAsync("(a.Barcode = @code OR a.Num = @code)", new { code = trimmed }, ct,
+            orderBy: "CASE WHEN a.Barcode = @code THEN 0 ELSE 1 END, a.Seq DESC");
     }
 
     public async Task<CatalogInfoDto> GetCatalogInfoAsync(CancellationToken ct)
@@ -119,7 +139,7 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
         return rows.Select(Map).ToList();
     }
 
-    private async Task<ProductDto?> QueryOneAsync(string where, object param, CancellationToken ct)
+    private async Task<ProductDto?> QueryOneAsync(string where, object param, CancellationToken ct, string orderBy = "a.Seq DESC")
     {
         var sql = $"""
             ;WITH {ProductSql.ActiveOffersCte}
@@ -127,7 +147,7 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
             FROM dbo.articles a
             LEFT JOIN ActiveOffers ao ON a.Seq = ao.item_id AND ao.rn = 1
             WHERE {where} AND COALESCE(a.SellPr4,0) > 0
-            ORDER BY a.Seq DESC
+            ORDER BY {orderBy}
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(sql, param, cancellationToken: ct));
@@ -146,13 +166,16 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
     public async Task<bool> UpdateAsync(long id, UpdateProductRequest req, CancellationToken ct)
     {
         await using var conn = await db.CreateOpenConnectionAsync(ct);
+        // The stock the caller sees and sends back is the live one (Edari minus unmerged sales),
+        // so the unmerged part is added back before it lands in CurTot1 — otherwise every save
+        // from the products page would subtract today's sales a second time.
         var rows = await conn.ExecuteAsync(new CommandDefinition("""
             UPDATE articles SET
                 Name1 = COALESCE(@name, Name1),
                 Barcode = COALESCE(@barcode, Barcode),
                 SellPr4 = COALESCE(@originalPrice, SellPr4),
                 SellPr5 = COALESCE(@finalPrice, SellPr5),
-                CurTot1 = COALESCE(@stock, CurTot1),
+                CurTot1 = COALESCE(@stock + COALESCE(ext_pending_qty, 0), CurTot1),
                 ext_discount_percent = COALESCE(@discountPercent, ext_discount_percent)
             WHERE id = @id
             """, new

@@ -148,7 +148,8 @@ $img = $null
 try {
   # Flatten Chromium's gray anti-aliased edges to pure black/white at the
   # thermal head's own 203 dpi. A mid threshold keeps thin Arabic strokes.
-  $img = [System.Drawing.Bitmap]::new(
+  # New-Object (not ::new) so Windows 7's PowerShell 2.0 can run it too.
+  $img = New-Object System.Drawing.Bitmap -ArgumentList @(
     $source.Width, $source.Height,
     [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
   )
@@ -160,7 +161,7 @@ try {
     $raster.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
     $raster.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
     $attrs.SetThreshold(0.52)
-    $dest = [System.Drawing.Rectangle]::new(0, 0, $source.Width, $source.Height)
+    $dest = New-Object System.Drawing.Rectangle -ArgumentList @(0, 0, $source.Width, $source.Height)
     $raster.DrawImage(
       $source, $dest, 0, 0, $source.Width, $source.Height,
       [System.Drawing.GraphicsUnit]::Pixel, $attrs

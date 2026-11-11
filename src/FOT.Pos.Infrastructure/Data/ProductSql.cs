@@ -2,6 +2,13 @@ namespace FOT.Pos.Infrastructure.Data;
 
 internal static class ProductSql
 {
+    /// <summary>
+    /// Live stock: Edari's CurTot1 only drops after «دمج الإيصالات», so what was sold and not merged
+    /// yet (ext_pending_qty, kept by PendingStockRepository) is taken off. Every place that shows or
+    /// filters stock must use this, never CurTot1 alone.
+    /// </summary>
+    public const string EffectiveStock = "(COALESCE(a.CurTot1,0) - COALESCE(a.ext_pending_qty,0))";
+
     public const string ActiveOffersCte = """
         ActiveOffers AS (
           SELECT od.item_id, od.discount, od.discount_type, od.offer_id,
@@ -41,7 +48,7 @@ internal static class ProductSql
         LTRIM(RTRIM(a.Barcode)) AS Barcode,
         CAST(COALESCE(NULLIF(a.SellPr4,0),0) AS decimal(18,0)) AS OriginalPrice,
         CAST(0 AS decimal(18,0)) AS StoredFinalPrice,
-        CAST(COALESCE(a.CurTot1,0) AS decimal(18,2)) AS Stock,
+        CAST((COALESCE(a.CurTot1,0) - COALESCE(a.ext_pending_qty,0)) AS decimal(18,2)) AS Stock,
         CAST(ao.discount AS decimal(18,2)) AS DiscountValue,
         CAST(COALESCE(ao.discount_type,0) AS int) AS DiscountType,
         ao.offer_name AS OfferName,

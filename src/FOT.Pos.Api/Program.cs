@@ -77,8 +77,14 @@ builder.Services.AddHttpClient(NetworkEventBus.HttpClientName, c =>
     c.Timeout = TimeSpan.FromSeconds(10);
 });
 builder.Services.AddSingleton<NetworkEventBus>();
+builder.Services.AddHttpClient(StoreSitePushService.ClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(120);
+});
+builder.Services.AddSingleton<StoreSitePushService>();
 if (!exportOpenApi)
 {
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<StoreSitePushService>());
     builder.Services.AddHostedService(sp => sp.GetRequiredService<SellerHubSyncService>());
     builder.Services.AddHostedService<LiveSalesSyncService>();
     builder.Services.AddHostedService<InvoiceSyncService>();
@@ -368,6 +374,8 @@ api.MapAdminEndpoints();
 api.MapPortalAccountEndpoints();
 api.MapTeamEndpoints();
 api.MapApiPlatformAdminEndpoints();
+api.MapStoreSiteEndpoints();
+api.MapStockEndpoints();
 api.MapTelemetryEndpoints();
 api.MapSellerPortalEndpoints();
 api.MapManagerPortalEndpoints();

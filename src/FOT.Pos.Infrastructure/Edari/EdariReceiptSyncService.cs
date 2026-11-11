@@ -10,7 +10,8 @@ public sealed class EdariReceiptSyncService(
     EdariSettingsService settings,
     EdariSyncRepository syncRepo,
     EdariNexusClient nexus,
-    Repositories.PosCashBoxSettingsRepository cashBoxes)
+    Repositories.PosCashBoxSettingsRepository cashBoxes,
+    PendingStockRepository pendingStock)
 {
     public async Task<EdariSyncRunResult> SyncBatchAsync(int batchSize, CancellationToken ct)
     {
@@ -131,7 +132,10 @@ public sealed class EdariReceiptSyncService(
         foreach (var id in ids)
             await ResetEdariStagingAsync(nx, id, ct);
 
-        return await syncRepo.ResetReceiptsSyncStateAsync(ids, ct);
+        var reset = await syncRepo.ResetReceiptsSyncStateAsync(ids, ct);
+        // Re-posted receipts get new open bills in Edari, so they count as unmerged again.
+        await pendingStock.ReopenAsync(ids, ct);
+        return reset;
     }
 
     /// <summary>

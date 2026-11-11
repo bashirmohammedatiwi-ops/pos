@@ -155,6 +155,13 @@ public sealed class TreeMembershipRefresher(
             await conn.ExecuteAsync(new CommandDefinition(
                 "UPDATE offer_details SET tree_synced_at = GETDATE() WHERE offer_id = @offerId AND source_tree_seq = @treeSeq",
                 new { offerId, treeSeq }, cancellationToken: ct));
+            // New members now carry the offer price — put them back on the terminals' delta feed.
+            await conn.ExecuteAsync(new CommandDefinition("""
+                UPDATE a SET a.ext_discount_percent = a.ext_discount_percent
+                FROM articles a
+                WHERE a.Seq IN (SELECT item_id FROM offer_details
+                                WHERE offer_id = @offerId AND source_tree_seq = @treeSeq AND item_id IS NOT NULL)
+                """, new { offerId, treeSeq }, cancellationToken: ct));
         }
         return added;
     }

@@ -1,3 +1,4 @@
+require('./fetchShim.cjs');
 const { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, powerMonitor } = require('electron');
 const fs = require('fs');
 const path = require('path');

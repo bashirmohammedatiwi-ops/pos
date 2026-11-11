@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, formatDate, formatNum } from '@/api/client';
-import type { TeamAttendDto, TeamAttendSettingsDto, TeamBoardDto, TeamBoardStatus, TeamNetworkDto } from '@/api/types';
+import type { TeamAttendDto, TeamAttendSettingsDto, TeamBoardDto, TeamBoardStatus, TeamDirStaffDto, TeamNetworkDto } from '@/api/types';
 import { DataGrid, type GridColumn } from '@/components/grid/DataGrid';
 import { FilterActions, FilterBar, FilterLabel, SegmentedFilter, SummaryStrip, WorkspaceBody, WorkspaceCard, WorkspacePage } from '@/components/listWorkspace';
 import { useToast } from '@/components/Toast';
@@ -9,6 +9,7 @@ import { IconPlus, IconRefresh } from '@/components/icons';
 import { Badge, Btn, Field, IconButton, Input, Modal, Select, Switch, TableSkeleton, useConfirm } from '@/components/ui';
 import { ErrorBlock, SearchBox } from '@/components/people/PeopleKit';
 import { WifiScanModal, saveNetworkSmart } from './TeamWifiScan';
+import { TeamShiftModal, shiftWeekLines, type ShiftSave } from './TeamShiftModal';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * تطبيق الفريق ← الحضور: اللوحة الحيّة، السجل والتصدير، التصحيح والإضافة اليدوية،
@@ -330,7 +331,7 @@ export function TeamRulesPage() {
   const boardQ = useQuery({ queryKey: ['team-board'], queryFn: api.teamBoard, retry: 0 });
   const [form, setForm] = useState<TeamAttendSettingsDto | null>(null);
   const [net, setNet] = useState<(Partial<TeamNetworkDto> & { bssidText?: string }) | null>(null);
-  const [shiftEdit, setShiftEdit] = useState<{ id: number; name: string; start: string; end: string; breakMinutes: string; maxBreaks: string; overtime: boolean; overtimeRate: string } | null>(null);
+  const [shiftEdit, setShiftEdit] = useState<TeamDirStaffDto | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
 
   useEffect(() => {
@@ -364,15 +365,19 @@ export function TeamRulesPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] }),
   });
   const saveShift = useMutation({
-    mutationFn: async (reset?: boolean) => {
-      const e = shiftEdit!;
-      await api.setTeamShift(e.id, reset ? { reset: true } : { start: e.start, end: e.end, breakMinutes: Number(e.breakMinutes), maxBreaks: Number(e.maxBreaks) });
-      return api.setTeamOvertime(e.id, e.overtime, e.overtimeRate ? Number(e.overtimeRate) : null);
+    mutationFn: async (v: ShiftSave | null) => {
+      const s = shiftEdit!;
+      if (!v) return api.setTeamShift(s.id, { reset: true });
+      // العطلة أولاً: تبليغ الموظف بدوامه الجديد لا يذكر أيام عطلته
+      if ((s.plan ?? 'weekly') === 'weekly' && v.weeklyOff !== s.weeklyOff) await api.setTeamWeeklyOff(s.id, v.weeklyOff);
+      await api.setTeamShift(s.id, { start: v.start, end: v.end, week: v.week, breakMinutes: v.breakMinutes, maxBreaks: v.maxBreaks });
+      return api.setTeamOvertime(s.id, v.overtime, v.overtimeRate);
     },
     onSuccess: () => {
-      toast.success('حُفظت وردية الموظف');
+      toast.success('حُفظ وقت دوام الموظف');
       setShiftEdit(null);
       void qc.invalidateQueries({ queryKey: ['team-board'] });
+      void qc.invalidateQueries({ queryKey: ['team-directory'] });
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
   });
@@ -529,14 +534,14 @@ export function TeamRulesPage() {
       </section>
 
       <section className="card p-4 lg:col-span-2">
-        <h2 className="mb-1 text-[15px] font-bold text-slate-800">ورديات الموظفين</h2>
-        <p className="mb-3 text-[12.5px] text-slate-500">الافتراضي يُطبَّق على الجميع، ولكل موظف وردية خاصة عند الحاجة.</p>
+        <h2 className="mb-1 text-[15px] font-bold text-slate-800">أوقات دوام الموظفين</h2>
+        <p className="mb-3 text-[12.5px] text-slate-500">لكل موظف وقت بداية ونهاية خاص به، ويمكن أن يختلف من يوم لآخر. ومن لم يُحدَّد له وقت يتبع الدوام الافتراضي.</p>
         <div className="overflow-auto">
           <table className="w-full text-[13px]">
             <thead className="bg-slate-50 text-[12px] text-slate-500">
               <tr>
                 <th className="px-3 py-2 text-right">الموظف</th>
-                <th className="px-3 py-2 text-right">الوردية</th>
+                <th className="px-3 py-2 text-right">وقت الدوام</th>
                 <th className="px-3 py-2 text-right">الاستراحة</th>
                 <th className="px-3 py-2 text-right">الأوفر تايم</th>
                 <th />
@@ -553,7 +558,20 @@ export function TeamRulesPage() {
                         <span className="font-semibold">{s.name}</span> <span className="text-[11px] text-slate-400">{KIND[s.kind] ?? s.kind}</span>
                       </td>
                       <td className="num px-3 py-1.5">
-                        {sh ? `${sh.start} – ${sh.end}` : '…'} {sh?.custom && <Badge tone="info">خاصة</Badge>}
+                        {!sh ? (
+                          '…'
+                        ) : sh.hourly ? (
+                          <Badge tone="violet">بالساعات</Badge>
+                        ) : (
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            {shiftWeekLines(sh, s).map(line => (
+                              <span key={line} className="whitespace-nowrap">
+                                {line}
+                              </span>
+                            ))}
+                            {sh.week ? <Badge tone="info">يختلف حسب اليوم</Badge> : sh.custom && <Badge tone="info">خاص</Badge>}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-1.5">{sh ? `${sh.breakMinutes} د · ${sh.maxBreaks} مرات` : '…'}</td>
                       <td className="px-3 py-1.5">
@@ -576,19 +594,7 @@ export function TeamRulesPage() {
                           size="xs"
                           variant="ghost"
                           disabled={!sh}
-                          onClick={() =>
-                            sh &&
-                            setShiftEdit({
-                              id: s.id,
-                              name: s.name,
-                              start: sh.start,
-                              end: sh.end,
-                              breakMinutes: String(sh.breakMinutes),
-                              maxBreaks: String(sh.maxBreaks),
-                              overtime: !!sh.overtime,
-                              overtimeRate: sh.overtimeRate ? String(sh.overtimeRate) : '',
-                            })
-                          }
+                          onClick={() => setShiftEdit(s)}
                         >
                           تعديل
                         </Btn>
@@ -641,54 +647,18 @@ export function TeamRulesPage() {
 
       <WifiScanModal open={scanOpen} onClose={() => setScanOpen(false)} existing={nets} shopIp={setQ.data?.shopIp?.ip ?? null} legacy={legacyHub} onAdded={() => void qc.invalidateQueries({ queryKey: ['team-attend-settings'] })} />
 
-      <Modal
-        open={!!shiftEdit}
+      <TeamShiftModal
+        staff={shiftEdit}
+        shift={shiftEdit ? shiftOf.get(shiftEdit.id) : undefined}
+        others={(dirQ.data ?? []).flatMap(s => {
+          const sh = shiftOf.get(s.id);
+          return s.isActive && s.id !== shiftEdit?.id && s.plan !== 'hourly' && sh ? [{ staff: s, shift: sh }] : [];
+        })}
+        saving={saveShift.isPending}
+        onSave={v => saveShift.mutate(v)}
+        onReset={() => saveShift.mutate(null)}
         onClose={() => setShiftEdit(null)}
-        title={`وردية ${shiftEdit?.name ?? ''}`}
-        footer={
-          <>
-            <Btn variant="ghost" onClick={() => saveShift.mutate(true)}>
-              الرجوع للافتراضي
-            </Btn>
-            <Btn variant="secondary" onClick={() => setShiftEdit(null)}>
-              إلغاء
-            </Btn>
-            <Btn loading={saveShift.isPending} onClick={() => saveShift.mutate(false)}>
-              حفظ
-            </Btn>
-          </>
-        }
-      >
-        {shiftEdit && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="البداية">
-              <Input type="time" value={shiftEdit.start} onChange={e => setShiftEdit({ ...shiftEdit, start: e.target.value })} />
-            </Field>
-            <Field label="النهاية">
-              <Input type="time" value={shiftEdit.end} onChange={e => setShiftEdit({ ...shiftEdit, end: e.target.value })} />
-            </Field>
-            <Field label="دقائق الاستراحة">
-              <Input inputMode="numeric" value={shiftEdit.breakMinutes} onChange={e => setShiftEdit({ ...shiftEdit, breakMinutes: e.target.value.replace(/\D/g, '') })} />
-            </Field>
-            <Field label="عدد الاستراحات">
-              <Input inputMode="numeric" value={shiftEdit.maxBreaks} onChange={e => setShiftEdit({ ...shiftEdit, maxBreaks: e.target.value.replace(/\D/g, '') })} />
-            </Field>
-            <div className="col-span-2 space-y-3 rounded-lg border border-slate-200 p-3">
-              <Switch
-                label="احتساب الأوفر تايم لهذا الموظف"
-                description="الوقت الزائد على دوامه الصافي يُسجَّل أوفر تايم ويظهر في الملخص الشهري وفي تطبيقه"
-                checked={shiftEdit.overtime}
-                onChange={v => setShiftEdit({ ...shiftEdit, overtime: v })}
-              />
-              {shiftEdit.overtime && (
-                <Field label="أجر ساعة الأوفر تايم (دينار) — اختياري" hint="لحساب مبلغ الأوفر تايم في الملخص الشهري">
-                  <Input inputMode="numeric" value={shiftEdit.overtimeRate} onChange={e => setShiftEdit({ ...shiftEdit, overtimeRate: e.target.value.replace(/\D/g, '') })} placeholder="مثال: 5000" />
-                </Field>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+      />
     </div>
   );
 }

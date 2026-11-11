@@ -33,6 +33,7 @@ export {
   totalRoundingStep,
 } from './rounding';
 export { DISCOUNT_QR_PREFIX, decodeScannerText, isDiscountQrCode, normalizeDiscountQrCode } from './discountQr';
+export { DISCOUNT_QR_DAYS, describeDiscountQrRules, discountQrCap, discountQrClock, discountQrLimitText, evaluateDiscountQr } from './discountQr';
 export type { DiscountQrPerson } from './discountQr';
 export {
   PRICE_CHECKER_SETTINGS_QR,

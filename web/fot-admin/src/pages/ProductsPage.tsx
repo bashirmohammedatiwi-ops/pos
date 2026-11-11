@@ -65,25 +65,43 @@ function loadPageSize(): number {
   }
 }
 
-/** شارة المخزون: نفد / قليل / رقم عادي. */
-function StockCell({ n }: { n: number }) {
+/**
+ * شارة المخزون: نفد / قليل / رقم عادي. الرقم حيّ = عدد الإداري − ما بيع ولم يُدمج بعد،
+ * والفرق يظهر صغيراً بجانبه مع تلميح يشرحه.
+ */
+function StockCell({ n, pending = 0 }: { n: number; pending?: number }) {
+  const title = pending
+    ? `الإداري ${formatNum(n + pending, 2)} − بانتظار الدمج ${formatNum(pending, 2)} = ${formatNum(n, 2)}`
+    : undefined;
+  const hint = pending ? (
+    <span className="text-[10.5px] font-medium text-slate-400 num" dir="ltr">
+      {pending > 0 ? `−${formatNum(pending, 2)}` : `+${formatNum(-pending, 2)}`}
+    </span>
+  ) : null;
   if (n <= 0) {
     return (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5" title={title}>
         <span className="font-semibold text-red-600 num">{formatNum(n)}</span>
         <Badge tone="danger">نفد</Badge>
+        {hint}
       </span>
     );
   }
   if (n < LOW_STOCK) {
     return (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5" title={title}>
         <span className="font-semibold text-amber-700 num">{formatNum(n)}</span>
         <Badge tone="warn">قليل</Badge>
+        {hint}
       </span>
     );
   }
-  return <span className="num">{formatNum(n)}</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5" title={title}>
+      <span className="num">{formatNum(n)}</span>
+      {hint}
+    </span>
+  );
 }
 
 function ProductEditModal({
@@ -113,7 +131,8 @@ function ProductEditModal({
         barcode,
         originalPrice: Number(originalPrice),
         finalPrice: Number(finalPrice),
-        stock: Number(stock),
+        // Live stock: only written when the user changed it here.
+        stock: Number(stock) !== Number(product.stock ?? 0) ? Number(stock) : undefined,
         discountPercent: Math.min(100, Math.max(0, Math.round(Number(storedDiscount) || 0))),
       }),
     onSuccess: () => {
@@ -466,7 +485,8 @@ export function ProductsPage() {
         barcode: req.product.barcode ?? '',
         originalPrice: req.product.originalPrice,
         finalPrice: req.field === 'price' ? req.value : req.product.price,
-        stock: req.field === 'stock' ? req.value : req.product.stock,
+        // Stock is live (Edari − unmerged sales): send it only when it is the field being edited.
+        stock: req.field === 'stock' ? req.value : undefined,
         discountPercent: req.field === 'storedDiscount'
           ? Math.min(100, Math.max(0, Math.round(req.value)))
           : undefined,
@@ -942,7 +962,7 @@ function productColumns(opts: {
       width: 120,
       mono: true,
       footer: 'sum',
-      render: p => <StockCell n={p.stock} />,
+      render: p => <StockCell n={p.stock} pending={p.pendingQty ?? 0} />,
       edit: {
         type: 'number',
         getValue: p => p.stock,
