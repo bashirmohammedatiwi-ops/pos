@@ -82,6 +82,12 @@ builder.Services.AddHttpClient(StoreSitePushService.ClientName, c =>
     c.Timeout = TimeSpan.FromSeconds(120);
 });
 builder.Services.AddSingleton<StoreSitePushService>();
+builder.Services.AddHttpClient(FOT.Pos.Api.OnlineOrders.OnlineOrdersBridge.ClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddSingleton<FOT.Pos.Api.OnlineOrders.OnlineOrdersBridge>();
+builder.Services.AddScoped<FOT.Pos.Api.OnlineOrders.OnlineOrdersService>();
 if (!exportOpenApi)
 {
     builder.Services.AddHostedService(sp => sp.GetRequiredService<StoreSitePushService>());
@@ -375,6 +381,7 @@ api.MapPortalAccountEndpoints();
 api.MapTeamEndpoints();
 api.MapApiPlatformAdminEndpoints();
 api.MapStoreSiteEndpoints();
+api.MapOnlineOrdersEndpoints();
 api.MapStockEndpoints();
 api.MapTelemetryEndpoints();
 api.MapSellerPortalEndpoints();

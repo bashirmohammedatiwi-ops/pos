@@ -559,7 +559,9 @@ public partial record ReceiptSummaryDto(
     long? DiscountQrPersonId = null,
     string? DiscountQrPersonName = null,
     bool WasEdited = false,
-    long? PrintedNumber = null)
+    long? PrintedNumber = null,
+    /// <summary>رقم طلب التطبيق إن كان الإيصال من «كاشير الطلبات».</summary>
+    string? OnlineOrderNumber = null)
 {
     public ReceiptSummaryDto() : this(
         0, 0, default, 0, 0, 0, 0, null, null, null, false, null, 0)
@@ -1144,7 +1146,9 @@ public partial record CashierPermissionsDto(
     bool ManualTransfer = false, bool AllowProductDiscount = false,
     bool HideSalesmanGroups = false, bool InvoiceBoundReturn = false,
     bool PrintSalesmanOnReceipt = true,
-    bool GiftViaDiscountQr = false);
+    bool GiftViaDiscountQr = false,
+    bool OnlineOrders = false,
+    bool OnlineOrdersReturns = false);
 
 public record UpdateProductRequest(string? Name, string? Barcode, decimal? OriginalPrice, decimal? FinalPrice, decimal? Stock, int? DiscountPercent = null);
 public record DiscountPercentRequest(int Percent);
@@ -1194,7 +1198,9 @@ public record UpdatePermissionsRequest(
     bool ManualTransfer = false, bool AllowProductDiscount = false,
     bool HideSalesmanGroups = false, bool InvoiceBoundReturn = false,
     bool PrintSalesmanOnReceipt = true,
-    bool GiftViaDiscountQr = false);
+    bool GiftViaDiscountQr = false,
+    bool OnlineOrders = false,
+    bool OnlineOrdersReturns = false);
 
 public partial record DailySalesRowDto(DateTime Date, decimal Total, int ReceiptCount);
 public partial record SalesmanSalesRowDto(long SalesmanId, string? Name, decimal Total, int Count, int LineCount = 0);

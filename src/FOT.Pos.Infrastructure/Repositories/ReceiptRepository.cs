@@ -1043,7 +1043,7 @@ public sealed class ReceiptRepository(
         }
     }
 
-    private async Task<ReceiptReturnSourceDto?> GetReturnSourceByIdAsync(long id, CancellationToken ct)
+    public async Task<ReceiptReturnSourceDto?> GetReturnSourceByIdAsync(long id, CancellationToken ct)
     {
         await schema.EnsureLoadedAsync(ct);
         await using var conn = await db.CreateOpenConnectionAsync(ct);

@@ -70,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<ProductAttributionRepository>();
         services.AddScoped<TargetRepository>();
         services.AddScoped<PermissionsRepository>();
+        services.AddScoped<OnlineOrdersRepository>();
         services.AddScoped<TerminalRepository>();
         services.AddScoped<SectionRepository>();
         services.AddScoped<ReportRepository>();

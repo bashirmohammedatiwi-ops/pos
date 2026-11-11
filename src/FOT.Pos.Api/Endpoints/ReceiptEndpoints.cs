@@ -11,11 +11,28 @@ public static class ReceiptEndpoints
 {
     public static void MapReceiptEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/receipts", async (ReceiptRepository repo, int page = 1, int pageSize = 50, string? search = null,
+        api.MapGet("/receipts", async (ReceiptRepository repo, OnlineOrdersRepository onlineOrders, int page = 1, int pageSize = 50, string? search = null,
             long? sectionId = null, long? posId = null, long? cashierId = null, int? kind = null,
             bool? synced = null, DateTime? from = null, DateTime? to = null, bool? hold = null) =>
-            await repo.SearchAsync(page, pageSize, search, sectionId, posId, cashierId, kind,
-                synced == true ? true : null, synced == false ? true : null, from, to, hold, default));
+        {
+            var result = await repo.SearchAsync(page, pageSize, search, sectionId, posId, cashierId, kind,
+                synced == true ? true : null, synced == false ? true : null, from, to, hold, default);
+            // علامة «طلب تطبيق»: إيصالات كاشير الطلبات (migration 089). القائمة لا تفشل إن غاب الجدول.
+            try
+            {
+                var map = await onlineOrders.OrderNumbersForReceiptsAsync(result.Items.Select(i => i.Id).ToList(), default);
+                if (map.Count > 0)
+                    result = result with
+                    {
+                        Items = result.Items.Select(i => map.TryGetValue(i.Id, out var n) ? i with { OnlineOrderNumber = n } : i).ToList()
+                    };
+            }
+            catch (SqlException)
+            {
+                /* قبل تطبيق 089 */
+            }
+            return result;
+        });
 
         api.MapGet("/receipts/holds", async (ReceiptRepository repo, long? sectionId, long? posId) =>
             await repo.ListAllHoldAsync(sectionId, posId, default));

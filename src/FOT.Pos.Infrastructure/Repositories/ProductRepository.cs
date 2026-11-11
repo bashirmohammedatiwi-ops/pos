@@ -139,14 +139,27 @@ public sealed class ProductRepository(ISqlConnectionFactory db)
         return rows.Select(Map).ToList();
     }
 
-    private async Task<ProductDto?> QueryOneAsync(string where, object param, CancellationToken ct, string orderBy = "a.Seq DESC")
+    /// <summary>
+    /// مادة بتسلسل الإداري (Seq). المتجر يرفع المنتج المكرر الباركود بـ «POS:Seq» فيُفتح به هنا.
+    /// </summary>
+    public async Task<ProductDto?> GetBySeqAsync(long seq, CancellationToken ct) =>
+        await QueryOneAsync("a.Seq = @seq", new { seq }, ct);
+
+    /// <summary>
+    /// مادة بمعرّفها حتى لو كان سعرها صفراً — مادة «أجور التوصيل» الخدمية قد لا تحمل سعراً في الإداري.
+    /// </summary>
+    public async Task<ProductDto?> GetByIdAnyPriceAsync(long id, CancellationToken ct) =>
+        await QueryOneAsync("a.id = @id", new { id }, ct, requirePrice: false);
+
+    private async Task<ProductDto?> QueryOneAsync(string where, object param, CancellationToken ct, string orderBy = "a.Seq DESC", bool requirePrice = true)
     {
+        var priceFilter = requirePrice ? " AND COALESCE(a.SellPr4,0) > 0" : "";
         var sql = $"""
             ;WITH {ProductSql.ActiveOffersCte}
             SELECT TOP 1 {ProductSql.SelectColumns}
             FROM dbo.articles a
             LEFT JOIN ActiveOffers ao ON a.Seq = ao.item_id AND ao.rn = 1
-            WHERE {where} AND COALESCE(a.SellPr4,0) > 0
+            WHERE {where}{priceFilter}
             ORDER BY {orderBy}
             """;
         await using var conn = await db.CreateOpenConnectionAsync(ct);
