@@ -83,12 +83,13 @@ function newEditId() {
   return `pos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function lineGlyph(state: SiteLine['state']) {
-  if (state === 'MATCHED') return '✓';
-  if (state === 'SHORT') return '✕';
-  if (state === 'EXTRA') return '+';
-  return '…';
+/** ما سيُسلَّم من السطر: المطلوب حتى كميته، والإضافي كله. */
+function deliveredQty(l: SiteLine) {
+  return l.kind === 'ORDERED' ? Math.min(l.pickedQty, l.orderedQty) : l.pickedQty;
 }
+
+/** ناقص مميَّز عن المُزال: برتقالي للنقص الجزئي، وأحمر مشطوب للمُزال كله. */
+const SHORT_ORANGE = '#EA580C';
 
 /** سطر الطلب يطابق الباركود الممسوح؟ (باركود الموقع أو باركود مادة المحل المقابلة). */
 function lineMatches(order: LookupResult, line: SiteLine, key: string) {
@@ -295,6 +296,7 @@ export function OrdersPage({
     setActionError(null);
     setResult(null);
     setChecked({});
+    checkedRef.current = {};
     setReturned({});
     setIncludeDelivery(true);
     setAdd(null);
@@ -360,6 +362,46 @@ export function OrdersPage({
   const deliveredRef = useRef(deliveredLines);
   deliveredRef.current = deliveredLines;
 
+  // ── المراجعة المزدوجة داخل الجدول ──
+
+  /** قطعة واحدة مُراجَعة (مسحة أو «+») — عند اكتمال السطر يصير «مطابق» ويرتفع عن الباهت. */
+  const verifyLine = useCallback((line: SiteLine) => {
+    const total = deliveredQty(line);
+    const now = Math.min(checkedRef.current[line.id] ?? 0, total);
+    if (total <= 0 || now >= total) return;
+    const next = { ...checkedRef.current, [line.id]: now + 1 };
+    checkedRef.current = next;
+    setChecked(next);
+    flashLine(line.id);
+  }, [flashLine]);
+
+  /** «−» في المراجعة: تراجع عن قطعة مُراجَعة (يعود السطر باهتاً). */
+  const unverifyLine = useCallback((line: SiteLine) => {
+    const now = Math.min(checkedRef.current[line.id] ?? 0, deliveredQty(line));
+    if (now <= 0) return;
+    const next = { ...checkedRef.current, [line.id]: now - 1 };
+    checkedRef.current = next;
+    setChecked(next);
+  }, []);
+
+  /** ما يضيفه الكاشير بيده (صنف ممسوح، «+» زيادة، إرجاع ناقص) بين يديه — يُعدّ مُراجَعاً. */
+  function autoVerify(before: LookupResult | null, fresh: LookupResult) {
+    if (!status?.print.doubleCheck || fresh.invoiced) return;
+    const prev = new Map((before?.lines ?? []).map(l => [l.id, deliveredQty(l)]));
+    let next = checkedRef.current;
+    for (const l of fresh.lines) {
+      const was = prev.get(l.id) ?? 0;
+      const grew = deliveredQty(l) - was;
+      if (grew <= 0) continue;
+      const base = Math.min(next[l.id] ?? 0, was);
+      next = { ...next, [l.id]: Math.min(deliveredQty(l), base + grew) };
+    }
+    if (next !== checkedRef.current) {
+      checkedRef.current = next;
+      setChecked(next);
+    }
+  }
+
   // ── إضافة صنف بالباركود ──
   const openAdd = useCallback(async (barcode: string) => {
     const current = addRef.current;
@@ -404,7 +446,7 @@ export function OrdersPage({
       setOrder(fresh);
       setResult(null);
       setAdd(null);
-      afterEdit(fresh);
+      afterEdit(fresh, o);
       const hit = fresh.lines.find(l => lineMatches(fresh, l, normBarcode(a.product!.siteBarcode)) && (a.charge === 'FREE' ? l.charge === 'FREE' : true));
       flashLine(hit?.id ?? null);
       showToast(`أُضيف ${a.product.name ?? a.barcode} × ${a.qty}${a.charge === 'FREE' ? ' (هدية)' : ''} — المبلغ الآن ${formatIqd(fresh.receipt.total)}`);
@@ -456,7 +498,7 @@ export function OrdersPage({
       });
       setOrder(fresh);
       setResult(null);
-      afterEdit(fresh);
+      afterEdit(fresh, o);
       void refreshQueue();
     } catch (e) {
       playErrorBeep();
@@ -467,7 +509,8 @@ export function OrdersPage({
   }
 
   /** تعديل على فاتورة مُفوترة: اطلب إعادة الطباعة، وأظهر إن لم يصل التعديل لهاي إكسبريس. */
-  function afterEdit(fresh: LookupResult) {
+  function afterEdit(fresh: LookupResult, before: LookupResult | null = null) {
+    autoVerify(before, fresh);
     if (fresh.reprint) setNeedsReprint(true);
     if (fresh.courierUpdate && !fresh.courierUpdate.ok) {
       playErrorBeep();
@@ -492,7 +535,7 @@ export function OrdersPage({
       });
       setOrder(fresh);
       setResult(null);
-      afterEdit(fresh);
+      afterEdit(fresh, o);
       flashLine(fresh.lines.some(l => l.id === line.id) ? line.id : null);
       void refreshQueue();
       return true;
@@ -575,13 +618,13 @@ export function OrdersPage({
       });
       return;
     }
-    // المراجعة المزدوجة: قطعة من الطلب لم تكتمل مراجعتها تُعدّ أولاً.
-    if (status?.print.doubleCheck && !current.invoiced && line) {
-      const n = (checkedRef.current[line.key] ?? 0) + 1;
-      if (n <= line.qty) {
-        const next = { ...checkedRef.current, [line.key]: n };
-        checkedRef.current = next;
-        setChecked(next);
+    // المراجعة المزدوجة: كل مسحة تُطابق قطعة في سطرها (المطلوب أولاً ثم الإضافي) حتى يكتمل.
+    if (status?.print.doubleCheck && !current.invoiced) {
+      const target = current.lines
+        .filter(l => lineMatches(current, l, key) && (checkedRef.current[l.id] ?? 0) < deliveredQty(l))
+        .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'ORDERED' ? -1 : 1))[0];
+      if (target) {
+        verifyLine(target);
         return;
       }
     }
@@ -591,7 +634,7 @@ export function OrdersPage({
     }
     playErrorBeep();
     showToast(current.invoiced ? 'الطلب مُفوتر — لا تُضاف أصناف بعد الفوترة' : 'لا يمكن تعديل هذا الطلب الآن', 'err');
-  }, [openAdd, openOrder, showToast, status?.print.doubleCheck]);
+  }, [openAdd, openOrder, showToast, status?.print.doubleCheck, verifyLine]);
 
   useBarcodeCapture(!busy && !reasonAsk && !discountOpen && !printersOpen, onScan);
 
@@ -1055,7 +1098,6 @@ export function OrdersPage({
                 status={status}
                 result={result}
                 checked={checked}
-                deliveredLines={deliveredLines}
                 editable={editable}
                 editingLine={editingLine}
                 flash={flash}
@@ -1065,6 +1107,8 @@ export function OrdersPage({
                 onAddBarcode={code => void openAdd(code)}
                 onChangeLine={changeLine}
                 onToggleCharge={line => void applyLine(line, line.pickedQty, { charge: line.charge === 'FREE' ? 'PAID' : 'FREE' })}
+                onVerify={verifyLine}
+                onUnverify={unverifyLine}
                 onFinalize={() => void finalize()}
                 onReprint={what => void reprint(order.order.code, what)}
                 onSlip={printSlip}
@@ -1711,20 +1755,32 @@ function AddBar({ onAdd, disabled }: { onAdd: (code: string) => void; disabled: 
   );
 }
 
+/** حالة السطر كما تُعرض: مطابق، ناقص جزئي (برتقالي)، مُزال (أحمر مشطوب)، زيادة (أزرق)، إضافي (أصفر). */
+type LineLook = { color: string; glyph: string; label: string; removed: boolean };
+
 function LinesTable({
   order,
   editable,
   editingLine,
   flash,
+  doubleCheck,
+  checked,
   onChangeLine,
   onToggleCharge,
+  onVerify,
+  onUnverify,
 }: {
   order: LookupResult;
   editable: boolean;
   editingLine: string | null;
   flash: string | null;
+  /** المراجعة المزدوجة: الصف باهت حتى تُمسح قطعه أو تُعدّ بـ«+»، ثم «مطابق». */
+  doubleCheck: boolean;
+  checked: Record<string, number>;
   onChangeLine: (line: SiteLine, qty: number) => void;
   onToggleCharge: (line: SiteLine) => void;
+  onVerify: (line: SiteLine) => void;
+  onUnverify: (line: SiteLine) => void;
 }) {
   const byId = new Map(order.lines.map(l => [l.id, l]));
   const unresolved = new Set(order.local.lines.filter(l => !l.resolved).map(l => normBarcode(l.barcode)));
@@ -1737,128 +1793,215 @@ function LinesTable({
     if (l.kind === 'EXTRA' && l.substituteForLineId) return Math.min(l.unitPrice, byId.get(l.substituteForLineId)?.unitPrice ?? l.unitPrice);
     return l.unitPrice;
   };
-  // الاسم يأخذ ما يبقى: الحالة أيقونة، والسعر تحت المجموع، والتعديل سطران.
-  const cols = editable
-    ? 'grid-cols-[46px_minmax(0,1fr)_62px_100px_104px]'
-    : 'grid-cols-[46px_minmax(0,1fr)_62px_100px]';
+  const lookOf = (l: SiteLine): LineLook => {
+    const delivered = deliveredQty(l);
+    if (l.kind === 'ORDERED' && l.orderedQty > 0 && delivered === 0) return { color: LINE_COLORS.red, glyph: '✕', label: 'مُزال', removed: true };
+    if (l.kind === 'ORDERED' && delivered < l.orderedQty) return { color: SHORT_ORANGE, glyph: '−', label: `ناقص ${formatNum(l.orderedQty - delivered)}`, removed: false };
+    if (isOver(l)) return { color: OVER_BLUE, glyph: '+', label: 'زيادة', removed: false };
+    if (l.kind === 'EXTRA') return { color: LINE_COLORS.yellow, glyph: '+', label: l.charge === 'FREE' ? 'هدية' : 'إضافي', removed: false };
+    return { color: LINE_COLORS.green, glyph: '✓', label: 'مطابق', removed: false };
+  };
+  const verifiedOf = (l: SiteLine) => Math.min(checked[l.id] ?? 0, deliveredQty(l));
+  const pendingOf = (l: SiteLine) => doubleCheck && deliveredQty(l) > 0 && verifiedOf(l) < deliveredQty(l);
+  const pendingCount = doubleCheck ? order.lines.filter(pendingOf).length : 0;
+  const showEdit = editable || doubleCheck;
+  // صف واحد بارتفاع صغير: الحالة | الصنف | الكمية | المبلغ | الأزرار في سطر واحد.
+  const cols = showEdit
+    ? 'grid-cols-[52px_minmax(0,1fr)_64px_88px_max-content]'
+    : 'grid-cols-[52px_minmax(0,1fr)_64px_88px]';
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
-      <div className={`grid ${cols} items-center gap-2 border-b border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-500`}>
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/40">
+      {doubleCheck && (
+        <div className={`flex items-center justify-between gap-2 border-b px-3 py-1.5 text-[12px] font-bold ${pendingCount ? 'border-slate-200 bg-slate-100 text-slate-600' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+          <span>{pendingCount ? 'المراجعة: امسح كل قطعة أو اضغط «+» حتى يطابق — الناقص «ناقص»، والمحذوف «إزالة»' : 'كل الأصناف مطابقة ✓'}</span>
+          <span className="num shrink-0">{formatNum(order.lines.length - pendingCount)} / {formatNum(order.lines.length)}</span>
+        </div>
+      )}
+      <div className={`grid ${cols} items-center gap-2 border-b border-slate-200 bg-slate-50 px-2 py-1 text-[10.5px] font-bold text-slate-500`}>
         <span className="text-center">الحالة</span>
         <span>الصنف</span>
         <span className="text-center">الكمية</span>
         <span className="text-center">المبلغ</span>
-        {editable && <span className="text-center">تعديل</span>}
+        {showEdit && <span className="text-center">{doubleCheck ? 'مطابقة / تعديل' : 'تعديل'}</span>}
       </div>
       {order.lines.map(l => {
+        const look = lookOf(l);
         const over = isOver(l);
-        const color = over ? OVER_BLUE : LINE_COLORS[l.color] ?? LINE_COLORS.grey;
         const sub = l.substituteForLineId ? byId.get(l.substituteForLineId) : null;
         const missingHere = l.barcode && unresolved.has(normBarcode(l.barcode));
-        const delivered = l.kind === 'ORDERED' ? Math.min(l.pickedQty, l.orderedQty) : l.pickedQty;
+        const delivered = deliveredQty(l);
         const free = l.kind === 'EXTRA' && l.charge === 'FREE';
         const unit = chargeOf(l);
         const busyHere = editingLine === l.id;
+        const verified = verifiedOf(l);
+        const pending = pendingOf(l);
+        // لون الصف: الباهت ينتظر المطابقة؛ المطابق يرتفع قليلاً بظل ولون حالته.
+        const color = pending ? '#94A3B8' : look.color;
+        const lifted = doubleCheck && !pending && !look.removed;
+        const glyph = pending ? (verified > 0 ? formatNum(verified) : '') : look.glyph;
+        const label = pending ? 'لم يطابق' : look.label;
+        const detail = [
+          l.kind === 'EXTRA' ? (over ? 'زيادة على المطلوب' : free ? 'هدية مجانية' : 'إضافي مدفوع') : null,
+          sub ? `بديل عن ${sub.name}${sub.shadeName ? ` — ${sub.shadeName}` : ''}` : null,
+          l.reason ? `السبب: ${l.reason}` : null,
+        ].filter(Boolean).join(' · ');
         return (
           <div
             key={l.id}
-            className={`grid ${cols} items-center gap-2 border-b border-slate-100 px-2 py-2 transition-colors last:border-b-0 ${flash === l.id ? 'bg-emerald-50' : ''} ${busyHere ? 'opacity-60' : ''}`}
-            style={{ borderInlineStart: `6px solid ${color}` }}
+            className={`relative grid ${cols} items-center gap-2 border-b border-slate-100 px-2 py-1 transition-all duration-300 last:border-b-0 ${
+              flash === l.id ? 'bg-emerald-50' : lifted ? 'bg-white' : look.removed ? 'bg-red-50/60' : 'bg-white'
+            } ${lifted ? 'z-[1] -translate-y-px shadow-[0_2px_6px_rgba(15,23,42,0.10)]' : ''}`}
+            style={{ borderInlineStart: `5px solid ${color}` }}
           >
-            <div className="flex flex-col items-center gap-0.5" style={{ color }}>
-              <span className="flex h-7 w-7 items-center justify-center rounded-full text-[15px] font-bold text-white" style={{ background: color }}>
-                {lineGlyph(l.state)}
+            <div className={`flex flex-col items-center gap-0.5 ${pending ? 'opacity-60' : ''}`} style={{ color }}>
+              <span
+                className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[12px] font-bold"
+                style={pending ? { border: `2px dashed ${color}`, color } : { background: color, color: '#fff' }}
+              >
+                {glyph}
               </span>
-              <span className="text-center text-[10.5px] font-bold leading-3">{over ? 'زيادة' : l.label}</span>
+              <span className="text-center text-[9.5px] font-bold leading-[11px]">{label}</span>
             </div>
-            <div className="min-w-0">
-              <div className="text-[14px] font-bold leading-5 text-slate-900">
+            <div className={`min-w-0 ${pending ? 'opacity-55' : ''}`}>
+              <div className={`truncate text-[13px] font-bold leading-[18px] ${look.removed ? 'text-[#B42318] line-through decoration-2' : 'text-slate-900'}`} title={l.name}>
                 {l.name}{l.shadeName ? <span className="font-normal text-slate-600"> — {l.shadeName}</span> : null}
               </div>
-              <div className="font-mono text-[11px] text-slate-400" dir="ltr">{l.barcode ?? '—'}</div>
-              {l.kind === 'EXTRA' && (
-                <div className="text-[12px] font-bold" style={{ color: over ? OVER_BLUE : LINE_COLORS.yellow }}>
-                  {over ? 'زيادة على الكمية المطلوبة' : free ? 'هدية مجانية' : 'إضافي مدفوع'}
-                  {sub ? ` · بديل عن ${sub.name}${sub.shadeName ? ` — ${sub.shadeName}` : ''}` : ''}
+              <div className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4">
+                <span className="shrink-0 font-mono text-slate-400" dir="ltr">{l.barcode ?? '—'}</span>
+                {detail && (
+                  <span className="truncate font-bold" style={{ color: look.removed || l.reason ? look.color : over ? OVER_BLUE : LINE_COLORS.yellow }} title={detail}>
+                    {detail}
+                  </span>
+                )}
+                {missingHere && <span className="shrink-0 font-bold text-[#D64545]">غير موجود في كتالوج المحل</span>}
+              </div>
+            </div>
+            <div className={`num text-center text-[12px] leading-4 ${pending ? 'opacity-70' : ''}`}>
+              {doubleCheck && delivered > 0 ? (
+                <div>
+                  <b className="text-[14px]" style={{ color: pending ? '#334155' : LINE_COLORS.green }}>{formatNum(verified)}</b>
+                  <span className="text-slate-400"> / {formatNum(delivered)}</span>
                 </div>
-              )}
-              {l.reason && <div className="text-[12px] text-slate-600">السبب: {l.reason}</div>}
-              {missingHere && <div className="text-[12px] font-bold text-[#D64545]">الباركود غير موجود في كتالوج المحل</div>}
-            </div>
-            <div className="num text-center text-[13px] leading-5">
-              {l.kind === 'ORDERED' ? (
-                <>
-                  <div><b className="text-[15px]">{formatNum(delivered)}</b> <span className="text-slate-400">/ {formatNum(l.orderedQty)}</span></div>
-                  {l.missingQty > 0 && <div className="text-[11px] font-bold text-[#D64545]">ناقص {formatNum(l.missingQty)}</div>}
-                </>
+              ) : l.kind === 'ORDERED' ? (
+                <div>
+                  <b className="text-[14px]">{formatNum(delivered)}</b> <span className="text-slate-400">/ {formatNum(l.orderedQty)}</span>
+                </div>
               ) : (
-                <div><b className="text-[15px]">{formatNum(delivered)}</b></div>
+                <div><b className="text-[14px]">{formatNum(delivered)}</b></div>
+              )}
+              {doubleCheck && l.kind === 'ORDERED' && delivered !== l.orderedQty && (
+                <div className="text-[10px] text-slate-400">من {formatNum(l.orderedQty)} مطلوب</div>
               )}
             </div>
-            <div className="num text-center leading-5">
-              <div className="text-[13px] font-bold text-slate-900">{formatIqd(unit * delivered)}</div>
-              <div className="text-[11px] text-slate-500">{free ? 'هدية مجانية' : `× ${formatIqd(unit)}`}</div>
+            <div className={`num text-center leading-4 ${pending ? 'opacity-55' : ''}`}>
+              <div className={`text-[12.5px] font-bold ${look.removed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{formatIqd(unit * delivered)}</div>
+              <div className="text-[10.5px] text-slate-500">{free ? 'مجاناً' : `× ${formatIqd(unit)}`}</div>
             </div>
-            {editable && (
-              <div className="grid grid-cols-2 place-items-center gap-1">
-                <QtyButton
-                  label="−"
-                  title={l.kind === 'ORDERED' ? 'إنقاص قطعة (يُسأل عن السبب)' : delivered <= 1 ? 'حذف الإضافي' : 'إنقاص قطعة'}
-                  disabled={busyHere || delivered === 0}
-                  onClick={() => onChangeLine(l, delivered - 1)}
-                />
-                <QtyButton
-                  label="+"
-                  title={l.kind === 'ORDERED' ? (l.pickedQty >= l.orderedQty ? 'قطعة زائدة (زيادة)' : 'إرجاع قطعة ناقصة') : 'قطعة أخرى'}
-                  disabled={busyHere || (l.kind === 'ORDERED' && l.pickedQty >= l.orderedQty && !l.barcode)}
-                  onClick={() => onChangeLine(l, delivered + 1)}
-                />
-                {l.kind === 'EXTRA' ? (
+            {showEdit && (
+              <div className="flex items-center justify-end gap-1">
+                {doubleCheck ? (
                   <>
-                    <button
-                      type="button"
-                      disabled={busyHere}
-                      onClick={() => onToggleCharge(l)}
-                      className="w-full rounded-md border border-amber-300 bg-amber-50 px-1 py-1 text-[11px] font-bold text-[#a8650a] disabled:opacity-40"
-                      title={free ? 'جعله مدفوعاً' : 'جعله هدية مجانية'}
-                    >
-                      {free ? 'مدفوع' : 'هدية'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyHere}
-                      onClick={() => onChangeLine(l, 0)}
-                      className="w-full rounded-md border border-red-200 bg-red-50 px-1 py-1 text-[11px] font-bold text-red-700 disabled:opacity-40"
-                      title="حذف الصنف الإضافي"
-                    >
-                      حذف
-                    </button>
+                    <QtyButton
+                      label="−"
+                      className="!h-7 w-8"
+                      title="تراجع عن قطعة مُطابَقة"
+                      disabled={busyHere || verified === 0}
+                      onClick={() => onUnverify(l)}
+                    />
+                    <QtyButton
+                      label="+"
+                      className={`!h-7 w-9 ${pending ? '!border-emerald-500 !bg-emerald-50 !text-emerald-700' : ''}`}
+                      title={pending ? 'مطابقة قطعة (كالمسح)' : l.kind === 'ORDERED' && delivered < l.orderedQty ? 'إرجاع قطعة ناقصة' : 'قطعة زائدة'}
+                      disabled={busyHere || (!pending && (!editable || (l.kind === 'ORDERED' && l.pickedQty >= l.orderedQty && !l.barcode)))}
+                      onClick={() => (pending ? onVerify(l) : onChangeLine(l, delivered + 1))}
+                    />
                   </>
                 ) : (
-                  delivered > 0 && (
-                    <button
-                      type="button"
-                      disabled={busyHere}
-                      onClick={() => onChangeLine(l, 0)}
-                      className="col-span-2 w-full rounded-md border border-red-200 bg-red-50 px-1 py-1 text-[11px] font-bold text-red-700 disabled:opacity-40"
-                      title="إزالة الصنف من الطلب (يُسأل عن السبب)"
-                    >
-                      إزالة
-                    </button>
-                  )
+                  <>
+                    <QtyButton
+                      label="−"
+                      className="!h-7 w-8"
+                      title={l.kind === 'ORDERED' ? 'إنقاص قطعة (يُسأل عن السبب)' : delivered <= 1 ? 'حذف الإضافي' : 'إنقاص قطعة'}
+                      disabled={busyHere || delivered === 0}
+                      onClick={() => onChangeLine(l, delivered - 1)}
+                    />
+                    <QtyButton
+                      label="+"
+                      className="!h-7 w-8"
+                      title={l.kind === 'ORDERED' ? (l.pickedQty >= l.orderedQty ? 'قطعة زائدة (زيادة)' : 'إرجاع قطعة ناقصة') : 'قطعة أخرى'}
+                      disabled={busyHere || (l.kind === 'ORDERED' && l.pickedQty >= l.orderedQty && !l.barcode)}
+                      onClick={() => onChangeLine(l, delivered + 1)}
+                    />
+                  </>
+                )}
+                {editable && l.kind === 'ORDERED' && (
+                  <>
+                    {doubleCheck && pending && (
+                      <SmallAction
+                        tone="orange"
+                        disabled={busyHere}
+                        title={verified > 0 ? `ناقص: يُسلَّم ${formatNum(verified)} فقط (يُسأل عن السبب)` : 'ناقص كله — يُزال (يُسأل عن السبب)'}
+                        onClick={() => onChangeLine(l, verified)}
+                      >
+                        ناقص
+                      </SmallAction>
+                    )}
+                    {delivered > 0 ? (
+                      <SmallAction tone="red" disabled={busyHere} title="إزالة الصنف من الطلب (يُسأل عن السبب)" onClick={() => onChangeLine(l, 0)}>
+                        إزالة
+                      </SmallAction>
+                    ) : (
+                      <SmallAction tone="slate" disabled={busyHere} title="إرجاع الصنف للطلب" onClick={() => onChangeLine(l, l.orderedQty)}>
+                        إرجاع
+                      </SmallAction>
+                    )}
+                  </>
+                )}
+                {editable && l.kind === 'EXTRA' && (
+                  <>
+                    <SmallAction tone="amber" disabled={busyHere} title={free ? 'جعله مدفوعاً' : 'جعله هدية مجانية'} onClick={() => onToggleCharge(l)}>
+                      {free ? 'مدفوع' : 'هدية'}
+                    </SmallAction>
+                    <SmallAction tone="red" disabled={busyHere} title="حذف الصنف الإضافي" onClick={() => onChangeLine(l, 0)}>
+                      حذف
+                    </SmallAction>
+                  </>
                 )}
               </div>
             )}
           </div>
         );
       })}
-      <div className="flex flex-wrap gap-3 border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 bg-slate-50 px-3 py-1 text-[10.5px] font-bold text-slate-600">
+        {doubleCheck && <Legend color="#94A3B8" glyph="" text="لم يطابق بعد (باهت)" />}
         <Legend color={LINE_COLORS.green} glyph="✓" text="مطابق" />
-        <Legend color={LINE_COLORS.red} glyph="✕" text="ناقص" />
+        <Legend color={SHORT_ORANGE} glyph="−" text="ناقص" />
+        <Legend color={LINE_COLORS.red} glyph="✕" text="مُزال (مشطوب)" />
         <Legend color={OVER_BLUE} glyph="+" text="زيادة" />
         <Legend color={LINE_COLORS.yellow} glyph="+" text="إضافي" />
       </div>
     </div>
+  );
+}
+
+const ACTION_TONES = {
+  orange: 'border-orange-300 bg-orange-50 text-[#C2410C]',
+  red: 'border-red-200 bg-red-50 text-red-700',
+  amber: 'border-amber-300 bg-amber-50 text-[#a8650a]',
+  slate: 'border-slate-300 bg-white text-slate-600',
+} as const;
+
+function SmallAction({ tone, disabled, title, onClick, children }: { tone: keyof typeof ACTION_TONES; disabled: boolean; title: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={`h-7 shrink-0 rounded-md border px-2 text-[11px] font-bold disabled:opacity-40 ${ACTION_TONES[tone]}`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1937,7 +2080,6 @@ function OrderView({
   status,
   result,
   checked,
-  deliveredLines,
   editable,
   editingLine,
   flash,
@@ -1947,6 +2089,8 @@ function OrderView({
   onAddBarcode,
   onChangeLine,
   onToggleCharge,
+  onVerify,
+  onUnverify,
   onFinalize,
   onReprint,
   onSlip,
@@ -1956,7 +2100,6 @@ function OrderView({
   status: OnlineOrdersStatus | null;
   result: FinalizeResult | null;
   checked: Record<string, number>;
-  deliveredLines: { key: string; name: string; qty: number }[];
   editable: boolean;
   editingLine: string | null;
   flash: string | null;
@@ -1966,6 +2109,8 @@ function OrderView({
   onAddBarcode: (code: string) => void;
   onChangeLine: (line: SiteLine, qty: number) => void;
   onToggleCharge: (line: SiteLine) => void;
+  onVerify: (line: SiteLine) => void;
+  onUnverify: (line: SiteLine) => void;
   onFinalize: () => void;
   onReprint: (what: 'receipt' | 'invoice' | 'label') => void;
   onSlip: () => void;
@@ -1975,14 +2120,15 @@ function OrderView({
   const invoiced = order.invoiced;
   const blockers = [...order.blockers, ...order.local.problems];
   const doubleCheck = !!status?.print.doubleCheck && !invoiced;
-  const checkMissing = doubleCheck ? deliveredLines.filter(l => (checked[l.key] ?? 0) < l.qty) : [];
+  // كل سطر يُسلَّم منه شيء يجب أن يطابق (مسح أو «+»)، أو يُعلَّم «ناقص»/«إزالة».
+  const checkMissing = doubleCheck ? order.lines.filter(l => deliveredQty(l) > 0 && (checked[l.id] ?? 0) < deliveredQty(l)) : [];
   let disabledReason: string | null = null;
   if (offline) disabledReason = 'لا اتصال بالموقع';
   else if (status && !status.enabled) disabledReason = 'كاشير الطلبات متوقف من لوحة التحكم';
   else if (invoiced) disabledReason = `مُفوتر بالإيصال ${invoiced.receiptNumber ?? ''}`;
   else if (!order.canInvoice) disabledReason = order.blockers[0] ?? 'الطلب غير جاهز للفوترة';
   else if (order.local.problems.length) disabledReason = order.local.problems[0];
-  else if (checkMissing.length) disabledReason = `المراجعة المزدوجة: امسح ${linesLabel(checkMissing.length)} بعد`;
+  else if (checkMissing.length) disabledReason = `المراجعة المزدوجة: ${linesLabel(checkMissing.length)} لم تطابق بعد — امسحها أو اختر «ناقص»/«إزالة»`;
   const tracking = order.shipment?.trackingNumber ?? result?.shipment?.trackingNumber;
   const shipmentState = result?.shipment?.state ?? order.shipment?.state;
 
@@ -2021,25 +2167,13 @@ function OrderView({
             editable={editable}
             editingLine={editingLine}
             flash={flash}
+            doubleCheck={doubleCheck}
+            checked={checked}
             onChangeLine={onChangeLine}
             onToggleCharge={onToggleCharge}
+            onVerify={onVerify}
+            onUnverify={onUnverify}
           />
-          {doubleCheck && (
-            <Card title="المراجعة المزدوجة — امسح كل قطعة قبل الإتمام">
-              <div className="grid gap-1 sm:grid-cols-2">
-                {deliveredLines.map(l => {
-                  const n = checked[l.key] ?? 0;
-                  const done = n >= l.qty;
-                  return (
-                    <div key={l.key} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[13px]" style={{ background: done ? '#1F9D6318' : '#94A3B818' }}>
-                      <span className="min-w-0 truncate">{l.name}</span>
-                      <span className="num shrink-0 font-bold" style={{ color: done ? LINE_COLORS.green : '#475569' }}>{done ? '✓ ' : ''}{n} / {l.qty}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
         </div>
 
         {/* الزبونة والمبلغ والإجراء */}
