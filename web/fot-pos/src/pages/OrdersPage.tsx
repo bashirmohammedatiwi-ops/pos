@@ -46,6 +46,9 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'returns', label: 'مرتجعات', hint: 'طرود رجعت للمحل' },
 ];
 
+/** أزرق «زيادة»: قطع أكثر من المطلوب لصنف موجود في الطلب (نفس لون تطبيق التجهيز). */
+const OVER_BLUE = '#2563EB';
+
 const RETURN_STAGES = ['RETURNING', 'RETURNED', 'PARTIALLY_DELIVERED', 'DELIVERY_ISSUE', 'CANCELLED'];
 const EDITABLE_STAGES = ['PICKED', 'READY_FOR_PICKUP'];
 /** بعد الفوترة: الطرد في المحل بانتظار المندوب (الشحنة أُنشئت أو تُنشأ). */
@@ -147,6 +150,7 @@ export function OrdersPage({
   /** عُدّلت فاتورة مُفوترة: الإيصال والملصق المطبوعان قديمان. */
   const [needsReprint, setNeedsReprint] = useState(false);
   const [printersOpen, setPrintersOpen] = useState(false);
+  const courierSaveRef = useRef<Promise<boolean> | null>(null);
   const needsReprintRef = useRef(false);
   needsReprintRef.current = needsReprint;
   const [toast, setToast] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
@@ -405,6 +409,32 @@ export function OrdersPage({
     }
   }
 
+  async function addOver(line: SiteLine) {
+    const o = orderRef.current;
+    if (!o || !line.barcode) return;
+    setEditingLine(line.id);
+    try {
+      const fresh = await onlineOrdersApi.edit({
+        code: o.order.code,
+        op: 'add',
+        barcode: line.barcode,
+        qty: 1,
+        charge: 'PAID',
+        reason: 'زيادة على الكمية المطلوبة',
+        clientEditId: newEditId(),
+      });
+      setOrder(fresh);
+      setResult(null);
+      afterEdit(fresh);
+      void refreshQueue();
+    } catch (e) {
+      playErrorBeep();
+      showToast(errorText(e), 'err');
+    } finally {
+      setEditingLine(null);
+    }
+  }
+
   /** تعديل على فاتورة مُفوترة: اطلب إعادة الطباعة، وأظهر إن لم يصل التعديل لهاي إكسبريس. */
   function afterEdit(fresh: LookupResult) {
     if (fresh.reprint) setNeedsReprint(true);
@@ -445,6 +475,11 @@ export function OrdersPage({
   }
 
   function changeLine(line: SiteLine, qty: number) {
+    // «+» على صنف مكتمل: قطعة زائدة (أزرق «زيادة») بنفس الباركود — بلا نافذة.
+    if (line.kind === 'ORDERED' && qty > line.orderedQty && line.barcode) {
+      void addOver(line);
+      return;
+    }
     if (line.kind === 'ORDERED' && qty < line.orderedQty) {
       // إرجاع قطعة لسطر ناقص سببه مسجّل: لا داعي لسؤال جديد.
       if (qty > line.pickedQty && line.reason) {
@@ -632,8 +667,33 @@ export function OrdersPage({
   async function saveCourierOptions(opts: CourierOptionsInput): Promise<boolean> {
     const o = orderRef.current;
     if (!o) return false;
+    // قبل الفوترة الحفظ تلقائي وهادئ (البطاقة تعرض «حُفظت»)؛ بعدها يُعدّل هاي إكسبريس ويُطبع الملصق.
+    const quiet = !o.invoiced;
+    if (quiet) {
+      const run = (async () => {
+        try {
+          const fresh = await onlineOrdersApi.courierOptions({
+            code: o.order.code,
+            setType: true,
+            typeId: opts.typeId,
+            parcelCount: opts.parcelCount,
+            note: opts.note,
+            phone2: opts.phone2,
+          });
+          if (orderRef.current?.order.id === fresh.order.id) setOrder(fresh);
+          return true;
+        } catch (e) {
+          playErrorBeep();
+          showToast(errorText(e), 'err');
+          return false;
+        }
+      })();
+      // «إتمام وطباعة» ينتظر آخر حفظ — فلا تُنشأ الشحنة قبل أن تصل خيارات التوصيل.
+      courierSaveRef.current = run;
+      return run;
+    }
     setBusy(true);
-    setBusyText(o.invoiced ? 'جاري تحديث الشحنة عند هاي إكسبريس…' : 'جاري الحفظ…');
+    setBusyText('جاري تحديث الشحنة عند هاي إكسبريس…');
     try {
       const fresh = await onlineOrdersApi.courierOptions({
         code: o.order.code,
@@ -693,6 +753,13 @@ export function OrdersPage({
     setBusyText(pickup ? 'جاري التسليم والطباعة…' : 'جاري الفوترة وإنشاء الشحنة…');
     setActionError(null);
     try {
+      // خيارات التوصيل التي تُحفظ تلقائياً الآن يجب أن تصل قبل إنشاء الشحنة.
+      if (courierSaveRef.current) {
+        setBusyText('جاري حفظ خيارات التوصيل…');
+        await courierSaveRef.current;
+        courierSaveRef.current = null;
+        setBusyText(pickup ? 'جاري التسليم والطباعة…' : 'جاري الفوترة وإنشاء الشحنة…');
+      }
       const body = {
         code: order.order.code,
         posId: session.posTerminalId,
@@ -1545,6 +1612,9 @@ function LinesTable({
 }) {
   const byId = new Map(order.lines.map(l => [l.id, l]));
   const unresolved = new Set(order.local.lines.filter(l => !l.resolved).map(l => normBarcode(l.barcode)));
+  // كمية زائدة لصنف من الطلب (إضافي بنفس باركود سطر مطلوب) = أزرق «زيادة»؛ صنف جديد = أصفر «إضافي».
+  const orderedCodes = new Set(order.lines.filter(l => l.kind === 'ORDERED' && l.barcode).map(l => normBarcode(l.barcode)));
+  const isOver = (l: SiteLine) => l.kind === 'EXTRA' && l.charge === 'PAID' && !l.substituteForLineId && !!l.barcode && orderedCodes.has(normBarcode(l.barcode));
   // سعر القطعة على الزبونة كما في إيصال الموقع: الهدية بصفر، والبديل بالأرخص.
   const chargeOf = (l: SiteLine) => {
     if (l.kind === 'EXTRA' && l.charge === 'FREE') return 0;
@@ -1565,7 +1635,8 @@ function LinesTable({
         {editable && <span className="text-center">تعديل</span>}
       </div>
       {order.lines.map(l => {
-        const color = LINE_COLORS[l.color] ?? LINE_COLORS.grey;
+        const over = isOver(l);
+        const color = over ? OVER_BLUE : LINE_COLORS[l.color] ?? LINE_COLORS.grey;
         const sub = l.substituteForLineId ? byId.get(l.substituteForLineId) : null;
         const missingHere = l.barcode && unresolved.has(normBarcode(l.barcode));
         const delivered = l.kind === 'ORDERED' ? Math.min(l.pickedQty, l.orderedQty) : l.pickedQty;
@@ -1582,7 +1653,7 @@ function LinesTable({
               <span className="flex h-7 w-7 items-center justify-center rounded-full text-[15px] font-bold text-white" style={{ background: color }}>
                 {lineGlyph(l.state)}
               </span>
-              <span className="text-center text-[10.5px] font-bold leading-3">{l.label}</span>
+              <span className="text-center text-[10.5px] font-bold leading-3">{over ? 'زيادة' : l.label}</span>
             </div>
             <div className="min-w-0">
               <div className="text-[14px] font-bold leading-5 text-slate-900">
@@ -1590,8 +1661,8 @@ function LinesTable({
               </div>
               <div className="font-mono text-[11px] text-slate-400" dir="ltr">{l.barcode ?? '—'}</div>
               {l.kind === 'EXTRA' && (
-                <div className="text-[12px] font-bold" style={{ color: LINE_COLORS.yellow }}>
-                  {free ? 'هدية مجانية' : 'إضافي مدفوع'}
+                <div className="text-[12px] font-bold" style={{ color: over ? OVER_BLUE : LINE_COLORS.yellow }}>
+                  {over ? 'زيادة على الكمية المطلوبة' : free ? 'هدية مجانية' : 'إضافي مدفوع'}
                   {sub ? ` · بديل عن ${sub.name}${sub.shadeName ? ` — ${sub.shadeName}` : ''}` : ''}
                 </div>
               )}
@@ -1622,8 +1693,8 @@ function LinesTable({
                 />
                 <QtyButton
                   label="+"
-                  title={l.kind === 'ORDERED' ? 'إرجاع قطعة ناقصة' : 'قطعة أخرى'}
-                  disabled={busyHere || (l.kind === 'ORDERED' && l.pickedQty >= l.orderedQty)}
+                  title={l.kind === 'ORDERED' ? (l.pickedQty >= l.orderedQty ? 'قطعة زائدة (زيادة)' : 'إرجاع قطعة ناقصة') : 'قطعة أخرى'}
+                  disabled={busyHere || (l.kind === 'ORDERED' && l.pickedQty >= l.orderedQty && !l.barcode)}
                   onClick={() => onChangeLine(l, delivered + 1)}
                 />
                 {l.kind === 'EXTRA' ? (
@@ -1654,9 +1725,9 @@ function LinesTable({
                       disabled={busyHere}
                       onClick={() => onChangeLine(l, 0)}
                       className="col-span-2 w-full rounded-md border border-red-200 bg-red-50 px-1 py-1 text-[11px] font-bold text-red-700 disabled:opacity-40"
-                      title="الصنف كله ناقص"
+                      title="إزالة الصنف من الطلب (يُسأل عن السبب)"
                     >
-                      ناقص
+                      إزالة
                     </button>
                   )
                 )}
@@ -1668,6 +1739,7 @@ function LinesTable({
       <div className="flex flex-wrap gap-3 border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">
         <Legend color={LINE_COLORS.green} glyph="✓" text="مطابق" />
         <Legend color={LINE_COLORS.red} glyph="✕" text="ناقص" />
+        <Legend color={OVER_BLUE} glyph="+" text="زيادة" />
         <Legend color={LINE_COLORS.yellow} glyph="+" text="إضافي" />
       </div>
     </div>
@@ -1915,6 +1987,11 @@ function EdariPanel({ order, busy, post, editable }: { order: LookupResult; busy
 }
 
 /** خيارات التوصيل عند هاي إكسبريس: نوع الشحنة (كمربعات ملصقهم)، الطرود، ملاحظة للمندوب، هاتف ثانٍ. */
+/**
+ * خيارات التوصيل عند هاي إكسبريس: نوع الشحنة (كمربعات ملصقهم)، الطرود، ملاحظة للمندوب، هاتف ثانٍ.
+ * قبل الفوترة: تُحفظ فور اختيارها (لا زر حفظ يُنسى) وتُرسل مع إنشاء الشحنة.
+ * بعد الفوترة: «حفظ وإرسال» صريح — يعدّل الشحنة عند هاي إكسبريس ويطبع الملصق الجديد.
+ */
 function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; busy: boolean; offline: boolean; onSave: (o: CourierOptionsInput) => Promise<boolean> }) {
   const c = order.courier;
   const initial = useMemo<CourierOptionsInput>(
@@ -1927,30 +2004,62 @@ function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; bu
     [c?.typeId, c?.parcelCount, c?.note, c?.phone2, order.order.parcelCount],
   );
   const [form, setForm] = useState(initial);
-  useEffect(() => setForm(initial), [initial, order.order.id]);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const timer = useRef(0);
+  // من الخادم عند فتح طلب آخر فقط — لا يُمسح ما يكتبه الكاشير أثناء الحفظ التلقائي.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setForm(initial), [order.order.id, !!order.invoiced]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   if (!c || order.order.deliveryOption === 'PICKUP') return null;
   const invoiced = !!order.invoiced;
   const locked = invoiced && !INVOICED_EDIT_STAGES.includes(order.order.stage);
+  const auto = !invoiced;
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const effective = form.typeId != null ? (form.typeId > 0 ? form.typeId : null) : c.defaultTypeId;
+  const sentType = invoiced ? c.effectiveTypeId : null;
   const defaultName = c.types.find(t => t.id === c.defaultTypeId)?.name;
   const disabled = busy || offline || locked;
 
+  /** قبل الفوترة: حفظ فوري (النوع والطرود) أو بعد التوقف عن الكتابة (الملاحظة والهاتف). */
+  const commit = (next: CourierOptionsInput, delayMs = 0) => {
+    setForm(next);
+    if (!auto) return;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(async () => {
+      if (JSON.stringify(next) === JSON.stringify(initial)) return;
+      setSaveState('saving');
+      const ok = await onSave(next);
+      setSaveState(ok ? 'saved' : 'error');
+    }, delayMs);
+  };
+
   return (
-    <Card title="خيارات التوصيل — هاي إكسبريس" right={locked ? <span className="text-[11px] font-bold text-slate-400">بعد استلام المندوب لا تُعدّل</span> : undefined}>
-      <div className="mb-1 text-[12px] font-bold text-slate-600">نوع الشحنة (يظهر على الملصق)</div>
+    <Card
+      title="خيارات التوصيل — هاي إكسبريس"
+      right={
+        locked ? <span className="text-[11px] font-bold text-slate-400">بعد استلام المندوب لا تُعدّل</span>
+        : auto && saveState === 'saving' ? <span className="text-[11px] font-bold text-slate-500">جاري الحفظ…</span>
+        : auto && saveState === 'saved' && !dirty ? <span className="text-[11px] font-bold text-[#1F9D63]">✓ حُفظت</span>
+        : auto && saveState === 'error' ? <span className="text-[11px] font-bold text-[#D64545]">لم تُحفظ — أعد المحاولة</span>
+        : undefined
+      }
+    >
+      <div className="mb-1 text-[12px] font-bold text-slate-600">نوع الشحنة (يظهر على ملصق هاي إكسبريس)</div>
       <div className="grid grid-cols-2 gap-1.5">
         {c.types.map(t => {
           const on = effective === t.id;
+          // هاي إكسبريس لا تقبل إلغاء نوع أُرسل لها — يُغيَّر لنوع آخر فقط.
+          const cannotClear = on && sentType === t.id;
           return (
             <button
               key={t.id}
               type="button"
-              disabled={disabled}
-              onClick={() => setForm(f => ({ ...f, typeId: on ? 0 : t.id }))}
-              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[12.5px] font-bold transition disabled:opacity-50 ${
+              disabled={disabled || cannotClear}
+              title={cannotClear ? 'أُرسل لهاي إكسبريس — يُغيَّر لنوع آخر ولا يُلغى' : undefined}
+              onClick={() => commit({ ...form, typeId: on ? 0 : t.id })}
+              className={`flex items-center gap-1.5 rounded-lg border px-2 py-2 text-[12.5px] font-bold transition disabled:cursor-not-allowed ${
                 on ? 'border-[#0f9f76] bg-emerald-50 text-[#0b7d5d]' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
+              } ${disabled && !on ? 'opacity-50' : ''}`}
             >
               <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[11px] ${on ? 'border-[#0f9f76] bg-[#0f9f76] text-white' : 'border-slate-400'}`}>
                 {on ? '✓' : ''}
@@ -1960,23 +2069,19 @@ function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; bu
           );
         })}
       </div>
-      <div className="mt-1 text-[11px] text-slate-500">
+      <div className="mt-1 text-[11px] leading-5 text-slate-500">
         {form.typeId == null
-          ? defaultName ? `الافتراضي من الإعدادات: ${defaultName}` : 'بلا نوع (الافتراضي)'
-          : form.typeId === 0 ? 'بلا نوع لهذا الطلب' : 'اختيار لهذا الطلب'}
-        {form.typeId != null && (
-          <button type="button" disabled={disabled} className="ms-2 font-bold text-sky-700 underline disabled:opacity-50" onClick={() => setForm(f => ({ ...f, typeId: null }))}>
-            رجوع للافتراضي
-          </button>
-        )}
+          ? defaultName ? `الافتراضي من الإعدادات: ${defaultName}` : 'بلا نوع'
+          : form.typeId === 0 ? 'بلا نوع لهذا الطلب' : 'مختار لهذا الطلب'}
+        {sentType ? ' · بعد إرساله لهاي إكسبريس يُغيَّر لنوع آخر فقط' : ''}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="text-[12px] font-bold text-slate-600">عدد الطرود (ملصق لكل طرد)</span>
         <div className="flex items-center gap-1.5">
-          <QtyButton className="w-8" label="−" title="أقل" disabled={disabled || form.parcelCount <= 1} onClick={() => setForm(f => ({ ...f, parcelCount: Math.max(1, f.parcelCount - 1) }))} />
+          <QtyButton className="w-8" label="−" title="أقل" disabled={disabled || form.parcelCount <= 1} onClick={() => commit({ ...form, parcelCount: Math.max(1, form.parcelCount - 1) }, 500)} />
           <span className="num w-7 text-center text-[16px] font-bold">{form.parcelCount}</span>
-          <QtyButton className="w-8" label="+" title="أكثر" disabled={disabled || form.parcelCount >= 20} onClick={() => setForm(f => ({ ...f, parcelCount: Math.min(20, f.parcelCount + 1) }))} />
+          <QtyButton className="w-8" label="+" title="أكثر" disabled={disabled || form.parcelCount >= 20} onClick={() => commit({ ...form, parcelCount: Math.min(20, form.parcelCount + 1) }, 500)} />
         </div>
       </div>
 
@@ -1986,7 +2091,8 @@ function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; bu
           value={form.note}
           disabled={disabled}
           maxLength={300}
-          onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+          onChange={e => commit({ ...form, note: e.target.value }, 1200)}
+          onBlur={() => commit(form)}
           placeholder="مثلاً: اتصل قبل الوصول بساعة"
           className="pos-field w-full text-[13px]"
         />
@@ -1996,14 +2102,15 @@ function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; bu
         <input
           value={form.phone2}
           disabled={disabled}
-          onChange={e => setForm(f => ({ ...f, phone2: e.target.value.replace(/[^\d+]/g, '') }))}
+          onChange={e => commit({ ...form, phone2: e.target.value.replace(/[^\d+]/g, '') }, 1500)}
+          onBlur={() => commit(form)}
           placeholder="07xxxxxxxxx"
           className="pos-field w-full text-[13px]"
           dir="ltr"
         />
       </label>
 
-      {dirty && (
+      {!auto && dirty && (
         <div className="mt-3 grid grid-cols-[1fr_2fr] gap-2">
           <button type="button" disabled={busy} onClick={() => setForm(initial)} className="rounded-lg border border-slate-300 bg-white py-2 text-[12px] font-bold text-slate-600">
             تراجع
@@ -2014,7 +2121,7 @@ function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; bu
             onClick={() => void onSave(form)}
             className="rounded-lg bg-[#0f9f76] py-2 text-[13px] font-bold text-white disabled:bg-slate-300"
           >
-            {invoiced ? 'حفظ وإرسال لهاي إكسبريس وطباعة الملصق' : 'حفظ خيارات التوصيل'}
+            حفظ وإرسال لهاي إكسبريس وطباعة الملصق
           </button>
         </div>
       )}
