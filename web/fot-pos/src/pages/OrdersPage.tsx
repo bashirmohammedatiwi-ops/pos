@@ -628,6 +628,45 @@ export function OrdersPage({
     }
   }
 
+  /** خيارات التوصيل: بعد الفوترة تصل هاي إكسبريس فوراً ويُطبع ملصقها من جديد. */
+  async function saveCourierOptions(opts: CourierOptionsInput): Promise<boolean> {
+    const o = orderRef.current;
+    if (!o) return false;
+    setBusy(true);
+    setBusyText(o.invoiced ? 'جاري تحديث الشحنة عند هاي إكسبريس…' : 'جاري الحفظ…');
+    try {
+      const fresh = await onlineOrdersApi.courierOptions({
+        code: o.order.code,
+        setType: true,
+        typeId: opts.typeId,
+        parcelCount: opts.parcelCount,
+        note: opts.note,
+        phone2: opts.phone2,
+      });
+      setOrder(fresh);
+      afterEdit(fresh);
+      if (fresh.reprintLabel) {
+        setBusyText('جاري طباعة ملصق هاي إكسبريس…');
+        try {
+          await printLabelFor(fresh.order.code, fresh.order.parcelCount);
+          showToast('حُفظت خيارات التوصيل وطُبع الملصق الجديد');
+        } catch (e) {
+          showToast(`حُفظت الخيارات لكن تعذرت طباعة الملصق: ${errorText(e)}`, 'err');
+        }
+      } else if (!fresh.courierUpdate || fresh.courierUpdate.ok) {
+        showToast('حُفظت خيارات التوصيل');
+      }
+      return true;
+    } catch (e) {
+      playErrorBeep();
+      showToast(errorText(e), 'err');
+      return false;
+    } finally {
+      setBusy(false);
+      setBusyText('');
+    }
+  }
+
   /** إيصال المحل لا يطابق الموقع بعد تعديل لم يكتمل: يُعاد بناؤه من الموقع. */
   async function syncReceipt() {
     const o = orderRef.current;
@@ -934,8 +973,8 @@ export function OrdersPage({
                 post={{
                   needsReprint,
                   onReprintAll: () => void reprintAfterEdit(),
-                  onPostThis: () => void postInvoices([order.order.id]),
                   onSyncReceipt: () => void syncReceipt(),
+                  onSaveCourier: saveCourierOptions,
                 }}
               />
             )
@@ -1242,6 +1281,7 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
   const [label, setLabel] = useState<string>('');
   const [paperW, setPaperW] = useState('100');
   const [paperH, setPaperH] = useState('150');
+  const [brand, setBrand] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const desktop = !!window.fotDesktop?.listPrinters;
@@ -1258,6 +1298,7 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
         setLabel(cfg?.labelPrinterName ?? '');
         if (cfg?.labelWidthMm) setPaperW(String(cfg.labelWidthMm));
         if (cfg?.labelHeightMm) setPaperH(String(cfg.labelHeightMm));
+        setBrand(cfg?.labelBrand !== false);
       } catch (e) {
         setError(errorText(e));
         setPrinters([]);
@@ -1275,7 +1316,7 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
     setSaving(true);
     setError(null);
     try {
-      await window.fotDesktop?.setPrintConfig?.({ printerName: receipt || null, labelPrinterName: label || null, labelWidthMm: w, labelHeightMm: h });
+      await window.fotDesktop?.setPrintConfig?.({ printerName: receipt || null, labelPrinterName: label || null, labelWidthMm: w, labelHeightMm: h, labelBrand: brand });
       onClose();
     } catch (e) {
       setError(errorText(e));
@@ -1331,6 +1372,13 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
               العرض × الطول. ملصق هاي إكسبريس 105×148.5 ملم يُصغَّر ليدخل كاملاً (الشائع 100×150).
             </span>
           </div>
+          <label className="flex items-start gap-2 rounded-lg bg-slate-50 p-2">
+            <input type="checkbox" className="mt-0.5" checked={brand} onChange={e => setBrand(e.target.checked)} />
+            <span className="text-[13px] leading-5">
+              <b className="text-slate-800">شعار ديما الحياة أسفل الملصق</b>
+              <span className="block text-[12px] text-slate-500">شريط صغير تحت ملصق هاي إكسبريس: الشعار والاسم والموقع — لا يغطي أي بيانات للشحنة.</span>
+            </span>
+          </label>
         </div>
       )}
       {error && <div className="mt-3 text-[13px] font-bold text-[#D64545]">{error}</div>}
@@ -1793,6 +1841,7 @@ function OrderView({
             onReprint={onReprint}
           />
           </div>
+          <CourierCard order={order} busy={busy} offline={offline} onSave={post.onSaveCourier} />
           <AmountsCard order={order} />
           <CustomerCard order={order} />
           <NotesCards order={order} />
@@ -1808,9 +1857,12 @@ function OrderView({
 type PostControls = {
   needsReprint: boolean;
   onReprintAll: () => void;
-  onPostThis: () => void;
   onSyncReceipt: () => void;
+  /** خيارات التوصيل: تُحفظ في الموقع (وتصل هاي إكسبريس بعد الفوترة). */
+  onSaveCourier: (opts: CourierOptionsInput) => Promise<boolean>;
 };
+
+type CourierOptionsInput = { typeId: number | null; parcelCount: number; note: string; phone2: string };
 
 /** الفاتورة والإداري: بانتظار الترحيل (تُعدّل) أو رُحّلت، وتنبيه إعادة الطباعة بعد التعديل. */
 function EdariPanel({ order, busy, post, editable }: { order: LookupResult; busy: boolean; post: PostControls; editable: boolean }) {
@@ -1851,25 +1903,122 @@ function EdariPanel({ order, busy, post, editable }: { order: LookupResult; busy
           </button>
         </div>
       )}
-      <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
-        <div className="text-[13px] font-bold text-sky-900">بانتظار الترحيل إلى الإداري</div>
-        <div className="text-[12px] leading-5 text-sky-900/80">
-          {editable
-            ? 'يمكن تعديل الفاتورة الآن: امسح باركود صنف لإضافته أو عدّل الكميات — يتعدّل الموقع وهاي إكسبريس معها.'
-            : 'الفاتورة لم تُرحَّل بعد.'}
-          {e.edits > 0 ? ` عُدّلت ${e.edits === 1 ? 'مرة' : `${e.edits} مرات`}.` : ''}
-        </div>
-        <button
-          type="button"
-          disabled={busy || post.needsReprint || e.outOfSync}
-          onClick={post.onPostThis}
-          title={post.needsReprint ? 'اطبع الفاتورة المعدّلة أولاً' : undefined}
-          className="mt-2 w-full rounded-lg border border-sky-700 bg-white py-2 text-[13px] font-bold text-sky-800 disabled:border-slate-300 disabled:text-slate-400"
-        >
-          ترحيل هذه الفاتورة الآن
-        </button>
+      {/* الترحيل نفسه من تبويب «بانتظار الترحيل» أو لوحة التحكم — هنا تنبيه صغير فقط. */}
+      <div className="rounded-lg bg-sky-50 px-3 py-1.5 text-[12px] leading-5 text-sky-900">
+        {editable
+          ? 'الفاتورة لم تُرحَّل بعد — يمكن تعديلها، ويتعدّل الموقع وهاي إكسبريس معها.'
+          : 'الفاتورة لم تُرحَّل بعد.'}
+        {e.edits > 0 ? ` عُدّلت ${e.edits === 1 ? 'مرة' : `${e.edits} مرات`}.` : ''}
       </div>
     </div>
+  );
+}
+
+/** خيارات التوصيل عند هاي إكسبريس: نوع الشحنة (كمربعات ملصقهم)، الطرود، ملاحظة للمندوب، هاتف ثانٍ. */
+function CourierCard({ order, busy, offline, onSave }: { order: LookupResult; busy: boolean; offline: boolean; onSave: (o: CourierOptionsInput) => Promise<boolean> }) {
+  const c = order.courier;
+  const initial = useMemo<CourierOptionsInput>(
+    () => ({
+      typeId: c?.typeId ?? null,
+      parcelCount: Math.max(1, c?.parcelCount ?? order.order.parcelCount ?? 1),
+      note: c?.note ?? '',
+      phone2: c?.phone2 ?? '',
+    }),
+    [c?.typeId, c?.parcelCount, c?.note, c?.phone2, order.order.parcelCount],
+  );
+  const [form, setForm] = useState(initial);
+  useEffect(() => setForm(initial), [initial, order.order.id]);
+  if (!c || order.order.deliveryOption === 'PICKUP') return null;
+  const invoiced = !!order.invoiced;
+  const locked = invoiced && !INVOICED_EDIT_STAGES.includes(order.order.stage);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const effective = form.typeId != null ? (form.typeId > 0 ? form.typeId : null) : c.defaultTypeId;
+  const defaultName = c.types.find(t => t.id === c.defaultTypeId)?.name;
+  const disabled = busy || offline || locked;
+
+  return (
+    <Card title="خيارات التوصيل — هاي إكسبريس" right={locked ? <span className="text-[11px] font-bold text-slate-400">بعد استلام المندوب لا تُعدّل</span> : undefined}>
+      <div className="mb-1 text-[12px] font-bold text-slate-600">نوع الشحنة (يظهر على الملصق)</div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {c.types.map(t => {
+          const on = effective === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => setForm(f => ({ ...f, typeId: on ? 0 : t.id }))}
+              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[12.5px] font-bold transition disabled:opacity-50 ${
+                on ? 'border-[#0f9f76] bg-emerald-50 text-[#0b7d5d]' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[11px] ${on ? 'border-[#0f9f76] bg-[#0f9f76] text-white' : 'border-slate-400'}`}>
+                {on ? '✓' : ''}
+              </span>
+              {t.name}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-1 text-[11px] text-slate-500">
+        {form.typeId == null
+          ? defaultName ? `الافتراضي من الإعدادات: ${defaultName}` : 'بلا نوع (الافتراضي)'
+          : form.typeId === 0 ? 'بلا نوع لهذا الطلب' : 'اختيار لهذا الطلب'}
+        {form.typeId != null && (
+          <button type="button" disabled={disabled} className="ms-2 font-bold text-sky-700 underline disabled:opacity-50" onClick={() => setForm(f => ({ ...f, typeId: null }))}>
+            رجوع للافتراضي
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="text-[12px] font-bold text-slate-600">عدد الطرود (ملصق لكل طرد)</span>
+        <div className="flex items-center gap-1.5">
+          <QtyButton className="w-8" label="−" title="أقل" disabled={disabled || form.parcelCount <= 1} onClick={() => setForm(f => ({ ...f, parcelCount: Math.max(1, f.parcelCount - 1) }))} />
+          <span className="num w-7 text-center text-[16px] font-bold">{form.parcelCount}</span>
+          <QtyButton className="w-8" label="+" title="أكثر" disabled={disabled || form.parcelCount >= 20} onClick={() => setForm(f => ({ ...f, parcelCount: Math.min(20, f.parcelCount + 1) }))} />
+        </div>
+      </div>
+
+      <label className="mt-3 block">
+        <span className="mb-1 block text-[12px] font-bold text-slate-600">ملاحظة للمندوب</span>
+        <input
+          value={form.note}
+          disabled={disabled}
+          maxLength={300}
+          onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+          placeholder="مثلاً: اتصل قبل الوصول بساعة"
+          className="pos-field w-full text-[13px]"
+        />
+      </label>
+      <label className="mt-2 block">
+        <span className="mb-1 block text-[12px] font-bold text-slate-600">هاتف ثانٍ للزبونة</span>
+        <input
+          value={form.phone2}
+          disabled={disabled}
+          onChange={e => setForm(f => ({ ...f, phone2: e.target.value.replace(/[^\d+]/g, '') }))}
+          placeholder="07xxxxxxxxx"
+          className="pos-field w-full text-[13px]"
+          dir="ltr"
+        />
+      </label>
+
+      {dirty && (
+        <div className="mt-3 grid grid-cols-[1fr_2fr] gap-2">
+          <button type="button" disabled={busy} onClick={() => setForm(initial)} className="rounded-lg border border-slate-300 bg-white py-2 text-[12px] font-bold text-slate-600">
+            تراجع
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void onSave(form)}
+            className="rounded-lg bg-[#0f9f76] py-2 text-[13px] font-bold text-white disabled:bg-slate-300"
+          >
+            {invoiced ? 'حفظ وإرسال لهاي إكسبريس وطباعة الملصق' : 'حفظ خيارات التوصيل'}
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }
 

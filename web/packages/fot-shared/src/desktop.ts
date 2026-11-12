@@ -104,6 +104,8 @@ export type FotDesktopBridge = {
     /** مقاس ورق طابعة الملصقات بالملم (الافتراضي 100×150). */
     labelWidthMm?: number | null;
     labelHeightMm?: number | null;
+    /** شعار ديما الحياة أسفل ملصق الشحن (الافتراضي نعم). */
+    labelBrand?: boolean | null;
   }>;
   setPrintConfig?: (config: {
     printerName?: string | null;
@@ -111,6 +113,7 @@ export type FotDesktopBridge = {
     labelPrinterName?: string | null;
     labelWidthMm?: number | null;
     labelHeightMm?: number | null;
+    labelBrand?: boolean | null;
   }) => Promise<void>;
   getFullScreen?: () => Promise<boolean>;
   setFullScreen?: (flag: boolean) => Promise<boolean>;

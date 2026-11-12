@@ -248,6 +248,9 @@ export const onlineOrdersApi = {
   /** إضافة صنف بالباركود أو تغيير كمية سطر (قبل الفوترة، أو بعدها ما دامت لم تُرحَّل) — يرد بالطلب محدّثاً. */
   edit: (body: OrderEditBody) =>
     request<LookupResult>('/api/online-orders/edit', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
+  /** خيارات التوصيل (نوع الشحنة، الطرود، ملاحظة للمندوب، هاتف ثانٍ). */
+  courierOptions: (body: { code: string; setType: boolean; typeId: number | null; parcelCount: number; note: string; phone2: string }) =>
+    request<LookupResult>('/api/online-orders/courier-options', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
   /** ملصق هاي إكسبريس نفسه (PDF base64). */
   label: (code: string) =>
     request<CourierLabelResult>('/api/online-orders/label', { ...ORDERS_READ, body: JSON.stringify({ code }) }),

@@ -69,7 +69,19 @@ export type OrderEditBody =
   /** إعادة بناء إيصال المحل المحجوز من طلب الموقع (بعد تعديل لم يكتمل في المحل). */
   | { code: string; op: 'sync' };
 
-export type CourierLabelResult = { pdfBase64: string; trackingNumber: string; orderNumber: string; parcelCount: number };
+/** خيارات التوصيل عند هاي إكسبريس لهذا الطلب. */
+export type CourierInfo = {
+  /** null = الافتراضي من الإعدادات، 0 = بلا نوع. */
+  typeId: number | null;
+  defaultTypeId: number | null;
+  effectiveTypeId: number | null;
+  note: string | null;
+  phone2: string | null;
+  parcelCount: number;
+  types: { id: number; name: string }[];
+};
+
+export type CourierLabelResult ={ pdfBase64: string; trackingNumber: string; orderNumber: string; parcelCount: number };
 
 /** فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري. */
 export type HeldInvoice = {
@@ -233,6 +245,10 @@ export type LookupResult = {
     /** من سيرفر 2.6+: null = فاتورة تُرحَّل تلقائياً (أو لم تُفوتر بعد). */
     edari?: EdariState | null;
   };
+  /** خيارات التوصيل (من سيرفر أحدث فقط). */
+  courier?: CourierInfo;
+  /** رد حفظ خيارات التوصيل بعد الفوترة: اطبع ملصق هاي إكسبريس الجديد. */
+  reprintLabel?: boolean;
   /** رد التعديل بعد الفوترة: هل وصل التعديل لهاي إكسبريس؟ */
   courierUpdate?: { ok: boolean; error?: string; codAmount?: number } | null;
   /** عُدّلت فاتورة مُفوترة — اطبع الإيصال والملصق من جديد. */

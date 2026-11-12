@@ -105,6 +105,19 @@ public sealed class OnlineEdariHoldDto
 /// <summary>«ترحيل» فواتير طلبات التطبيق إلى الإداري: بأرقام الطلبات (Codes) أو كلها (All).</summary>
 public sealed record OnlineOrdersPostRequest(IReadOnlyList<string>? OrderIds = null, bool All = false);
 
+/// <summary>
+/// خيارات التوصيل للطلب: TypeId نوع الشحنة عند هاي إكسبريس (null = الافتراضي، 0 = بلا نوع، 1 قابل للكسر،
+/// 2 توصيل مبرد، 3 ممنوع الفتح، 4 معاملة خاصة)، عدد الطرود، ملاحظة للمندوب، هاتف ثانٍ.
+/// SetType = true حين يُرسل TypeId (حتى لو null) — لتمييز «الافتراضي» عن «بلا تغيير».
+/// </summary>
+public sealed record OnlineOrderCourierOptionsRequest(
+    string Code,
+    bool SetType = false,
+    int? TypeId = null,
+    int? ParcelCount = null,
+    string? Note = null,
+    string? Phone2 = null);
+
 /// <summary>صنف من كتالوج المحل بالباركود (قبل إضافته للطلب).</summary>
 public sealed record OnlineOrderProductRequest(string Barcode);
 

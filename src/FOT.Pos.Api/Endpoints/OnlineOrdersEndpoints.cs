@@ -84,6 +84,14 @@ public static class OnlineOrdersEndpoints
                 return Results.Ok(await bridge.LabelAsync(code, ct));
             }));
 
+        // خيارات التوصيل (قابل للكسر، مبرد...، الطرود، ملاحظة للمندوب، هاتف ثانٍ).
+        g.MapPost("/courier-options", (HttpContext http, OnlineOrderCourierOptionsRequest req, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () =>
+            {
+                var code = CleanCode(req.Code) ?? throw new OnlineOrdersRefusal("امسح رمز الطلب (QR)", 400);
+                return Results.Ok(await svc.CourierOptionsAsync(CashierId(http), req with { Code = code }, ct));
+            }));
+
         // الترحيل اليدوي إلى الإداري: القائمة والترحيل (صلاحية كاشير الطلبات).
         g.MapPost("/held", (HttpContext http, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
             RunAsync(http, cashiers, false, ct, async () => Results.Ok(await svc.HeldAsync(ct))));

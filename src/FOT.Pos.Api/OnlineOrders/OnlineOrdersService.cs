@@ -202,6 +202,25 @@ public sealed class OnlineOrdersService(
         return node;
     }
 
+    /// <summary>خيارات التوصيل (نوع الشحنة، الطرود، ملاحظة، هاتف ثانٍ) — الموقع يرسلها لهاي إكسبريس.</summary>
+    public async Task<JsonObject> CourierOptionsAsync(long cashierId, OnlineOrderCourierOptionsRequest req, CancellationToken ct)
+    {
+        var cashier = await cashiers.GetByIdAsync(cashierId, ct);
+        var cashierName = string.IsNullOrWhiteSpace(cashier?.AccountName) ? cashier?.Username ?? $"#{cashierId}" : cashier!.AccountName!;
+        var body = new Dictionary<string, object?>
+        {
+            ["code"] = req.Code,
+            ["cashierName"] = cashierName,
+            ["cashierId"] = cashierId.ToString(),
+            ["note"] = req.Note ?? "",
+            ["phone2"] = req.Phone2 ?? "",
+        };
+        if (req.SetType) body["typeId"] = req.TypeId;
+        if (req.ParcelCount is > 0) body["parcelCount"] = req.ParcelCount;
+        var el = await bridge.PostAsync("/pos-link/orders/courier-options", body, ct);
+        return await WithLocalAsync(el, ct);
+    }
+
     /// <summary>
     /// الباركود الذي يُرسل للموقع: باركود المادة الرئيسي (كما يرفعه المحل للموقع)، وإلا «POS:Seq» لمادة
     /// بلا باركود. ResolveAsync يفهم الصيغتين عند الفوترة فيُبنى الإيصال من المادة نفسها.

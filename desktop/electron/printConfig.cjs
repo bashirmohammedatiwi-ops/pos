@@ -19,9 +19,10 @@ function readPrintConfig(userDataDir) {
       labelPrinterName: parsed.labelPrinterName ?? null,
       labelWidthMm: Number(parsed.labelWidthMm) || null,
       labelHeightMm: Number(parsed.labelHeightMm) || null,
+      labelBrand: parsed.labelBrand !== false,
     };
   } catch {
-    return { printerName: null, askBeforePrint: false, labelPrinterName: null, labelWidthMm: null, labelHeightMm: null };
+    return { printerName: null, askBeforePrint: false, labelPrinterName: null, labelWidthMm: null, labelHeightMm: null, labelBrand: true };
   }
 }
 
@@ -33,6 +34,7 @@ function writePrintConfig(userDataDir, patch) {
     labelPrinterName: patch.labelPrinterName === undefined ? current.labelPrinterName : patch.labelPrinterName,
     labelWidthMm: patch.labelWidthMm === undefined ? current.labelWidthMm : Number(patch.labelWidthMm) || null,
     labelHeightMm: patch.labelHeightMm === undefined ? current.labelHeightMm : Number(patch.labelHeightMm) || null,
+    labelBrand: patch.labelBrand === undefined ? current.labelBrand : patch.labelBrand !== false,
   };
   fs.writeFileSync(configPath(userDataDir), JSON.stringify(next, null, 2), 'utf8');
   return next;
