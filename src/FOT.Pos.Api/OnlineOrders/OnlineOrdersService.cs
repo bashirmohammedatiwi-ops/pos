@@ -140,6 +140,15 @@ public sealed class OnlineOrdersService(
         var cashier = await cashiers.GetByIdAsync(cashierId, ct);
         var cashierName = string.IsNullOrWhiteSpace(cashier?.AccountName) ? cashier?.Username ?? $"#{cashierId}" : cashier!.AccountName!;
 
+        // الطريق السريع (كاشير 2.6.6+ يرسل معرّف الطلب): لا إيصال ولا حجز لهذا الطلب في المحل = لم يُفوتر هنا،
+        // فيُرسل التعديل مباشرة دون قراءة الطلب من الموقع أولاً (الموقع نفسه يرفض تعديل طلب مُفوتر من مكان آخر).
+        if (op != "sync" && !string.IsNullOrWhiteSpace(req.OrderId))
+        {
+            var (localSale, localHold) = await SaleStateAsync(req.OrderId!, ct);
+            if (localSale is null && localHold is null)
+                return await SendEditAsync(req, op, cashierId, cashierName, invoiced: false, hold: null, settings, ct);
+        }
+
         // فاتورة مُفوترة: تُعدّل فقط ما دامت محجوزة عن الترحيل وإيصالها في هذا المحل لم يصل الإداري.
         var current = Parse(await bridge.LookupAsync(req.Code, ct));
         if (string.IsNullOrEmpty(current.Order.Id)) throw new OnlineOrdersRefusal("الطلب غير موجود", 404);
@@ -165,6 +174,14 @@ public sealed class OnlineOrdersService(
             // إعادة بناء إيصال المحل من الطلب كما هو في الموقع (بعد تعديل لم يكتمل في المحل).
             return await SyncHeldReceiptAsync(await bridge.LookupAsync(req.Code, ct), hold!, settings, ct);
         }
+        return await SendEditAsync(req, op, cashierId, cashierName, invoiced, hold, settings, ct);
+    }
+
+    /// <summary>يرسل التعديل للموقع ثم يرد بالطلب (ومع فاتورة مُفوترة: يحدّث إيصال المحل المحجوز).</summary>
+    private async Task<JsonObject> SendEditAsync(
+        OnlineOrderEditRequest req, string op, long cashierId, string cashierName, bool invoiced, OnlineEdariHoldDto? hold,
+        OnlineOrdersSettingsDto settings, CancellationToken ct)
+    {
         var charge = string.Equals(req.Charge, "FREE", StringComparison.OrdinalIgnoreCase) ? "FREE"
             : string.Equals(req.Charge, "PAID", StringComparison.OrdinalIgnoreCase) ? "PAID" : null;
 
@@ -393,7 +410,8 @@ public sealed class OnlineOrdersService(
         await repo.HoldAsync(clientGuid, order.Id, order.OrderNumber, ct);
         var create = new CreateReceiptRequest(
             CashierId: cashierId,
-            SalesmanId: 0,
+            // البائع كالكاشير الأصلي: رأس الإيصال، والأسطر تتبعه (ResolveHeaderSalesman / الأسطر بلا بائع).
+            SalesmanId: req.SalesmanId is > 0 ? req.SalesmanId.Value : 0,
             PosId: req.PosId is > 0 ? req.PosId : null,
             Payment: plan.Gift || credit ? 0 : plan.ComputedTotal,
             Items: items,

@@ -70,7 +70,13 @@ public sealed class OnlineOrderReceiptLinkDto
 public sealed record OnlineOrderCodeRequest(string Code);
 
 /// <summary>«إتمام وطباعة» أو «تسليم للزبونة»: يُنشئ إيصال المحل ثم يبلغ الموقع.</summary>
-public sealed record OnlineOrderFinalizeRequest(string Code, long? PosId = null, string? HwId = null, decimal? ExpectedTotal = null);
+public sealed record OnlineOrderFinalizeRequest(
+    string Code,
+    long? PosId = null,
+    string? HwId = null,
+    decimal? ExpectedTotal = null,
+    /// <summary>البائع كما في الكاشير الأصلي — على رأس الإيصال وكل أسطره (0/null = بلا بائع).</summary>
+    long? SalesmanId = null);
 
 /// <summary>
 /// تعديل طلب مُجهَّز قبل فوترته من «كاشير الطلبات»:
@@ -92,7 +98,9 @@ public sealed record OnlineOrderEditRequest(
     /// <summary>Op = "price": سعر القطعة الجديد لسطر LineId — بصلاحية «تغيير السعر» كالكاشير.</summary>
     decimal? UnitPrice = null,
     /// <summary>Op = "gift": «فاتورة هدية» (true) أو إلغاؤها — بصلاحية «الهدايا» كالكاشير، قبل الفوترة.</summary>
-    bool? Gift = null);
+    bool? Gift = null,
+    /// <summary>معرّف الطلب في الموقع (كاشير 2.6.6+): طلب لم يُفوتر في المحل يُعدَّل دون قراءته من الموقع أولاً.</summary>
+    string? OrderId = null);
 
 /// <summary>فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري (migration 090).</summary>
 public sealed class OnlineEdariHoldDto

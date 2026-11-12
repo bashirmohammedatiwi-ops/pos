@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatIqd, formatNum, type PrintSettingsDto } from '@fot/shared';
 import { ApiError, api, onlineOrdersApi } from '@/api/client';
-import type { PosSessionDto } from '@/api/types';
+import type { PosSessionDto, SalesmanDto } from '@/api/types';
 import { useBarcodeCapture } from '@/hooks/useBarcodeCapture';
 import { getHwId } from '@/lib/money';
 import {
@@ -119,6 +119,120 @@ function lineMatches(order: LookupResult, line: SiteLine, key: string) {
   return !!plan && normBarcode(plan.posBarcode) === key;
 }
 
+// ── التعديل الفوري على الشاشة (قبل رد السيرفر) ──
+
+/** قيم الأصناف كما يحسبها الموقع: الهدية بصفر، والبديل بالأرخص. */
+function linesMoney(lines: SiteLine[]) {
+  const byId = new Map(lines.map(l => [l.id, l]));
+  let orderedSubtotal = 0, delivered = 0, extrasValue = 0, freeExtrasValue = 0;
+  for (const l of lines) {
+    if (l.kind === 'ORDERED') {
+      orderedSubtotal += l.orderedQty * l.unitPrice;
+      delivered += deliveredQty(l) * l.unitPrice;
+    } else if (l.pickedQty > 0) {
+      if (l.charge === 'FREE') freeExtrasValue += l.pickedQty * l.unitPrice;
+      else {
+        const sub = l.substituteForLineId ? byId.get(l.substituteForLineId) : null;
+        extrasValue += l.pickedQty * (sub ? Math.min(l.unitPrice, sub.unitPrice) : l.unitPrice);
+      }
+    }
+  }
+  return { orderedSubtotal, shortageValue: orderedSubtotal - delivered, extrasValue, freeExtrasValue, value: delivered + extrasValue };
+}
+
+/** الطلب بأسطر جديدة: المبالغ تُقدَّر بفرق قيمة الأصناف حتى يصل رد السيرفر (لحظات) فيصححها. */
+function withLines(o: LookupResult, lines: SiteLine[]): LookupResult {
+  const before = linesMoney(o.lines);
+  const after = linesMoney(lines);
+  const delta = after.value - before.value;
+  const gift = !!o.order.cashierGift;
+  return {
+    ...o,
+    lines,
+    receipt: {
+      ...o.receipt,
+      itemsTotal: Math.max(0, o.receipt.itemsTotal + delta),
+      // الهدية: الأصناف بلا مقابل — المبلغ لا يتغير، ويكبر جزء الهدية.
+      total: gift ? o.receipt.total : Math.max(0, o.receipt.total + delta),
+      discount: gift ? o.receipt.discount + delta : o.receipt.discount,
+      ...(gift ? { giftDiscount: (o.receipt.giftDiscount ?? 0) + delta } : {}),
+    },
+    money: {
+      ...o.money,
+      orderedSubtotal: after.orderedSubtotal,
+      shortageValue: after.shortageValue,
+      extrasValue: after.extrasValue,
+      freeExtrasValue: after.freeExtrasValue,
+      finalSubtotal: o.money.finalSubtotal + delta,
+      codAmount: o.order.prepaid || gift ? o.money.codAmount : Math.max(0, o.money.codAmount + delta),
+      ...(gift ? { manualDiscount: (o.money.manualDiscount ?? 0) + delta } : {}),
+    },
+  };
+}
+
+/** «set» فوراً: كمية السطر (صفر يحذف الإضافي)، وسبب النقص، وهدية/مدفوع. */
+function optimisticSet(o: LookupResult, lineId: string, qty: number, opts: { reason?: string; charge?: 'PAID' | 'FREE' }) {
+  const lines = o.lines.flatMap(l => {
+    if (l.id !== lineId) return [l];
+    if (l.kind === 'EXTRA' && qty <= 0) return [];
+    const full = l.kind === 'ORDERED' && qty >= l.orderedQty;
+    return [{ ...l, pickedQty: qty, missingQty: l.kind === 'ORDERED' ? Math.max(0, l.orderedQty - qty) : 0, charge: opts.charge ?? l.charge, reason: full ? null : opts.reason ?? l.reason }];
+  });
+  return withLines(o, lines);
+}
+
+/** «add» فوراً كما يفعله الموقع: يكمل الناقص من الصنف أولاً، والباقي زيادة/إضافي (سطر مؤقت حتى الرد). */
+function optimisticAdd(
+  o: LookupResult,
+  item: { barcode: string; name: string; shadeName?: string | null; unitPrice: number },
+  qty: number,
+  charge: 'PAID' | 'FREE',
+  reason: string | null,
+) {
+  const key = normBarcode(item.barcode);
+  const lines = [...o.lines];
+  let left = qty;
+  if (charge === 'PAID') {
+    for (let i = 0; i < lines.length && left > 0; i++) {
+      const l = lines[i];
+      if (l.kind !== 'ORDERED' || !lineMatches(o, l, key) || l.pickedQty >= l.orderedQty) continue;
+      const take = Math.min(left, l.orderedQty - l.pickedQty);
+      const picked = l.pickedQty + take;
+      lines[i] = { ...l, pickedQty: picked, missingQty: Math.max(0, l.orderedQty - picked), reason: picked >= l.orderedQty ? null : l.reason };
+      left -= take;
+    }
+  }
+  if (left > 0) {
+    const idx = lines.findIndex(l => l.kind === 'EXTRA' && lineMatches(o, l, key) && l.charge === charge && !l.substituteForLineId);
+    if (idx >= 0) lines[idx] = { ...lines[idx], pickedQty: lines[idx].pickedQty + left };
+    else {
+      lines.push({
+        id: `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        kind: 'EXTRA',
+        barcode: item.barcode,
+        name: item.name,
+        shadeName: item.shadeName ?? null,
+        orderedQty: 0,
+        pickedQty: left,
+        missingQty: 0,
+        unitPrice: item.unitPrice,
+        charge,
+        reason,
+        substituteForLineId: null,
+        state: 'EXTRA',
+        color: 'yellow',
+        label: 'إضافي',
+      });
+    }
+  }
+  return withLines(o, lines);
+}
+
+/** سطر مؤقت لم يصل رد السيرفر به بعد — أزراره تنتظر لحظة. */
+function isTempLine(l: SiteLine) {
+  return l.id.startsWith('tmp-');
+}
+
 type AddState = {
   barcode: string;
   loading: boolean;
@@ -168,6 +282,31 @@ export function OrdersPage({
   const [add, setAdd] = useState<AddState | null>(null);
   const [reasonAsk, setReasonAsk] = useState<ReasonState | null>(null);
   const [editingLine, setEditingLine] = useState<string | null>(null);
+  /** البائع على إيصال الطلب كالكاشير الأصلي: يبدأ ببائع الجلسة ويبقى حتى يُغيَّر. */
+  const [salesmanId, setSalesmanId] = useState<number>(session.salesmanId ?? 0);
+  const [salesmen, setSalesmen] = useState<SalesmanDto[]>([]);
+  const [salesmanOpen, setSalesmanOpen] = useState(false);
+  const salesmanName = salesmanId > 0 ? salesmen.find(s => s.id === salesmanId)?.name ?? (salesmanId === session.salesmanId ? session.salesmanName || null : `#${salesmanId}`) : null;
+  useEffect(() => {
+    void api.salesmen().then(setSalesmen).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F3') {
+        e.preventDefault();
+        setSalesmanOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  /** طابور التعديلات (بالترتيب) وعدد ما لم يرد بعد — الشاشة لا تنتظره. */
+  const editChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingEditsRef = useRef(0);
+  const [pendingEdits, setPendingEdits] = useState(0);
+  const editFailedRef = useRef(false);
+  const lastFreshRef = useRef<LookupResult | null>(null);
+  const queueRefreshTimer = useRef(0);
   const [flash, setFlash] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldInvoice[] | null>(null);
   const [heldPick, setHeldPick] = useState<Set<string>>(new Set());
@@ -500,103 +639,152 @@ export function OrdersPage({
     }
   }, [showToast]);
 
+  // ── طابور التعديلات: الشاشة تتغير فوراً، والطلبات تُرسل بالترتيب، ثم يُطابَق رد السيرفر ──
+
+  /**
+   * تعديل على الطلب: optimistic يغيّر الشاشة فوراً (بلا انتظار الشبكة)، والطلب يُرسل بعد ما قبله فلا تتعارض
+   * الضغطات السريعة. عند انتهاء الطابور يُعرض رد السيرفر الأخير (الحقيقة)، وإن فشل تعديل يُعاد الطلب من السيرفر.
+   */
+  function runEdit(
+    body: OrderEditBody,
+    opts: { optimistic?: (o: LookupResult) => LookupResult; onDone?: (fresh: LookupResult) => void } = {},
+  ): Promise<LookupResult | null> {
+    const before = orderRef.current;
+    if (!before) return Promise.resolve(null);
+    const orderId = before.order.id;
+    if (opts.optimistic) {
+      const next = opts.optimistic(before);
+      orderRef.current = next;
+      setOrder(next);
+      setResult(null);
+      // ما يضيفه الكاشير بيده بين يديه — يُعدّ مُراجَعاً فوراً.
+      autoVerify(before, next);
+    }
+    pendingEditsRef.current += 1;
+    setPendingEdits(pendingEditsRef.current);
+    const run = editChainRef.current.then(async () => {
+      try {
+        const fresh = await onlineOrdersApi.edit({ ...body, orderId } as OrderEditBody);
+        if (fresh.order.id === orderId) lastFreshRef.current = fresh;
+        opts.onDone?.(fresh);
+        if (fresh.reprint) setNeedsReprint(true);
+        if (fresh.courierUpdate && !fresh.courierUpdate.ok) {
+          playErrorBeep();
+          showToast(`عُدّلت الفاتورة لكن لم يصل التعديل لهاي إكسبريس: ${fresh.courierUpdate.error ?? ''} — راجع الطلب في لوحة الإدارة`, 'err');
+        }
+        return fresh;
+      } catch (e) {
+        editFailedRef.current = true;
+        playErrorBeep();
+        showToast(errorText(e), 'err');
+        return null;
+      } finally {
+        pendingEditsRef.current -= 1;
+        setPendingEdits(pendingEditsRef.current);
+        if (pendingEditsRef.current === 0) await settleEdits(orderId);
+      }
+    });
+    editChainRef.current = run.catch(() => null);
+    return run;
+  }
+
+  /** انتهى الطابور: رد السيرفر الأخير يحل محل التقدير (والمراجعة تنتقل من الأسطر المؤقتة لأسطرها الحقيقية). */
+  async function settleEdits(orderId: string) {
+    const failed = editFailedRef.current;
+    let fresh = lastFreshRef.current;
+    editFailedRef.current = false;
+    lastFreshRef.current = null;
+    if (failed || !fresh) fresh = await onlineOrdersApi.lookup(orderRef.current?.order.code ?? '').catch(() => null);
+    const shown = orderRef.current;
+    if (!fresh || !shown || shown.order.id !== orderId || fresh.order.id !== orderId) return;
+    // المراجعة: عدّ السطر المؤقت يذهب لسطره الحقيقي (نفس الباركود ونوع الشحن).
+    const real = new Set(fresh.lines.map(l => l.id));
+    let next = checkedRef.current;
+    for (const l of shown.lines) {
+      if (real.has(l.id) || !next[l.id]) continue;
+      const target = fresh.lines.find(f => f.kind === l.kind && f.charge === l.charge && normBarcode(f.barcode) === normBarcode(l.barcode));
+      const moved = next[l.id];
+      next = { ...next };
+      delete next[l.id];
+      if (target) next[target.id] = (next[target.id] ?? 0) + moved;
+    }
+    if (next !== checkedRef.current) {
+      checkedRef.current = next;
+      setChecked(next);
+    }
+    autoVerify(shown, fresh);
+    orderRef.current = fresh;
+    setOrder(fresh);
+    scheduleQueueRefresh();
+  }
+
+  /** الطابور الجانبي يُحدَّث مرة بعد هدوء التعديلات — لا مع كل ضغطة. */
+  function scheduleQueueRefresh() {
+    window.clearTimeout(queueRefreshTimer.current);
+    queueRefreshTimer.current = window.setTimeout(() => { void refreshQueue(); }, 1500);
+  }
+
+  /** انتظار ما بقي من التعديلات (قبل الفوترة مثلاً). */
+  async function flushEdits() {
+    while (pendingEditsRef.current > 0) await editChainRef.current;
+  }
+
   async function confirmAdd() {
     const a = addRef.current;
     const o = orderRef.current;
     if (!a || !a.product || !o || a.saving) return;
-    setAdd({ ...a, saving: true, error: null });
-    try {
-      const fresh = await onlineOrdersApi.edit({
-        code: o.order.code,
-        op: 'add',
-        barcode: a.product.siteBarcode || a.barcode,
-        qty: a.qty,
-        charge: a.charge,
-        reason: a.reason.trim() || undefined,
-        clientEditId: newEditId(),
-      });
-      setOrder(fresh);
-      setResult(null);
-      setAdd(null);
-      afterEdit(fresh, o);
-      const hit = fresh.lines.find(l => lineMatches(fresh, l, normBarcode(a.product!.siteBarcode)) && (a.charge === 'FREE' ? l.charge === 'FREE' : true));
-      flashLine(hit?.id ?? null);
-      showToast(`أُضيف ${a.product.name ?? a.barcode} × ${a.qty}${a.charge === 'FREE' ? ' (هدية)' : ''} — المبلغ الآن ${formatIqd(fresh.receipt.total)}`);
-      void refreshQueue();
-    } catch (e) {
-      playErrorBeep();
-      setAdd(prev => (prev ? { ...prev, saving: false, error: errorText(e) } : prev));
-    }
+    const p = a.product;
+    const code = p.siteBarcode || a.barcode;
+    // النافذة تُغلق فوراً والصنف يظهر في الجدول؛ السعر النهائي من الموقع يصل بعد لحظة.
+    setAdd(null);
+    void runEdit(
+      { code: o.order.code, op: 'add', barcode: code, qty: a.qty, charge: a.charge, reason: a.reason.trim() || undefined, clientEditId: newEditId() },
+      {
+        optimistic: cur => {
+          const next = optimisticAdd(cur, { barcode: code, name: p.name ?? code, unitPrice: Math.round(p.price) }, a.qty, a.charge, a.reason.trim() || 'أُضيف عند الكاشير');
+          const hit = next.lines.find(l => lineMatches(next, l, normBarcode(code)) && (a.charge === 'FREE' ? l.charge === 'FREE' : true));
+          flashLine(hit?.id ?? null);
+          return next;
+        },
+        onDone: fresh => showToast(`أُضيف ${p.name ?? a.barcode} × ${a.qty}${a.charge === 'FREE' ? ' (هدية)' : ''} — المبلغ الآن ${formatIqd(fresh.receipt.total)}`),
+      },
+    );
   }
 
   /** خصم يدوي على الطلب (0 يلغيه) — يتعدّل المبلغ في الموقع وعند هاي إكسبريس بعد الفوترة. */
   async function applyDiscount(amount: number, reason: string): Promise<boolean> {
     const o = orderRef.current;
     if (!o) return false;
-    try {
-      const fresh = await onlineOrdersApi.edit({
-        code: o.order.code,
-        op: 'discount',
-        amount: Math.max(0, Math.round(amount)),
-        reason: reason.trim() || undefined,
-        clientEditId: newEditId(),
-      });
-      setOrder(fresh);
-      setResult(null);
-      afterEdit(fresh);
-      showToast(amount > 0 ? `خصم ${formatIqd(amount)} — المبلغ الآن ${formatIqd(fresh.receipt.total)}` : `أُلغي الخصم — المبلغ الآن ${formatIqd(fresh.receipt.total)}`);
-      void refreshQueue();
-      return true;
-    } catch (e) {
-      playErrorBeep();
-      showToast(errorText(e), 'err');
-      return false;
-    }
+    const fresh = await runEdit({
+      code: o.order.code,
+      op: 'discount',
+      amount: Math.max(0, Math.round(amount)),
+      reason: reason.trim() || undefined,
+      clientEditId: newEditId(),
+    });
+    if (!fresh) return false;
+    showToast(amount > 0 ? `خصم ${formatIqd(amount)} — المبلغ الآن ${formatIqd(fresh.receipt.total)}` : `أُلغي الخصم — المبلغ الآن ${formatIqd(fresh.receipt.total)}`);
+    return true;
   }
 
   /** تعديل على مستوى الطلب (سعر صنف، فاتورة هدية) — يرد بالطلب محدّثاً. */
   async function applyEdit(body: OrderEditBody, done: (fresh: LookupResult) => string): Promise<boolean> {
-    const o = orderRef.current;
-    if (!o) return false;
-    try {
-      const fresh = await onlineOrdersApi.edit(body);
-      setOrder(fresh);
-      setResult(null);
-      afterEdit(fresh, o);
-      showToast(done(fresh));
-      void refreshQueue();
-      return true;
-    } catch (e) {
-      playErrorBeep();
-      showToast(errorText(e), 'err');
-      return false;
-    }
+    const fresh = await runEdit(body);
+    if (!fresh) return false;
+    showToast(done(fresh));
+    return true;
   }
 
-  async function addOver(line: SiteLine) {
+  /** «+» على صنف مكتمل: قطعة زائدة في صفه نفسه (أزرق «زيادة») — فوراً. */
+  function addOver(line: SiteLine) {
     const o = orderRef.current;
     if (!o || !line.barcode) return;
-    setEditingLine(line.id);
-    try {
-      const fresh = await onlineOrdersApi.edit({
-        code: o.order.code,
-        op: 'add',
-        barcode: line.barcode,
-        qty: 1,
-        charge: 'PAID',
-        reason: 'زيادة على الكمية المطلوبة',
-        clientEditId: newEditId(),
-      });
-      setOrder(fresh);
-      setResult(null);
-      afterEdit(fresh, o);
-      void refreshQueue();
-    } catch (e) {
-      playErrorBeep();
-      showToast(errorText(e), 'err');
-    } finally {
-      setEditingLine(null);
-    }
+    const barcode = line.barcode;
+    void runEdit(
+      { code: o.order.code, op: 'add', barcode, qty: 1, charge: 'PAID', reason: 'زيادة على الكمية المطلوبة', clientEditId: newEditId() },
+      { optimistic: cur => optimisticAdd(cur, { barcode, name: line.name, shadeName: line.shadeName, unitPrice: line.unitPrice }, 1, 'PAID', 'زيادة على الكمية المطلوبة') },
+    );
+    flashLine(line.id);
   }
 
   /** تعديل على فاتورة مُفوترة: اطلب إعادة الطباعة، وأظهر إن لم يصل التعديل لهاي إكسبريس. */
@@ -609,64 +797,46 @@ export function OrdersPage({
     }
   }
 
-  // ── تعديل كمية سطر ──
-  async function applyLine(line: SiteLine, qty: number, opts: { reason?: string; charge?: 'PAID' | 'FREE' } = {}) {
+  // ── تعديل كمية سطر — فوراً على الشاشة ──
+  function applyLine(line: SiteLine, qty: number, opts: { reason?: string; charge?: 'PAID' | 'FREE' } = {}) {
     const o = orderRef.current;
-    if (!o) return false;
-    setEditingLine(line.id);
-    try {
-      const fresh = await onlineOrdersApi.edit({
-        code: o.order.code,
-        op: 'set',
-        lineId: line.id,
-        qty,
-        charge: opts.charge,
-        reason: opts.reason,
-        clientEditId: newEditId(),
-      });
-      setOrder(fresh);
-      setResult(null);
-      afterEdit(fresh, o);
-      flashLine(fresh.lines.some(l => l.id === line.id) ? line.id : null);
-      void refreshQueue();
-      return true;
-    } catch (e) {
-      playErrorBeep();
-      showToast(errorText(e), 'err');
-      return false;
-    } finally {
-      setEditingLine(null);
-    }
+    if (!o || isTempLine(line)) return;
+    void runEdit(
+      { code: o.order.code, op: 'set', lineId: line.id, qty, charge: opts.charge, reason: opts.reason, clientEditId: newEditId() },
+      { optimistic: cur => optimisticSet(cur, line.id, qty, opts) },
+    );
+    if (!(line.kind === 'EXTRA' && qty <= 0)) flashLine(line.id);
   }
 
   function changeLine(line: SiteLine, qty: number) {
+    if (isTempLine(line)) return;
     // «+» على صنف مكتمل: قطعة زائدة (أزرق «زيادة») بنفس الباركود — بلا نافذة.
     if (line.kind === 'ORDERED' && qty > line.orderedQty && line.barcode) {
-      void addOver(line);
+      addOver(line);
       return;
     }
     if (line.kind === 'ORDERED' && qty < line.orderedQty) {
       // إرجاع قطعة لسطر ناقص سببه مسجّل: لا داعي لسؤال جديد.
       if (qty > line.pickedQty && line.reason) {
-        void applyLine(line, qty, { reason: line.reason });
+        applyLine(line, qty, { reason: line.reason });
         return;
       }
       setReasonAsk({ line, qty, reason: line.reason ?? '', saving: false, error: null });
       return;
     }
-    void applyLine(line, qty);
+    applyLine(line, qty);
   }
 
-  async function confirmReason() {
+  function confirmReason() {
     const r = reasonAsk;
     if (!r || r.saving) return;
     if (!r.reason.trim()) {
       setReasonAsk({ ...r, error: 'اكتب سبب النقص' });
       return;
     }
-    setReasonAsk({ ...r, saving: true, error: null });
-    const ok = await applyLine(r.line, r.qty, { reason: r.reason.trim() });
-    setReasonAsk(ok ? null : prev => (prev ? { ...prev, saving: false } : prev));
+    // النافذة تُغلق فوراً والسطر يتغير؛ إن رفض السيرفر يعود الطلب كما كان مع رسالة.
+    setReasonAsk(null);
+    applyLine(r.line, r.qty, { reason: r.reason.trim() });
   }
 
   // ── الماسح: رمز الطلب قبل أي شيء ──
@@ -756,9 +926,12 @@ export function OrdersPage({
 
   /** بعد تعديل فاتورة مُفوترة: الإيصال والفاتورة وملصق هاي إكسبريس من جديد (لا ينشئ شيئاً). */
   async function reprintAfterEdit() {
-    const o = orderRef.current;
-    if (!o) return;
+    if (!orderRef.current) return;
     setBusy(true);
+    setBusyText('جاري حفظ التعديلات…');
+    await flushEdits();
+    const o = orderRef.current;
+    if (!o) { setBusy(false); setBusyText(''); return; }
     setBusyText('جاري طباعة الفاتورة المعدّلة…');
     const errors: string[] = [];
     try {
@@ -802,6 +975,7 @@ export function OrdersPage({
 
   /** «ترحيل»: الفواتير المحددة (أو فاتورة الطلب المفتوح) تُرسل لمزامنة الإداري ولا تُعدّل بعدها. */
   async function postInvoices(orderIds: string[] | 'all') {
+    await flushEdits();
     const n = orderIds === 'all' ? held?.length ?? 0 : orderIds.length;
     if (!n) return;
     const ok = window.confirm(
@@ -894,6 +1068,7 @@ export function OrdersPage({
 
   /** إيصال المحل لا يطابق الموقع بعد تعديل لم يكتمل: يُعاد بناؤه من الموقع. */
   async function syncReceipt() {
+    await flushEdits();
     const o = orderRef.current;
     if (!o) return;
     setBusy(true);
@@ -925,11 +1100,19 @@ export function OrdersPage({
         courierSaveRef.current = null;
         setBusyText(pickup ? 'جاري التسليم والطباعة…' : 'جاري الفوترة وإنشاء الشحنة…');
       }
+      // تعديلات لم يرد بها السيرفر بعد تُحفظ أولاً — الفوترة على الطلب كما هو في الموقع.
+      if (pendingEditsRef.current > 0) {
+        setBusyText('جاري حفظ التعديلات…');
+        await flushEdits();
+        setBusyText(pickup ? 'جاري التسليم والطباعة…' : 'جاري الفوترة وإنشاء الشحنة…');
+      }
+      const current = orderRef.current ?? order;
       const body = {
-        code: order.order.code,
+        code: current.order.code,
         posId: session.posTerminalId,
         hwId: getHwId() || undefined,
-        expectedTotal: order.receipt.total,
+        expectedTotal: current.receipt.total,
+        salesmanId: salesmanId > 0 ? salesmanId : undefined,
       };
       const fin = pickup ? await onlineOrdersApi.pickup(body) : await onlineOrdersApi.finalize(body);
       setResult(fin);
@@ -954,6 +1137,8 @@ export function OrdersPage({
     setBusy(true);
     setBusyText('جاري الطباعة…');
     try {
+      // الطباعة على آخر تعديل: ما لم يرد به السيرفر بعد يُنتظر أولاً.
+      await flushEdits();
       const d = await onlineOrdersApi.printData(code);
       const copies = printCfg ?? { receiptCopies: 1, invoiceCopies: 1, labelCopies: 1, labelPrinterName: null };
       if (what === 'receipt') {
@@ -1238,6 +1423,8 @@ export function OrdersPage({
                   onPrice: line => setPriceLine(line),
                   canGift: px.allowGiftReceipt,
                   onGift: () => setGiftOpen(true),
+                  salesman: { name: salesmanName, onPick: () => setSalesmanOpen(true) },
+                  pendingEdits,
                 }}
               />
             )
@@ -1278,6 +1465,19 @@ export function OrdersPage({
             );
             if (ok) setPriceLine(null);
             return ok;
+          }}
+        />
+      )}
+      {salesmanOpen && (
+        <SalesmanDialog
+          salesmen={salesmen}
+          current={salesmanId}
+          onClose={() => setSalesmanOpen(false)}
+          onPick={id => {
+            setSalesmanId(id);
+            setSalesmanOpen(false);
+            const name = salesmen.find(s => s.id === id)?.name;
+            showToast(id > 0 ? `البائع: ${name ?? id}` : 'بلا بائع');
           }}
         />
       )}
@@ -2282,7 +2482,7 @@ function QtyButton({ label, title, disabled, onClick, className = 'w-full' }: { 
   );
 }
 
-function AmountsCard({ order, onDiscount, onGift }: { order: LookupResult; onDiscount?: () => void; onGift?: () => void }) {
+function AmountsCard({ order, onDiscount, onGift, pending = false }: { order: LookupResult; onDiscount?: () => void; onGift?: () => void; pending?: boolean }) {
   const m = order.money;
   const r = order.receipt;
   const gift = !!order.order.cashierGift;
@@ -2290,7 +2490,7 @@ function AmountsCard({ order, onDiscount, onGift }: { order: LookupResult; onDis
   const otherDiscount = Math.max(0, r.discount - manual);
   return (
     <Card
-      title="المبالغ"
+      title={pending ? 'المبالغ · يُحدَّث…' : 'المبالغ'}
       right={
         onDiscount || onGift ? (
           <span className="flex gap-1.5">
@@ -2322,6 +2522,7 @@ function AmountsCard({ order, onDiscount, onGift }: { order: LookupResult; onDis
           فاتورة هدية — الأصناف بلا مقابل، وتُحفظ «هدية» في المحل والإداري
         </div>
       )}
+      <div className={`transition-opacity ${pending ? 'opacity-60' : ''}`}>
       <MoneyRow label="قيمة الأصناف المطلوبة" value={m.orderedSubtotal} />
       {m.shortageValue > 0 && <MoneyRow label="الناقص" value={-m.shortageValue} tone={LINE_COLORS.red} />}
       {m.extrasValue > 0 && <MoneyRow label="الإضافات المدفوعة" value={m.extrasValue} tone={LINE_COLORS.yellow} />}
@@ -2344,6 +2545,7 @@ function AmountsCard({ order, onDiscount, onGift }: { order: LookupResult; onDis
       )}
       {order.order.prepaid && <div className="text-[13px] font-bold text-emerald-700">مدفوع مسبقاً بالبطاقة</div>}
       {m.refundAmount > 0 && <MoneyRow label="يُسترجع للبطاقة" value={m.refundAmount} tone={LINE_COLORS.red} />}
+      </div>
       {((order.local.shippingOutside ?? 0) > 0 || (order.local.giftWrapOutside ?? 0) > 0) && (
         <div className="mt-1.5 rounded-lg bg-slate-50 px-2 py-1.5">
           <MoneyRow label={gift ? 'فاتورة المحل (هدية — قيمة الأصناف)' : 'فاتورة المحل (المنتجات فقط)'} value={gift ? order.local.receiptTotal ?? 0 : order.local.computedTotal} />
@@ -2444,6 +2646,7 @@ function OrderView({
               error={error}
               onFinalize={onFinalize}
               onReprint={onReprint}
+              salesman={post.salesman}
             />
           </div>
           <EdariPanel order={order} busy={busy} post={post} editable={editable} />
@@ -2491,6 +2694,7 @@ function OrderView({
             error={error}
             onFinalize={onFinalize}
             onReprint={onReprint}
+            salesman={post.salesman}
           />
           </div>
           <CourierCard order={order} busy={busy} offline={offline} onSave={post.onSaveCourier} />
@@ -2498,6 +2702,7 @@ function OrderView({
             order={order}
             onDiscount={editable && post.canDiscount && !order.order.cashierGift ? post.onDiscount : undefined}
             onGift={editable && !invoiced && post.canGift && !order.order.prepaid ? post.onGift : undefined}
+            pending={post.pendingEdits > 0}
           />
           <CustomerCard order={order} />
           <NotesCards order={order} />
@@ -2525,6 +2730,10 @@ type PostControls = {
   /** «فاتورة هدية» كالكاشير الأصلي (بصلاحية «الهدايا») — قبل الفوترة. */
   canGift: boolean;
   onGift: () => void;
+  /** البائع على الإيصال (كالكاشير الأصلي). */
+  salesman: { name: string | null; onPick: () => void };
+  /** تعديلات لم يرد بها السيرفر بعد — المبالغ تقديرية لحظات. */
+  pendingEdits: number;
 };
 
 type CourierOptionsInput = { typeId: number | null; parcelCount: number; note: string; phone2: string };
@@ -2734,6 +2943,7 @@ function ActionPanel({
   error,
   onFinalize,
   onReprint,
+  salesman,
 }: {
   order: LookupResult;
   pickup: boolean;
@@ -2746,6 +2956,8 @@ function ActionPanel({
   error: string | null;
   onFinalize: () => void;
   onReprint: (what: 'receipt' | 'invoice' | 'label') => void;
+  /** البائع على الإيصال كالكاشير الأصلي. */
+  salesman: { name: string | null; onPick: () => void };
 }) {
   return (
     <div className="space-y-2">
@@ -2784,6 +2996,17 @@ function ActionPanel({
         </div>
       ) : (
         <div>
+          <button
+            type="button"
+            onClick={salesman.onPick}
+            disabled={busy}
+            className="mb-2 flex w-full items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-right hover:border-[#0f9f76] disabled:opacity-50"
+            title="اختيار البائع (F3)"
+          >
+            <span className="text-[12px] font-bold text-slate-500">البائع</span>
+            <span className={`min-w-0 flex-1 truncate text-[14px] font-bold ${salesman.name ? 'text-slate-900' : 'text-amber-700'}`}>{salesman.name ?? 'بلا بائع — اختر'}</span>
+            <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">تغيير</span>
+          </button>
           <button
             type="button"
             onClick={onFinalize}
@@ -3064,6 +3287,57 @@ function DiscountDialog({
           className="rounded-xl bg-[#0f9f76] py-2.5 text-[14px] font-bold text-white disabled:bg-slate-300"
         >
           {saving ? 'جاري التطبيق…' : 'تطبيق الخصم'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** اختيار البائع كالكاشير الأصلي: بحث بالاسم أو الرقم، وزر لكل بائع. */
+function SalesmanDialog({
+  salesmen,
+  current,
+  onClose,
+  onPick,
+}: {
+  salesmen: SalesmanDto[];
+  current: number;
+  onClose: () => void;
+  onPick: (id: number) => void;
+}) {
+  const [q, setQ] = useState('');
+  const t = q.trim();
+  const list = t ? salesmen.filter(s => s.name.includes(t) || String(s.id) === t) : salesmen;
+  return (
+    <Modal onClose={onClose} width={560}>
+      <h2 className="mb-2 text-[17px] font-bold text-slate-900">اختيار البائع</h2>
+      <input
+        autoFocus
+        value={q}
+        onChange={e => setQ(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && list.length === 1) onPick(list[0].id); }}
+        placeholder="ابحث باسم البائع أو رقمه"
+        className="pos-field mb-3 w-full text-[14px]"
+      />
+      <div className="grid max-h-[50vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+        {list.map(s => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onPick(s.id)}
+            className={`rounded-xl border px-3 py-3 text-[14px] font-bold ${s.id === current ? 'border-[#0f9f76] bg-emerald-50 text-[#0b7d5d]' : 'border-slate-200 bg-white text-slate-800 hover:border-[#0f9f76]'}`}
+          >
+            {s.name}
+          </button>
+        ))}
+        {!list.length && <div className="col-span-full p-4 text-center text-[13px] text-slate-400">{salesmen.length ? 'لا نتائج' : 'لا توجد قائمة باعة — تحقق من الاتصال بسيرفر المحل'}</div>}
+      </div>
+      <div className="mt-3 grid grid-cols-[1fr_1fr] gap-2">
+        <button type="button" onClick={() => onPick(0)} className="rounded-xl border border-slate-300 bg-white py-2.5 text-[13px] font-bold text-slate-700">
+          بلا بائع
+        </button>
+        <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 bg-white py-2.5 text-[13px] font-bold text-slate-700">
+          إغلاق
         </button>
       </div>
     </Modal>

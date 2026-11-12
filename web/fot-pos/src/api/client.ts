@@ -262,9 +262,9 @@ export const onlineOrdersApi = {
       ...ORDERS_WRITE,
       body: JSON.stringify(body),
     }),
-  finalize: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number }) =>
+  finalize: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number; salesmanId?: number }) =>
     request<FinalizeResult>('/api/online-orders/finalize', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
-  pickup: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number }) =>
+  pickup: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number; salesmanId?: number }) =>
     request<FinalizeResult>('/api/online-orders/pickup', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
   returnOrder: (body: {
     code: string;

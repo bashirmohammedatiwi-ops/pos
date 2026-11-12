@@ -63,7 +63,8 @@ export type PosProductLookup =
       offerName: string | null;
     };
 
-export type OrderEditBody =
+/** orderId (اختياري): طلب لم يُفوتر في المحل يُعدَّل دون قراءته من الموقع أولاً (سيرفر 2.6.6+). */
+export type OrderEditBody = { orderId?: string } & (
   | { code: string; op: 'add'; barcode: string; qty: number; charge: 'PAID' | 'FREE'; reason?: string; clientEditId: string }
   | { code: string; op: 'set'; lineId: string; qty: number; charge?: 'PAID' | 'FREE'; reason?: string; clientEditId: string }
   /** إعادة بناء إيصال المحل المحجوز من طلب الموقع (بعد تعديل لم يكتمل في المحل). */
@@ -73,7 +74,8 @@ export type OrderEditBody =
   /** تعديل سعر القطعة لسطر (صلاحية «تغيير السعر»). */
   | { code: string; op: 'price'; lineId: string; unitPrice: number; reason?: string; clientEditId: string }
   /** «فاتورة هدية» كالكاشير الأصلي (صلاحية «الهدايا») — قبل الفوترة. */
-  | { code: string; op: 'gift'; gift: boolean; reason?: string; clientEditId: string };
+  | { code: string; op: 'gift'; gift: boolean; reason?: string; clientEditId: string }
+);
 
 /** خيارات التوصيل عند هاي إكسبريس لهذا الطلب. */
 export type CourierInfo = {

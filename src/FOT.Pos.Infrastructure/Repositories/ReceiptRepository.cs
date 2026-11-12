@@ -426,7 +426,8 @@ public sealed class ReceiptRepository(
                 """, new { receiptId }, transaction: tx, cancellationToken: ct))
                 ?? throw new InvalidOperationException("الإيصال غير موجود");
             if (head.Synced) throw new InvalidOperationException($"الإيصال {head.Number} مُرحّل إلى الإداري — لا يُعدّل بعد الترحيل");
-            if (head.IsPending || head.Kind != 0) throw new InvalidOperationException("يُعدّل إيصال بيع محفوظ فقط");
+            // بيع (0) أو هدية (2) — «فاتورة هدية» من كاشير الطلبات تُعدّل أيضاً حتى ترحيلها. لا المرتجع.
+            if (head.IsPending || head.Kind is not (0 or 2)) throw new InvalidOperationException("يُعدّل إيصال بيع أو هدية محفوظ فقط");
 
             var subtotal = items.Sum(i => i.Quantity * i.Price);
             var total = Math.Max(0, subtotal - userDiscount);
@@ -435,7 +436,7 @@ public sealed class ReceiptRepository(
             await conn.ExecuteAsync(new CommandDefinition(
                 "DELETE FROM reciept_items WHERE reciept_id = @receiptId", new { receiptId }, transaction: tx, cancellationToken: ct));
             foreach (var item in items)
-                await InsertReceiptItemAsync(conn, tx, receiptId, 0, item, head.Salesman, ct);
+                await InsertReceiptItemAsync(conn, tx, receiptId, head.Kind, item, head.Salesman, ct);
             await conn.ExecuteAsync(new CommandDefinition("""
                 UPDATE reciepts
                 SET total_amount = @total, offers_discount = @offersDiscount, user_discount = @userDiscount,
