@@ -900,7 +900,8 @@ export function OrdersPage({
   useBarcodeCapture(!busy && !reasonAsk && !discountOpen && !printersOpen && !priceLine && !giftOpen, onScan);
 
   // ── الطباعة ──
-  async function runPrints(fin: FinalizeResult, opts: { label: boolean }) {
+  /** يطبع بعد الفوترة ويرد: هل طُبع كل شيء؟ (وهل الملصق ينتظر رقم التتبع؟) */
+  async function runPrints(fin: FinalizeResult, opts: { label: boolean }): Promise<{ ok: boolean; labelPending: boolean }> {
     const copies = printCfg ?? { receiptCopies: 1, invoiceCopies: 1, labelCopies: 1, labelPrinterName: null };
     const errors: string[] = [];
     try {
@@ -922,6 +923,20 @@ export function OrdersPage({
       }
     }
     if (errors.length) showToast(errors.join(' — '), 'err');
+    return { ok: errors.length === 0, labelPending: opts.label && !(fin.shipment?.state === 'CREATED' && tracking) };
+  }
+
+  /** إغلاق الطلب المفتوح: الشاشة تعود لحقل المسح جاهزة للطلب التالي. */
+  function closeOrder() {
+    orderRef.current = null;
+    setOrder(null);
+    setResult(null);
+    setChecked({});
+    checkedRef.current = {};
+    setScanNote(null);
+    setNeedsReprint(false);
+    setActionError(null);
+    setOrderError(null);
   }
 
   /** بعد تعديل فاتورة مُفوترة: الإيصال والفاتورة وملصق هاي إكسبريس من جديد (لا ينشئ شيئاً). */
@@ -1117,10 +1132,18 @@ export function OrdersPage({
       const fin = pickup ? await onlineOrdersApi.pickup(body) : await onlineOrdersApi.finalize(body);
       setResult(fin);
       setBusyText('جاري الطباعة…');
-      await runPrints(fin, { label: !pickup });
-      showToast(fin.alreadyInvoiced ? `الطلب مُفوتر من قبل بالإيصال ${fin.receipt.number}` : `تم — الإيصال ${fin.receipt.number}`);
-      const fresh = await onlineOrdersApi.lookup(order.order.code).catch(() => null);
-      if (fresh) setOrder(fresh);
+      const printed = await runPrints(fin, { label: !pickup });
+      const done = fin.alreadyInvoiced ? `الطلب مُفوتر من قبل بالإيصال ${fin.receipt.number}` : `تم — الإيصال ${fin.receipt.number}`;
+      if (printed.ok) {
+        // تمّت وطُبعت: الطلب يختفي من الشاشة والمؤشر على حقل المسح للطلب التالي.
+        // للتعديل يُفتح من جديد بمسح QR الطلب أو من «بانتظار الترحيل».
+        closeOrder();
+        showToast(printed.labelPending ? `${done} — الملصق يُطبع من «بانتظار الشحن» حين يصل رقم التتبع` : done);
+      } else {
+        // تعذرت طباعة شيء (رسالته ظاهرة): يبقى الطلب مفتوحاً لإعادة الطباعة من أزراره.
+        const fresh = await onlineOrdersApi.lookup(current.order.code).catch(() => null);
+        if (fresh && orderRef.current?.order.id === fresh.order.id) setOrder(fresh);
+      }
       void refreshQueue();
     } catch (e) {
       setActionError(errorText(e));
