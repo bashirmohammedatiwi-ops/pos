@@ -24,7 +24,14 @@ public static class ReceiptEndpoints
                 if (map.Count > 0)
                     result = result with
                     {
-                        Items = result.Items.Select(i => map.TryGetValue(i.Id, out var n) ? i with { OnlineOrderNumber = n } : i).ToList()
+                        Items = result.Items.Select(i => map.TryGetValue(i.Id, out var n)
+                            ? i with
+                            {
+                                OnlineOrderNumber = n.OrderNumber,
+                                OnlineDeliveryFee = n.DeliveryFee > 0 ? n.DeliveryFee : null,
+                                OnlineGiftWrapFee = n.GiftWrapFee > 0 ? n.GiftWrapFee : null,
+                            }
+                            : i).ToList()
                     };
             }
             catch (SqlException)

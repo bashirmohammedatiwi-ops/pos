@@ -1900,8 +1900,8 @@ function AmountsCard({ order, onDiscount }: { order: LookupResult; onDiscount?: 
       {m.shortageValue > 0 && <MoneyRow label="الناقص" value={-m.shortageValue} tone={LINE_COLORS.red} />}
       {m.extrasValue > 0 && <MoneyRow label="الإضافات المدفوعة" value={m.extrasValue} tone={LINE_COLORS.yellow} />}
       {m.freeExtrasValue > 0 && <MoneyRow label="هدايا مجانية (غير محسوبة)" value={m.freeExtrasValue} tone={LINE_COLORS.yellow} />}
-      {r.shipping > 0 && <MoneyRow label="التوصيل" value={r.shipping} />}
-      {r.giftWrap > 0 && <MoneyRow label="تغليف الهدية" value={r.giftWrap} />}
+      {r.shipping > 0 && <MoneyRow label={(order.local.shippingOutside ?? 0) > 0 ? 'التوصيل (خارج فاتورة المحل)' : 'التوصيل'} value={r.shipping} />}
+      {r.giftWrap > 0 && <MoneyRow label={(order.local.giftWrapOutside ?? 0) > 0 ? 'تغليف الهدية (خارج فاتورة المحل)' : 'تغليف الهدية'} value={r.giftWrap} />}
       {otherDiscount > 0 && <MoneyRow label="خصومات الطلب" value={-otherDiscount} />}
       {manual > 0 && (
         <MoneyRow
@@ -1917,6 +1917,14 @@ function AmountsCard({ order, onDiscount }: { order: LookupResult; onDiscount?: 
       )}
       {order.order.prepaid && <div className="text-[13px] font-bold text-emerald-700">مدفوع مسبقاً بالبطاقة</div>}
       {m.refundAmount > 0 && <MoneyRow label="يُسترجع للبطاقة" value={m.refundAmount} tone={LINE_COLORS.red} />}
+      {((order.local.shippingOutside ?? 0) > 0 || (order.local.giftWrapOutside ?? 0) > 0) && (
+        <div className="mt-1.5 rounded-lg bg-slate-50 px-2 py-1.5">
+          <MoneyRow label="فاتورة المحل (المنتجات فقط)" value={order.local.computedTotal} />
+          <div className="text-[11px] leading-5 text-slate-500">
+            أجور التوصيل والتغليف لا تدخل فاتورة المحل ولا الإداري — تحصّلها هاي إكسبريس مع الطلب.
+          </div>
+        </div>
+      )}
       <div className="mt-1.5 text-[11px] leading-5 text-slate-500">
         إيصال المحل: {order.local.paymentLabel}{order.local.accountName ? ` — حساب «${order.local.accountName}»` : ''}
       </div>

@@ -561,7 +561,10 @@ public partial record ReceiptSummaryDto(
     bool WasEdited = false,
     long? PrintedNumber = null,
     /// <summary>رقم طلب التطبيق إن كان الإيصال من «كاشير الطلبات».</summary>
-    string? OnlineOrderNumber = null)
+    string? OnlineOrderNumber = null,
+    /// <summary>طلب توصيل: أجور التوصيل وتغليف الهدية — خارج الفاتورة، ضمن مبلغ شركة التوصيل.</summary>
+    decimal? OnlineDeliveryFee = null,
+    decimal? OnlineGiftWrapFee = null)
 {
     public ReceiptSummaryDto() : this(
         0, 0, default, 0, 0, 0, 0, null, null, null, false, null, 0)

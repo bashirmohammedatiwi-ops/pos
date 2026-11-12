@@ -42,7 +42,10 @@ public sealed record SalePlan(
     string? AccountName,
     string PaymentLabel,
     decimal ComputedTotal,
-    IReadOnlyList<string> Problems);
+    IReadOnlyList<string> Problems,
+    /// <summary>أجور توصيل وتغليف طلب توصيل: خارج فاتورة المحل، ضمن مبلغ شركة التوصيل فقط.</summary>
+    decimal ShippingOutside = 0,
+    decimal GiftWrapOutside = 0);
 
 /// <summary>
 /// «كاشير الطلبات» على سيرفر المحل: يفتح الطلب من الموقع، يبني منه إيصال بيع حقيقياً عبر ReceiptRepository.CreateAsync
@@ -200,14 +203,14 @@ public sealed class OnlineOrdersService(
         try
         {
             await receipts.ReplaceUnpostedSaleItemsAsync(hold.ReceiptId!.Value, ReceiptItems(plan), site.Receipt.Discount,
-                credit ? 0 : site.Receipt.Total, ct);
+                credit ? 0 : plan.ComputedTotal, ct);
         }
         catch (InvalidOperationException ex)
         {
             throw new OnlineOrdersRefusal($"عُدّل الطلب في الموقع لكن تعذر تحديث إيصال المحل: {ex.Message}", 409, new { receiptOutOfSync = true });
         }
         await repo.MarkEditedAsync(hold.ClientReceiptId, ct);
-        await repo.SetLinkTotalAsync(site.Order.Id, "sale", site.Receipt.Total, ct);
+        await repo.SetLinkTotalAsync(site.Order.Id, "sale", plan.ComputedTotal, ct);
         var node = await WithLocalAsync(siteEl, ct);
         node["reprint"] = true;
         return node;
@@ -262,6 +265,9 @@ public sealed class OnlineOrdersService(
             plan.AccountName,
             plan.PaymentLabel,
             plan.ComputedTotal,
+            // طلب توصيل: أجور التوصيل والتغليف خارج فاتورة المحل (ضمن مبلغ هاي إكسبريس فقط).
+            plan.ShippingOutside,
+            plan.GiftWrapOutside,
             problems = site.Invoiced is null ? plan.Problems : [],
             sale = links.FirstOrDefault(l => l.Kind == "sale"),
             @return = links.FirstOrDefault(l => l.Kind == "return"),
@@ -278,7 +284,8 @@ public sealed class OnlineOrdersService(
                 hold.ReceiptNumber,
                 receiptTotal = hold.Total,
                 editable = editableAfterInvoice,
-                outOfSync = editableAfterInvoice && Math.Abs(hold.Total - site.Receipt.Total) >= 1,
+                // فاتورة المحل = مبلغ الطلب ناقص أجور التوصيل/التغليف (لطلبات التوصيل).
+                outOfSync = editableAfterInvoice && Math.Abs(hold.Total - plan.ComputedTotal) >= 1,
             },
         }, Json);
         return node;
@@ -362,7 +369,7 @@ public sealed class OnlineOrdersService(
             CashierId: cashierId,
             SalesmanId: 0,
             PosId: req.PosId is > 0 ? req.PosId : null,
-            Payment: credit ? 0 : site.Receipt.Total,
+            Payment: credit ? 0 : plan.ComputedTotal,
             Items: items,
             Kind: 0,
             IsPending: false,
@@ -641,7 +648,10 @@ public sealed class OnlineOrdersService(
         var fee = Math.Max(0, site.Receipt.Shipping) + Math.Max(0, site.Receipt.GiftWrap);
         long? deliveryId = null;
         string? deliveryName = settings.DeliveryArticleName, deliveryBarcode = null;
-        if (fee > 0)
+        // طلبات التوصيل: أجور التوصيل والتغليف لا تدخل فاتورة المحل (ولا الإداري) — تبقى في مبلغ
+        // شركة التوصيل فقط، وتُحفظ مع الربط لتظهر ملاحظةً في لوحة التحكم. الاستلام من المحل كما كان.
+        var feesOutside = !site.Order.IsPickup && fee > 0;
+        if (fee > 0 && !feesOutside)
         {
             var art = settings.DeliveryArticleId is > 0 ? await products.GetByIdAnyPriceAsync(settings.DeliveryArticleId.Value, ct) : null;
             if (art is null)
@@ -678,11 +688,17 @@ public sealed class OnlineOrdersService(
         }
 
         var computed = lines.Sum(l => l.Qty * l.ChargePrice) + (deliveryId is not null ? fee : 0) - site.Receipt.Discount;
-        if (unresolved.Count == 0 && (fee == 0 || deliveryId is not null) && Math.Abs(computed - site.Receipt.Total) >= 1)
-            problems.Add($"مجموع الأسطر ({computed:N0}) لا يساوي مبلغ الطلب ({site.Receipt.Total:N0}) — أعد فتح الطلب");
+        // مبلغ فاتورة المحل المتوقع: مبلغ الطلب ناقص الأجور التي تبقى خارجها.
+        var expectedReceipt = site.Receipt.Total - (feesOutside ? fee : 0);
+        if (unresolved.Count == 0 && (fee == 0 || feesOutside || deliveryId is not null) && Math.Abs(computed - expectedReceipt) >= 1)
+            problems.Add($"مجموع الأسطر ({computed:N0}) لا يساوي مبلغ الفاتورة ({expectedReceipt:N0}) — أعد فتح الطلب");
+        if (computed < 0)
+            problems.Add("خصم الطلب أكبر من قيمة الأصناف — راجع الطلب في لوحة الإدارة");
 
-        return new SalePlan(lines, unresolved, fee, deliveryId, deliveryName, deliveryBarcode,
-            account is > 0 ? account : null, accountName, paymentLabel, computed, problems);
+        return new SalePlan(lines, unresolved, feesOutside ? 0 : fee, deliveryId, deliveryName, deliveryBarcode,
+            account is > 0 ? account : null, accountName, paymentLabel, computed, problems,
+            ShippingOutside: feesOutside ? Math.Max(0, site.Receipt.Shipping) : 0,
+            GiftWrapOutside: feesOutside ? Math.Max(0, site.Receipt.GiftWrap) : 0);
     }
 
     /// <summary>
@@ -774,6 +790,9 @@ public sealed class OnlineOrdersService(
         TrackingNumber = site.Shipment?.TrackingNumber,
         Total = total,
         CashierId = cashierId,
+        // طلب توصيل: الأجور خارج الفاتورة — تُحفظ لتظهر ملاحظةً في لوحة التحكم.
+        DeliveryFee = kind == "sale" && !site.Order.IsPickup ? Math.Max(0, site.Receipt.Shipping) : 0,
+        GiftWrapFee = kind == "sale" && !site.Order.IsPickup ? Math.Max(0, site.Receipt.GiftWrap) : 0,
     };
 
     /// <summary>إيصال المحل للطباعة بنفس قالب الكاشير (ReceiptPrintPreviewDto) + رقم الطلب والتتبع والزبونة.</summary>

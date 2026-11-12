@@ -737,6 +737,9 @@ export interface OfferTreeApplyResult {
 export interface ReceiptSummary {
   /** رقم طلب التطبيق إن كان من «كاشير الطلبات». */
   onlineOrderNumber?: string | null;
+  /** طلب توصيل من التطبيق: أجور التوصيل والتغليف خارج الفاتورة (ضمن مبلغ شركة التوصيل). */
+  onlineDeliveryFee?: number | null;
+  onlineGiftWrapFee?: number | null;
   id: number;
   number: number;
   creationDate: string;

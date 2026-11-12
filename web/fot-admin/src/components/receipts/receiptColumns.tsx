@@ -27,12 +27,28 @@ export function ReceiptKindBadge({ receipt, className }: { receipt: ReceiptSumma
   const k = receiptKindTone(receipt);
   const badge = <Badge tone={k.tone} dot className={className}>{k.label}</Badge>;
   if (!receipt.onlineOrderNumber) return badge;
+  const fees = onlineFeesNote(receipt);
   return (
-    <span className="inline-flex items-center gap-1" title={`طلب تطبيق ${receipt.onlineOrderNumber}`}>
+    <span
+      className="inline-flex flex-wrap items-center gap-1"
+      title={`طلب تطبيق ${receipt.onlineOrderNumber}${fees ? ` — ${fees} (خارج الفاتورة، ضمن مبلغ شركة التوصيل)` : ''}`}
+    >
       {badge}
       <Badge tone="info">طلب تطبيق</Badge>
+      {fees && <Badge tone="warn">{fees}</Badge>}
     </span>
   );
+}
+
+/**
+ * طلب توصيل من التطبيق: أجور التوصيل وتغليف الهدية لا تدخل الفاتورة (ولا الإداري) — تحصّلها شركة التوصيل
+ * مع الطلب. تظهر ملاحظةً على الفاتورة: «توصيل 5,000 · تغليف 2,000».
+ */
+export function onlineFeesNote(r: Pick<ReceiptSummary, 'onlineDeliveryFee' | 'onlineGiftWrapFee'>): string | null {
+  const parts: string[] = [];
+  if (r.onlineDeliveryFee && r.onlineDeliveryFee > 0) parts.push(`توصيل ${formatNum(r.onlineDeliveryFee)}`);
+  if (r.onlineGiftWrapFee && r.onlineGiftWrapFee > 0) parts.push(`تغليف ${formatNum(r.onlineGiftWrapFee)}`);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 /** Cash box the sale was rung into — the account number leads, the name explains it. */

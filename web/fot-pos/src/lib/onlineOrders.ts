@@ -251,7 +251,11 @@ export type LookupResult = {
     deliveryArticleName: string | null;
     accountName: string | null;
     paymentLabel: string;
+    /** مبلغ فاتورة المحل (المنتجات فقط لطلبات التوصيل). */
     computedTotal: number;
+    /** طلب توصيل: أجور التوصيل والتغليف خارج فاتورة المحل، ضمن مبلغ هاي إكسبريس فقط (سيرفر 2.6.5+). */
+    shippingOutside?: number;
+    giftWrapOutside?: number;
     problems: string[];
     sale: ReceiptLink | null;
     return: ReceiptLink | null;

@@ -74,6 +74,7 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
         receipt_number AS ReceiptNumber, client_receipt_id AS ClientReceiptId, kind AS Kind,
         delivery_option AS DeliveryOption, tracking_number AS TrackingNumber,
         CAST(total AS DECIMAL(18,2)) AS Total, cashier_id AS CashierId, created_at AS CreatedAt,
+        CAST(delivery_fee AS DECIMAL(18,2)) AS DeliveryFee, CAST(gift_wrap_fee AS DECIMAL(18,2)) AS GiftWrapFee,
         CAST(reported_ok AS bit) AS ReportedOk, reported_at AS ReportedAt, last_error AS LastError
         """;
 
@@ -101,10 +102,10 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
             IF NOT EXISTS (SELECT 1 FROM ext_online_order_receipts WITH (UPDLOCK, HOLDLOCK) WHERE order_id = @OrderId AND kind = @Kind)
                 INSERT INTO ext_online_order_receipts (
                     order_id, order_number, receipt_id, receipt_number, client_receipt_id, kind,
-                    delivery_option, tracking_number, total, cashier_id, created_at, reported_ok)
+                    delivery_option, tracking_number, total, cashier_id, created_at, reported_ok, delivery_fee, gift_wrap_fee)
                 VALUES (
                     @OrderId, @OrderNumber, @ReceiptId, @ReceiptNumber, @ClientReceiptId, @Kind,
-                    @DeliveryOption, @TrackingNumber, @Total, @CashierId, SYSDATETIME(), 0);
+                    @DeliveryOption, @TrackingNumber, @Total, @CashierId, SYSDATETIME(), 0, @DeliveryFee, @GiftWrapFee);
             """, new
         {
             link.OrderId,
@@ -117,6 +118,8 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
             link.TrackingNumber,
             link.Total,
             link.CashierId,
+            link.DeliveryFee,
+            link.GiftWrapFee,
         }, cancellationToken: ct));
         return (await GetLinkAsync(link.OrderId, link.Kind, ct))!;
     }
@@ -181,15 +184,17 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
     }
 
     /// <summary>أرقام طلبات التطبيق لإيصالات القائمة — علامة «طلب تطبيق» في لوحة التحكم.</summary>
-    public async Task<IReadOnlyDictionary<long, string>> OrderNumbersForReceiptsAsync(IReadOnlyCollection<long> receiptIds, CancellationToken ct)
+    public async Task<IReadOnlyDictionary<long, OnlineReceiptMark>> OrderNumbersForReceiptsAsync(IReadOnlyCollection<long> receiptIds, CancellationToken ct)
     {
-        if (receiptIds.Count == 0) return new Dictionary<long, string>();
+        if (receiptIds.Count == 0) return new Dictionary<long, OnlineReceiptMark>();
         await using var conn = await db.CreateOpenConnectionAsync(ct);
-        var rows = await conn.QueryAsync<(long ReceiptId, string OrderNumber)>(new CommandDefinition(
-            "SELECT receipt_id, order_number FROM ext_online_order_receipts WHERE receipt_id IN @ids",
-            new { ids = receiptIds.ToArray() }, cancellationToken: ct));
-        var map = new Dictionary<long, string>();
-        foreach (var r in rows) map[r.ReceiptId] = r.OrderNumber;
+        var rows = await conn.QueryAsync<OnlineReceiptMark>(new CommandDefinition("""
+            SELECT receipt_id AS ReceiptId, order_number AS OrderNumber,
+                   CAST(delivery_fee AS DECIMAL(18,2)) AS DeliveryFee, CAST(gift_wrap_fee AS DECIMAL(18,2)) AS GiftWrapFee
+            FROM ext_online_order_receipts WHERE receipt_id IN @ids
+            """, new { ids = receiptIds.ToArray() }, cancellationToken: ct));
+        var map = new Dictionary<long, OnlineReceiptMark>();
+        foreach (var r in rows) map[r.ReceiptId] = r;
         return map;
     }
 
@@ -282,4 +287,13 @@ public sealed class ReceiptHeaderLite
     public decimal UserDiscount { get; set; }
     public decimal TotalAmount { get; set; }
     public DateTime CreationDate { get; set; }
+}
+
+/// <summary>علامة «طلب تطبيق» على الفاتورة في لوحة التحكم: رقم الطلب وأجور التوصيل والتغليف الخارجة عنها.</summary>
+public sealed class OnlineReceiptMark
+{
+    public long ReceiptId { get; set; }
+    public string OrderNumber { get; set; } = "";
+    public decimal DeliveryFee { get; set; }
+    public decimal GiftWrapFee { get; set; }
 }

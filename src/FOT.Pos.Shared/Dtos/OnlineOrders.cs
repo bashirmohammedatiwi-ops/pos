@@ -54,6 +54,9 @@ public sealed class OnlineOrderReceiptLinkDto
     public string? DeliveryOption { get; set; }
     public string? TrackingNumber { get; set; }
     public decimal Total { get; set; }
+    /// <summary>طلب توصيل: أجور التوصيل والتغليف خارج الفاتورة، ضمن مبلغ شركة التوصيل (migration 091).</summary>
+    public decimal DeliveryFee { get; set; }
+    public decimal GiftWrapFee { get; set; }
     public long CashierId { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool ReportedOk { get; set; }
