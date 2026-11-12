@@ -175,14 +175,18 @@ async function redrawItemsCell(
   }
   const slack = Math.max(0, H - 1 - lastInk - Math.round(1.2 * mm));
 
-  // الجدول: صفّان من المنتجات في كل سطر، بخط أصغر.
-  const fontPx = Math.round(2.35 * mm);
-  const rowH = Math.round(3.25 * mm);
-  const padY = Math.round(0.9 * mm);
+  // الجدول: منتجان في كل سطر. الخط يصغر تلقائياً كلما زادت المنتجات حتى تتسع كلها
+  // (16 منتجاً وأكثر) في الخانة + الفراغ السفلي — بلا علامة «منتجات أخرى».
   const n = items.length;
   const rowsWanted = Math.ceil(n / 2);
   const cellH = bottom - (top + 1);
-  const needH = rowsWanted * rowH + padY * 2;
+  const available = cellH + slack;
+  const padY = Math.round((rowsWanted > 5 ? 0.45 : 0.9) * mm);
+  const maxRowH = 3.25 * mm;
+  const minRowH = 1.35 * mm; // ~ خط 1mm: أصغر ما تقرؤه العين على 203 نقطة/إنش
+  const rowH = Math.max(minRowH, Math.min(maxRowH, (available - padY * 2) / rowsWanted));
+  const fontPx = Math.max(Math.round(1.0 * mm), Math.min(Math.round(2.35 * mm), Math.round(rowH * 0.74)));
+  const needH = Math.ceil(rowsWanted * rowH + padY * 2);
   const extra = Math.max(0, Math.min(needH - cellH, slack));
   const innerTop = top + 1;
   const innerBottom = bottom + extra; // الحد السفلي بعد الإزاحة
@@ -202,7 +206,7 @@ async function redrawItemsCell(
   const x0 = left + thick + Math.round(0.8 * mm);
   const x1 = divider - Math.round(0.8 * mm);
   const half = (x1 - x0) / 2;
-  const qtyW = Math.round(5.2 * mm);
+  const qtyW = Math.max(Math.round(3.6 * mm), Math.round(fontPx * 2.2));
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.strokeStyle = '#000';
