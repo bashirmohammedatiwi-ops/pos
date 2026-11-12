@@ -20,10 +20,15 @@ export {
   formatReceiptNumber,
   parseReceiptNumber,
   receiptNumberFromScan,
+  renderCode128Barcode,
   renderProductBarcode,
   renderReceiptBarcode,
 } from './receipt-barcode';
 export type { BarcodeGraphic } from './receipt-barcode';
+export { qrMatrix, qrSvg } from './qr';
+export type { QrEcc, QrMatrix } from './qr';
+export { orderInvoiceHtml, orderLabelHtml, orderSlipHtml } from './order-print';
+export type { OrderPrintData, OrderPrintItem, OrderSlipLine } from './order-print';
 export {
   DEFAULT_TOTAL_ROUNDING,
   OFFER_PRICE_STEP,

@@ -62,6 +62,11 @@ export type ReceiptPrintPreviewDto = {
   total: number;
   paid: number;
   change: number;
+  /** طلب تطبيق: رقم الطلب ورقم التتبع واسم الزبونة وطريقة الدفع تُطبع تحت رأس الفاتورة. */
+  orderNumber?: string | null;
+  trackingNumber?: string | null;
+  customerName?: string | null;
+  paymentLabel?: string | null;
 };
 
 export type PrinterInfo = {

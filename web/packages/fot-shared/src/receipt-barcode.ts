@@ -202,6 +202,19 @@ function renderCode128Exact(text: string, opts?: BarcodeDrawOpts): BarcodeGraphi
   return bitsToSvg(bits, height, moduleWidth, opts?.maxWidth);
 }
 
+/** Code 128 بالنص كما هو (رقم تتبع الشحنة على الملصق) — لا يتحول إلى EAN-13 أبداً. */
+export function renderCode128Barcode(text: string, opts?: {
+  height?: number;
+  moduleWidth?: number;
+  maxWidth?: number;
+  minModuleWidth?: number;
+  quietModules?: number;
+}): BarcodeGraphic {
+  const raw = String(text ?? '').trim();
+  if (!raw) throw new Error('Barcode text is empty');
+  return renderCode128Exact(raw, { minHeight: 16, ...opts });
+}
+
 /**
  * Shelf-label barcode: encode the stored digits only.
  * Valid 13-digit EAN-13 stays EAN-13. 12-digit codes are NOT padded with a

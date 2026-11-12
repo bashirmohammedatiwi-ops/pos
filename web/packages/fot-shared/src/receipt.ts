@@ -9,6 +9,7 @@ import {
   type ResolvedClassicStyle,
 } from './classic-style';
 import { formatIqd, formatNum } from './money';
+import { qrSvg } from './qr';
 import { renderReceiptBarcode } from './receipt-barcode';
 import type {
   PrintSettingsDto,
@@ -123,6 +124,23 @@ function formatWhen(iso: string, format: ClassicDateFormat = 'datetime') {
   if (format === 'time') return time;
   if (format === 'split') return `${date}\n${time}`;
   return d.toLocaleString('en-GB', { hour12: false });
+}
+
+/** QR حقيقي بعرض ثابت على الورق الحراري (كان نص [QR: …] مكانه). */
+function qrBlock(text: string | null | undefined) {
+  const svg = qrSvg(String(text ?? ''), { sizePx: thermalPx(120), margin: 2 });
+  return svg ? `<div class="center qr">${svg}</div>` : '';
+}
+
+/** طلب تطبيق: رقم الطلب والتتبع والزبونة وطريقة الدفع تحت رقم الفاتورة. */
+function orderMetaBlock(data: ReceiptPrintPreviewDto) {
+  const rows = [
+    data.orderNumber ? `<div class="order-no">طلب تطبيق <span class="ltr">${escapeHtml(data.orderNumber)}</span></div>` : '',
+    data.trackingNumber ? `<div class="meta">التتبع: <span class="ltr">${escapeHtml(data.trackingNumber)}</span></div>` : '',
+    data.customerName ? `<div class="meta">الزبونة: ${escapeHtml(data.customerName)}</div>` : '',
+    data.paymentLabel ? `<div class="meta">${escapeHtml(data.paymentLabel)}</div>` : '',
+  ].filter(Boolean).join('');
+  return rows ? `<div class="order-meta center">${rows}</div>` : '';
 }
 
 function receiptLines(data: ReceiptPrintPreviewDto) {
@@ -322,6 +340,10 @@ function sharedCss(
   .net-pay { border: ${u(2)}px solid #000; padding: ${u(6)}px ${u(7)}px; margin: ${u(6)}px 0; }
   .total { font-size: ${fontSize}px; font-weight: ${fontWeight}; margin: ${u(3)}px 0; }
   .dash { border-top: ${u(1)}px dashed #000; margin: ${u(6)}px 0; }
+  .qr { margin: ${u(6)}px 0 ${u(2)}px; }
+  .qr svg { display: block; margin: 0 auto; width: ${u(120)}px; height: ${u(120)}px; }
+  .order-meta { margin: ${u(3)}px 0; }
+  .order-no { font-weight: ${stronger}; border: ${u(1)}px solid #000; padding: ${u(2)}px ${u(4)}px; margin: ${u(2)}px 0; }
   .dbl { border-top: ${u(2)}px solid #000; margin: ${u(8)}px 0 ${u(6)}px; }
   .line.head { font-size: ${Math.max(u(9), fontSize - u(1))}px; color: #000; font-weight: ${stronger};
                padding-bottom: ${u(3)}px; border-bottom: ${u(1)}px solid #000; margin-bottom: ${u(4)}px; }
@@ -450,7 +472,7 @@ function renderClassicBlocks(
     if (id === 'title') return wrapClassic('title', store, 'store');
     if (id === 'subtitle') return desc ? wrapClassic('subtitle', desc, 'muted') : '';
     if (id === 'invoice') {
-      return wrapClassic('invoice', `فاتورة <span class="ltr">#${escapeHtml(receiptLabel)}</span>`, 'invoice');
+      return wrapClassic('invoice', `فاتورة <span class="ltr">#${escapeHtml(receiptLabel)}</span>`, 'invoice') + orderMetaBlock(data);
     }
     if (id === 'kind') return wrapClassic('kind', escapeHtml(receiptKindLabel(data.kind)), 'kind');
     if (id === 'datetime') {
@@ -484,9 +506,7 @@ function renderClassicBlocks(
         : '';
     }
     if (id === 'qr') {
-      return settings.showQrCode && settings.qrCodeText
-        ? `<div class="center muted">[QR: ${escapeHtml(settings.qrCodeText)}]</div>`
-        : '';
+      return settings.showQrCode && settings.qrCodeText ? qrBlock(settings.qrCodeText) : '';
     }
     if (id === 'barcode') return receiptBarcodeBlock(tryReceiptBarcode(data.receiptNumber, barcodeWidth));
     return '';
@@ -546,6 +566,7 @@ function buildReceiptHtml(data: ReceiptPrintPreviewDto, settings: PrintSettingsD
     const invoiceLine = `<div class="center invoice">فاتورة <span class="ltr">#${escapeHtml(receiptLabel)}</span></div>`;
     const meta = `
     ${invoiceLine}
+    ${orderMetaBlock(data)}
     <div class="center kind">${escapeHtml(receiptKindLabel(data.kind))}</div>
     ${when ? `<div class="center muted meta ltr">${escapeHtml(when)}</div>` : ''}
     ${data.posLabel ? `<div class="center muted meta">${escapeHtml(data.posLabel)}</div>` : ''}
@@ -563,7 +584,7 @@ function buildReceiptHtml(data: ReceiptPrintPreviewDto, settings: PrintSettingsD
   ${sep}
   ${totals}
   ${settings.footerText ? `${sep}<div class="center muted foot">${escapeHtml(settings.footerText)}</div>` : ''}
-  ${settings.showQrCode && settings.qrCodeText ? `<div class="center muted">[QR: ${escapeHtml(settings.qrCodeText)}]</div>` : ''}
+  ${settings.showQrCode && settings.qrCodeText ? qrBlock(settings.qrCodeText) : ''}
   ${receiptBarcodeBlock(barcode)}`;
   }
 

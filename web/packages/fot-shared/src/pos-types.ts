@@ -65,6 +65,10 @@ export type CashierPermissionsDto = {
   invoiceBoundReturn?: boolean;
   /** When false, salesman name is hidden on printed receipts for this cashier. */
   printSalesmanOnReceipt?: boolean;
+  /** «كاشير الطلبات»: فوترة طلبات التطبيق وتسليمها. */
+  onlineOrders?: boolean;
+  /** إيصالات إرجاع طلبات التطبيق الراجعة من شركة التوصيل. */
+  onlineOrdersReturns?: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   numberOfHoldReceipts: number;
@@ -165,6 +169,8 @@ export type ReceiptSummaryDto = {
   masterAccount?: number | null;
   cashBoxNum?: string | null;
   cashBoxName?: string | null;
+  /** رقم طلب التطبيق إن كان الإيصال من «كاشير الطلبات». */
+  onlineOrderNumber?: string | null;
 };
 
 export type ReceiptSearchResult = {

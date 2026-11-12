@@ -63,7 +63,8 @@ export type LanServer = {
 };
 
 export type FotDesktopBridge = {
-  role: 'admin' | 'pos';
+  /** orders = «كاشير الطلبات»: نفس واجهة الكاشير مفتوحة على شاشة طلبات التطبيق. */
+  role: 'admin' | 'pos' | 'orders';
   info: () => Promise<{
     role: string;
     version: string;
