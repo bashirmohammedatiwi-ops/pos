@@ -273,14 +273,21 @@ export function OnlineOrdersSettingsPanel() {
             onChange={p => setForm(f => (f ? { ...f, deliveryArticleId: p?.id ?? null, deliveryArticleName: p?.name ?? null } : f))}
           />
         </SettingsCard>
-        <SettingsCard title="الطباعة" description="كل المطبوعات حرارية 80مم. 0 نسخ = لا يُطبع." icon={<IconPrinter size={16} />}>
+        <SettingsCard
+          title="الطباعة"
+          description="الإيصال والفاتورة على الطابعة الحرارية 80مم. ملصق الشحن هو ملصق هاي إكسبريس نفسه ويُطبع على طابعة الملصقات فقط. 0 نسخ = لا يُطبع."
+          icon={<IconPrinter size={16} />}
+        >
           <div className="space-y-3">
             <FieldRow>
               <CopiesInput label="إيصال المحل" value={form.receiptCopies} onChange={n => set('receiptCopies', n)} />
               <CopiesInput label="فاتورة الزبونة" value={form.invoiceCopies} onChange={n => set('invoiceCopies', n)} />
               <CopiesInput label="ملصق الشحن (لكل طرد)" value={form.labelCopies} onChange={n => set('labelCopies', n)} />
             </FieldRow>
-            <Field label="طابعة الملصقات" hint="اسم الطابعة على جهاز كاشير الطلبات كما في ويندوز. فارغ = طابعة الإيصال.">
+            <Field
+              label="طابعة الملصقات (افتراضية)"
+              hint="اسم طابعة الملصقات كما في ويندوز. جهاز كاشير الطلبات يختار طابعته من زر «الطابعات» فيه، وهذا الاسم يُستعمل إن لم يُختر. لا يُطبع الملصق على الطابعة الحرارية."
+            >
               <Input
                 value={form.labelPrinterName ?? ''}
                 onChange={e => set('labelPrinterName', e.target.value || null)}
@@ -313,6 +320,111 @@ export function OnlineOrdersSettingsPanel() {
         {dirty && <Btn variant="ghost" onClick={() => setForm(toForm(q.data.settings))}>تجاهل التغييرات</Btn>}
         {dirty && <Badge tone="warn" dot>تغييرات غير محفوظة</Badge>}
       </div>
+
+      <HeldInvoicesCard />
     </div>
+  );
+}
+
+/** فواتير طلبات التطبيق المحجوزة عن الترحيل التلقائي — تُرحَّل يدوياً من هنا أو من كاشير الطلبات. */
+function HeldInvoicesCard() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const q = useQuery({ queryKey: ['online-orders-held'], queryFn: api.onlineOrdersHeld, refetchInterval: 30_000 });
+  const post = useMutation({
+    mutationFn: (body: { orderIds?: string[]; all?: boolean }) => api.postOnlineOrders(body),
+    onSuccess: r => {
+      toast.success(r.message);
+      setPicked(new Set());
+      void qc.invalidateQueries({ queryKey: ['online-orders-held'] });
+    },
+    onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الترحيل'),
+  });
+  const rows = q.data ?? [];
+  const total = rows.reduce((s, r) => s + r.total, 0);
+  const confirmPost = (body: { orderIds?: string[]; all?: boolean }, n: number) => {
+    if (window.confirm(`ترحيل ${n === 1 ? 'فاتورة واحدة' : `${n} فواتير`} إلى الإداري؟ بعد الترحيل لا تُعدّل من كاشير الطلبات.`)) post.mutate(body);
+  };
+
+  return (
+    <SettingsCard
+      title="فواتير طلبات التطبيق بانتظار الترحيل"
+      description="لا تُرحَّل فواتير طلبات التطبيق إلى الإداري تلقائياً. تبقى قابلة للتعديل في كاشير الطلبات (ويتعدّل معها الموقع وهاي إكسبريس) حتى تُرحَّل من هنا أو من الكاشير."
+      icon={<IconCart size={16} />}
+      actions={
+        <div className="flex items-center gap-2">
+          <Btn size="sm" variant="secondary" icon={<IconRefresh size={13} />} loading={q.isFetching} onClick={() => void q.refetch()}>
+            تحديث
+          </Btn>
+          <Btn size="sm" disabled={!picked.size} loading={post.isPending} onClick={() => confirmPost({ orderIds: [...picked] }, picked.size)}>
+            ترحيل المحدد ({formatNum(picked.size)})
+          </Btn>
+          <Btn size="sm" variant="secondary" disabled={!rows.length} loading={post.isPending} onClick={() => confirmPost({ all: true }, rows.length)}>
+            ترحيل الكل
+          </Btn>
+        </div>
+      }
+    >
+      {q.isError ? (
+        <Alert>{q.error instanceof Error ? q.error.message : 'حدّث برنامج الخادم (migration 090) ثم أعد المحاولة.'}</Alert>
+      ) : !q.data ? (
+        <Skeleton className="h-24 rounded-xl" />
+      ) : rows.length === 0 ? (
+        <div className="py-4 text-center text-[13px] text-slate-500">لا توجد فواتير بانتظار الترحيل</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr className="border-b border-slate-200 text-right text-slate-500">
+                <th className="w-8 py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={rows.every(r => picked.has(r.orderId))}
+                    onChange={e => setPicked(e.target.checked ? new Set(rows.map(r => r.orderId)) : new Set())}
+                  />
+                </th>
+                <th className="py-1.5 font-bold">الطلب</th>
+                <th className="py-1.5 font-bold">الإيصال</th>
+                <th className="py-1.5 font-bold">الكاشير</th>
+                <th className="py-1.5 font-bold">التاريخ</th>
+                <th className="py-1.5 font-bold">التعديلات</th>
+                <th className="py-1.5 text-left font-bold">المبلغ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.clientReceiptId} className="border-b border-slate-100 last:border-0">
+                  <td className="py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={picked.has(r.orderId)}
+                      onChange={e => {
+                        const next = new Set(picked);
+                        if (e.target.checked) next.add(r.orderId);
+                        else next.delete(r.orderId);
+                        setPicked(next);
+                      }}
+                    />
+                  </td>
+                  <td className="py-1.5 font-mono" dir="ltr">{r.orderNumber ?? r.orderId}</td>
+                  <td className="py-1.5 font-mono">{r.receiptNumber ?? '—'}</td>
+                  <td className="py-1.5">{r.cashierName ?? '—'}</td>
+                  <td className="py-1.5">{new Date(r.createdAt).toLocaleString('en-GB', { hour12: false })}</td>
+                  <td className="py-1.5">{r.edits > 0 ? <Badge tone="warn">{formatNum(r.edits)}</Badge> : '—'}</td>
+                  <td className="py-1.5 text-left font-bold">{formatNum(r.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="text-slate-700">
+                <td colSpan={6} className="pt-2 font-bold">{formatNum(rows.length)} فاتورة</td>
+                <td className="pt-2 text-left font-bold">{formatNum(total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </SettingsCard>
   );
 }

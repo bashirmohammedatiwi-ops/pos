@@ -1,7 +1,18 @@
 import type { DiscountQrPerson } from '@fot/shared';
 import { fetchLan } from '@fot/shared';
 import { getApiBase } from '@/lib/apiBase';
-import type { FinalizeResult, LookupResult, OnlineOrdersStatus, PrintDataResult, QueueResult, ReturnResult } from '@/lib/onlineOrders';
+import type {
+  CourierLabelResult,
+  HeldInvoice,
+  FinalizeResult,
+  LookupResult,
+  OnlineOrdersStatus,
+  OrderEditBody,
+  PosProductLookup,
+  PrintDataResult,
+  QueueResult,
+  ReturnResult,
+} from '@/lib/onlineOrders';
 import { isServerUnreachable, markServerReachable, markServerUnreachable } from '@/lib/connectionGate';
 import type { ApiHealth, HealthzReport } from '@fot/shared';
 import type {
@@ -231,6 +242,23 @@ export const onlineOrdersApi = {
     request<LookupResult>('/api/online-orders/lookup', { ...ORDERS_READ, body: JSON.stringify({ code }) }),
   printData: (code: string) =>
     request<PrintDataResult>('/api/online-orders/print-data', { ...ORDERS_READ, body: JSON.stringify({ code }) }),
+  /** صنف من كتالوج المحل بالباركود (قبل إضافته للطلب). */
+  product: (barcode: string) =>
+    request<PosProductLookup>('/api/online-orders/product', { ...ORDERS_READ, body: JSON.stringify({ barcode }) }),
+  /** إضافة صنف بالباركود أو تغيير كمية سطر (قبل الفوترة، أو بعدها ما دامت لم تُرحَّل) — يرد بالطلب محدّثاً. */
+  edit: (body: OrderEditBody) =>
+    request<LookupResult>('/api/online-orders/edit', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
+  /** ملصق هاي إكسبريس نفسه (PDF base64). */
+  label: (code: string) =>
+    request<CourierLabelResult>('/api/online-orders/label', { ...ORDERS_READ, body: JSON.stringify({ code }) }),
+  /** فواتير طلبات التطبيق بانتظار الترحيل اليدوي إلى الإداري. */
+  held: () => request<HeldInvoice[]>('/api/online-orders/held', { ...ORDERS_READ, body: '{}' }),
+  /** «ترحيل» فواتير محددة (orderIds) أو كلها (all). */
+  post: (body: { orderIds?: string[]; all?: boolean }) =>
+    request<{ ok: boolean; released: number; skipped: string[]; message: string }>('/api/online-orders/post', {
+      ...ORDERS_WRITE,
+      body: JSON.stringify(body),
+    }),
   finalize: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number }) =>
     request<FinalizeResult>('/api/online-orders/finalize', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
   pickup: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number }) =>

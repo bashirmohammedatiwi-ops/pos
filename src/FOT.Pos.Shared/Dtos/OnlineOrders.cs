@@ -66,6 +66,48 @@ public sealed record OnlineOrderCodeRequest(string Code);
 /// <summary>«إتمام وطباعة» أو «تسليم للزبونة»: يُنشئ إيصال المحل ثم يبلغ الموقع.</summary>
 public sealed record OnlineOrderFinalizeRequest(string Code, long? PosId = null, string? HwId = null, decimal? ExpectedTotal = null);
 
+/// <summary>
+/// تعديل طلب مُجهَّز قبل فوترته من «كاشير الطلبات»:
+///  · Op = "add": إضافة صنف بالباركود (من كتالوج المحل؛ الموقع يأخذ سعره إن كان الصنف في التطبيق، وإلا سعر المحل).
+///  · Op = "set": كمية سطر (LineId) — نقص يحتاج سبباً، صفر يحذف الإضافي، Charge يجعل الإضافي هدية أو مدفوعاً.
+/// ClientEditId يمنع تكرار الإضافة عند إعادة الإرسال.
+/// </summary>
+public sealed record OnlineOrderEditRequest(
+    string Code,
+    string Op,
+    string? Barcode = null,
+    int? Qty = null,
+    string? Charge = null,
+    string? Reason = null,
+    string? LineId = null,
+    string? ClientEditId = null);
+
+/// <summary>فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري (migration 090).</summary>
+public sealed class OnlineEdariHoldDto
+{
+    public Guid ClientReceiptId { get; set; }
+    public string OrderId { get; set; } = "";
+    public string? OrderNumber { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int Edits { get; set; }
+    public DateTime? LastEditAt { get; set; }
+    public DateTime? ReleasedAt { get; set; }
+    public string? ReleasedByName { get; set; }
+    public long? ReceiptId { get; set; }
+    public long? ReceiptNumber { get; set; }
+    public decimal Total { get; set; }
+    public bool Synced { get; set; }
+    public string? DeliveryOption { get; set; }
+    public string? TrackingNumber { get; set; }
+    public string? CashierName { get; set; }
+}
+
+/// <summary>«ترحيل» فواتير طلبات التطبيق إلى الإداري: بأرقام الطلبات (Codes) أو كلها (All).</summary>
+public sealed record OnlineOrdersPostRequest(IReadOnlyList<string>? OrderIds = null, bool All = false);
+
+/// <summary>صنف من كتالوج المحل بالباركود (قبل إضافته للطلب).</summary>
+public sealed record OnlineOrderProductRequest(string Barcode);
+
 public sealed record OnlineOrderReturnLineRequest(string Barcode, int Qty);
 
 public sealed record OnlineOrderReturnRequest(

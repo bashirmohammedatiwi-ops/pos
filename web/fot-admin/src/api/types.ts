@@ -2448,6 +2448,22 @@ export interface OnlineOrdersSettingsResponse {
   url: string;
 }
 
+/** فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري. */
+export interface OnlineOrdersHeldInvoice {
+  clientReceiptId: string;
+  orderId: string;
+  orderNumber: string | null;
+  createdAt: string;
+  edits: number;
+  lastEditAt: string | null;
+  receiptId: number | null;
+  receiptNumber: number | null;
+  total: number;
+  deliveryOption: string | null;
+  trackingNumber: string | null;
+  cashierName: string | null;
+}
+
 export interface OnlineOrdersPingResponse {
   ok: boolean;
   serverTime?: string | null;

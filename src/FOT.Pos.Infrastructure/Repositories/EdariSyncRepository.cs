@@ -1,4 +1,4 @@
-using Dapper;
+﻿using Dapper;
 using FOT.Pos.Infrastructure.Edari;
 using FOT.Pos.Shared.Dtos;
 using FOT.Pos.Infrastructure.Data;
@@ -108,6 +108,8 @@ public sealed class EdariSyncRepository(ISqlConnectionFactory db)
             SELECT MAX(r.creation_date)
             FROM reciepts r
             WHERE r.synced = 0 AND r.is_pending = 0
+              -- إيصالات طلبات التطبيق تنتظر «ترحيل» يدوياً (migration 090)
+              AND NOT EXISTS (SELECT 1 FROM dbo.ext_online_edari_holds h WHERE h.client_receipt_id = r.client_receipt_id AND h.released_at IS NULL)
               AND r.dead_letter = 0
               AND (r.next_sync_at IS NULL OR r.next_sync_at <= GETDATE())
             """, cancellationToken: ct));
@@ -142,6 +144,8 @@ public sealed class EdariSyncRepository(ISqlConnectionFactory db)
             LEFT JOIN sections sec ON sec.id = c.section_id
             LEFT JOIN section_cashboxes def_cb ON def_cb.section_id = sec.id AND def_cb.is_default = 1
             WHERE r.synced = 0 AND r.is_pending = 0
+              -- إيصالات طلبات التطبيق تنتظر «ترحيل» يدوياً (migration 090)
+              AND NOT EXISTS (SELECT 1 FROM dbo.ext_online_edari_holds h WHERE h.client_receipt_id = r.client_receipt_id AND h.released_at IS NULL)
               AND r.dead_letter = 0
               AND (r.next_sync_at IS NULL OR r.next_sync_at <= GETDATE())
             ORDER BY r.id

@@ -68,13 +68,160 @@ public sealed class OnlineOrdersService(
     // ───────────────────────── قراءة ─────────────────────────
 
     /// <summary>رد الموقع كما هو + كتلة local: مطابقة الباركودات مع كتالوج المحل والموانع المحلية والربط المحفوظ.</summary>
-    public async Task<JsonObject> LookupAsync(string code, CancellationToken ct)
+    public async Task<JsonObject> LookupAsync(string code, CancellationToken ct) =>
+        await WithLocalAsync(await bridge.LookupAsync(code, ct), ct);
+
+    // ───────────────────────── تعديل الطلب من الكاشير ─────────────────────────
+
+    /// <summary>صنف من كتالوج المحل بالباركود — يعرضه الكاشير قبل إضافته (الاسم، السعر، المخزون).</summary>
+    public async Task<object> ProductAsync(string barcode, CancellationToken ct)
     {
-        var el = await bridge.LookupAsync(code, ct);
+        var p = await ResolveAsync(barcode, ct);
+        if (p is null) return new { found = false, barcode };
+        return new
+        {
+            found = true,
+            id = p.Id,
+            name = p.Name,
+            barcode = p.Barcode,
+            siteBarcode = SiteBarcode(p, barcode),
+            price = p.Price,
+            originalPrice = p.OriginalPrice,
+            stock = p.Stock,
+            offerName = p.OfferName,
+        };
+    }
+
+    /// <summary>
+    /// يضيف صنفاً للطلب أو يغيّر كمية سطر قبل الفوترة. الصنف يجب أن يكون في كتالوج المحل (الإيصال يُبنى منه)؛
+    /// الموقع يأخذ سعره هو إن كان الصنف في التطبيق، وإلا اسم المحل وسعره. يرد بالطلب محدّثاً كما في lookup.
+    /// </summary>
+    public async Task<JsonObject> EditAsync(long cashierId, OnlineOrderEditRequest req, CancellationToken ct)
+    {
+        var settings = await repo.GetSettingsAsync(ct);
+        if (!settings.Enabled)
+            throw new OnlineOrdersRefusal("كاشير الطلبات متوقف — فعّله من لوحة التحكم ← الإعدادات ← طلبات التطبيق");
+        var op = (req.Op ?? "").Trim().ToLowerInvariant();
+        if (op is not ("add" or "set" or "sync")) throw new OnlineOrdersRefusal("عملية غير معروفة", 400);
+        var cashier = await cashiers.GetByIdAsync(cashierId, ct);
+        var cashierName = string.IsNullOrWhiteSpace(cashier?.AccountName) ? cashier?.Username ?? $"#{cashierId}" : cashier!.AccountName!;
+
+        // فاتورة مُفوترة: تُعدّل فقط ما دامت محجوزة عن الترحيل وإيصالها في هذا المحل لم يصل الإداري.
+        var current = Parse(await bridge.LookupAsync(req.Code, ct));
+        if (string.IsNullOrEmpty(current.Order.Id)) throw new OnlineOrdersRefusal("الطلب غير موجود", 404);
+        var invoiced = current.Invoiced is not null;
+        OnlineEdariHoldDto? hold = null;
+        if (invoiced)
+        {
+            if (!string.Equals(current.Invoiced!.ClientReceiptId, OnlineOrderIds.SaleClientId(current.Order.Id), StringComparison.Ordinal))
+                throw new OnlineOrdersRefusal($"الطلب مُفوتر بإيصال {current.Invoiced.ReceiptNumber} من خارج كاشير الطلبات — لا يُعدّل هنا");
+            (_, hold) = await SaleStateAsync(current.Order.Id, ct);
+            if (hold is null) throw new OnlineOrdersRefusal("فاتورة هذا الطلب تُرحَّل تلقائياً (فُوترت قبل التحديث) — لا تُعدّل");
+            if (hold.ReleasedAt is not null || hold.Synced)
+                throw new OnlineOrdersRefusal($"الفاتورة {hold.ReceiptNumber} رُحّلت إلى الإداري — لا تُعدّل بعد الترحيل");
+            if (hold.ReceiptId is not > 0) throw new OnlineOrdersRefusal("إيصال الفاتورة غير موجود في هذا المحل", 404);
+        }
+        else if (op == "sync")
+        {
+            return await WithLocalAsync(await bridge.LookupAsync(req.Code, ct), ct);
+        }
+
+        if (op == "sync")
+        {
+            // إعادة بناء إيصال المحل من الطلب كما هو في الموقع (بعد تعديل لم يكتمل في المحل).
+            return await SyncHeldReceiptAsync(await bridge.LookupAsync(req.Code, ct), hold!, settings, ct);
+        }
+        var charge = string.Equals(req.Charge, "FREE", StringComparison.OrdinalIgnoreCase) ? "FREE"
+            : string.Equals(req.Charge, "PAID", StringComparison.OrdinalIgnoreCase) ? "PAID" : null;
+
+        string? barcode = null, posName = null;
+        decimal? posPrice = null;
+        if (op == "add")
+        {
+            var raw = StoreSiteItems.NormalizeBarcode(req.Barcode);
+            if (raw.Length == 0) throw new OnlineOrdersRefusal("امسح باركود الصنف", 400);
+            var p = await ResolveAsync(raw, ct)
+                ?? throw new OnlineOrdersRefusal($"الباركود {raw} غير موجود في كتالوج المحل — أضفه للمادة في الإداري أولاً", 404);
+            barcode = SiteBarcode(p, raw);
+            posName = p.Name;
+            posPrice = p.Price;
+        }
+        else if (string.IsNullOrWhiteSpace(req.LineId))
+        {
+            throw new OnlineOrdersRefusal("حدّد السطر المعدّل", 400);
+        }
+
+        var el = await bridge.EditAsync(new
+        {
+            code = req.Code,
+            op,
+            barcode,
+            qty = req.Qty,
+            charge,
+            reason = string.IsNullOrWhiteSpace(req.Reason) ? null : req.Reason.Trim(),
+            posName,
+            posPrice,
+            lineId = req.LineId,
+            clientEditId = string.IsNullOrWhiteSpace(req.ClientEditId) ? null : req.ClientEditId,
+            cashierName,
+            cashierId = cashierId.ToString(),
+            allowInvoiced = invoiced ? true : (bool?)null,
+        }, ct);
+        if (!invoiced) return await WithLocalAsync(el, ct);
+        // الموقع وشركة التوصيل عُدّلا؛ الآن إيصال المحل نفسه (الأسطر والمبلغ) ثم تُعاد الطباعة.
+        return await SyncHeldReceiptAsync(el, hold!, settings, ct);
+    }
+
+    /// <summary>
+    /// يجعل إيصال المحل المحجوز مطابقاً لطلب الموقع (بعد تعديل فاتورة مُفوترة): الأسطر والمبلغ والخصم،
+    /// ويعلّم الطلب «يحتاج إعادة طباعة». يرد بالطلب كما في lookup.
+    /// </summary>
+    private async Task<JsonObject> SyncHeldReceiptAsync(JsonElement siteEl, OnlineEdariHoldDto hold, OnlineOrdersSettingsDto settings, CancellationToken ct)
+    {
+        var site = Parse(siteEl);
+        var plan = await PlanSaleAsync(site, settings, ct);
+        var blocking = plan.Problems.Where(p => !p.Contains("متوقف", StringComparison.Ordinal)).ToList();
+        if (blocking.Count > 0)
+            throw new OnlineOrdersRefusal(
+                $"عُدّل الطلب في الموقع لكن تعذر تحديث إيصال المحل: {string.Join(" — ", blocking)} — صحّح ثم اضغط «مزامنة إيصال المحل»",
+                409, new { receiptOutOfSync = true });
+        var credit = plan.AccountSeq is > 0;
+        try
+        {
+            await receipts.ReplaceUnpostedSaleItemsAsync(hold.ReceiptId!.Value, ReceiptItems(plan), site.Receipt.Discount,
+                credit ? 0 : site.Receipt.Total, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new OnlineOrdersRefusal($"عُدّل الطلب في الموقع لكن تعذر تحديث إيصال المحل: {ex.Message}", 409, new { receiptOutOfSync = true });
+        }
+        await repo.MarkEditedAsync(hold.ClientReceiptId, ct);
+        await repo.SetLinkTotalAsync(site.Order.Id, "sale", site.Receipt.Total, ct);
+        var node = await WithLocalAsync(siteEl, ct);
+        node["reprint"] = true;
+        return node;
+    }
+
+    /// <summary>
+    /// الباركود الذي يُرسل للموقع: باركود المادة الرئيسي (كما يرفعه المحل للموقع)، وإلا «POS:Seq» لمادة
+    /// بلا باركود. ResolveAsync يفهم الصيغتين عند الفوترة فيُبنى الإيصال من المادة نفسها.
+    /// </summary>
+    private static string SiteBarcode(ProductDto p, string scanned)
+    {
+        _ = scanned;
+        return string.IsNullOrWhiteSpace(p.Barcode) ? $"POS:{p.Seq}" : StoreSiteItems.NormalizeBarcode(p.Barcode);
+    }
+
+    /// <summary>رد الموقع (lookup أو edit) + كتلة local.</summary>
+    private async Task<JsonObject> WithLocalAsync(JsonElement el, CancellationToken ct)
+    {
         var site = Parse(el);
         var settings = await repo.GetSettingsAsync(ct);
         var plan = await PlanSaleAsync(site, settings, ct);
         var links = string.IsNullOrEmpty(site.Order.Id) ? [] : await repo.ListLinksAsync(site.Order.Id, ct);
+        var hold = string.IsNullOrEmpty(site.Order.Id) ? null : await repo.GetHoldAsync(OnlineOrderIds.SaleGuid(site.Order.Id), ct);
+        var invoicedHere = site.Invoiced?.ClientReceiptId == OnlineOrderIds.SaleClientId(site.Order.Id);
+        var editableAfterInvoice = invoicedHere && Editable(hold);
         var node = JsonNode.Parse(el.GetRawText())?.AsObject() ?? new JsonObject();
         node["local"] = JsonSerializer.SerializeToNode(new
         {
@@ -88,7 +235,21 @@ public sealed class OnlineOrdersService(
             problems = site.Invoiced is null ? plan.Problems : [],
             sale = links.FirstOrDefault(l => l.Kind == "sale"),
             @return = links.FirstOrDefault(l => l.Kind == "return"),
-            invoicedHere = site.Invoiced?.ClientReceiptId == OnlineOrderIds.SaleClientId(site.Order.Id),
+            invoicedHere,
+            // الترحيل اليدوي: محجوزة؟ رُحّلت؟ تقبل التعديل؟ إيصال المحل يطابق الموقع؟
+            edari = hold is null ? null : new
+            {
+                held = hold.ReleasedAt is null && !hold.Synced,
+                posted = hold.Synced,
+                hold.ReleasedAt,
+                hold.ReleasedByName,
+                hold.Edits,
+                hold.LastEditAt,
+                hold.ReceiptNumber,
+                receiptTotal = hold.Total,
+                editable = editableAfterInvoice,
+                outOfSync = editableAfterInvoice && Math.Abs(hold.Total - site.Receipt.Total) >= 1,
+            },
         }, Json);
         return node;
     }
@@ -161,13 +322,12 @@ public sealed class OnlineOrdersService(
         if (plan.Problems.Count > 0)
             throw new OnlineOrdersRefusal(string.Join(" — ", plan.Problems), 409, new { problems = plan.Problems, unresolved = plan.Unresolved });
 
-        var items = plan.Lines.Select(l => new CreateReceiptItemRequest(
-            l.ArticleId, l.PosBarcode ?? l.Barcode, l.Qty, l.ChargePrice, l.ListPrice,
-            Math.Max(0, l.ListPrice - l.ChargePrice))).ToList();
-        if (plan.DeliveryFee > 0 && plan.DeliveryArticleId is long deliveryId)
-            items.Add(new CreateReceiptItemRequest(deliveryId, plan.DeliveryBarcode, 1, plan.DeliveryFee, plan.DeliveryFee, 0));
-
+        var items = ReceiptItems(plan);
         var credit = plan.AccountSeq is > 0;
+
+        // الإيصال لا يُرحَّل للإداري تلقائياً: يُحجز قبل حفظه (بمعرّفه الثابت) حتى «ترحيل» يدوي،
+        // ويبقى قابلاً للتعديل حتى ذلك الحين.
+        await repo.HoldAsync(clientGuid, order.Id, order.OrderNumber, ct);
         var create = new CreateReceiptRequest(
             CashierId: cashierId,
             SalesmanId: 0,
@@ -514,6 +674,57 @@ public sealed class OnlineOrdersService(
                 return bySeq;
         }
         return null;
+    }
+
+    /// <summary>أسطر إيصال المحل من خطة البيع: الأصناف بسعر الطلب، ثم مادة «أجور التوصيل».</summary>
+    private static List<CreateReceiptItemRequest> ReceiptItems(SalePlan plan)
+    {
+        var items = plan.Lines.Select(l => new CreateReceiptItemRequest(
+            l.ArticleId, l.PosBarcode ?? l.Barcode, l.Qty, l.ChargePrice, l.ListPrice,
+            Math.Max(0, l.ListPrice - l.ChargePrice))).ToList();
+        if (plan.DeliveryFee > 0 && plan.DeliveryArticleId is long deliveryId)
+            items.Add(new CreateReceiptItemRequest(deliveryId, plan.DeliveryBarcode, 1, plan.DeliveryFee, plan.DeliveryFee, 0));
+        return items;
+    }
+
+    // ───────────────────────── الترحيل اليدوي ─────────────────────────
+
+    /// <summary>حالة فاتورة الطلب في المحل: مربوطة؟ محجوزة عن الترحيل؟ تقبل التعديل؟</summary>
+    private async Task<(OnlineOrderReceiptLinkDto? Sale, OnlineEdariHoldDto? Hold)> SaleStateAsync(string orderId, CancellationToken ct)
+    {
+        var sale = await repo.GetLinkAsync(orderId, "sale", ct);
+        var hold = await repo.GetHoldAsync(OnlineOrderIds.SaleGuid(orderId), ct);
+        return (sale, hold);
+    }
+
+    private static bool Editable(OnlineEdariHoldDto? hold) => hold is { ReleasedAt: null, Synced: false, ReceiptId: > 0 };
+
+    /// <summary>فواتير طلبات التطبيق بانتظار الترحيل إلى الإداري.</summary>
+    public Task<IReadOnlyList<OnlineEdariHoldDto>> HeldAsync(CancellationToken ct) => repo.ListHeldAsync(ct);
+
+    /// <summary>«ترحيل»: يفك حجز الفواتير فترحّلها مزامنة الإداري في دورتها التالية. لا يتراجع.</summary>
+    public async Task<object> PostAsync(long cashierId, string? actorName, OnlineOrdersPostRequest req, CancellationToken ct)
+    {
+        var held = await repo.ListHeldAsync(ct);
+        var wanted = req.All
+            ? held
+            : held.Where(h => (req.OrderIds ?? []).Any(id =>
+                string.Equals(id, h.OrderId, StringComparison.Ordinal)
+                || string.Equals(id, h.OrderNumber, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (wanted.Count == 0) throw new OnlineOrdersRefusal("لا توجد فواتير محددة بانتظار الترحيل", 400);
+        var missing = wanted.Where(h => h.ReceiptId is not > 0).Select(h => h.OrderNumber ?? h.OrderId).ToList();
+        var ready = wanted.Where(h => h.ReceiptId is > 0).Select(h => h.ClientReceiptId).ToList();
+        var released = await repo.ReleaseAsync(ready, cashierId, actorName, ct);
+        logger.LogInformation("Online orders: {Count} invoice(s) released to Edari by {Actor}", released, actorName);
+        return new
+        {
+            ok = true,
+            released,
+            skipped = missing,
+            message = released > 0
+                ? $"أُرسلت {released} فاتورة للترحيل — تُرحَّل إلى الإداري خلال دقائق"
+                : "لم تُرحَّل أي فاتورة",
+        };
     }
 
     private static string PaymentLabel(SiteLookup site) =>

@@ -405,6 +405,65 @@ public sealed class ReceiptRepository(
         }
     }
 
+    /// <summary>
+    /// يستبدل أسطر إيصال بيع لم يُرحَّل إلى الإداري بعد (فاتورة طلب تطبيق عُدّلت قبل ترحيلها):
+    /// الأسطر والمجموع والخصم والدفعة في معاملة واحدة، ثم يُعاد حساب المخزون المعلّق للإيصال.
+    /// يرفض إيصالاً مُرحّلاً أو معلّقاً أو إرجاعاً — لا يُعدَّل ما وصل الإداري.
+    /// </summary>
+    public async Task<CreateReceiptResponse> ReplaceUnpostedSaleItemsAsync(
+        long receiptId, IReadOnlyList<CreateReceiptItemRequest> items, decimal userDiscount, decimal payment, CancellationToken ct)
+    {
+        if (items.Count == 0) throw new InvalidOperationException("لا يبقى في الفاتورة أي صنف");
+        await schema.EnsureLoadedAsync(ct);
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            var head = await conn.QueryRowOrDefaultAsync<UnpostedHead>(new CommandDefinition("""
+                SELECT number AS Number, COALESCE(kind, 0) AS Kind, CAST(COALESCE(synced, 0) AS bit) AS Synced,
+                       CAST(COALESCE(is_pending, 0) AS bit) AS IsPending, COALESCE(salesman, 0) AS Salesman
+                FROM reciepts WITH (UPDLOCK, ROWLOCK) WHERE id = @receiptId
+                """, new { receiptId }, transaction: tx, cancellationToken: ct))
+                ?? throw new InvalidOperationException("الإيصال غير موجود");
+            if (head.Synced) throw new InvalidOperationException($"الإيصال {head.Number} مُرحّل إلى الإداري — لا يُعدّل بعد الترحيل");
+            if (head.IsPending || head.Kind != 0) throw new InvalidOperationException("يُعدّل إيصال بيع محفوظ فقط");
+
+            var subtotal = items.Sum(i => i.Quantity * i.Price);
+            var total = Math.Max(0, subtotal - userDiscount);
+            var offersDiscount = items.Sum(i => Math.Abs(i.Quantity) * Math.Max(0, i.OriginalPrice - i.Price));
+
+            await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM reciept_items WHERE reciept_id = @receiptId", new { receiptId }, transaction: tx, cancellationToken: ct));
+            foreach (var item in items)
+                await InsertReceiptItemAsync(conn, tx, receiptId, 0, item, head.Salesman, ct);
+            await conn.ExecuteAsync(new CommandDefinition("""
+                UPDATE reciepts
+                SET total_amount = @total, offers_discount = @offersDiscount, user_discount = @userDiscount,
+                    payment = @payment, cash_back = 0
+                WHERE id = @receiptId
+                """, new { receiptId, total, offersDiscount, userDiscount, payment }, transaction: tx, cancellationToken: ct));
+            await tx.CommitAsync(ct);
+
+            // المخزون الحي يتبع الأسطر الجديدة فوراً.
+            await pendingStock.RecomputeForReceiptAsync(receiptId, CancellationToken.None);
+            return new CreateReceiptResponse(receiptId, head.Number, total, 0);
+        }
+        catch
+        {
+            await SafeRollbackAsync(tx);
+            throw;
+        }
+    }
+
+    private sealed class UnpostedHead
+    {
+        public long Number { get; set; }
+        public int Kind { get; set; }
+        public bool Synced { get; set; }
+        public bool IsPending { get; set; }
+        public long Salesman { get; set; }
+    }
+
     public async Task<ReceiptDetailDto?> SetPrintedNumberAsync(long id, long? printedNumber, CancellationToken ct)
     {
         await schema.EnsureLoadedAsync(ct);

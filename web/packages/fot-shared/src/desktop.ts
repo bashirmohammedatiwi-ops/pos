@@ -96,8 +96,9 @@ export type FotDesktopBridge = {
     opts: { widthMm: number; heightMm: number; dpi: 203 | 300; printerName?: string | null; copies?: number },
   ) => Promise<{ ok: boolean; message?: string; rows?: number }>;
   listPrinters?: () => Promise<PrinterInfo[]>;
-  getPrintConfig?: () => Promise<{ printerName: string | null; askBeforePrint: boolean }>;
-  setPrintConfig?: (config: { printerName?: string | null; askBeforePrint?: boolean }) => Promise<void>;
+  /** labelPrinterName: طابعة الملصقات لهذا الجهاز (ملصقات الشحن والباركود) — من إصدار 2.6. */
+  getPrintConfig?: () => Promise<{ printerName: string | null; askBeforePrint: boolean; labelPrinterName?: string | null }>;
+  setPrintConfig?: (config: { printerName?: string | null; askBeforePrint?: boolean; labelPrinterName?: string | null }) => Promise<void>;
   getFullScreen?: () => Promise<boolean>;
   setFullScreen?: (flag: boolean) => Promise<boolean>;
   toggleFullScreen?: () => Promise<boolean>;

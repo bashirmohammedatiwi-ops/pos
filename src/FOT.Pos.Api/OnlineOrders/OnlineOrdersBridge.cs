@@ -79,6 +79,12 @@ public sealed class OnlineOrdersBridge(IHttpClientFactory http, IConfiguration c
     public Task<JsonElement> PrintDataAsync(string code, CancellationToken ct) =>
         PostAsync("/pos-link/orders/print-data", new { code }, ct);
 
+    public Task<JsonElement> LabelAsync(string code, CancellationToken ct) =>
+        PostAsync("/pos-link/orders/label", new { code }, ct);
+
+    public Task<JsonElement> EditAsync(object body, CancellationToken ct) =>
+        PostAsync("/pos-link/orders/edit", body, ct);
+
     public Task<JsonElement> InvoiceAsync(object body, CancellationToken ct) =>
         PostAsync("/pos-link/orders/invoice", body, ct);
 

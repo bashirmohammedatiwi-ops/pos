@@ -12,6 +12,10 @@ namespace FOT.Pos.Api.Endpoints;
 ///  · /api/online-orders/status          حالة الربط (المفتاح، الاتصال بالموقع) وإعدادات الطباعة.
 ///  · /api/online-orders/queue           الطابور: جاهزة، استلام من المحل، بانتظار شركة التوصيل، قيد التجهيز، مرتجعات.
 ///  · /api/online-orders/lookup {code}   الطلب بالـQR + مطابقته مع كتالوج المحل.
+///  · /api/online-orders/product {barcode} صنف من كتالوج المحل قبل إضافته للطلب.
+///  · /api/online-orders/edit {code, op}  إضافة صنف بالباركود أو تغيير كمية سطر قبل الفوترة.
+///  · /api/online-orders/label {code}    ملصق هاي إكسبريس نفسه (PDF) لطابعة الملصقات.
+///  · /api/online-orders/held | /post     فواتير بانتظار الترحيل اليدوي إلى الإداري، وترحيلها.
 ///  · /api/online-orders/finalize {code} إيصال بيع آجل + فوترة الموقع (ثم شحنة هاي إكسبريس).
 ///  · /api/online-orders/pickup {code}   طلب «استلام من المحل»: إيصال + تسليم للزبونة.
 ///  · /api/online-orders/print-data      إعادة طباعة — لا تنشئ شيئاً.
@@ -58,6 +62,41 @@ public static class OnlineOrdersEndpoints
                 return Results.Ok(await svc.LookupAsync(code, ct));
             }));
 
+        g.MapPost("/product", (HttpContext http, OnlineOrderProductRequest req, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () =>
+            {
+                var code = CleanCode(req.Barcode) ?? throw new OnlineOrdersRefusal("امسح باركود الصنف", 400);
+                return Results.Ok(await svc.ProductAsync(code, ct));
+            }));
+
+        g.MapPost("/edit", (HttpContext http, OnlineOrderEditRequest req, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () =>
+            {
+                var code = CleanCode(req.Code) ?? throw new OnlineOrdersRefusal("امسح رمز الطلب (QR)", 400);
+                return Results.Ok(await svc.EditAsync(CashierId(http), req with { Code = code }, ct));
+            }));
+
+        // ملصق هاي إكسبريس نفسه (PDF) — يُطبع على طابعة الملصقات.
+        g.MapPost("/label", (HttpContext http, OnlineOrderCodeRequest req, CashierRepository cashiers, OnlineOrdersBridge bridge, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () =>
+            {
+                var code = CleanCode(req.Code) ?? throw new OnlineOrdersRefusal("امسح رمز الطلب (QR)", 400);
+                return Results.Ok(await bridge.LabelAsync(code, ct));
+            }));
+
+        // الترحيل اليدوي إلى الإداري: القائمة والترحيل (صلاحية كاشير الطلبات).
+        g.MapPost("/held", (HttpContext http, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () => Results.Ok(await svc.HeldAsync(ct))));
+
+        g.MapPost("/post", (HttpContext http, OnlineOrdersPostRequest req, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () =>
+            {
+                var id = CashierId(http);
+                var c = await cashiers.GetByIdAsync(id, ct);
+                var name = string.IsNullOrWhiteSpace(c?.AccountName) ? c?.Username : c!.AccountName;
+                return Results.Ok(await svc.PostAsync(id, name, req, ct));
+            }));
+
         g.MapPost("/finalize", (HttpContext http, OnlineOrderFinalizeRequest req, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
             RunAsync(http, cashiers, false, ct, async () =>
             {
@@ -97,6 +136,24 @@ public static class OnlineOrdersEndpoints
             if (!IsAdmin(http)) return Results.Forbid();
             var saved = await repo.SaveSettingsAsync(req, ct);
             return Results.Ok(new { settings = saved, bridge.KeyConfigured, bridge.KeySource, bridge.Url });
+        });
+
+        // لوحة التحكم: فواتير طلبات التطبيق بانتظار الترحيل، وترحيلها.
+        g.MapGet("/admin/held", async (HttpContext http, OnlineOrdersService svc, CancellationToken ct) =>
+            !IsAdmin(http) ? Results.Forbid() : Results.Ok(await svc.HeldAsync(ct)));
+
+        g.MapPost("/admin/post", async (HttpContext http, OnlineOrdersPostRequest req, OnlineOrdersService svc, CancellationToken ct) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            try
+            {
+                var who = http.User.FindFirstValue(ClaimTypes.Name) ?? http.User.FindFirstValue("name") ?? "لوحة التحكم";
+                return Results.Ok(await svc.PostAsync(0, who, req, ct));
+            }
+            catch (OnlineOrdersRefusal ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: ex.Status);
+            }
         });
 
         g.MapPost("/ping", async (HttpContext http, OnlineOrdersBridge bridge, CancellationToken ct) =>

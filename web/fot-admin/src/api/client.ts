@@ -1,4 +1,5 @@
 import type {
+  OnlineOrdersHeldInvoice,
   OnlineOrdersPingResponse,
   OnlineOrdersSettingsDto,
   OnlineOrdersSettingsResponse,
@@ -864,6 +865,13 @@ export const api = {
   saveOnlineOrdersSettings: (req: Omit<OnlineOrdersSettingsDto, 'updatedAt'>) =>
     request<OnlineOrdersSettingsResponse>('/api/online-orders/settings', { method: 'PUT', body: JSON.stringify(req) }),
   pingOnlineOrders: () => request<OnlineOrdersPingResponse>('/api/online-orders/ping', { method: 'POST', body: '{}' }),
+  /** فواتير طلبات التطبيق بانتظار الترحيل اليدوي إلى الإداري (migration 090). */
+  onlineOrdersHeld: () => request<OnlineOrdersHeldInvoice[]>('/api/online-orders/admin/held'),
+  postOnlineOrders: (body: { orderIds?: string[]; all?: boolean }) =>
+    request<{ ok: boolean; released: number; skipped: string[]; message: string }>('/api/online-orders/admin/post', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   businessPeriodSettings: () => request<BusinessPeriodSettingsDto>('/api/settings/business-period'),
   saveBusinessPeriodSettings: (req: UpdateBusinessPeriodSettingsRequest) =>

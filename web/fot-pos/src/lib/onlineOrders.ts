@@ -36,6 +36,71 @@ export type QueueRow = {
   adjusted: boolean;
   receiptNumber: string | null;
   shipment: SiteShipmentLite;
+} & Partial<UnitTotals>;
+
+/** أسطر الطلب وقطعه كما طُلب، وما سيُسلَّم بعد التجهيز (المطابق + الإضافي). */
+export type UnitTotals = {
+  orderedLines: number;
+  orderedUnits: number;
+  lines: number;
+  units: number;
+  missingUnits: number;
+  extraUnits: number;
+};
+
+/** صنف من كتالوج المحل بالباركود. */
+export type PosProductLookup =
+  | { found: false; barcode: string }
+  | {
+      found: true;
+      id: number;
+      name: string | null;
+      barcode: string | null;
+      siteBarcode: string;
+      price: number;
+      originalPrice: number;
+      stock: number;
+      offerName: string | null;
+    };
+
+export type OrderEditBody =
+  | { code: string; op: 'add'; barcode: string; qty: number; charge: 'PAID' | 'FREE'; reason?: string; clientEditId: string }
+  | { code: string; op: 'set'; lineId: string; qty: number; charge?: 'PAID' | 'FREE'; reason?: string; clientEditId: string }
+  /** إعادة بناء إيصال المحل المحجوز من طلب الموقع (بعد تعديل لم يكتمل في المحل). */
+  | { code: string; op: 'sync' };
+
+export type CourierLabelResult = { pdfBase64: string; trackingNumber: string; orderNumber: string; parcelCount: number };
+
+/** فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري. */
+export type HeldInvoice = {
+  clientReceiptId: string;
+  orderId: string;
+  orderNumber: string | null;
+  createdAt: string;
+  edits: number;
+  lastEditAt: string | null;
+  receiptId: number | null;
+  receiptNumber: number | null;
+  total: number;
+  deliveryOption: string | null;
+  trackingNumber: string | null;
+  cashierName: string | null;
+};
+
+/** حالة الترحيل اليدوي لفاتورة الطلب في هذا المحل. */
+export type EdariState = {
+  held: boolean;
+  posted: boolean;
+  releasedAt: string | null;
+  releasedByName: string | null;
+  edits: number;
+  lastEditAt: string | null;
+  receiptNumber: number | null;
+  receiptTotal: number;
+  /** فاتورة مُفوترة هنا ولم تُرحَّل: تُعدّل أصنافها ويتبعها الموقع وشركة التوصيل. */
+  editable: boolean;
+  /** إيصال المحل لا يطابق الموقع (تعديل لم يكتمل) — «مزامنة إيصال المحل». */
+  outOfSync: boolean;
 };
 
 export type QueueResult = {
@@ -145,6 +210,8 @@ export type LookupResult = {
   };
   lines: SiteLine[];
   counts: Record<string, number>;
+  /** من سيرفر أحدث فقط. */
+  totals?: UnitTotals;
   money: SiteMoney;
   receipt: OrderPrintData['receipt'];
   blockers: string[];
@@ -163,7 +230,13 @@ export type LookupResult = {
     sale: ReceiptLink | null;
     return: ReceiptLink | null;
     invoicedHere: boolean;
+    /** من سيرفر 2.6+: null = فاتورة تُرحَّل تلقائياً (أو لم تُفوتر بعد). */
+    edari?: EdariState | null;
   };
+  /** رد التعديل بعد الفوترة: هل وصل التعديل لهاي إكسبريس؟ */
+  courierUpdate?: { ok: boolean; error?: string; codAmount?: number } | null;
+  /** عُدّلت فاتورة مُفوترة — اطبع الإيصال والملصق من جديد. */
+  reprint?: boolean;
 };
 
 export type OrderReceiptPrint = ReceiptPrintPreviewDto;
@@ -245,6 +318,42 @@ export const STAGE_LABELS: Record<string, string> = {
   RETURNED: 'مُرتجع',
   CANCELLED: 'ملغي',
 };
+
+/** «قطعة/قطعتان/3 قطع/11 قطعة» بالعربية الصحيحة. */
+export function unitsLabel(n: number) {
+  return arabicCount(n, 'قطعة', 'قطعتان', 'قطع', 'قطعة');
+}
+
+/** «بند/بندان/3 بنود/11 بنداً». */
+export function linesLabel(n: number) {
+  return arabicCount(n, 'بند', 'بندان', 'بنود', 'بنداً');
+}
+
+function arabicCount(n: number, one: string, two: string, few: string, many: string) {
+  const v = Math.abs(Math.trunc(n));
+  if (v === 0) return `لا ${few}`;
+  if (v === 1) return one;
+  if (v === 2) return two;
+  const mod = v % 100;
+  if (mod >= 3 && mod <= 10) return `${v} ${few}`;
+  return `${v} ${many}`;
+}
+
+/** القطع والأسطر: من الخادم إن وُجدت، وإلا من أسطر الطلب نفسها. */
+export function orderTotals(order: Pick<LookupResult, 'lines' | 'totals'>): UnitTotals {
+  if (order.totals) return order.totals;
+  const ordered = order.lines.filter(l => l.kind === 'ORDERED');
+  const extras = order.lines.filter(l => l.kind === 'EXTRA' && l.pickedQty > 0);
+  const picked = ordered.reduce((n, l) => n + Math.min(l.pickedQty, l.orderedQty), 0);
+  return {
+    orderedLines: ordered.length,
+    orderedUnits: ordered.reduce((n, l) => n + l.orderedQty, 0),
+    lines: ordered.filter(l => l.pickedQty > 0).length + extras.length,
+    units: picked + extras.reduce((n, l) => n + l.pickedQty, 0),
+    missingUnits: ordered.reduce((n, l) => n + Math.max(0, l.orderedQty - l.pickedQty), 0),
+    extraUnits: extras.reduce((n, l) => n + l.pickedQty, 0),
+  };
+}
 
 export const SHIPMENT_STATE_LABELS: Record<string, string> = {
   PENDING: 'بانتظار الإنشاء',

@@ -121,6 +121,15 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
         return (await GetLinkAsync(link.OrderId, link.Kind, ct))!;
     }
 
+    /// <summary>مبلغ الفاتورة بعد تعديلها قبل الترحيل.</summary>
+    public async Task SetLinkTotalAsync(string orderId, string kind, decimal total, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE ext_online_order_receipts SET total = @total WHERE order_id = @orderId AND kind = @kind",
+            new { orderId, kind, total }, cancellationToken: ct));
+    }
+
     public async Task MarkReportedAsync(string orderId, string kind, string? trackingNumber, CancellationToken ct)
     {
         await using var conn = await db.CreateOpenConnectionAsync(ct);
@@ -183,6 +192,78 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
         foreach (var r in rows) map[r.ReceiptId] = r.OrderNumber;
         return map;
     }
+
+    // ───────────────────────── الترحيل اليدوي إلى الإداري (migration 090) ─────────────────────────
+
+    /// <summary>
+    /// يحجز إيصال البيع عن الترحيل التلقائي. يُكتب قبل حفظ الإيصال (بمعرّفه الثابت) فلا تلتقطه
+    /// مزامنة الإداري في اللحظة بين الحفظ والربط. إعادة الكتابة لا تفك حجزاً مُرحّلاً.
+    /// </summary>
+    public async Task HoldAsync(Guid clientReceiptId, string orderId, string? orderNumber, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            IF NOT EXISTS (SELECT 1 FROM ext_online_edari_holds WHERE client_receipt_id = @clientReceiptId)
+                INSERT INTO ext_online_edari_holds (client_receipt_id, order_id, order_number)
+                VALUES (@clientReceiptId, @orderId, @orderNumber)
+            """, new { clientReceiptId, orderId, orderNumber = Clip(orderNumber, 64) }, cancellationToken: ct));
+    }
+
+    /// <summary>الحجز كما هو: null = لا حجز (إيصال قديم يُرحَّل تلقائياً كأي بيع).</summary>
+    public async Task<OnlineEdariHoldDto?> GetHoldAsync(Guid clientReceiptId, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return await conn.QueryRowOrDefaultAsync<OnlineEdariHoldDto>(new CommandDefinition($"""
+            {HoldSelect} WHERE h.client_receipt_id = @clientReceiptId
+            """, new { clientReceiptId }, cancellationToken: ct));
+    }
+
+    /// <summary>فواتير طلبات التطبيق بانتظار الترحيل (الأقدم أولاً).</summary>
+    public async Task<IReadOnlyList<OnlineEdariHoldDto>> ListHeldAsync(CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<OnlineEdariHoldDto>(new CommandDefinition($"""
+            {HoldSelect} WHERE h.released_at IS NULL AND r.id IS NOT NULL ORDER BY h.created_at
+            """, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    /// <summary>تعديل على فاتورة محجوزة (عدد التعديلات ووقت آخرها — للعرض والمراجعة).</summary>
+    public async Task MarkEditedAsync(Guid clientReceiptId, CancellationToken ct)
+    {
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE ext_online_edari_holds SET edits = edits + 1, last_edit_at = SYSDATETIME()
+            WHERE client_receipt_id = @clientReceiptId AND released_at IS NULL
+            """, new { clientReceiptId }, cancellationToken: ct));
+    }
+
+    /// <summary>«ترحيل»: يفك الحجز فتلتقط مزامنة الإداري الإيصال في دورتها التالية. يرد بعدد ما فُك.</summary>
+    public async Task<int> ReleaseAsync(IReadOnlyCollection<Guid> clientReceiptIds, long cashierId, string? cashierName, CancellationToken ct)
+    {
+        if (clientReceiptIds.Count == 0) return 0;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE ext_online_edari_holds
+            SET released_at = SYSDATETIME(), released_by = @cashierId, released_by_name = @cashierName
+            WHERE client_receipt_id IN @ids AND released_at IS NULL
+            """, new { ids = clientReceiptIds.ToArray(), cashierId, cashierName = Clip(cashierName, 120) }, cancellationToken: ct));
+    }
+
+    private const string HoldSelect = """
+        SELECT h.client_receipt_id AS ClientReceiptId, h.order_id AS OrderId, h.order_number AS OrderNumber,
+               h.created_at AS CreatedAt, h.edits AS Edits, h.last_edit_at AS LastEditAt,
+               h.released_at AS ReleasedAt, h.released_by_name AS ReleasedByName,
+               r.id AS ReceiptId, r.number AS ReceiptNumber,
+               CAST(COALESCE(r.total_amount, 0) AS DECIMAL(18,2)) AS Total,
+               CAST(COALESCE(r.synced, 0) AS bit) AS Synced,
+               l.delivery_option AS DeliveryOption, l.tracking_number AS TrackingNumber,
+               COALESCE(c.account_name, c.username) AS CashierName
+        FROM ext_online_edari_holds h
+        LEFT JOIN reciepts r ON r.client_receipt_id = h.client_receipt_id
+        LEFT JOIN ext_online_order_receipts l ON l.client_receipt_id = h.client_receipt_id
+        LEFT JOIN cashiers c ON c.id = r.cashier_id
+        """;
 
     private static string? Clip(string? value, int max)
     {
