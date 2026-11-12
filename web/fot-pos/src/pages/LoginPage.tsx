@@ -7,10 +7,13 @@ import { NumPad } from '@/components/NumPad';
 export function LoginPage({
   onLogin,
   canResumeOffline,
+  title,
 }: {
   onLogin: (username: string, password: string) => Promise<string | null>;
   onResumeOffline?: (username: string, password: string) => Promise<string | null>;
   canResumeOffline: () => Promise<boolean>;
+  /** عنوان الشاشة — «كاشير الطلبات» في تطبيقه المستقل. */
+  title?: string;
 }) {
   const [username, setUsername] = useState(() => localStorage.getItem('fot_pos_last_user') || '');
   const [password, setPassword] = useState('');
@@ -58,7 +61,7 @@ export function LoginPage({
           <div className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0f9f76] text-xs font-bold text-white shadow-[0_6px_16px_rgba(15,159,118,0.35)]">
             FOT
           </div>
-          <h1 className="text-lg font-bold">نقطة البيع</h1>
+          <h1 className="text-lg font-bold">{title ?? 'نقطة البيع'}</h1>
           <p className={`mt-0.5 text-[12px] ${online ? 'text-emerald-600' : online === false ? 'text-amber-600' : 'text-slate-400'}`}>
             {statusText}
           </p>

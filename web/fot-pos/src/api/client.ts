@@ -1,6 +1,7 @@
 import type { DiscountQrPerson } from '@fot/shared';
 import { fetchLan } from '@fot/shared';
 import { getApiBase } from '@/lib/apiBase';
+import type { FinalizeResult, LookupResult, OnlineOrdersStatus, PrintDataResult, QueueResult, ReturnResult } from '@/lib/onlineOrders';
 import { isServerUnreachable, markServerReachable, markServerUnreachable } from '@/lib/connectionGate';
 import type { ApiHealth, HealthzReport } from '@fot/shared';
 import type {
@@ -218,6 +219,30 @@ async function probeHealth(path: '/health' | '/healthz', timeoutMs: number): Pro
     return null;
   }
 }
+
+/** «كاشير الطلبات»: كل النداءات POST وتمر عبر سيرفر المحل إلى الموقع (الموقع غير المتاح = 424). */
+const ORDERS_READ: RequestInitEx = { method: 'POST', timeoutMs: 25_000, retries: 0 };
+const ORDERS_WRITE: RequestInitEx = { method: 'POST', timeoutMs: 75_000, retries: 0 };
+
+export const onlineOrdersApi = {
+  status: () => request<OnlineOrdersStatus>('/api/online-orders/status', { ...ORDERS_READ, body: '{}' }),
+  queue: () => request<QueueResult>('/api/online-orders/queue', { ...ORDERS_READ, body: '{}' }),
+  lookup: (code: string) =>
+    request<LookupResult>('/api/online-orders/lookup', { ...ORDERS_READ, body: JSON.stringify({ code }) }),
+  printData: (code: string) =>
+    request<PrintDataResult>('/api/online-orders/print-data', { ...ORDERS_READ, body: JSON.stringify({ code }) }),
+  finalize: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number }) =>
+    request<FinalizeResult>('/api/online-orders/finalize', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
+  pickup: (body: { code: string; posId?: number | null; hwId?: string; expectedTotal?: number }) =>
+    request<FinalizeResult>('/api/online-orders/pickup', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
+  returnOrder: (body: {
+    code: string;
+    lines: { barcode: string; qty: number }[];
+    includeDelivery: boolean;
+    posId?: number | null;
+    hwId?: string;
+  }) => request<ReturnResult>('/api/online-orders/return', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
+};
 
 export const api = {
   health: async () => {

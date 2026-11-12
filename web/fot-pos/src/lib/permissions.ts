@@ -22,6 +22,9 @@ export type ResolvedCashierPermissions = {
   hideSalesmanGroups: boolean;
   invoiceBoundReturn: boolean;
   printSalesmanOnReceipt: boolean;
+  /** «كاشير الطلبات»: فوترة طلبات التطبيق. */
+  onlineOrders: boolean;
+  onlineOrdersReturns: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   maxHoldReceipts: number;
@@ -52,6 +55,8 @@ export function resolveCashierPermissions(
     hideSalesmanGroups: perms?.hideSalesmanGroups ?? false,
     invoiceBoundReturn: perms?.invoiceBoundReturn ?? false,
     printSalesmanOnReceipt: perms?.printSalesmanOnReceipt ?? true,
+    onlineOrders: perms?.onlineOrders ?? false,
+    onlineOrdersReturns: perms?.onlineOrdersReturns ?? false,
     itemDiscountLimit: perms?.itemDiscountLimit ?? 0,
     userDiscountLimit: perms?.userDiscountLimit ?? 0,
     maxHoldReceipts: maxHold,

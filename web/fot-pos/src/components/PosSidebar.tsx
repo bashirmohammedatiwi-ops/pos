@@ -14,6 +14,7 @@ type RailIcon =
   | 'print'
   | 'reprint'
   | 'upload'
+  | 'orders'
   | 'exit';
 
 function RailGlyph({ name, spin }: { name: RailIcon; spin?: boolean }) {
@@ -99,6 +100,13 @@ function RailGlyph({ name, spin }: { name: RailIcon; spin?: boolean }) {
           <path d="M5 16.5v2a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18.5v-2" />
         </>
       )}
+      {name === 'orders' && (
+        <>
+          <path d="M5 7.5h14l-1.3 10.2a1.6 1.6 0 0 1-1.6 1.4H7.9a1.6 1.6 0 0 1-1.6-1.4L5 7.5Z" />
+          <path d="M9 7.5V6a3 3 0 0 1 6 0v1.5" />
+          <path d="m9.5 13 1.8 1.8 3.4-3.6" />
+        </>
+      )}
       {name === 'exit' && (
         <>
           <path d="M10 4.5H6.5A2 2 0 0 0 4.5 6.5v11A2 2 0 0 0 6.5 19.5H10" />
@@ -177,6 +185,7 @@ export function PosSidebar({
   onPrint,
   onReprint,
   onOutbox,
+  onOrders,
   onSession,
   onLogout,
 }: {
@@ -205,6 +214,8 @@ export function PosSidebar({
   onPrint: () => void;
   onReprint: () => void;
   onOutbox: () => void;
+  /** «كاشير الطلبات» — يظهر لمن يملك صلاحية onlineOrders. */
+  onOrders?: () => void;
   onSession: () => void;
   onLogout: () => void;
 }) {
@@ -250,6 +261,9 @@ export function PosSidebar({
           onClick={onToggleFullscreen}
           title="ملء الشاشة · F1"
         />
+        {onOrders && (
+          <RailBtn label="الطلبات" icon="orders" onClick={onOrders} title="كاشير الطلبات — طلبات التطبيق" />
+        )}
         <RailBtn label="سعر" icon="price" onClick={onPriceCheck} title="فحص السعر" />
         {canViewReceipts && (
           <RailBtn label="فواتير" icon="receipts" onClick={onTodayReceipts} title="فواتير اليوم" />

@@ -99,6 +99,7 @@ import {
 import { collapseRepeatedScan, createScanEchoGuard } from '@/lib/scanGuard';
 import { decodeScannerText, isScannerCharacter, latinFromKey } from '@/lib/scannerKey';
 import { playErrorBeep } from '@/lib/sound';
+import { parseOrderCode } from '@/lib/onlineOrders';
 import { speakSalesmanName } from '@/lib/speakName';
 import { localDateTimeIso } from '@/lib/text';
 import { findLocalReturnSource } from '@/lib/saleMirror';
@@ -187,9 +188,12 @@ function DockGlyph({ kind }: { kind: 'sale' | 'gift' | 'out' | 'card' | 'cash' }
 export function SalesPage({
   session,
   onLogout,
+  onOpenOrders,
 }: {
   session: PosSessionDto;
   onLogout: () => void;
+  /** «كاشير الطلبات» — موجود فقط لكاشير يملك صلاحية onlineOrders. */
+  onOpenOrders?: (code?: string) => void;
 }) {
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef('');
@@ -843,6 +847,18 @@ export function SalesPage({
     const normalized = collapseRepeatedScan(decodeScannerText(code));
     if (!normalized) return;
     if (isEchoScan(normalized, qty)) return;
+    // رمز طلب تطبيق (QR قائمة التجهيز): يُفتح في «كاشير الطلبات» ولا يُبحث عنه كمنتج.
+    const orderCode = parseOrderCode(normalized);
+    if (orderCode) {
+      setScan('');
+      if (onOpenOrders) onOpenOrders(orderCode);
+      else {
+        playErrorBeep();
+        showToast('هذا رمز طلب تطبيق — يُفوتر من «كاشير الطلبات»');
+        focusScan();
+      }
+      return;
+    }
     if (isDiscountQrCode(normalized)) {
       const person = await findDiscountQr(normalizeDiscountQrCode(normalized), canUseServer(online));
       if (!person) {
@@ -2577,6 +2593,7 @@ export function SalesPage({
         onPrint={() => setOverlay('print')}
         onReprint={() => { void reprintLast(); }}
         onOutbox={() => { void loadQueue(); setOverlay('queue'); }}
+        onOrders={onOpenOrders ? () => onOpenOrders() : undefined}
         onSession={() => { if (px.viewReceipts) { void loadTodayReceipts(); setOverlay('receipts'); } }}
         onLogout={onLogout}
       />

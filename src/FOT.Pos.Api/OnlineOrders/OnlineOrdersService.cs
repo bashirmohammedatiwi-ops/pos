@@ -295,6 +295,17 @@ public sealed class OnlineOrdersService(
         if (existing is not null)
         {
             saved = new CreateReceiptResponse(existing.ReceiptId, existing.ReceiptNumber, existing.Total, 0);
+            if (lines.Count == 0)
+            {
+                // إعادة تسجيل إيصال محفوظ: الأسطر من الإيصال نفسه (بلا مادة التوصيل).
+                var kept = await receipts.GetByIdAsync(existing.ReceiptId, ct);
+                lines = (kept?.Items ?? [])
+                    .Where(i => i.ArticleId != (settings.DeliveryArticleId ?? -1) && !string.IsNullOrWhiteSpace(i.Barcode))
+                    .GroupBy(i => StoreSiteItems.NormalizeBarcode(i.Barcode), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => (Barcode: g.Key, Qty: (int)Math.Round(g.Sum(x => Math.Abs(x.Quantity)))))
+                    .Where(l => l.Qty > 0)
+                    .ToList();
+            }
         }
         else
         {
