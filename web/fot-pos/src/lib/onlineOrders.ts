@@ -67,7 +67,9 @@ export type OrderEditBody =
   | { code: string; op: 'add'; barcode: string; qty: number; charge: 'PAID' | 'FREE'; reason?: string; clientEditId: string }
   | { code: string; op: 'set'; lineId: string; qty: number; charge?: 'PAID' | 'FREE'; reason?: string; clientEditId: string }
   /** إعادة بناء إيصال المحل المحجوز من طلب الموقع (بعد تعديل لم يكتمل في المحل). */
-  | { code: string; op: 'sync' };
+  | { code: string; op: 'sync' }
+  /** خصم يدوي بالدينار على الأصناف (0 = إلغاء الخصم). */
+  | { code: string; op: 'discount'; amount: number; reason?: string; clientEditId: string };
 
 /** خيارات التوصيل عند هاي إكسبريس لهذا الطلب. */
 export type CourierInfo = {
@@ -151,6 +153,8 @@ export type SiteMoney = {
   finalSubtotal: number;
   shippingTotal: number;
   giftWrapFee: number;
+  /** خصم الكاشير المطبّق (من سيرفر أحدث فقط). */
+  manualDiscount?: number;
   finalTotal: number;
   codAmount: number;
   refundAmount: number;
@@ -209,6 +213,9 @@ export type LookupResult = {
     isGift: boolean;
     giftMessage: string | null;
     giftHidePrices: boolean;
+    /** خصم الكاشير اليدوي (من سيرفر أحدث فقط). */
+    cashierDiscount?: number;
+    cashierDiscountNote?: string | null;
   };
   customer: {
     name: string | null;

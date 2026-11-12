@@ -30,6 +30,7 @@ import {
 import { printCourierLabel, resolveLabelPrinter } from '@/lib/courierLabel';
 import type { HeldInvoice } from '@/lib/onlineOrders';
 import { resolveCashierPermissions } from '@/lib/permissions';
+import { capUserDiscount } from '@/lib/sale';
 import { collapseRepeatedScan } from '@/lib/scanGuard';
 import { decodeScannerText } from '@/lib/scannerKey';
 import { playErrorBeep } from '@/lib/sound';
@@ -151,6 +152,7 @@ export function OrdersPage({
   const [needsReprint, setNeedsReprint] = useState(false);
   const [printersOpen, setPrintersOpen] = useState(false);
   const courierSaveRef = useRef<Promise<boolean> | null>(null);
+  const [discountOpen, setDiscountOpen] = useState(false);
   const needsReprintRef = useRef(false);
   needsReprintRef.current = needsReprint;
   const [toast, setToast] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
@@ -409,6 +411,31 @@ export function OrdersPage({
     }
   }
 
+  /** خصم يدوي على الطلب (0 يلغيه) — يتعدّل المبلغ في الموقع وعند هاي إكسبريس بعد الفوترة. */
+  async function applyDiscount(amount: number, reason: string): Promise<boolean> {
+    const o = orderRef.current;
+    if (!o) return false;
+    try {
+      const fresh = await onlineOrdersApi.edit({
+        code: o.order.code,
+        op: 'discount',
+        amount: Math.max(0, Math.round(amount)),
+        reason: reason.trim() || undefined,
+        clientEditId: newEditId(),
+      });
+      setOrder(fresh);
+      setResult(null);
+      afterEdit(fresh);
+      showToast(amount > 0 ? `خصم ${formatIqd(amount)} — المبلغ الآن ${formatIqd(fresh.receipt.total)}` : `أُلغي الخصم — المبلغ الآن ${formatIqd(fresh.receipt.total)}`);
+      void refreshQueue();
+      return true;
+    } catch (e) {
+      playErrorBeep();
+      showToast(errorText(e), 'err');
+      return false;
+    }
+  }
+
   async function addOver(line: SiteLine) {
     const o = orderRef.current;
     if (!o || !line.barcode) return;
@@ -562,7 +589,7 @@ export function OrdersPage({
     showToast(current.invoiced ? 'الطلب مُفوتر — لا تُضاف أصناف بعد الفوترة' : 'لا يمكن تعديل هذا الطلب الآن', 'err');
   }, [openAdd, openOrder, showToast, status?.print.doubleCheck]);
 
-  useBarcodeCapture(!busy && !reasonAsk, onScan);
+  useBarcodeCapture(!busy && !reasonAsk && !discountOpen && !printersOpen, onScan);
 
   // ── الطباعة ──
   async function runPrints(fin: FinalizeResult, opts: { label: boolean }) {
@@ -1042,6 +1069,8 @@ export function OrdersPage({
                   onReprintAll: () => void reprintAfterEdit(),
                   onSyncReceipt: () => void syncReceipt(),
                   onSaveCourier: saveCourierOptions,
+                  canDiscount: px.makeDiscount,
+                  onDiscount: () => setDiscountOpen(true),
                 }}
               />
             )
@@ -1056,6 +1085,18 @@ export function OrdersPage({
           onChange={setAdd}
           onCancel={() => setAdd(null)}
           onConfirm={() => void confirmAdd()}
+        />
+      )}
+      {discountOpen && order && (
+        <DiscountDialog
+          order={order}
+          limit={px.userDiscountLimit}
+          onClose={() => setDiscountOpen(false)}
+          onApply={async (amount, reason) => {
+            const ok = await applyDiscount(amount, reason);
+            if (ok) setDiscountOpen(false);
+            return ok;
+          }}
         />
       )}
       {printersOpen && <PrintersDialog fallbackLabelPrinter={printCfg?.labelPrinterName ?? null} onClose={() => setPrintersOpen(false)} />}
@@ -1561,37 +1602,108 @@ function Legend({ color, glyph, text }: { color: string; glyph: string; text: st
   );
 }
 
-/** باركود يُكتب يدوياً (أو بالماسح داخل الحقل) لإضافة صنف. */
+/**
+ * إضافة صنف للطلب: امسح الباركود (في أي مكان من الشاشة)، أو اكتبه، أو ابحث باسم الصنف في كتالوج المحل.
+ */
 function AddBar({ onAdd, disabled }: { onAdd: (code: string) => void; disabled: boolean }) {
-  const [code, setCode] = useState('');
+  const [text, setText] = useState('');
+  const [results, setResults] = useState<{ id: number; seq: number; name: string | null; barcode: string | null; price: number; stock: number }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const seqRef = useRef(0);
+  const q = text.trim();
+  // نص فيه حروف (ليس باركوداً) = بحث بالاسم بعد توقف الكتابة.
+  const isName = q.length >= 2 && /[^\d\s-]/.test(q);
+
+  useEffect(() => {
+    if (!isName) {
+      setResults([]);
+      return;
+    }
+    const my = ++seqRef.current;
+    setSearching(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const list = await api.searchProducts(q);
+        if (my !== seqRef.current) return;
+        setResults(
+          (list as unknown as { id: number; seq: number; name: string | null; barcode: string | null; price: number; stock: number }[]).slice(0, 8),
+        );
+        setOpen(true);
+      } catch {
+        if (my === seqRef.current) setResults([]);
+      } finally {
+        if (my === seqRef.current) setSearching(false);
+      }
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [q, isName]);
+
+  const pick = (code: string) => {
+    setText('');
+    setResults([]);
+    setOpen(false);
+    (document.activeElement as HTMLElement | null)?.blur();
+    onAdd(code);
+  };
+
   return (
-    <form
-      className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-[#0f9f76]/50 bg-emerald-50/50 px-3 py-2"
-      onSubmit={e => {
-        e.preventDefault();
-        const v = collapseRepeatedScan(decodeScannerText(code)).trim();
-        setCode('');
-        (document.activeElement as HTMLElement | null)?.blur();
-        if (v) onAdd(v);
-      }}
-    >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0f9f76] text-[18px] font-bold text-white">+</span>
-      <div className="min-w-[160px] flex-1 text-[13px] leading-5">
-        <div className="font-bold text-slate-800">إضافة صنف للطلب</div>
-        <div className="text-[12px] text-slate-500">امسح باركود أي صنف من المحل — حتى لو لم يكن في التطبيق</div>
-      </div>
-      <input
-        value={code}
-        onChange={e => setCode(e.target.value)}
-        placeholder="أو اكتب الباركود"
-        className="pos-field w-[clamp(140px,14vw,200px)] text-[13px]"
-        dir="ltr"
-        disabled={disabled}
-      />
-      <button type="submit" disabled={disabled || !code.trim()} className="shrink-0 rounded-xl bg-[#0f9f76] px-3 py-2 text-[12px] font-bold text-white disabled:bg-slate-300">
-        إضافة
-      </button>
-    </form>
+    <div className="relative">
+      <form
+        className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-[#0f9f76]/50 bg-emerald-50/50 px-3 py-2"
+        onSubmit={e => {
+          e.preventDefault();
+          if (isName) {
+            if (results[0]) pick(results[0].barcode || `POS:${results[0].seq}`);
+            return;
+          }
+          const v = collapseRepeatedScan(decodeScannerText(text)).trim();
+          if (v) pick(v);
+        }}
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0f9f76] text-[18px] font-bold text-white">+</span>
+        <div className="min-w-[150px] flex-1 text-[13px] leading-5">
+          <div className="font-bold text-slate-800">إضافة صنف للطلب</div>
+          <div className="text-[12px] text-slate-500">امسح الباركود، أو اكتبه، أو ابحث باسم الصنف — من كل أصناف المحل</div>
+        </div>
+        <input
+          value={text}
+          onChange={e => { setText(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 180)}
+          placeholder="باركود أو اسم الصنف"
+          className="pos-field w-[clamp(170px,18vw,260px)] text-[13px]"
+          disabled={disabled}
+        />
+        <button type="submit" disabled={disabled || !q} className="shrink-0 rounded-xl bg-[#0f9f76] px-3 py-2 text-[12px] font-bold text-white disabled:bg-slate-300">
+          إضافة
+        </button>
+      </form>
+      {open && isName && (
+        <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-[320px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+          {searching && !results.length && <div className="p-3 text-center text-[12px] text-slate-400">جاري البحث…</div>}
+          {!searching && !results.length && <div className="p-3 text-center text-[12px] text-slate-400">لا نتائج لـ «{q}»</div>}
+          {results.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => pick(p.barcode || `POS:${p.seq}`)}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-right hover:bg-emerald-50"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-bold text-slate-800">{p.name ?? '—'}</span>
+                <span className="block font-mono text-[11px] text-slate-400" dir="ltr">{p.barcode || `#${p.seq}`}</span>
+              </span>
+              <span className="num shrink-0 text-[12px] font-bold text-slate-700">{formatIqd(p.price)}</span>
+              <span className={`num shrink-0 rounded px-1.5 text-[11px] font-bold ${p.stock > 0 ? 'bg-slate-100 text-slate-600' : 'bg-red-50 text-[#D64545]'}`}>
+                {p.stock > 0 ? `مخزون ${formatNum(p.stock)}` : 'نفد'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1760,18 +1872,40 @@ function QtyButton({ label, title, disabled, onClick, className = 'w-full' }: { 
   );
 }
 
-function AmountsCard({ order }: { order: LookupResult }) {
+function AmountsCard({ order, onDiscount }: { order: LookupResult; onDiscount?: () => void }) {
   const m = order.money;
   const r = order.receipt;
+  const manual = m.manualDiscount ?? order.order.cashierDiscount ?? 0;
+  const otherDiscount = Math.max(0, r.discount - manual);
   return (
-    <Card title="المبالغ">
+    <Card
+      title="المبالغ"
+      right={
+        onDiscount ? (
+          <button
+            type="button"
+            onClick={onDiscount}
+            className="rounded-lg border border-[#0f9f76] bg-white px-2.5 py-1 text-[12px] font-bold text-[#0b7d5d] hover:bg-emerald-50"
+          >
+            {manual > 0 ? 'تعديل الخصم' : '+ خصم'}
+          </button>
+        ) : undefined
+      }
+    >
       <MoneyRow label="قيمة الأصناف المطلوبة" value={m.orderedSubtotal} />
       {m.shortageValue > 0 && <MoneyRow label="الناقص" value={-m.shortageValue} tone={LINE_COLORS.red} />}
       {m.extrasValue > 0 && <MoneyRow label="الإضافات المدفوعة" value={m.extrasValue} tone={LINE_COLORS.yellow} />}
       {m.freeExtrasValue > 0 && <MoneyRow label="هدايا مجانية (غير محسوبة)" value={m.freeExtrasValue} tone={LINE_COLORS.yellow} />}
       {r.shipping > 0 && <MoneyRow label="التوصيل" value={r.shipping} />}
       {r.giftWrap > 0 && <MoneyRow label="تغليف الهدية" value={r.giftWrap} />}
-      {r.discount > 0 && <MoneyRow label="الخصم" value={-r.discount} />}
+      {otherDiscount > 0 && <MoneyRow label="خصومات الطلب" value={-otherDiscount} />}
+      {manual > 0 && (
+        <MoneyRow
+          label={`خصم الكاشير${order.order.cashierDiscountNote ? ` — ${order.order.cashierDiscountNote}` : ''}`}
+          value={-manual}
+          tone="#7c3aed"
+        />
+      )}
       <div className="my-1.5 border-t border-slate-200" />
       <MoneyRow label="المبلغ النهائي" value={r.total} strong />
       {!order.order.prepaid && order.order.deliveryOption !== 'PICKUP' && (
@@ -1914,7 +2048,7 @@ function OrderView({
           />
           </div>
           <CourierCard order={order} busy={busy} offline={offline} onSave={post.onSaveCourier} />
-          <AmountsCard order={order} />
+          <AmountsCard order={order} onDiscount={editable && post.canDiscount ? post.onDiscount : undefined} />
           <CustomerCard order={order} />
           <NotesCards order={order} />
           <button type="button" onClick={onSlip} disabled={busy} className="w-full rounded-xl border border-slate-300 bg-white py-2 text-[12px] font-bold text-slate-600">
@@ -1932,6 +2066,9 @@ type PostControls = {
   onSyncReceipt: () => void;
   /** خيارات التوصيل: تُحفظ في الموقع (وتصل هاي إكسبريس بعد الفوترة). */
   onSaveCourier: (opts: CourierOptionsInput) => Promise<boolean>;
+  /** خصم يدوي كالكاشير الأصلي (بصلاحية «خصم»). */
+  canDiscount: boolean;
+  onDiscount: () => void;
 };
 
 type CourierOptionsInput = { typeId: number | null; parcelCount: number; note: string; phone2: string };
@@ -2367,6 +2504,110 @@ function AddItemDialog({
           className="rounded-xl bg-[#0f9f76] py-3 text-[15px] font-bold text-white disabled:bg-slate-300"
         >
           {state.saving ? 'جاري الإضافة…' : 'إضافة للطلب (Enter)'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** خصم يدوي كما في الكاشير الأصلي: مبلغ أو نسبة، أزرار سريعة، سبب، وحد الخصم من الصلاحيات. */
+function DiscountDialog({
+  order,
+  limit,
+  onClose,
+  onApply,
+}: {
+  order: LookupResult;
+  limit: number;
+  onClose: () => void;
+  onApply: (amount: number, reason: string) => Promise<boolean>;
+}) {
+  const current = order.money.manualDiscount ?? order.order.cashierDiscount ?? 0;
+  // أساس الخصم: قيمة الأصناف بعد خصومها، بلا التوصيل (كما يحسبه الموقع).
+  const base = Math.max(0, order.receipt.itemsTotal - Math.max(0, order.receipt.discount - current));
+  const [mode, setMode] = useState<'amount' | 'percent'>('amount');
+  const [input, setInput] = useState(current > 0 ? String(current) : '');
+  const [reason, setReason] = useState(order.order.cashierDiscountNote ?? '');
+  const [saving, setSaving] = useState(false);
+  const n = Number(input.replace(/[^\d.]/g, '')) || 0;
+  const raw = mode === 'percent' ? Math.round((base * Math.min(100, n)) / 100) : Math.round(n);
+  const amount = capUserDiscount(raw, limit, base);
+  const capped = amount < raw;
+  const after = Math.max(0, order.receipt.total + current - amount);
+
+  async function submit(value: number) {
+    if (saving) return;
+    setSaving(true);
+    const ok = await onApply(value, reason);
+    if (!ok) setSaving(false);
+  }
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <h2 className="mb-1 text-[17px] font-bold text-slate-900">خصم على الطلب</h2>
+      <p className="mb-3 text-[12px] leading-5 text-slate-500">
+        على الأصناف ({formatIqd(base)}) — التوصيل لا يُخصم. {limit > 0 ? `حدّك ${formatIqd(limit)}.` : ''}
+      </p>
+      <div className="mb-2 flex overflow-hidden rounded-xl border border-slate-300 text-[13px] font-bold">
+        <button type="button" onClick={() => setMode('amount')} className={`flex-1 py-1.5 ${mode === 'amount' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}>
+          مبلغ (د.ع)
+        </button>
+        <button type="button" onClick={() => setMode('percent')} className={`flex-1 py-1.5 ${mode === 'percent' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}>
+          نسبة %
+        </button>
+      </div>
+      <input
+        autoFocus
+        value={input}
+        onChange={e => setInput(e.target.value.replace(/[^\d.]/g, ''))}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void submit(amount); } }}
+        placeholder={mode === 'percent' ? 'مثلاً 10' : 'مثلاً 5000'}
+        className="pos-field num w-full text-center text-[22px] font-bold"
+        dir="ltr"
+      />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {(mode === 'percent' ? [5, 10, 15, 20] : [1000, 2000, 5000, 10000]).map(v => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setInput(String(v))}
+            className="num rounded-full border border-slate-300 bg-white px-3 py-1 text-[12px] font-bold text-slate-700 hover:border-[#0f9f76]"
+          >
+            {mode === 'percent' ? `${v}%` : formatNum(v)}
+          </button>
+        ))}
+      </div>
+      <input
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        placeholder="السبب (اختياري) — مثلاً: زبونة دائمة"
+        className="pos-field mt-3 w-full text-[13px]"
+      />
+      <div className="mt-3 space-y-1 rounded-xl bg-slate-50 px-3 py-2 text-[13px]">
+        <div className="flex justify-between"><span>الخصم</span><b className="num" dir="ltr">{formatIqd(amount)}</b></div>
+        <div className="flex justify-between text-[15px]"><span className="font-bold">المبلغ بعد الخصم</span><b className="num text-[#0b7d5d]" dir="ltr">{formatIqd(after)}</b></div>
+        {capped && <div className="text-[12px] font-bold text-[#DB8B12]">خُفّض للحد المسموح</div>}
+        {order.invoiced && <div className="text-[12px] text-slate-500">الفاتورة مُفوترة: يتعدّل المبلغ عند هاي إكسبريس، ثم اطبع الإيصال والملصق من جديد.</div>}
+      </div>
+      <div className="mt-4 grid grid-cols-[1fr_1fr_2fr] gap-2">
+        <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 bg-white py-2.5 text-[13px] font-bold text-slate-700">
+          إغلاق
+        </button>
+        <button
+          type="button"
+          disabled={saving || current === 0}
+          onClick={() => void submit(0)}
+          className="rounded-xl border border-red-200 bg-red-50 py-2.5 text-[13px] font-bold text-red-700 disabled:opacity-40"
+        >
+          إلغاء الخصم
+        </button>
+        <button
+          type="button"
+          disabled={saving || amount <= 0 || amount === current}
+          onClick={() => void submit(amount)}
+          className="rounded-xl bg-[#0f9f76] py-2.5 text-[14px] font-bold text-white disabled:bg-slate-300"
+        >
+          {saving ? 'جاري التطبيق…' : 'تطبيق الخصم'}
         </button>
       </div>
     </Modal>

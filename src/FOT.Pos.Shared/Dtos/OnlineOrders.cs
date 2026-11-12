@@ -80,7 +80,9 @@ public sealed record OnlineOrderEditRequest(
     string? Charge = null,
     string? Reason = null,
     string? LineId = null,
-    string? ClientEditId = null);
+    string? ClientEditId = null,
+    /// <summary>Op = "discount": الخصم اليدوي بالدينار (0 = إلغاء) — بصلاحية «خصم» وحدّها كالكاشير.</summary>
+    decimal? Amount = null);
 
 /// <summary>فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري (migration 090).</summary>
 public sealed class OnlineEdariHoldDto

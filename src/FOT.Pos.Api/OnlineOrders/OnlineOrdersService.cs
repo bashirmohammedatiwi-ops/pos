@@ -102,7 +102,17 @@ public sealed class OnlineOrdersService(
         if (!settings.Enabled)
             throw new OnlineOrdersRefusal("كاشير الطلبات متوقف — فعّله من لوحة التحكم ← الإعدادات ← طلبات التطبيق");
         var op = (req.Op ?? "").Trim().ToLowerInvariant();
-        if (op is not ("add" or "set" or "sync")) throw new OnlineOrdersRefusal("عملية غير معروفة", 400);
+        if (op is not ("add" or "set" or "sync" or "discount")) throw new OnlineOrdersRefusal("عملية غير معروفة", 400);
+        if (op == "discount")
+        {
+            // نفس قواعد الكاشير الأصلي: صلاحية «خصم» وحد الخصم بالدينار (0 = بلا حد).
+            var perms = await cashiers.GetPermissionsForCashierAsync(cashierId, ct);
+            var amount = Math.Max(0, Math.Round(req.Amount ?? 0));
+            if (amount > 0 && perms?.MakeDiscount == false)
+                throw new OnlineOrdersRefusal("ليست لديك صلاحية الخصم — راجع الإدارة", 403);
+            if (amount > 0 && perms?.UserDiscountLimit is > 0 && amount > perms.UserDiscountLimit)
+                throw new OnlineOrdersRefusal($"حد الخصم المسموح لك {perms.UserDiscountLimit:N0} دينار", 403);
+        }
         var cashier = await cashiers.GetByIdAsync(cashierId, ct);
         var cashierName = string.IsNullOrWhiteSpace(cashier?.AccountName) ? cashier?.Username ?? $"#{cashierId}" : cashier!.AccountName!;
 
@@ -146,7 +156,7 @@ public sealed class OnlineOrdersService(
             posName = p.Name;
             posPrice = p.Price;
         }
-        else if (string.IsNullOrWhiteSpace(req.LineId))
+        else if (op == "set" && string.IsNullOrWhiteSpace(req.LineId))
         {
             throw new OnlineOrdersRefusal("حدّد السطر المعدّل", 400);
         }
@@ -162,6 +172,7 @@ public sealed class OnlineOrdersService(
             posName,
             posPrice,
             lineId = req.LineId,
+            amount = op == "discount" ? Math.Max(0, Math.Round(req.Amount ?? 0)) : (decimal?)null,
             clientEditId = string.IsNullOrWhiteSpace(req.ClientEditId) ? null : req.ClientEditId,
             cashierName,
             cashierId = cashierId.ToString(),
