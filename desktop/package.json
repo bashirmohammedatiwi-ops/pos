@@ -1,6 +1,6 @@
 {
   "name": "fot-pos-desktop",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "private": true,
   "description": "Electron shells for FOT POS Admin and Cashier",
   "main": "electron/main.cjs",

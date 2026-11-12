@@ -83,7 +83,14 @@ export type CourierInfo = {
   types: { id: number; name: string }[];
 };
 
-export type CourierLabelResult ={ pdfBase64: string; trackingNumber: string; orderNumber: string; parcelCount: number };
+export type CourierLabelResult = {
+  pdfBase64: string;
+  trackingNumber: string;
+  orderNumber: string;
+  parcelCount: number;
+  /** مواد الطلب (من سيرفر أحدث) — لجدول «منتج — عدد» على الملصق. */
+  items?: { name: string; qty: number }[];
+};
 
 /** فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري. */
 export type HeldInvoice = {

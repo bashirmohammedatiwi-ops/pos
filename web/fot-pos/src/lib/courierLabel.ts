@@ -34,11 +34,13 @@ export async function rasterizeLabelPdf(
   dpi = LABEL_DPI,
   paper?: { widthMm: number; heightMm: number } | null,
   brand = false,
+  /** مواد الطلب من بياناتنا: تُعاد كتابة خانة «مواد الطلب» جدولاً «منتج — عدد — منتج — عدد». */
+  items?: LabelItem[] | null,
 ): Promise<RasterLabel> {
   // شريط الشعار أسفل الورقة: يُحجز من الطول فيُصغَّر ملصق هاي إكسبريس قليلاً ولا يُغطّى منه شيء.
   const stripMm = paper && brand ? BRAND_STRIP_MM : 0;
   const logo = stripMm ? await loadBrandLogo().catch(() => null) : null;
-  if (stripMm) await ensureFonts(Math.round((4.3 * dpi) / 25.4));
+  if (stripMm || items?.length) await ensureFonts(Math.round((4.3 * dpi) / 25.4));
   const pdf = await getDocument({ data: base64ToBytes(pdfBase64), isEvalSupported: false }).promise;
   try {
     const pages: string[] = [];
@@ -66,6 +68,7 @@ export async function rasterizeLabelPdf(
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         const dx = Math.max(0, Math.round((canvas.width - viewport.width) / 2));
         await page.render({ canvasContext: ctx, viewport, transform: [1, 0, 0, 1, dx, 0] }).promise;
+        if (items?.length && n === 1) await redrawItemsCell(ctx, page, viewport, dx, items, dpi, Math.round(viewport.height)).catch(() => false);
         if (stripMm && n === 1) {
           const top = Math.round(viewport.height);
           drawBrandStrip(ctx, logo, { x: 0, y: top, w: canvas.width, h: canvas.height - top }, dpi);
@@ -82,6 +85,7 @@ export async function rasterizeLabelPdf(
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport }).promise;
+      if (items?.length && n === 1) await redrawItemsCell(ctx, page, viewport, 0, items, dpi, canvas.height).catch(() => false);
       pages.push(canvas.toDataURL('image/png'));
       page.cleanup();
     }
@@ -90,6 +94,190 @@ export async function rasterizeLabelPdf(
   } finally {
     void pdf.destroy();
   }
+}
+
+export type LabelItem = { name: string; qty: number };
+
+type PdfPage = Awaited<ReturnType<Awaited<ReturnType<typeof getDocument>['promise']>['getPage']>>;
+type PdfViewport = ReturnType<PdfPage['getViewport']>;
+
+/**
+ * خانة «مواد الطلب» في ملصق هاي إكسبريس تُعاد كتابتها جدولاً من بياناتنا: «منتج | عدد | منتج | عدد»
+ * بلا عناوين، بخط أصغر، والاسم الطويل يُختصر من وسطه (بدايته … نهايته). يُزاد ارتفاع الصف من الفراغ
+ * أسفل الملصق وتنزل الأسطر التي تحته معه. باقي الملصق (QR، الباركود، البيانات) لا يُمس.
+ * إن لم تُعرف الخانة بيقين يبقى الملصق كما هو.
+ */
+async function redrawItemsCell(
+  ctx: CanvasRenderingContext2D,
+  page: PdfPage,
+  viewport: PdfViewport,
+  dx: number,
+  items: LabelItem[],
+  dpi: number,
+  labelBottom: number,
+): Promise<boolean> {
+  const mm = dpi / 25.4;
+  const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  const tc = await page.getTextContent();
+  let label: { x: number; y: number } | null = null;
+  for (const t of tc.items) {
+    if (!('str' in t) || !t.str) continue;
+    if (!norm(t.str).includes('مواد الطلب')) continue;
+    const [x, y] = viewport.convertToViewportPoint(t.transform[4], t.transform[5]);
+    label = { x: x + dx, y };
+    break;
+  }
+  if (!label) return false;
+
+  const W = ctx.canvas.width;
+  const H = Math.min(ctx.canvas.height, labelBottom);
+  const img = ctx.getImageData(0, 0, W, H);
+  const d = img.data;
+  const dark = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const i = (y * W + x) * 4;
+    return d[i] + d[i + 1] + d[i + 2] < 330;
+  };
+  const yMid = Math.round(label.y - 1.2 * mm);
+  /** خط عمودي حقيقي: داكن في 90% من 4مم حول منتصف الصف (الحروف لا تبلغ هذا). */
+  const vertical = (x: number) => {
+    let n = 0, total = 0;
+    for (let y = yMid - Math.round(2 * mm); y <= yMid + Math.round(2 * mm); y++, total++) if (dark(x, y) || dark(x + 1, y)) n++;
+    return n >= total * 0.9;
+  };
+  let divider = -1;
+  for (let x = Math.round(label.x) - 2; x > W * 0.35; x--) if (vertical(x)) { divider = x; break; }
+  if (divider < 0) return false;
+  let left = -1;
+  for (let x = divider - Math.round(4 * mm); x > 0; x--) if (vertical(x)) { left = x; break; }
+  if (left < 0 || divider - left < 30 * mm) return false;
+  /** خط أفقي: داكن في 90% من عرض الخانة. */
+  const horizontal = (y: number) => {
+    let n = 0, total = 0;
+    for (let x = left + 3; x < divider - 3; x += 2, total++) if (dark(x, y)) n++;
+    return total > 0 && n >= total * 0.9;
+  };
+  let top = -1;
+  for (let y = yMid; y > 0; y--) if (horizontal(y)) { top = y; break; }
+  let bottom = -1;
+  for (let y = yMid; y < H; y++) if (horizontal(y)) { bottom = y; break; }
+  if (top < 0 || bottom < 0 || bottom - top < 3 * mm) return false;
+  // سُمك الخطوط: الصفوف الداكنة المتتالية عند الحد السفلي.
+  let thick = 1;
+  while (thick < 6 && horizontal(bottom + thick)) thick++;
+  let topEdge = top;
+  while (topEdge > 0 && horizontal(topEdge - 1)) topEdge--;
+
+  // آخر حبر في الملصق (الخط المتقطع) — ما تحته فراغ يُستثمر لزيادة الصف.
+  let lastInk = H - 1;
+  scan: for (; lastInk > bottom; lastInk--) {
+    for (let x = 0; x < W; x += 2) if (dark(x, lastInk)) break scan;
+  }
+  const slack = Math.max(0, H - 1 - lastInk - Math.round(1.2 * mm));
+
+  // الجدول: صفّان من المنتجات في كل سطر، بخط أصغر.
+  const fontPx = Math.round(2.35 * mm);
+  const rowH = Math.round(3.25 * mm);
+  const padY = Math.round(0.9 * mm);
+  const n = items.length;
+  const rowsWanted = Math.ceil(n / 2);
+  const cellH = bottom - (top + 1);
+  const needH = rowsWanted * rowH + padY * 2;
+  const extra = Math.max(0, Math.min(needH - cellH, slack));
+  const innerTop = top + 1;
+  const innerBottom = bottom + extra; // الحد السفلي بعد الإزاحة
+  const maxRows = Math.max(1, Math.floor((innerBottom - innerTop - padY * 2) / rowH));
+
+  // إزاحة ما تحت الخانة للأسفل، ومدّ خطوط الجدول العمودية في الفراغ الجديد.
+  if (extra > 0) {
+    const part = ctx.getImageData(0, bottom, W, lastInk - bottom + 1);
+    const filler = ctx.getImageData(0, bottom - Math.round(1.5 * mm), W, 1);
+    ctx.putImageData(part, 0, bottom + extra);
+    for (let y = bottom; y < bottom + extra; y++) ctx.putImageData(filler, 0, y);
+  }
+  // تفريغ الخانة (داخل الإطار).
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(left + thick + 1, innerTop + thick, divider - left - thick * 2 - 1, innerBottom - innerTop - thick);
+
+  const x0 = left + thick + Math.round(0.8 * mm);
+  const x1 = divider - Math.round(0.8 * mm);
+  const half = (x1 - x0) / 2;
+  const qtyW = Math.round(5.2 * mm);
+  ctx.save();
+  ctx.fillStyle = '#000';
+  ctx.strokeStyle = '#000';
+  ctx.textBaseline = 'middle';
+  ctx.direction = 'rtl';
+  const line = Math.max(1, Math.round(0.12 * mm));
+  ctx.lineWidth = line;
+
+  const shown = n > maxRows * 2 ? maxRows * 2 - 1 : n;
+  const rows = Math.min(maxRows, Math.ceil((n > maxRows * 2 ? shown + 1 : n) / 2));
+  const tableTop = innerTop + Math.max(padY, Math.round((innerBottom - innerTop - rows * rowH) / 2));
+
+  const fit = (text: string, maxW: number) => {
+    if (ctx.measureText(text).width <= maxW) return text;
+    const chars = [...text];
+    // بداية … نهاية: أكبر عدد من الحروف يتسع، ثلثاه من البداية وثلثه من النهاية.
+    let lo = 2, hi = chars.length - 1, best = '…';
+    while (lo <= hi) {
+      const k = Math.floor((lo + hi) / 2);
+      const head = Math.ceil((k * 2) / 3), tail = k - head;
+      // القص عند حدود الكلمات: لا نصف كلمة في البداية ولا في النهاية.
+      let h = chars.slice(0, head).join('');
+      if (chars[head] && chars[head] !== ' ' && h.includes(' ') && h.lastIndexOf(' ') > h.length * 0.5) h = h.slice(0, h.lastIndexOf(' '));
+      let tl = tail ? chars.slice(chars.length - tail).join('') : '';
+      const before = chars[chars.length - tail - 1];
+      if (tl && before && before !== ' ' && tl.includes(' ')) tl = tl.slice(tl.indexOf(' ') + 1);
+      const s = `${h.trim()}…${tl.trim()}`;
+      if (ctx.measureText(s).width <= maxW) { best = s; lo = k + 1; } else hi = k - 1;
+    }
+    return best;
+  };
+
+  for (let r = 0; r < rows; r++) {
+    const yTop = tableTop + r * rowH;
+    const cy = yTop + rowH / 2;
+    for (let c = 0; c < 2; c++) {
+      const idx = r * 2 + c;
+      // عربي: الخانة الأولى يميناً.
+      const cellRight = x1 - c * half;
+      const cellLeft = cellRight - half;
+      const nameRight = cellRight - Math.round(0.6 * mm);
+      const nameLeft = cellLeft + qtyW + Math.round(0.6 * mm);
+      if (idx < shown) {
+        const it = items[idx];
+        ctx.font = `600 ${fontPx}px ${ARABIC_FONT}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(fit(it.name, nameRight - nameLeft), nameRight, cy + 0.15 * mm);
+        ctx.font = `700 ${Math.round(fontPx * 1.05)}px ${ARABIC_FONT}`;
+        ctx.textAlign = 'center';
+        ctx.direction = 'ltr';
+        ctx.fillText(String(it.qty), cellLeft + qtyW / 2, cy + 0.15 * mm);
+        ctx.direction = 'rtl';
+      } else if (idx === shown && n > shown) {
+        ctx.font = `700 ${fontPx}px ${ARABIC_FONT}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`+ ${n - shown} منتجات أخرى`, nameRight, cy + 0.15 * mm);
+      }
+      // فاصل العدد
+      ctx.beginPath();
+      ctx.moveTo(Math.round(cellLeft + qtyW) + 0.5, yTop + 1);
+      ctx.lineTo(Math.round(cellLeft + qtyW) + 0.5, yTop + rowH - 1);
+      ctx.stroke();
+    }
+    // فاصل بين المنتجين، وخط بين الأسطر
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x0 + half) + 0.5, yTop);
+    ctx.lineTo(Math.round(x0 + half) + 0.5, yTop + rowH);
+    if (r < rows - 1) {
+      ctx.moveTo(x0, Math.round(yTop + rowH) + 0.5);
+      ctx.lineTo(x1, Math.round(yTop + rowH) + 0.5);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  return true;
 }
 
 /** ارتفاع شريط ديما الحياة أسفل الملصق (يُحجز من طول الورقة فلا يغطي ملصق هاي إكسبريس). */
@@ -277,7 +465,7 @@ export async function resolveLabelPaper(): Promise<{ widthMm: number; heightMm: 
  * يطبع ملصق هاي إكسبريس على طابعة الملصقات. copies = نسخ لكل طرد × عدد الطرود.
  * في المتصفح (بلا تطبيق سطح المكتب) يُفتح الـPDF للطباعة اليدوية.
  */
-export async function printCourierLabel(pdfBase64: string, opts: { copies: number; printerName: string | null }) {
+export async function printCourierLabel(pdfBase64: string, opts: { copies: number; printerName: string | null; items?: LabelItem[] | null }) {
   const copies = Math.max(1, Math.min(50, Math.round(opts.copies)));
   if (!window.fotDesktop?.printRaster) {
     const blob = new Blob([base64ToBytes(pdfBase64)], { type: 'application/pdf' });
@@ -285,7 +473,7 @@ export async function printCourierLabel(pdfBase64: string, opts: { copies: numbe
     return;
   }
   if (!opts.printerName) throw new Error('اختر طابعة الملصقات من «إعدادات الطباعة» أولاً — لا يُطبع الملصق على الطابعة الحرارية');
-  const label = await rasterizeLabelPdf(pdfBase64, LABEL_DPI, await resolveLabelPaper(), await resolveLabelBrand());
+  const label = await rasterizeLabelPdf(pdfBase64, LABEL_DPI, await resolveLabelPaper(), await resolveLabelBrand(), opts.items);
   const res = await window.fotDesktop.printRaster(label.pages, {
     widthMm: label.widthMm,
     heightMm: label.heightMm,

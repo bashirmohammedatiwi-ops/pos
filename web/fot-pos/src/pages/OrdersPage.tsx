@@ -249,7 +249,11 @@ export function OrdersPage({
     const lbl = await onlineOrdersApi.label(code);
     const printer = await resolveLabelPrinter(printCfg?.labelPrinterName);
     const perParcel = Math.max(1, printCfg?.labelCopies ?? 1);
-    await printCourierLabel(lbl.pdfBase64, { copies: perParcel * Math.max(1, parcels ?? lbl.parcelCount ?? 1), printerName: printer });
+    await printCourierLabel(lbl.pdfBase64, {
+      copies: perParcel * Math.max(1, parcels ?? lbl.parcelCount ?? 1),
+      printerName: printer,
+      items: lbl.items,
+    });
   }, [printCfg?.labelCopies, printCfg?.labelPrinterName]);
 
   useEffect(() => {
