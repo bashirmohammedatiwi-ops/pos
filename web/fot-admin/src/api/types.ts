@@ -735,6 +735,8 @@ export interface OfferTreeApplyResult {
 }
 
 export interface ReceiptSummary {
+  /** رقم طلب التطبيق إن كان من «كاشير الطلبات». */
+  onlineOrderNumber?: string | null;
   id: number;
   number: number;
   creationDate: string;
@@ -1296,6 +1298,10 @@ export interface CashierPermissionsDto {
   hideSalesmanGroups?: boolean;
   invoiceBoundReturn?: boolean;
   printSalesmanOnReceipt?: boolean;
+  /** «كاشير الطلبات»: فوترة طلبات التطبيق. */
+  onlineOrders?: boolean;
+  /** إيصالات إرجاع طلبات التطبيق. */
+  onlineOrdersReturns?: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   numberOfHoldReceipts: number;
@@ -1322,6 +1328,8 @@ export interface UpdatePermissionsRequest {
   hideSalesmanGroups: boolean;
   invoiceBoundReturn: boolean;
   printSalesmanOnReceipt: boolean;
+  onlineOrders?: boolean;
+  onlineOrdersReturns?: boolean;
   itemDiscountLimit: number;
   userDiscountLimit: number;
   numberOfHoldReceipts: number;
@@ -2412,3 +2420,39 @@ export interface RestoreBackupResultDto {
   safetyBackupFileName?: string | null;
 }
 
+
+/** إعدادات «كاشير الطلبات» (GET/PUT /api/online-orders/settings). */
+export interface OnlineOrdersSettingsDto {
+  enabled: boolean;
+  hiExpressAccount?: number | null;
+  hiExpressAccountNum?: string | null;
+  hiExpressAccountName?: string | null;
+  prepaidAccount?: number | null;
+  prepaidAccountNum?: string | null;
+  prepaidAccountName?: string | null;
+  deliveryArticleId?: number | null;
+  deliveryArticleName?: string | null;
+  receiptCopies: number;
+  invoiceCopies: number;
+  labelCopies: number;
+  labelPrinterName?: string | null;
+  autoPrintNewSlips: boolean;
+  doubleCheck: boolean;
+  updatedAt?: string | null;
+}
+
+export interface OnlineOrdersSettingsResponse {
+  settings: OnlineOrdersSettingsDto;
+  keyConfigured: boolean;
+  keySource: string;
+  url: string;
+}
+
+export interface OnlineOrdersPingResponse {
+  ok: boolean;
+  serverTime?: string | null;
+  error?: string | null;
+  keyConfigured: boolean;
+  keySource: string;
+  url: string;
+}

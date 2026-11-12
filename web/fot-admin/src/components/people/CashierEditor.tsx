@@ -65,6 +65,21 @@ export const PERM_GROUPS: { title: string; keys: { key: BoolPermKey; label: stri
       { key: 'printSalesmanOnReceipt', label: 'اسم البائع في المطبوع', desc: 'طباعة اسم البائع على الفاتورة.' },
     ],
   },
+  {
+    title: 'طلبات التطبيق',
+    keys: [
+      {
+        key: 'onlineOrders',
+        label: 'كاشير الطلبات',
+        desc: 'فوترة طلبات تطبيق ديما الحياة وطباعة الملصق وتسليم طلبات الاستلام من المحل. يلزم لدخول «كاشير الطلبات».',
+      },
+      {
+        key: 'onlineOrdersReturns',
+        label: 'مرتجعات الطلبات',
+        desc: 'إيصال إرجاع للطرود الراجعة من شركة التوصيل، مربوط بإيصال البيع.',
+      },
+    ],
+  },
 ];
 
 const ALL_BOOL_KEYS = PERM_GROUPS.flatMap(g => g.keys.map(k => k.key));
@@ -90,6 +105,8 @@ function emptyPerms(): UpdatePermissionsRequest {
     hideSalesmanGroups: false,
     invoiceBoundReturn: false,
     printSalesmanOnReceipt: true,
+    onlineOrders: false,
+    onlineOrdersReturns: false,
     itemDiscountLimit: 0,
     userDiscountLimit: 0,
     numberOfHoldReceipts: 3,
@@ -118,6 +135,8 @@ function toPerms(p: CashierDetailDto['permissions']): UpdatePermissionsRequest {
     hideSalesmanGroups: p.hideSalesmanGroups ?? false,
     invoiceBoundReturn: p.invoiceBoundReturn ?? false,
     printSalesmanOnReceipt: p.printSalesmanOnReceipt ?? true,
+    onlineOrders: p.onlineOrders ?? false,
+    onlineOrdersReturns: p.onlineOrdersReturns ?? false,
     itemDiscountLimit: p.itemDiscountLimit,
     userDiscountLimit: p.userDiscountLimit,
     numberOfHoldReceipts: p.numberOfHoldReceipts,

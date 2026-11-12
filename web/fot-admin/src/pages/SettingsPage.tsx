@@ -16,8 +16,9 @@ import { printHtmlDoc } from '@/lib/print';
 import { CashBoxPicker } from '@/components/CashBoxPicker';
 import { useToast } from '@/components/Toast';
 import { Alert, Badge, Btn, Field, FieldRow, Select, Skeleton } from '@/components/ui';
-import { IconCalendar, IconCopy, IconDatabase, IconEye, IconPrinter, IconWallet, IconWifi } from '@/components/icons';
+import { IconCalendar, IconCart, IconCopy, IconDatabase, IconEye, IconPrinter, IconWallet, IconWifi } from '@/components/icons';
 import { BackupCenterPanel } from '@/components/system/BackupCenterPanel';
+import { OnlineOrdersSettingsPanel } from '@/components/OnlineOrdersSettingsPanel';
 import { SettingsCard, StickySaveBar, readLocal, writeLocal } from '@/components/system/systemUi';
 import { copyText } from '@/lib/clipboard';
 import { getApiBase } from '@/lib/apiBase';
@@ -28,8 +29,8 @@ import { businessWeekLabel, dayNameAr, weekEndDay } from '@/lib/businessPeriod';
 const WEEK_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const CATEGORY_KEY = 'fot_admin_settings_category';
 
-type Category = 'cash' | 'print' | 'period' | 'network' | 'backup';
-const CATEGORIES: readonly Category[] = ['cash', 'print', 'period', 'network', 'backup'];
+type Category = 'cash' | 'print' | 'period' | 'orders' | 'network' | 'backup';
+const CATEGORIES: readonly Category[] = ['cash', 'print', 'period', 'orders', 'network', 'backup'];
 
 function toForm(s: PrintSettingsDto): UpdatePrintSettingsRequest {
   try {
@@ -286,6 +287,7 @@ export function SettingsPage() {
     { id: 'cash', label: 'الصناديق والأداري', description: 'حساب البطاقات والهدايا', icon: <IconWallet size={16} />, dirty: cashDirty, warn: cardsBoxMissing },
     { id: 'print', label: 'الفاتورة الحرارية', description: 'النموذج والطباعة', icon: <IconPrinter size={16} />, dirty: printDirty },
     { id: 'period', label: 'فترة العمل', description: 'أسبوع العمولات والأهداف', icon: <IconCalendar size={16} />, dirty: periodDirty },
+    { id: 'orders', label: 'طلبات التطبيق', description: 'كاشير الطلبات وهاي إكسبريس', icon: <IconCart size={16} /> },
     { id: 'network', label: 'أجهزة الشبكة', description: 'عناوين الاتصال بالخادم', icon: <IconWifi size={16} /> },
     { id: 'backup', label: 'النسخ الاحتياطي', description: 'جدولة واستعادة .fotbackup', icon: <IconDatabase size={16} /> },
   ];
@@ -509,6 +511,12 @@ export function SettingsPage() {
                 </div>
               </SettingsCard>
             </div>
+          )}
+
+          {category === 'orders' && (
+            <ErrorBoundary compact resetKey="online-orders">
+              <OnlineOrdersSettingsPanel />
+            </ErrorBoundary>
           )}
 
           {category === 'network' && (

@@ -1,4 +1,7 @@
 import type {
+  OnlineOrdersPingResponse,
+  OnlineOrdersSettingsDto,
+  OnlineOrdersSettingsResponse,
   AccountSummaryDto,
   PosCreditAccountDto,
   AddOfferBulkRequest,
@@ -855,6 +858,12 @@ export const api = {
   cashBoxSettings: () => request<PosCashBoxSettingsDto>('/api/settings/cashboxes'),
   saveCashBoxSettings: (req: UpdatePosCashBoxSettingsRequest) =>
     request<PosCashBoxSettingsDto>('/api/settings/cashboxes', { method: 'PUT', body: JSON.stringify(req) }),
+
+  // «كاشير الطلبات» — طلبات التطبيق
+  onlineOrdersSettings: () => request<OnlineOrdersSettingsResponse>('/api/online-orders/settings'),
+  saveOnlineOrdersSettings: (req: Omit<OnlineOrdersSettingsDto, 'updatedAt'>) =>
+    request<OnlineOrdersSettingsResponse>('/api/online-orders/settings', { method: 'PUT', body: JSON.stringify(req) }),
+  pingOnlineOrders: () => request<OnlineOrdersPingResponse>('/api/online-orders/ping', { method: 'POST', body: '{}' }),
 
   businessPeriodSettings: () => request<BusinessPeriodSettingsDto>('/api/settings/business-period'),
   saveBusinessPeriodSettings: (req: UpdateBusinessPeriodSettingsRequest) =>

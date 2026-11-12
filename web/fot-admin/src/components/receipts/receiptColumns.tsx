@@ -25,7 +25,14 @@ export function receiptKindTone(r: Pick<ReceiptSummary, 'kind' | 'number' | 'kin
 
 export function ReceiptKindBadge({ receipt, className }: { receipt: ReceiptSummary; className?: string }) {
   const k = receiptKindTone(receipt);
-  return <Badge tone={k.tone} dot className={className}>{k.label}</Badge>;
+  const badge = <Badge tone={k.tone} dot className={className}>{k.label}</Badge>;
+  if (!receipt.onlineOrderNumber) return badge;
+  return (
+    <span className="inline-flex items-center gap-1" title={`طلب تطبيق ${receipt.onlineOrderNumber}`}>
+      {badge}
+      <Badge tone="info">طلب تطبيق</Badge>
+    </span>
+  );
 }
 
 /** Cash box the sale was rung into — the account number leads, the name explains it. */
