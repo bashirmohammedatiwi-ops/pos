@@ -256,6 +256,27 @@ public sealed class OnlineOrdersService(
         return node;
     }
 
+    /// <summary>
+    /// بائع فاتورة الطلب بعد الفوترة (ما دامت لم تُرحَّل للإداري): رأس الإيصال وكل أسطره. محلي كله — لا يمس الموقع.
+    /// </summary>
+    public async Task<object> SetSalesmanAsync(OnlineOrderSalesmanRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.OrderId)) throw new OnlineOrdersRefusal("حدّد الطلب", 400);
+        var (sale, hold) = await SaleStateAsync(req.OrderId, ct);
+        if (sale is null) throw new OnlineOrdersRefusal("الطلب لم يُفوتر في هذا المحل بعد — البائع يُختار قبل «إتمام وطباعة»", 400);
+        if (hold is not null && (hold.ReleasedAt is not null || hold.Synced))
+            throw new OnlineOrdersRefusal($"الفاتورة {hold.ReceiptNumber} رُحّلت إلى الإداري — لا يتغير بائعها بعد الترحيل");
+        try
+        {
+            await receipts.SetUnpostedSalesmanAsync(sale.ReceiptId, Math.Max(0, req.SalesmanId), ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new OnlineOrdersRefusal(ex.Message, 409);
+        }
+        return new { ok = true, salesmanId = Math.Max(0, req.SalesmanId) };
+    }
+
     /// <summary>خيارات التوصيل (نوع الشحنة، الطرود، ملاحظة، هاتف ثانٍ) — الموقع يرسلها لهاي إكسبريس.</summary>
     public async Task<JsonObject> CourierOptionsAsync(long cashierId, OnlineOrderCourierOptionsRequest req, CancellationToken ct)
     {
@@ -294,6 +315,9 @@ public sealed class OnlineOrdersService(
         var links = string.IsNullOrEmpty(site.Order.Id) ? [] : await repo.ListLinksAsync(site.Order.Id, ct);
         var hold = string.IsNullOrEmpty(site.Order.Id) ? null : await repo.GetHoldAsync(OnlineOrderIds.SaleGuid(site.Order.Id), ct);
         var invoicedHere = site.Invoiced?.ClientReceiptId == OnlineOrderIds.SaleClientId(site.Order.Id);
+        var saleLink = links.FirstOrDefault(l => l.Kind == "sale");
+        // بائع فاتورة المحل (بعد الفوترة) — يظهر أعلى نافذة الطلب ويُغيَّر ما دامت لم تُرحَّل.
+        var receiptSalesman = saleLink is null ? (long?)null : (await repo.GetReceiptHeaderAsync(saleLink.ReceiptId, ct))?.Salesman;
         var editableAfterInvoice = invoicedHere && Editable(hold);
         var node = JsonNode.Parse(el.GetRawText())?.AsObject() ?? new JsonObject();
         node["local"] = JsonSerializer.SerializeToNode(new
@@ -312,7 +336,8 @@ public sealed class OnlineOrdersService(
             plan.ShippingOutside,
             plan.GiftWrapOutside,
             problems = site.Invoiced is null ? plan.Problems : [],
-            sale = links.FirstOrDefault(l => l.Kind == "sale"),
+            sale = saleLink,
+            salesmanId = receiptSalesman,
             @return = links.FirstOrDefault(l => l.Kind == "return"),
             invoicedHere,
             // الترحيل اليدوي: محجوزة؟ رُحّلت؟ تقبل التعديل؟ إيصال المحل يطابق الموقع؟

@@ -251,6 +251,9 @@ export const onlineOrdersApi = {
   /** خيارات التوصيل (نوع الشحنة، الطرود، ملاحظة للمندوب، هاتف ثانٍ). */
   courierOptions: (body: { code: string; setType: boolean; typeId: number | null; parcelCount: number; note: string; phone2: string }) =>
     request<LookupResult>('/api/online-orders/courier-options', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
+  /** بائع فاتورة الطلب بعد الفوترة (قبل الترحيل) — رأس الإيصال وكل أسطره. */
+  setSalesman: (body: { orderId: string; salesmanId: number }) =>
+    request<{ ok: boolean; salesmanId: number }>('/api/online-orders/salesman', { ...ORDERS_WRITE, body: JSON.stringify(body) }),
   /** ملصق هاي إكسبريس نفسه (PDF base64). */
   label: (code: string) =>
     request<CourierLabelResult>('/api/online-orders/label', { ...ORDERS_READ, body: JSON.stringify({ code }) }),

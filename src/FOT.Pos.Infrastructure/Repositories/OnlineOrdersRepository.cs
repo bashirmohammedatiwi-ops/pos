@@ -173,7 +173,7 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
             SELECT id AS Id, number AS Number, kind AS Kind, COALESCE(account, 0) AS Account,
                    CAST(COALESCE(user_discount, 0) AS DECIMAL(18,2)) AS UserDiscount,
                    CAST(total_amount AS DECIMAL(18,2)) AS TotalAmount,
-                   creation_date AS CreationDate
+                   creation_date AS CreationDate, COALESCE(salesman, 0) AS Salesman
             FROM reciepts WHERE id = @receiptId
             """, new { receiptId }, cancellationToken: ct));
     }
@@ -290,6 +290,8 @@ public sealed class ReceiptHeaderLite
     public decimal UserDiscount { get; set; }
     public decimal TotalAmount { get; set; }
     public DateTime CreationDate { get; set; }
+    /// <summary>بائع الإيصال (0 = بلا بائع).</summary>
+    public long Salesman { get; set; }
 }
 
 /// <summary>علامة «طلب تطبيق» على الفاتورة في لوحة التحكم: رقم الطلب وأجور التوصيل والتغليف الخارجة عنها.</summary>

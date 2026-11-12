@@ -70,6 +70,9 @@ public sealed class OnlineOrderReceiptLinkDto
 public sealed record OnlineOrderCodeRequest(string Code);
 
 /// <summary>«إتمام وطباعة» أو «تسليم للزبونة»: يُنشئ إيصال المحل ثم يبلغ الموقع.</summary>
+/// <summary>تغيير بائع فاتورة طلب تطبيق لم تُرحَّل بعد (رأس الإيصال وكل أسطره).</summary>
+public sealed record OnlineOrderSalesmanRequest(string OrderId, long SalesmanId);
+
 public sealed record OnlineOrderFinalizeRequest(
     string Code,
     long? PosId = null,

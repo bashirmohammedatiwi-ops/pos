@@ -456,6 +456,50 @@ public sealed class ReceiptRepository(
         }
     }
 
+    /// <summary>
+    /// بائع إيصال بيع/هدية لم يُرحَّل بعد: رأس الإيصال وكل أسطره (كالكاشير الأصلي حين يكون البائع للفاتورة كلها).
+    /// 0 = بلا بائع. يرفض المُرحّل والمعلّق والمرتجع.
+    /// </summary>
+    public async Task SetUnpostedSalesmanAsync(long receiptId, long salesmanId, CancellationToken ct)
+    {
+        await schema.EnsureLoadedAsync(ct);
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            var head = await conn.QueryRowOrDefaultAsync<UnpostedHead>(new CommandDefinition("""
+                SELECT number AS Number, COALESCE(kind, 0) AS Kind, CAST(COALESCE(synced, 0) AS bit) AS Synced,
+                       CAST(COALESCE(is_pending, 0) AS bit) AS IsPending, COALESCE(salesman, 0) AS Salesman
+                FROM reciepts WITH (UPDLOCK, ROWLOCK) WHERE id = @receiptId
+                """, new { receiptId }, transaction: tx, cancellationToken: ct))
+                ?? throw new InvalidOperationException("الإيصال غير موجود");
+            if (head.Synced) throw new InvalidOperationException($"الإيصال {head.Number} مُرحّل إلى الإداري — لا يتغير بائعه بعد الترحيل");
+            if (head.IsPending || head.Kind is not (0 or 2)) throw new InvalidOperationException("يتغير بائع إيصال بيع أو هدية محفوظ فقط");
+
+            // رأس الإيصال: 0 = بلا بائع (كما يحفظه CreateAsync)؛ الأسطر: NULL.
+            var sid = salesmanId > 0 ? salesmanId : (long?)null;
+            var header = salesmanId > 0 ? salesmanId : 0;
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE reciepts SET salesman = @header WHERE id = @receiptId",
+                new { receiptId, header }, transaction: tx, cancellationToken: ct));
+            if (schema.LineAttribution)
+            {
+                await conn.ExecuteAsync(new CommandDefinition("""
+                    UPDATE reciept_items
+                    SET salesman_id = @sid,
+                        salesman_name = (SELECT TOP 1 LTRIM(RTRIM(name)) FROM salesmen WHERE id = @sid)
+                    WHERE reciept_id = @receiptId
+                    """, new { receiptId, sid }, transaction: tx, cancellationToken: ct));
+            }
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await SafeRollbackAsync(tx);
+            throw;
+        }
+    }
+
     private sealed class UnpostedHead
     {
         public long Number { get; set; }

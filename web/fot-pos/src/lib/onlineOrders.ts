@@ -269,6 +269,8 @@ export type LookupResult = {
     receiptTotal?: number;
     problems: string[];
     sale: ReceiptLink | null;
+    /** بائع إيصال المحل بعد الفوترة (0 = بدون بائع؛ undefined = لم يُفوتر هنا أو سيرفر أقدم). */
+    salesmanId?: number | null;
     return: ReceiptLink | null;
     invoicedHere: boolean;
     /** من سيرفر 2.6+: null = فاتورة تُرحَّل تلقائياً (أو لم تُفوتر بعد). */

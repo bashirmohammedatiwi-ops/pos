@@ -93,6 +93,10 @@ public static class OnlineOrdersEndpoints
                 return Results.Ok(await svc.CourierOptionsAsync(CashierId(http), req with { Code = code }, ct));
             }));
 
+        // بائع فاتورة الطلب بعد الفوترة (قبل الترحيل) — كالكاشير الأصلي.
+        g.MapPost("/salesman", (HttpContext http, OnlineOrderSalesmanRequest req, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
+            RunAsync(http, cashiers, false, ct, async () => Results.Ok(await svc.SetSalesmanAsync(req, ct))));
+
         // الترحيل اليدوي إلى الإداري: القائمة والترحيل (صلاحية كاشير الطلبات).
         g.MapPost("/held", (HttpContext http, CashierRepository cashiers, OnlineOrdersService svc, CancellationToken ct) =>
             RunAsync(http, cashiers, false, ct, async () => Results.Ok(await svc.HeldAsync(ct))));

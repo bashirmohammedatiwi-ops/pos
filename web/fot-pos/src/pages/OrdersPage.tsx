@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { formatIqd, formatNum, type PrintSettingsDto } from '@fot/shared';
 import { ApiError, api, onlineOrdersApi } from '@/api/client';
 import type { PosSessionDto, SalesmanDto } from '@/api/types';
+import { SalesmanPicker } from '@/components/SalesmanPicker';
 import { useBarcodeCapture } from '@/hooks/useBarcodeCapture';
 import { getHwId } from '@/lib/money';
 import {
@@ -34,6 +35,7 @@ import { capUserDiscount } from '@/lib/sale';
 import { collapseRepeatedScan } from '@/lib/scanGuard';
 import { decodeScannerText } from '@/lib/scannerKey';
 import { playErrorBeep } from '@/lib/sound';
+import { speakSalesmanName } from '@/lib/speakName';
 
 type QueueTab = 'ready' | 'pickup' | 'awaitingCourier' | 'picking' | 'returns';
 type Tab = QueueTab | 'posting';
@@ -286,7 +288,6 @@ export function OrdersPage({
   const [salesmanId, setSalesmanId] = useState<number>(session.salesmanId ?? 0);
   const [salesmen, setSalesmen] = useState<SalesmanDto[]>([]);
   const [salesmanOpen, setSalesmanOpen] = useState(false);
-  const salesmanName = salesmanId > 0 ? salesmen.find(s => s.id === salesmanId)?.name ?? (salesmanId === session.salesmanId ? session.salesmanName || null : `#${salesmanId}`) : null;
   useEffect(() => {
     void api.salesmen().then(setSalesmen).catch(() => {});
   }, []);
@@ -901,7 +902,7 @@ export function OrdersPage({
 
   // ── الطباعة ──
   /** يطبع بعد الفوترة ويرد: هل طُبع كل شيء؟ (وهل الملصق ينتظر رقم التتبع؟) */
-  async function runPrints(fin: FinalizeResult, opts: { label: boolean }): Promise<{ ok: boolean; labelPending: boolean }> {
+  async function runPrints(fin: FinalizeResult, opts: { label: boolean; quiet?: boolean }): Promise<{ ok: boolean; labelPending: boolean; errors: string[] }> {
     const copies = printCfg ?? { receiptCopies: 1, invoiceCopies: 1, labelCopies: 1, labelPrinterName: null };
     const errors: string[] = [];
     try {
@@ -922,8 +923,8 @@ export function OrdersPage({
         errors.push(`ملصق هاي إكسبريس: ${errorText(e)}`);
       }
     }
-    if (errors.length) showToast(errors.join(' — '), 'err');
-    return { ok: errors.length === 0, labelPending: opts.label && !(fin.shipment?.state === 'CREATED' && tracking) };
+    if (errors.length && !opts.quiet) showToast(errors.join(' — '), 'err');
+    return { ok: errors.length === 0, labelPending: opts.label && !(fin.shipment?.state === 'CREATED' && tracking), errors };
   }
 
   /** إغلاق الطلب المفتوح: الشاشة تعود لحقل المسح جاهزة للطلب التالي. */
@@ -1132,17 +1133,15 @@ export function OrdersPage({
       const fin = pickup ? await onlineOrdersApi.pickup(body) : await onlineOrdersApi.finalize(body);
       setResult(fin);
       setBusyText('جاري الطباعة…');
-      const printed = await runPrints(fin, { label: !pickup });
+      const printed = await runPrints(fin, { label: !pickup, quiet: true });
       const done = fin.alreadyInvoiced ? `الطلب مُفوتر من قبل بالإيصال ${fin.receipt.number}` : `تم — الإيصال ${fin.receipt.number}`;
+      // تمّت الفوترة: نافذة الطلب تُغلق دائماً والمؤشر على حقل المسح للطلب التالي.
+      // للتعديل أو إعادة الطباعة: امسح QR الطلب، أو افتحه من «بانتظار الترحيل».
+      closeOrder();
       if (printed.ok) {
-        // تمّت وطُبعت: الطلب يختفي من الشاشة والمؤشر على حقل المسح للطلب التالي.
-        // للتعديل يُفتح من جديد بمسح QR الطلب أو من «بانتظار الترحيل».
-        closeOrder();
         showToast(printed.labelPending ? `${done} — الملصق يُطبع من «بانتظار الشحن» حين يصل رقم التتبع` : done);
       } else {
-        // تعذرت طباعة شيء (رسالته ظاهرة): يبقى الطلب مفتوحاً لإعادة الطباعة من أزراره.
-        const fresh = await onlineOrdersApi.lookup(current.order.code).catch(() => null);
-        if (fresh && orderRef.current?.order.id === fresh.order.id) setOrder(fresh);
+        showToast(`${done} — تعذرت الطباعة: ${printed.errors.join(' — ')} · أعد الطباعة من «بانتظار الترحيل»`, 'err');
       }
       void refreshQueue();
     } catch (e) {
@@ -1237,6 +1236,65 @@ export function OrdersPage({
     }).catch(e => showToast(errorText(e), 'err'));
   }
 
+  // ── البائع (كالكاشير الأصلي، أعلى يمين الشاشة) ──
+  // قبل الفوترة: البائع المختار يُسجَّل على الإيصال عند «إتمام وطباعة» ويبقى للطلبات التالية.
+  // بعد الفوترة: بائع إيصال الطلب نفسه، ويُغيَّر ما دامت الفاتورة لم تُرحَّل للإداري.
+  const invoicedHere = !!order?.invoiced && !!order.local.invoicedHere && order.local.salesmanId !== undefined;
+  const chipSalesmanId = invoicedHere ? order!.local.salesmanId ?? 0 : salesmanId;
+  const nameOf = (id: number) => (id > 0 ? salesmen.find(s => s.id === id)?.name ?? (id === session.salesmanId ? session.salesmanName || `#${id}` : `#${id}`) : null);
+  const salesmanLocked = invoicedHere && !!order?.local.edari && !order.local.edari.held;
+  const salesmanChip = {
+    name: nameOf(chipSalesmanId),
+    disabled: busy || salesmanLocked,
+    hint: salesmanLocked ? 'رُحّلت الفاتورة إلى الإداري — لا يتغير بائعها' : invoicedHere ? 'بائع هذه الفاتورة — يُغيَّر حتى ترحيلها (F3)' : 'بائع الفاتورة عند «إتمام وطباعة» (F3)',
+    onPick: () => setSalesmanOpen(true),
+  };
+
+  async function pickSalesman(id: number) {
+    setSalesmanOpen(false);
+    const o = orderRef.current;
+    const onInvoice = !!o?.invoiced && !!o.local.invoicedHere && o.local.salesmanId !== undefined;
+    if (!o || !onInvoice) {
+      setSalesmanId(id);
+      showToast(id > 0 ? `البائع: ${nameOf(id)}` : 'بدون بائع');
+      return;
+    }
+    try {
+      await onlineOrdersApi.setSalesman({ orderId: o.order.id, salesmanId: id });
+      const cur = orderRef.current;
+      if (cur && cur.order.id === o.order.id) {
+        const next = { ...cur, local: { ...cur.local, salesmanId: id } };
+        orderRef.current = next;
+        setOrder(next);
+      }
+      showToast(id > 0 ? `بائع الفاتورة الآن: ${nameOf(id)}` : 'الفاتورة بدون بائع الآن');
+    } catch (e) {
+      playErrorBeep();
+      showToast(errorText(e), 'err');
+    }
+  }
+
+  /** «إغلاق» نافذة الطلب (أو Esc): التعديلات الجارية تكمل في الخلفية. */
+  function closeOrderWindow() {
+    if (busy) return;
+    if (needsReprintRef.current && !window.confirm('عُدّلت الفاتورة ولم تُطبع من جديد (الإيصال والملصق).\nإغلاق الطلب دون إعادة الطباعة؟')) return;
+    closeOrder();
+  }
+
+  const closeRef = useRef(closeOrderWindow);
+  closeRef.current = closeOrderWindow;
+  const anyDialog = !!add || !!reasonAsk || discountOpen || printersOpen || !!priceLine || giftOpen || salesmanOpen;
+  useEffect(() => {
+    if (!order || anyDialog) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      closeRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [order, anyDialog]);
+
   if (!px.onlineOrders) {
     return (
       <div className="pos-app items-center justify-center p-6" dir="rtl">
@@ -1262,6 +1320,22 @@ export function OrdersPage({
     || (r.customer ?? '').toUpperCase().includes(filterKey)
     || (r.governorate ?? '').toUpperCase().includes(filterKey));
 
+  /** شريط الانقطاع — في الصفحة وفي نافذة الطلب. */
+  const connBanner = offline ? (
+          <div className="shrink-0 bg-[#D64545] px-4 py-2 text-center text-white" role="alert">
+            <div className="text-[14px] font-bold">
+              {netDown
+                ? '⚠ هذا الجهاز غير متصل بالشبكة — تحقق من كابل الشبكة أو الواي فاي'
+                : shopDown
+                  ? '⚠ انقطع الاتصال بسيرفر المحل — تحقق من تشغيله ومن الشبكة الداخلية'
+                  : `⚠ انقطع الإنترنت: ${siteDown}`}
+            </div>
+            <div className="text-[12px] font-semibold opacity-95">
+              الفوترة والتعديل متوقفة حتى يعود الاتصال — ما حُفظ قبل الانقطاع محفوظ، ولا تتكرر فاتورة عند إعادة المحاولة. يُعاد الفحص تلقائياً كل 5 ثوانٍ.
+            </div>
+          </div>
+  ) : null;
+
   return (
     // .pos-app يفرض flex-direction: row (CSS عادي يغلب أدوات Tailwind) — الاتجاه هنا صريح.
     <div className="pos-app" style={{ flexDirection: 'column' }} dir="rtl">
@@ -1280,22 +1354,10 @@ export function OrdersPage({
         onPrinters={() => setPrintersOpen(true)}
         onBack={onBack}
         onLogout={onLogout}
+        salesman={salesmanChip}
       />
 
-      {offline && (
-        <div className="shrink-0 bg-[#D64545] px-4 py-2 text-center text-white" role="alert">
-          <div className="text-[14px] font-bold">
-            {netDown
-              ? '⚠ هذا الجهاز غير متصل بالشبكة — تحقق من كابل الشبكة أو الواي فاي'
-              : shopDown
-                ? '⚠ انقطع الاتصال بسيرفر المحل — تحقق من تشغيله ومن الشبكة الداخلية'
-                : `⚠ انقطع الإنترنت: ${siteDown}`}
-          </div>
-          <div className="text-[12px] font-semibold opacity-95">
-            الفوترة والتعديل متوقفة حتى يعود الاتصال — ما حُفظ قبل الانقطاع محفوظ، ولا تتكرر فاتورة عند إعادة المحاولة. يُعاد الفحص تلقائياً كل 5 ثوانٍ.
-          </div>
-        </div>
-      )}
+      {connBanner}
       {status && !status.enabled && !offline && (
         <div className="shrink-0 bg-amber-500 px-4 py-2 text-center text-[13px] font-bold text-white">
           كاشير الطلبات متوقف من لوحة التحكم ← الإعدادات ← طلبات التطبيق
@@ -1369,49 +1431,98 @@ export function OrdersPage({
           <div className="border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">يتحدث كل 15 ثانية · امسح QR الطلب لفتحه</div>
         </aside>
 
-        {/* ── الطلب ── */}
+        {/* ── بلا طلب مفتوح: حقل المسح (المؤشر عليه دائماً) — الطلب يُفتح في نافذة بحجم الشاشة ── */}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {loadingCode && <div className="p-10 text-center text-[14px] text-slate-500">جاري فتح الطلب {loadingCode}…</div>}
-          {!loadingCode && orderError && (
-            <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-[14px] font-bold text-red-700">{orderError}</div>
-          )}
-          {(!order || returnMode) && (
-            // المؤشر دائماً على حقل المسح — بلا طلب مفتوح (لمسح QR الطلب) وفي الإرجاع أيضاً، كالكاشير الأصلي.
+          {!order && (
             <div className="p-3 pb-0">
               <ScanBar
                 onScan={onScan}
                 onAdd={code => void openAdd(code)}
                 canAdd={false}
                 doubleCheck={false}
-                active={!busy && !add && !reasonAsk && !discountOpen && !printersOpen && !priceLine && !giftOpen}
+                active={!order && !loadingCode && !busy && !add && !printersOpen && !salesmanOpen}
                 busy={busy || !!loadingCode}
                 note={null}
               />
             </div>
           )}
-          {!loadingCode && !order && !orderError && (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-slate-400">
-              <div className="flex h-24 w-24 items-center justify-center rounded-3xl border-4 border-dashed border-slate-300 text-[30px] font-bold">QR</div>
-              <div className="text-[17px] font-bold text-slate-600">امسح QR الطلب من قائمة التجهيز</div>
-              <div className="text-[13px]">أو اختر طلباً من الطابور، أو اكتب رقمه في الأعلى</div>
-            </div>
+          {!loadingCode && orderError && (
+            <div className="m-3 rounded-xl border border-red-200 bg-red-50 p-4 text-[14px] font-bold text-red-700">{orderError}</div>
           )}
-          {!loadingCode && order && (
-            returnMode ? (
-              <ReturnView
-                order={order}
-                lines={deliveredLines}
-                returned={returned}
-                setReturned={setReturned}
-                includeDelivery={includeDelivery}
-                setIncludeDelivery={setIncludeDelivery}
-                canReturn={px.onlineOrdersReturns}
-                busy={busy}
-                offline={offline}
-                error={actionError}
-                onCreate={() => void createReturn()}
-                onReprint={() => void reprint(order.order.code, 'return')}
-              />
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-slate-400">
+            <div className="flex h-24 w-24 items-center justify-center rounded-3xl border-4 border-dashed border-slate-300 text-[30px] font-bold">QR</div>
+            <div className="text-[17px] font-bold text-slate-600">امسح QR الطلب لفتحه</div>
+            <div className="text-[13px]">أو اختر طلباً من القائمة — يُفتح في نافذة كاملة، ويُغلق بزر «إغلاق» أو Esc</div>
+          </div>
+        </main>
+      </div>
+
+      {/* ── نافذة الطلب بحجم الشاشة: من أي قسم (جاهزة، بانتظار الترحيل، الإرجاع…) ── */}
+      {(order || loadingCode) && (
+        <div className="fixed inset-0 z-30 flex flex-col bg-slate-100" role="dialog" aria-modal="true" aria-label="نافذة الطلب" dir="rtl">
+          <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
+            <SalesmanChip {...salesmanChip} />
+            <div className="min-w-0 flex-1 text-center">
+              <div className="truncate font-mono text-[17px] font-bold text-slate-900" dir="ltr">{order?.order.orderNumber ?? loadingCode}</div>
+              <div className="truncate text-[12px] font-bold text-slate-500">
+                {order ? (order.invoiced ? `مُفوتر — إيصال ${order.invoiced.receiptNumber ?? ''}` : order.order.deliveryOption === 'PICKUP' ? 'استلام من المحل' : 'جاهز للفوترة') : 'جاري الفتح…'}
+                {pendingEdits > 0 ? ' · يُحفظ…' : ''}
+              </div>
+            </div>
+            <span className={`hidden shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold sm:flex ${offline ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              <span className={`h-2 w-2 rounded-full ${offline ? 'bg-red-500' : 'bg-emerald-500'}`} />
+              {offline ? 'غير متصل' : 'متصل'}
+            </span>
+            <button
+              type="button"
+              onClick={closeOrderWindow}
+              disabled={busy}
+              className="flex h-12 shrink-0 items-center gap-2 rounded-xl bg-slate-900 px-5 text-[16px] font-bold text-white shadow-sm hover:bg-slate-700 disabled:opacity-50"
+              title="إغلاق الطلب (Esc)"
+              aria-label="إغلاق الطلب"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+              إغلاق
+              <kbd className="rounded bg-white/15 px-1.5 text-[11px] font-bold">Esc</kbd>
+            </button>
+          </header>
+          {connBanner}
+          <div className="m-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {!order ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-500">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#0f9f76]" />
+                <div className="text-[15px] font-bold">جاري فتح الطلب {loadingCode}…</div>
+              </div>
+            ) : returnMode ? (
+              <>
+                <div className="p-3 pb-0">
+                  <ScanBar
+                    onScan={onScan}
+                    onAdd={code => void openAdd(code)}
+                    canAdd={false}
+                    doubleCheck={false}
+                    active={!busy && !add && !reasonAsk && !discountOpen && !printersOpen && !priceLine && !giftOpen && !salesmanOpen}
+                    busy={busy || !!loadingCode}
+                    note={null}
+                  />
+                </div>
+                <ReturnView
+                  order={order}
+                  lines={deliveredLines}
+                  returned={returned}
+                  setReturned={setReturned}
+                  includeDelivery={includeDelivery}
+                  setIncludeDelivery={setIncludeDelivery}
+                  canReturn={px.onlineOrdersReturns}
+                  busy={busy}
+                  offline={offline}
+                  error={actionError}
+                  onCreate={() => void createReturn()}
+                  onReprint={() => void reprint(order.order.code, 'return')}
+                />
+              </>
             ) : (
               <OrderView
                 order={order}
@@ -1426,7 +1537,7 @@ export function OrdersPage({
                 error={actionError}
                 onAddBarcode={code => void openAdd(code)}
                 onScan={onScan}
-                scanActive={!busy && !add && !reasonAsk && !discountOpen && !printersOpen && !priceLine && !giftOpen}
+                scanActive={!busy && !add && !reasonAsk && !discountOpen && !printersOpen && !priceLine && !giftOpen && !salesmanOpen}
                 scanNote={scanNote}
                 onChangeLine={changeLine}
                 onToggleCharge={line => void applyLine(line, line.pickedQty, { charge: line.charge === 'FREE' ? 'PAID' : 'FREE' })}
@@ -1446,14 +1557,13 @@ export function OrdersPage({
                   onPrice: line => setPriceLine(line),
                   canGift: px.allowGiftReceipt,
                   onGift: () => setGiftOpen(true),
-                  salesman: { name: salesmanName, onPick: () => setSalesmanOpen(true) },
                   pendingEdits,
                 }}
               />
-            )
-          )}
-        </main>
-      </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {add && (
         <AddItemDialog
@@ -1492,16 +1602,13 @@ export function OrdersPage({
         />
       )}
       {salesmanOpen && (
-        <SalesmanDialog
+        <SalesmanPicker
+          title={invoicedHere ? 'بائع الفاتورة' : 'بائع الفاتورة'}
+          subtitle={invoicedHere ? `يُطبَّق على كل بنود الفاتورة ${order?.invoiced?.receiptNumber ?? ''} — حتى ترحيلها` : 'يُطبَّق على كل بنود الفاتورة عند «إتمام وطباعة»'}
           salesmen={salesmen}
-          current={salesmanId}
+          onPick={sm => void pickSalesman(sm.id)}
+          onClear={() => void pickSalesman(0)}
           onClose={() => setSalesmanOpen(false)}
-          onPick={id => {
-            setSalesmanId(id);
-            setSalesmanOpen(false);
-            const name = salesmen.find(s => s.id === id)?.name;
-            showToast(id > 0 ? `البائع: ${name ?? id}` : 'بلا بائع');
-          }}
         />
       )}
       {giftOpen && order && (
@@ -1551,6 +1658,30 @@ export function OrdersPage({
 
 // ───────────────────────── الرأس ─────────────────────────
 
+/** البائع أعلى اليمين — نفس عنصر الكاشير الأصلي (أخضر مع بائع، برتقالي «اختر بائع الفاتورة» بدونه). */
+function SalesmanChip({ name, disabled, hint, onPick }: { name: string | null; disabled?: boolean; hint: string; onPick: () => void }) {
+  return (
+    <div className="pos-context-item min-w-[200px] max-w-[320px] shrink-0" style={{ flexBasis: 'clamp(200px, 22vw, 320px)' }}>
+      <span>البائع</span>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (name) speakSalesmanName(name);
+          onPick();
+        }}
+        className={`pos-cart-group-seller w-full rounded-md disabled:cursor-not-allowed disabled:opacity-60 ${name ? 'has-seller' : 'needs-seller'}`}
+        title={hint}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+          <path d="M20 21a8 8 0 1 0-16 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+        </svg>
+        <span className="truncate">{name || 'اختر بائع الفاتورة'}</span>
+      </button>
+    </div>
+  );
+}
+
 function TopBar({
   session,
   offline,
@@ -1563,6 +1694,7 @@ function TopBar({
   onPrinters,
   onBack,
   onLogout,
+  salesman,
 }: {
   session: PosSessionDto;
   offline: boolean;
@@ -1575,9 +1707,12 @@ function TopBar({
   onPrinters: () => void;
   onBack?: () => void;
   onLogout: () => void;
+  /** البائع أعلى اليمين كالكاشير الأصلي. */
+  salesman: { name: string | null; disabled?: boolean; hint: string; onPick: () => void };
 }) {
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm">
+      <SalesmanChip {...salesman} />
       <div className="flex min-w-0 items-center gap-2">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0f9f76] text-[11px] font-bold text-white">FOT</div>
         <div className="min-w-0">
@@ -2669,7 +2804,6 @@ function OrderView({
               error={error}
               onFinalize={onFinalize}
               onReprint={onReprint}
-              salesman={post.salesman}
             />
           </div>
           <EdariPanel order={order} busy={busy} post={post} editable={editable} />
@@ -2717,7 +2851,6 @@ function OrderView({
             error={error}
             onFinalize={onFinalize}
             onReprint={onReprint}
-            salesman={post.salesman}
           />
           </div>
           <CourierCard order={order} busy={busy} offline={offline} onSave={post.onSaveCourier} />
@@ -2753,8 +2886,6 @@ type PostControls = {
   /** «فاتورة هدية» كالكاشير الأصلي (بصلاحية «الهدايا») — قبل الفوترة. */
   canGift: boolean;
   onGift: () => void;
-  /** البائع على الإيصال (كالكاشير الأصلي). */
-  salesman: { name: string | null; onPick: () => void };
   /** تعديلات لم يرد بها السيرفر بعد — المبالغ تقديرية لحظات. */
   pendingEdits: number;
 };
@@ -2966,7 +3097,6 @@ function ActionPanel({
   error,
   onFinalize,
   onReprint,
-  salesman,
 }: {
   order: LookupResult;
   pickup: boolean;
@@ -2979,8 +3109,6 @@ function ActionPanel({
   error: string | null;
   onFinalize: () => void;
   onReprint: (what: 'receipt' | 'invoice' | 'label') => void;
-  /** البائع على الإيصال كالكاشير الأصلي. */
-  salesman: { name: string | null; onPick: () => void };
 }) {
   return (
     <div className="space-y-2">
@@ -3019,17 +3147,6 @@ function ActionPanel({
         </div>
       ) : (
         <div>
-          <button
-            type="button"
-            onClick={salesman.onPick}
-            disabled={busy}
-            className="mb-2 flex w-full items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-right hover:border-[#0f9f76] disabled:opacity-50"
-            title="اختيار البائع (F3)"
-          >
-            <span className="text-[12px] font-bold text-slate-500">البائع</span>
-            <span className={`min-w-0 flex-1 truncate text-[14px] font-bold ${salesman.name ? 'text-slate-900' : 'text-amber-700'}`}>{salesman.name ?? 'بلا بائع — اختر'}</span>
-            <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">تغيير</span>
-          </button>
           <button
             type="button"
             onClick={onFinalize}
@@ -3310,57 +3427,6 @@ function DiscountDialog({
           className="rounded-xl bg-[#0f9f76] py-2.5 text-[14px] font-bold text-white disabled:bg-slate-300"
         >
           {saving ? 'جاري التطبيق…' : 'تطبيق الخصم'}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-/** اختيار البائع كالكاشير الأصلي: بحث بالاسم أو الرقم، وزر لكل بائع. */
-function SalesmanDialog({
-  salesmen,
-  current,
-  onClose,
-  onPick,
-}: {
-  salesmen: SalesmanDto[];
-  current: number;
-  onClose: () => void;
-  onPick: (id: number) => void;
-}) {
-  const [q, setQ] = useState('');
-  const t = q.trim();
-  const list = t ? salesmen.filter(s => s.name.includes(t) || String(s.id) === t) : salesmen;
-  return (
-    <Modal onClose={onClose} width={560}>
-      <h2 className="mb-2 text-[17px] font-bold text-slate-900">اختيار البائع</h2>
-      <input
-        autoFocus
-        value={q}
-        onChange={e => setQ(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && list.length === 1) onPick(list[0].id); }}
-        placeholder="ابحث باسم البائع أو رقمه"
-        className="pos-field mb-3 w-full text-[14px]"
-      />
-      <div className="grid max-h-[50vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-        {list.map(s => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => onPick(s.id)}
-            className={`rounded-xl border px-3 py-3 text-[14px] font-bold ${s.id === current ? 'border-[#0f9f76] bg-emerald-50 text-[#0b7d5d]' : 'border-slate-200 bg-white text-slate-800 hover:border-[#0f9f76]'}`}
-          >
-            {s.name}
-          </button>
-        ))}
-        {!list.length && <div className="col-span-full p-4 text-center text-[13px] text-slate-400">{salesmen.length ? 'لا نتائج' : 'لا توجد قائمة باعة — تحقق من الاتصال بسيرفر المحل'}</div>}
-      </div>
-      <div className="mt-3 grid grid-cols-[1fr_1fr] gap-2">
-        <button type="button" onClick={() => onPick(0)} className="rounded-xl border border-slate-300 bg-white py-2.5 text-[13px] font-bold text-slate-700">
-          بلا بائع
-        </button>
-        <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 bg-white py-2.5 text-[13px] font-bold text-slate-700">
-          إغلاق
         </button>
       </div>
     </Modal>
