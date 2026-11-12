@@ -740,6 +740,8 @@ export interface ReceiptSummary {
   /** طلب توصيل من التطبيق: أجور التوصيل والتغليف خارج الفاتورة (ضمن مبلغ شركة التوصيل). */
   onlineDeliveryFee?: number | null;
   onlineGiftWrapFee?: number | null;
+  /** مجموعهما — عمود «أجور خارج الفاتورة». */
+  onlineFeesTotal?: number | null;
   id: number;
   number: number;
   creationDate: string;
@@ -2441,6 +2443,8 @@ export interface OnlineOrdersSettingsDto {
   labelPrinterName?: string | null;
   autoPrintNewSlips: boolean;
   doubleCheck: boolean;
+  /** ملصق شركة التوصيل بلا اسم الزبونة. */
+  labelHideCustomer?: boolean;
   updatedAt?: string | null;
 }
 

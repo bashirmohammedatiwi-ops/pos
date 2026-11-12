@@ -21,6 +21,8 @@ public sealed class OnlineOrdersSettingsDto
     public string? LabelPrinterName { get; set; }
     public bool AutoPrintNewSlips { get; set; }
     public bool DoubleCheck { get; set; }
+    /// <summary>ملصق شركة التوصيل يُطبع بلا اسم الزبونة (migration 092) — المساحة تذهب لـ«مواد الطلب».</summary>
+    public bool LabelHideCustomer { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
 
@@ -39,7 +41,8 @@ public sealed record UpdateOnlineOrdersSettingsRequest(
     int LabelCopies = 1,
     string? LabelPrinterName = null,
     bool AutoPrintNewSlips = false,
-    bool DoubleCheck = false);
+    bool DoubleCheck = false,
+    bool LabelHideCustomer = false);
 
 /// <summary>ربط طلب تطبيق بإيصال المحل.</summary>
 public sealed class OnlineOrderReceiptLinkDto
@@ -85,7 +88,11 @@ public sealed record OnlineOrderEditRequest(
     string? LineId = null,
     string? ClientEditId = null,
     /// <summary>Op = "discount": الخصم اليدوي بالدينار (0 = إلغاء) — بصلاحية «خصم» وحدّها كالكاشير.</summary>
-    decimal? Amount = null);
+    decimal? Amount = null,
+    /// <summary>Op = "price": سعر القطعة الجديد لسطر LineId — بصلاحية «تغيير السعر» كالكاشير.</summary>
+    decimal? UnitPrice = null,
+    /// <summary>Op = "gift": «فاتورة هدية» (true) أو إلغاؤها — بصلاحية «الهدايا» كالكاشير، قبل الفوترة.</summary>
+    bool? Gift = null);
 
 /// <summary>فاتورة طلب تطبيق محجوزة عن الترحيل التلقائي إلى الإداري (migration 090).</summary>
 public sealed class OnlineEdariHoldDto

@@ -69,7 +69,11 @@ export type OrderEditBody =
   /** إعادة بناء إيصال المحل المحجوز من طلب الموقع (بعد تعديل لم يكتمل في المحل). */
   | { code: string; op: 'sync' }
   /** خصم يدوي بالدينار على الأصناف (0 = إلغاء الخصم). */
-  | { code: string; op: 'discount'; amount: number; reason?: string; clientEditId: string };
+  | { code: string; op: 'discount'; amount: number; reason?: string; clientEditId: string }
+  /** تعديل سعر القطعة لسطر (صلاحية «تغيير السعر»). */
+  | { code: string; op: 'price'; lineId: string; unitPrice: number; reason?: string; clientEditId: string }
+  /** «فاتورة هدية» كالكاشير الأصلي (صلاحية «الهدايا») — قبل الفوترة. */
+  | { code: string; op: 'gift'; gift: boolean; reason?: string; clientEditId: string };
 
 /** خيارات التوصيل عند هاي إكسبريس لهذا الطلب. */
 export type CourierInfo = {
@@ -223,6 +227,8 @@ export type LookupResult = {
     /** خصم الكاشير اليدوي (من سيرفر أحدث فقط). */
     cashierDiscount?: number;
     cashierDiscountNote?: string | null;
+    /** «فاتورة هدية»: الأصناف بلا مقابل، وإيصال المحل هدية (سيرفر 2.6.6+). */
+    cashierGift?: boolean;
   };
   customer: {
     name: string | null;
@@ -256,6 +262,9 @@ export type LookupResult = {
     /** طلب توصيل: أجور التوصيل والتغليف خارج فاتورة المحل، ضمن مبلغ هاي إكسبريس فقط (سيرفر 2.6.5+). */
     shippingOutside?: number;
     giftWrapOutside?: number;
+    /** «فاتورة هدية»: إيصال المحل هدية بقيمة الأصناف (receiptTotal) بلا دفع. */
+    gift?: boolean;
+    receiptTotal?: number;
     problems: string[];
     sale: ReceiptLink | null;
     return: ReceiptLink | null;
@@ -310,6 +319,8 @@ export type OnlineOrdersStatus = {
     labelPrinterName: string | null;
     autoPrintNewSlips: boolean;
     doubleCheck: boolean;
+    /** ملصق شركة التوصيل بلا اسم الزبونة (سيرفر 2.6.6+). */
+    labelHideCustomer?: boolean;
   };
 };
 

@@ -29,6 +29,8 @@ public sealed class SiteOrder
     public int? ParcelCount { get; set; }
     public bool IsGift { get; set; }
     public bool GiftHidePrices { get; set; }
+    /// <summary>«فاتورة هدية» من كاشير الطلبات: إيصال المحل هدية (Kind 2).</summary>
+    public bool CashierGift { get; set; }
 
     public bool IsPickup => string.Equals(DeliveryOption, "PICKUP", StringComparison.OrdinalIgnoreCase);
 }
@@ -49,6 +51,8 @@ public sealed class SiteReceipt
     public decimal GiftWrap { get; set; }
     public decimal Discount { get; set; }
     public decimal Total { get; set; }
+    /// <summary>جزء الخصم الذي غطّته «فاتورة الهدية» (0 لغير الهدية).</summary>
+    public decimal GiftDiscount { get; set; }
 }
 
 public sealed class SiteReceiptItem

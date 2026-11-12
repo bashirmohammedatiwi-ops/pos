@@ -148,6 +148,26 @@ const baseColumns: GridColumn<ReceiptSummary>[] = [
     render: r => <span className="font-bold text-header">{formatCurrency(r.netAmount ?? r.totalAmount)}</span>,
   },
   {
+    // طلبات التطبيق: أجور التوصيل وتغليف الهدية لا تدخل الفاتورة — تُضاف على مبلغ شركة التوصيل.
+    key: 'onlineFeesTotal',
+    header: 'أجور على شركة التوصيل',
+    width: 136,
+    mono: true,
+    footer: 'sum',
+    sortValue: r => r.onlineFeesTotal ?? 0,
+    filterValue: r => onlineFeesNote(r) ?? '',
+    exportValue: r => (r.onlineFeesTotal ? `${formatNum(r.onlineFeesTotal)} (${onlineFeesNote(r)})` : '—'),
+    render: r =>
+      r.onlineFeesTotal ? (
+        <span className="flex min-w-0 items-baseline gap-1.5" title="خارج الفاتورة والإداري — مضافة على مبلغ شركة التوصيل">
+          <span className="font-bold tabular-nums text-amber-800">{formatCurrency(r.onlineFeesTotal)}</span>
+          <span className="truncate text-[11px] text-slate-500">{onlineFeesNote(r)}</span>
+        </span>
+      ) : (
+        '—'
+      ),
+  },
+  {
     key: 'payment',
     header: 'المدفوع',
     width: 96,

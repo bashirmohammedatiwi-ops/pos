@@ -20,6 +20,7 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
                label_printer_name AS LabelPrinterName,
                CAST(auto_print_new_slips AS bit) AS AutoPrintNewSlips,
                CAST(double_check AS bit) AS DoubleCheck,
+               CAST(label_hide_customer AS bit) AS LabelHideCustomer,
                updated_at AS UpdatedAt
         FROM ext_online_orders_settings WHERE id = 1
         """;
@@ -50,6 +51,7 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
             labelPrinter = Clip(req.LabelPrinterName, 200),
             autoSlips = req.AutoPrintNewSlips,
             doubleCheck = req.DoubleCheck,
+            hideCustomer = req.LabelHideCustomer,
         };
         await using var conn = await db.CreateOpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("""
@@ -63,6 +65,7 @@ public sealed class OnlineOrdersRepository(ISqlConnectionFactory db)
                 receipt_copies = @receiptCopies, invoice_copies = @invoiceCopies, label_copies = @labelCopies,
                 label_printer_name = @labelPrinter,
                 auto_print_new_slips = @autoSlips, double_check = @doubleCheck,
+                label_hide_customer = @hideCustomer,
                 updated_at = SYSDATETIME()
             WHERE id = 1;
             """, args, cancellationToken: ct));

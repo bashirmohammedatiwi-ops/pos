@@ -45,7 +45,12 @@ public sealed record SalePlan(
     IReadOnlyList<string> Problems,
     /// <summary>أجور توصيل وتغليف طلب توصيل: خارج فاتورة المحل، ضمن مبلغ شركة التوصيل فقط.</summary>
     decimal ShippingOutside = 0,
-    decimal GiftWrapOutside = 0);
+    decimal GiftWrapOutside = 0,
+    /// <summary>«فاتورة هدية»: إيصال المحل من نوع هدية (Kind 2) بلا دفع ولا حساب.</summary>
+    bool Gift = false,
+    /// <summary>خصم إيصال المحل ومبلغه (للهدية: قيمة الهدية؛ وإلا = ComputedTotal).</summary>
+    decimal ReceiptDiscount = 0,
+    decimal ReceiptTotal = 0);
 
 /// <summary>
 /// «كاشير الطلبات» على سيرفر المحل: يفتح الطلب من الموقع، يبني منه إيصال بيع حقيقياً عبر ReceiptRepository.CreateAsync
@@ -105,7 +110,23 @@ public sealed class OnlineOrdersService(
         if (!settings.Enabled)
             throw new OnlineOrdersRefusal("كاشير الطلبات متوقف — فعّله من لوحة التحكم ← الإعدادات ← طلبات التطبيق");
         var op = (req.Op ?? "").Trim().ToLowerInvariant();
-        if (op is not ("add" or "set" or "sync" or "discount")) throw new OnlineOrdersRefusal("عملية غير معروفة", 400);
+        if (op is not ("add" or "set" or "sync" or "discount" or "price" or "gift")) throw new OnlineOrdersRefusal("عملية غير معروفة", 400);
+        if (op == "gift" && req.Gift == true)
+        {
+            // نفس قاعدة الكاشير الأصلي: «فاتورة هدية» بصلاحية «الهدايا».
+            var perms = await cashiers.GetPermissionsForCashierAsync(cashierId, ct);
+            if (perms?.AllowGiftReceipt == false)
+                throw new OnlineOrdersRefusal("ليست لديك صلاحية الهدايا — راجع الإدارة", 403);
+        }
+        if (op == "price")
+        {
+            // نفس قاعدة الكاشير الأصلي: تعديل السعر بصلاحية «تغيير السعر».
+            var perms = await cashiers.GetPermissionsForCashierAsync(cashierId, ct);
+            if (perms?.AllowPriceChange != true)
+                throw new OnlineOrdersRefusal("ليست لديك صلاحية تغيير السعر — راجع الإدارة", 403);
+            if (string.IsNullOrWhiteSpace(req.LineId)) throw new OnlineOrdersRefusal("حدّد الصنف", 400);
+            if (req.UnitPrice is not decimal p || p < 0 || p > 100_000_000) throw new OnlineOrdersRefusal("سعر غير صالح", 400);
+        }
         if (op == "discount")
         {
             // نفس قواعد الكاشير الأصلي: صلاحية «خصم» وحد الخصم بالدينار (0 = بلا حد).
@@ -176,6 +197,8 @@ public sealed class OnlineOrdersService(
             posPrice,
             lineId = req.LineId,
             amount = op == "discount" ? Math.Max(0, Math.Round(req.Amount ?? 0)) : (decimal?)null,
+            unitPrice = op == "price" ? Math.Round(req.UnitPrice ?? 0) : (decimal?)null,
+            gift = op == "gift" ? req.Gift == true : (bool?)null,
             clientEditId = string.IsNullOrWhiteSpace(req.ClientEditId) ? null : req.ClientEditId,
             cashierName,
             cashierId = cashierId.ToString(),
@@ -202,15 +225,15 @@ public sealed class OnlineOrdersService(
         var credit = plan.AccountSeq is > 0;
         try
         {
-            await receipts.ReplaceUnpostedSaleItemsAsync(hold.ReceiptId!.Value, ReceiptItems(plan), site.Receipt.Discount,
-                credit ? 0 : plan.ComputedTotal, ct);
+            await receipts.ReplaceUnpostedSaleItemsAsync(hold.ReceiptId!.Value, ReceiptItems(plan), plan.ReceiptDiscount,
+                plan.Gift || credit ? 0 : plan.ComputedTotal, ct);
         }
         catch (InvalidOperationException ex)
         {
             throw new OnlineOrdersRefusal($"عُدّل الطلب في الموقع لكن تعذر تحديث إيصال المحل: {ex.Message}", 409, new { receiptOutOfSync = true });
         }
         await repo.MarkEditedAsync(hold.ClientReceiptId, ct);
-        await repo.SetLinkTotalAsync(site.Order.Id, "sale", plan.ComputedTotal, ct);
+        await repo.SetLinkTotalAsync(site.Order.Id, "sale", plan.ReceiptTotal, ct);
         var node = await WithLocalAsync(siteEl, ct);
         node["reprint"] = true;
         return node;
@@ -265,6 +288,9 @@ public sealed class OnlineOrdersService(
             plan.AccountName,
             plan.PaymentLabel,
             plan.ComputedTotal,
+            // «فاتورة هدية»: إيصال المحل هدية بقيمة الأصناف (بلا دفع).
+            plan.Gift,
+            plan.ReceiptTotal,
             // طلب توصيل: أجور التوصيل والتغليف خارج فاتورة المحل (ضمن مبلغ هاي إكسبريس فقط).
             plan.ShippingOutside,
             plan.GiftWrapOutside,
@@ -285,7 +311,7 @@ public sealed class OnlineOrdersService(
                 receiptTotal = hold.Total,
                 editable = editableAfterInvoice,
                 // فاتورة المحل = مبلغ الطلب ناقص أجور التوصيل/التغليف (لطلبات التوصيل).
-                outOfSync = editableAfterInvoice && Math.Abs(hold.Total - plan.ComputedTotal) >= 1,
+                outOfSync = editableAfterInvoice && Math.Abs(hold.Total - plan.ReceiptTotal) >= 1,
             },
         }, Json);
         return node;
@@ -369,11 +395,11 @@ public sealed class OnlineOrdersService(
             CashierId: cashierId,
             SalesmanId: 0,
             PosId: req.PosId is > 0 ? req.PosId : null,
-            Payment: credit ? 0 : plan.ComputedTotal,
+            Payment: plan.Gift || credit ? 0 : plan.ComputedTotal,
             Items: items,
-            Kind: 0,
+            Kind: plan.Gift ? 2 : 0,
             IsPending: false,
-            UserDiscount: site.Receipt.Discount,
+            UserDiscount: plan.ReceiptDiscount,
             AccountId: credit ? plan.AccountSeq : null,
             ClientReceiptId: clientGuid,
             HwId: string.IsNullOrWhiteSpace(req.HwId) ? null : req.HwId);
@@ -407,7 +433,8 @@ public sealed class OnlineOrdersService(
             cashierName,
             cashierId = cashierId.ToString(),
             terminal,
-            total = (long)Math.Round(saved.TotalAmount, MidpointRounding.AwayFromZero),
+            // إيصال الهدية لا يُحصّل منه شيء: الموقع يقبل 0 لطلب «فاتورة هدية».
+            total = plan.Gift ? 0L : (long)Math.Round(saved.TotalAmount, MidpointRounding.AwayFromZero),
         };
         JsonElement res;
         try
@@ -646,29 +673,24 @@ public sealed class OnlineOrdersService(
             problems.Add($"أصناف غير موجودة في كتالوج المحل: {string.Join("، ", unresolved)} — أضف الباركود للمادة في الإداري ثم أعد فتح الطلب");
 
         var fee = Math.Max(0, site.Receipt.Shipping) + Math.Max(0, site.Receipt.GiftWrap);
+        // أجور التوصيل وتغليف الهدية لا تدخل فاتورة المحل (ولا الإداري) أبداً — تُضاف على مبلغ شركة
+        // التوصيل فقط، وتُحفظ مع الربط لتظهر في عمود «أجور على شركة التوصيل» في لوحة التحكم.
+        // لا مادة «أجور توصيل» في الكتالوج ولا إعداد لها بعد الآن.
         long? deliveryId = null;
-        string? deliveryName = settings.DeliveryArticleName, deliveryBarcode = null;
-        // طلبات التوصيل: أجور التوصيل والتغليف لا تدخل فاتورة المحل (ولا الإداري) — تبقى في مبلغ
-        // شركة التوصيل فقط، وتُحفظ مع الربط لتظهر ملاحظةً في لوحة التحكم. الاستلام من المحل كما كان.
-        var feesOutside = !site.Order.IsPickup && fee > 0;
-        if (fee > 0 && !feesOutside)
-        {
-            var art = settings.DeliveryArticleId is > 0 ? await products.GetByIdAnyPriceAsync(settings.DeliveryArticleId.Value, ct) : null;
-            if (art is null)
-                problems.Add("الطلب فيه أجور توصيل/تغليف ولم تُضبط مادة «أجور التوصيل» — لوحة التحكم ← الإعدادات ← طلبات التطبيق");
-            else
-            {
-                deliveryId = art.Id;
-                deliveryName = art.Name ?? deliveryName;
-                deliveryBarcode = art.Barcode;
-            }
-        }
+        string? deliveryName = null, deliveryBarcode = null;
+        var feesOutside = fee > 0;
 
         var pickup = site.Order.IsPickup;
+        var gift = site.Order.CashierGift;
         long? account = null;
         string? accountName = null;
         string paymentLabel;
-        if (site.Order.Prepaid)
+        if (gift)
+        {
+            // «فاتورة هدية» كالكاشير الأصلي: إيصال هدية بلا حساب ولا مقابل.
+            paymentLabel = "فاتورة هدية — بلا مقابل";
+        }
+        else if (site.Order.Prepaid)
         {
             account = settings.PrepaidAccount;
             accountName = settings.PrepaidAccountName ?? settings.PrepaidAccountNum;
@@ -692,13 +714,20 @@ public sealed class OnlineOrdersService(
         var expectedReceipt = site.Receipt.Total - (feesOutside ? fee : 0);
         if (unresolved.Count == 0 && (fee == 0 || feesOutside || deliveryId is not null) && Math.Abs(computed - expectedReceipt) >= 1)
             problems.Add($"مجموع الأسطر ({computed:N0}) لا يساوي مبلغ الفاتورة ({expectedReceipt:N0}) — أعد فتح الطلب");
-        if (computed < 0)
+        if (computed < 0 && !gift)
             problems.Add("خصم الطلب أكبر من قيمة الأصناف — راجع الطلب في لوحة الإدارة");
+
+        // إيصال المحل: البيع بخصم الطلب كاملاً؛ والهدية بأسعارها وخصوم الطلب الأخرى فقط (بلا جزء الهدية) — قيمة الهدية.
+        var receiptDiscount = gift ? Math.Max(0, site.Receipt.Discount - site.Receipt.GiftDiscount) : site.Receipt.Discount;
+        var receiptTotal = gift ? Math.Max(0, lines.Sum(l => l.Qty * l.ChargePrice) - receiptDiscount) : computed;
 
         return new SalePlan(lines, unresolved, feesOutside ? 0 : fee, deliveryId, deliveryName, deliveryBarcode,
             account is > 0 ? account : null, accountName, paymentLabel, computed, problems,
             ShippingOutside: feesOutside ? Math.Max(0, site.Receipt.Shipping) : 0,
-            GiftWrapOutside: feesOutside ? Math.Max(0, site.Receipt.GiftWrap) : 0);
+            GiftWrapOutside: feesOutside ? Math.Max(0, site.Receipt.GiftWrap) : 0,
+            Gift: gift,
+            ReceiptDiscount: receiptDiscount,
+            ReceiptTotal: receiptTotal);
     }
 
     /// <summary>
@@ -774,7 +803,8 @@ public sealed class OnlineOrdersService(
     }
 
     private static string PaymentLabel(SiteLookup site) =>
-        site.Order.Prepaid ? "مدفوع مسبقاً بالبطاقة"
+        site.Order.CashierGift ? "فاتورة هدية — بلا مقابل"
+        : site.Order.Prepaid ? "مدفوع مسبقاً بالبطاقة"
         : site.Order.IsPickup ? "نقداً عند الاستلام من المحل"
         : "الدفع عند الاستلام — هاي إكسبريس";
 

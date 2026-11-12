@@ -30,13 +30,15 @@ export type OrderPrintData = {
     isGift?: boolean;
     giftMessage?: string | null;
     giftHidePrices?: boolean;
+    /** «فاتورة هدية» من كاشير الطلبات: الأصناف بلا مقابل. */
+    cashierGift?: boolean;
     notes?: string | null;
     parcelCount?: number | null;
     receiptNumber?: string | null;
     cashierName?: string | null;
   };
   customer: { name?: string | null; phone?: string | null; governorate?: string | null; addressLine?: string | null };
-  receipt: { items: OrderPrintItem[]; itemsTotal: number; shipping: number; giftWrap: number; discount: number; total: number };
+  receipt: { items: OrderPrintItem[]; itemsTotal: number; shipping: number; giftWrap: number; discount: number; total: number; giftDiscount?: number };
   changes?: {
     missing?: { name: string; shadeName?: string | null; qty: number; reason?: string | null }[];
     extras?: { name: string; shadeName?: string | null; qty: number; free?: boolean; reason?: string | null }[];
@@ -116,7 +118,7 @@ export function orderInvoiceHtml(data: OrderPrintData): string {
     <div class="center store">${store}</div>
     ${data.store.phone ? `<div class="center muted ltr">${esc(data.store.phone)}</div>` : ''}
     <div class="solid"></div>
-    <div class="center title">${o.giftHidePrices ? 'هدية لكِ' : 'فاتورة الطلب'}</div>
+    <div class="center title">${o.giftHidePrices ? 'هدية لكِ' : o.cashierGift ? 'فاتورة هدية' : 'فاتورة الطلب'}</div>
     <div class="row"><span>رقم الطلب</span><span class="ltr b">${esc(o.orderNumber)}</span></div>
     ${o.receiptNumber ? `<div class="row"><span>رقم الإيصال</span><span class="ltr">${esc(o.receiptNumber)}</span></div>` : ''}
     <div class="row"><span>التاريخ</span><span class="ltr">${esc(when(o.createdAt))}</span></div>
@@ -159,7 +161,8 @@ export function orderInvoiceHtml(data: OrderPrintData): string {
     <div class="row"><span>مجموع الأصناف</span><span class="amt ltr">${formatIqd(r.itemsTotal)}</span></div>
     ${r.shipping > 0 ? `<div class="row"><span>التوصيل</span><span class="amt ltr">${formatIqd(r.shipping)}</span></div>` : ''}
     ${r.giftWrap > 0 ? `<div class="row"><span>تغليف الهدية</span><span class="amt ltr">${formatIqd(r.giftWrap)}</span></div>` : ''}
-    ${r.discount > 0 ? `<div class="row"><span>الخصم</span><span class="amt ltr">-${formatIqd(r.discount)}</span></div>` : ''}
+    ${(r.giftDiscount ?? 0) > 0 ? `<div class="row"><span>هدية من ${store}</span><span class="amt ltr">-${formatIqd(r.giftDiscount ?? 0)}</span></div>` : ''}
+    ${r.discount - (r.giftDiscount ?? 0) > 0 ? `<div class="row"><span>الخصم</span><span class="amt ltr">-${formatIqd(r.discount - (r.giftDiscount ?? 0))}</span></div>` : ''}
     <div class="row total"><span>المجموع</span><span class="amt ltr">${formatIqd(r.total)}</span></div>`;
   const pay = o.prepaid
     ? `<div class="pay center">مدفوع</div>`

@@ -48,6 +48,7 @@ public static class OnlineOrdersEndpoints
                     settings.LabelPrinterName,
                     settings.AutoPrintNewSlips,
                     settings.DoubleCheck,
+                    settings.LabelHideCustomer,
                 },
             });
         });

@@ -566,6 +566,16 @@ public partial record ReceiptSummaryDto(
     decimal? OnlineDeliveryFee = null,
     decimal? OnlineGiftWrapFee = null)
 {
+    /// <summary>مجموع الأجور المضافة على مبلغ شركة التوصيل (خارج الفاتورة) — عمود في لوحة التحكم.</summary>
+    public decimal? OnlineFeesTotal
+    {
+        get
+        {
+            var total = (OnlineDeliveryFee ?? 0) + (OnlineGiftWrapFee ?? 0);
+            return total > 0 ? total : null;
+        }
+    }
+
     public ReceiptSummaryDto() : this(
         0, 0, default, 0, 0, 0, 0, null, null, null, false, null, 0)
     {

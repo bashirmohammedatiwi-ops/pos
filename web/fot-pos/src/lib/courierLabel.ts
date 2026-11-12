@@ -36,6 +36,8 @@ export async function rasterizeLabelPdf(
   brand = false,
   /** مواد الطلب من بياناتنا: تُعاد كتابة خانة «مواد الطلب» جدولاً «منتج — عدد — منتج — عدد». */
   items?: LabelItem[] | null,
+  /** إخفاء صف «الزبون» (الاسم) من الملصق — مساحته تذهب لـ«مواد الطلب». */
+  hideCustomer = false,
 ): Promise<RasterLabel> {
   // شريط الشعار أسفل الورقة: يُحجز من الطول فيُصغَّر ملصق هاي إكسبريس قليلاً ولا يُغطّى منه شيء.
   const stripMm = paper && brand ? BRAND_STRIP_MM : 0;
@@ -68,7 +70,8 @@ export async function rasterizeLabelPdf(
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         const dx = Math.max(0, Math.round((canvas.width - viewport.width) / 2));
         await page.render({ canvasContext: ctx, viewport, transform: [1, 0, 0, 1, dx, 0] }).promise;
-        if (items?.length && n === 1) await redrawItemsCell(ctx, page, viewport, dx, items, dpi, Math.round(viewport.height)).catch(() => false);
+        const cut = hideCustomer && n === 1 ? await removeCustomerRow(ctx, page, viewport, dx, dpi, Math.round(viewport.height)).catch(() => null) : null;
+        if (items?.length && n === 1) await redrawItemsCell(ctx, page, viewport, dx, items, dpi, Math.round(viewport.height), cut).catch(() => false);
         if (stripMm && n === 1) {
           const top = Math.round(viewport.height);
           drawBrandStrip(ctx, logo, { x: 0, y: top, w: canvas.width, h: canvas.height - top }, dpi);
@@ -85,7 +88,8 @@ export async function rasterizeLabelPdf(
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport }).promise;
-      if (items?.length && n === 1) await redrawItemsCell(ctx, page, viewport, 0, items, dpi, canvas.height).catch(() => false);
+      const cut = hideCustomer && n === 1 ? await removeCustomerRow(ctx, page, viewport, 0, dpi, canvas.height).catch(() => null) : null;
+      if (items?.length && n === 1) await redrawItemsCell(ctx, page, viewport, 0, items, dpi, canvas.height, cut).catch(() => false);
       pages.push(canvas.toDataURL('image/png'));
       page.cleanup();
     }
@@ -101,6 +105,84 @@ export type LabelItem = { name: string; qty: number };
 type PdfPage = Awaited<ReturnType<Awaited<ReturnType<typeof getDocument>['promise']>['getPage']>>;
 type PdfViewport = ReturnType<PdfPage['getViewport']>;
 
+type RowCut = { below: number; by: number };
+
+/** موضع نص ثابت في ملصق هاي إكسبريس (عنوان خانة) على اللوحة. */
+async function findLabelText(page: PdfPage, viewport: PdfViewport, dx: number, match: (text: string) => boolean) {
+  const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  const tc = await page.getTextContent();
+  for (const t of tc.items) {
+    if (!('str' in t) || !t.str) continue;
+    if (!match(norm(t.str))) continue;
+    const [x, y] = viewport.convertToViewportPoint(t.transform[4], t.transform[5]);
+    return { x: x + dx, y };
+  }
+  return null;
+}
+
+/**
+ * يحذف صف «الزبون» (اسم الزبونة) من صورة الملصق كاملاً: ما تحته يرتفع بارتفاع الصف، والفراغ الذي
+ * يتركه أسفل الملصق تستثمره خانة «مواد الطلب». الاسم يبقى في التطبيق وعند شركة التوصيل.
+ * إن لم يُعرف الصف بيقين (خطوط الجدول) يبقى الملصق كما هو.
+ */
+async function removeCustomerRow(
+  ctx: CanvasRenderingContext2D,
+  page: PdfPage,
+  viewport: PdfViewport,
+  dx: number,
+  dpi: number,
+  labelBottom: number,
+): Promise<RowCut | null> {
+  const mm = dpi / 25.4;
+  const label = await findLabelText(page, viewport, dx, t => t === 'الزبون' || t === 'اسم الزبون' || t === 'الزبون:');
+  if (!label) return null;
+  const W = ctx.canvas.width;
+  const H = Math.min(ctx.canvas.height, labelBottom);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const dark = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const i = (y * W + x) * 4;
+    return d[i] + d[i + 1] + d[i + 2] < 330;
+  };
+  const yMid = Math.round(label.y - 1.1 * mm);
+  /** خط عمودي حقيقي: داكن في 90% من 3مم حول منتصف الصف. */
+  const vertical = (x: number) => {
+    let n = 0, total = 0;
+    for (let y = yMid - Math.round(1.5 * mm); y <= yMid + Math.round(1.5 * mm); y++, total++) if (dark(x, y) || dark(x + 1, y)) n++;
+    return n >= total * 0.9;
+  };
+  let divider = -1;
+  for (let x = Math.round(label.x) - 2; x > W * 0.35; x--) if (vertical(x)) { divider = x; break; }
+  if (divider < 0) return null;
+  let left = -1;
+  for (let x = divider - Math.round(4 * mm); x > 0; x--) if (vertical(x)) { left = x; break; }
+  if (left < 0 || divider - left < 30 * mm) return null;
+  /** خط أفقي: داكن في 90% من عرض خانة القيمة. */
+  const horizontal = (y: number) => {
+    let n = 0, total = 0;
+    for (let x = left + 3; x < divider - 3; x += 2, total++) if (dark(x, y)) n++;
+    return total > 0 && n >= total * 0.9;
+  };
+  let top = -1;
+  for (let y = yMid; y > 0; y--) if (horizontal(y)) { top = y; break; }
+  let bottom = -1;
+  for (let y = yMid; y < H; y++) if (horizontal(y)) { bottom = y; break; }
+  if (top < 0 || bottom < 0) return null;
+  while (top > 0 && horizontal(top - 1)) top--;
+  // من أعلى خط الصف إلى أعلى خطه السفلي: يُغطّي الخط السفلي مكان العلوي فيبقى الجدول متصلاً.
+  const by = bottom - top;
+  if (by < 2 * mm || by > 16 * mm) return null;
+  let lastInk = H - 1;
+  scan: for (; lastInk > bottom; lastInk--) {
+    for (let x = 0; x < W; x += 2) if (dark(x, lastInk)) break scan;
+  }
+  const part = ctx.getImageData(0, bottom, W, lastInk - bottom + 1);
+  ctx.putImageData(part, 0, top);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, top + part.height, W, by);
+  return { below: bottom, by };
+}
+
 /**
  * خانة «مواد الطلب» في ملصق هاي إكسبريس تُعاد كتابتها جدولاً من بياناتنا: «منتج | عدد | منتج | عدد»
  * بلا عناوين، بخط أصغر، والاسم الطويل يُختصر من وسطه (بدايته … نهايته). يُزاد ارتفاع الصف من الفراغ
@@ -115,19 +197,13 @@ async function redrawItemsCell(
   items: LabelItem[],
   dpi: number,
   labelBottom: number,
+  /** صف حُذف فوق الخانة (اسم الزبون): ما تحته ارتفع بمقدار by. */
+  cut?: RowCut | null,
 ): Promise<boolean> {
   const mm = dpi / 25.4;
-  const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, ' ').trim();
-  const tc = await page.getTextContent();
-  let label: { x: number; y: number } | null = null;
-  for (const t of tc.items) {
-    if (!('str' in t) || !t.str) continue;
-    if (!norm(t.str).includes('مواد الطلب')) continue;
-    const [x, y] = viewport.convertToViewportPoint(t.transform[4], t.transform[5]);
-    label = { x: x + dx, y };
-    break;
-  }
+  const label = await findLabelText(page, viewport, dx, t => t.includes('مواد الطلب'));
   if (!label) return false;
+  if (cut && label.y > cut.below) label.y -= cut.by;
 
   const W = ctx.canvas.width;
   const H = Math.min(ctx.canvas.height, labelBottom);
@@ -469,7 +545,10 @@ export async function resolveLabelPaper(): Promise<{ widthMm: number; heightMm: 
  * يطبع ملصق هاي إكسبريس على طابعة الملصقات. copies = نسخ لكل طرد × عدد الطرود.
  * في المتصفح (بلا تطبيق سطح المكتب) يُفتح الـPDF للطباعة اليدوية.
  */
-export async function printCourierLabel(pdfBase64: string, opts: { copies: number; printerName: string | null; items?: LabelItem[] | null }) {
+export async function printCourierLabel(
+  pdfBase64: string,
+  opts: { copies: number; printerName: string | null; items?: LabelItem[] | null; hideCustomer?: boolean },
+) {
   const copies = Math.max(1, Math.min(50, Math.round(opts.copies)));
   if (!window.fotDesktop?.printRaster) {
     const blob = new Blob([base64ToBytes(pdfBase64)], { type: 'application/pdf' });
@@ -477,7 +556,7 @@ export async function printCourierLabel(pdfBase64: string, opts: { copies: numbe
     return;
   }
   if (!opts.printerName) throw new Error('اختر طابعة الملصقات من «إعدادات الطباعة» أولاً — لا يُطبع الملصق على الطابعة الحرارية');
-  const label = await rasterizeLabelPdf(pdfBase64, LABEL_DPI, await resolveLabelPaper(), await resolveLabelBrand(), opts.items);
+  const label = await rasterizeLabelPdf(pdfBase64, LABEL_DPI, await resolveLabelPaper(), await resolveLabelBrand(), opts.items, !!opts.hideCustomer);
   const res = await window.fotDesktop.printRaster(label.pages, {
     widthMm: label.widthMm,
     heightMm: label.heightMm,

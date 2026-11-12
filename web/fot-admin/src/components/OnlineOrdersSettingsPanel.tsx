@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api, formatNum } from '@/api/client';
-import type { OnlineOrdersSettingsDto, PosCreditAccountDto, ProductDto } from '@/api/types';
+import type { OnlineOrdersSettingsDto, PosCreditAccountDto } from '@/api/types';
 import { useToast } from '@/components/Toast';
 import { Alert, Badge, Btn, Field, FieldRow, Input, Skeleton, Switch } from '@/components/ui';
 import { IconCart, IconPrinter, IconRefresh, IconSearch, IconWallet, IconX } from '@/components/icons';
@@ -83,47 +83,6 @@ function AccountPicker({
             >
               <span className="truncate"><b className="tabular-nums">{a.num}</b> — {a.name}</span>
               <span className="shrink-0 tabular-nums text-[11px] text-slate-500">{formatNum(a.balance)}</span>
-            </button>
-          ))}
-          {search.data && search.data.length === 0 && <div className="p-2 text-[12px] text-slate-400">لا نتائج</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** مادة الكتالوج التي تحمل أجور التوصيل + التغليف في إيصال المحل. */
-function ArticlePicker({ value, name, onChange }: { value?: number | null; name?: string | null; onChange: (p: ProductDto | null) => void }) {
-  const [q, setQ] = useState('');
-  const debounced = useDebounced(q);
-  const search = useQuery({
-    queryKey: ['products-search', debounced],
-    queryFn: () => api.searchProducts(debounced),
-    enabled: debounced.length >= 2,
-  });
-  return (
-    <div className="space-y-2">
-      <div className="min-h-[28px]">
-        {value ? <Picked text={name || `#${value}`} onClear={() => onChange(null)} /> : (
-          <span className="text-[12px] text-amber-700">لم تُختر — الطلبات التي فيها أجور توصيل لن تُفوتر.</span>
-        )}
-      </div>
-      <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 start-2 flex items-center text-slate-400"><IconSearch size={14} /></span>
-        <Input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث «أجور توصيل» أو الباركود" className="w-full ps-7" />
-      </div>
-      {debounced.length >= 2 && (
-        <div className="max-h-48 overflow-auto rounded-lg border border-slate-200">
-          {search.isLoading && <div className="p-2 text-[12px] text-slate-400">جاري البحث…</div>}
-          {(search.data ?? []).map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => { onChange(p); setQ(''); }}
-              className={`flex w-full items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-1.5 text-right text-[12.5px] last:border-b-0 hover:bg-slate-50 ${p.id === value ? 'bg-brand-50' : ''}`}
-            >
-              <span className="truncate">{p.name}</span>
-              <span className="shrink-0 font-mono text-[11px] text-slate-500" dir="ltr">{p.barcode || p.num}</span>
             </button>
           ))}
           {search.data && search.data.length === 0 && <div className="p-2 text-[12px] text-slate-400">لا نتائج</div>}
@@ -263,17 +222,6 @@ export function OnlineOrdersSettingsPanel() {
           />
         </SettingsCard>
         <SettingsCard
-          title="مادة أجور التغليف (الاستلام من المحل)"
-          description="طلبات التوصيل: أجور التوصيل وتغليف الهدية لا تدخل الفاتورة ولا الإداري — تحصّلها شركة التوصيل مع الطلب، وتظهر ملاحظةً على الفاتورة في قائمة الفواتير. هذه المادة تُستعمل فقط لتغليف هدية في طلب «استلام من المحل»."
-          icon={<IconCart size={16} />}
-        >
-          <ArticlePicker
-            value={form.deliveryArticleId}
-            name={form.deliveryArticleName}
-            onChange={p => setForm(f => (f ? { ...f, deliveryArticleId: p?.id ?? null, deliveryArticleName: p?.name ?? null } : f))}
-          />
-        </SettingsCard>
-        <SettingsCard
           title="الطباعة"
           description="الإيصال والفاتورة على الطابعة الحرارية 80مم. ملصق الشحن هو ملصق هاي إكسبريس نفسه ويُطبع على طابعة الملصقات فقط. 0 نسخ = لا يُطبع."
           icon={<IconPrinter size={16} />}
@@ -310,6 +258,12 @@ export function OnlineOrdersSettingsPanel() {
               description="يمسح الكاشير كل قطعة من الطلب قبل أن يُفتح زر «إتمام وطباعة»."
               checked={form.doubleCheck}
               onChange={v => set('doubleCheck', v)}
+            />
+            <Switch
+              label="إخفاء اسم الزبونة من ملصق التوصيل"
+              description="يُطبع ملصق شركة التوصيل بلا اسم الزبونة، وتذهب مساحته لـ«مواد الطلب». يبقى الاسم في التطبيق وعند شركة التوصيل."
+              checked={!!form.labelHideCustomer}
+              onChange={v => set('labelHideCustomer', v)}
             />
           </div>
         </SettingsCard>
