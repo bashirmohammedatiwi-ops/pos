@@ -1240,6 +1240,8 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
   const [printers, setPrinters] = useState<{ name: string; displayName?: string; isDefault?: boolean }[] | null>(null);
   const [receipt, setReceipt] = useState<string>('');
   const [label, setLabel] = useState<string>('');
+  const [paperW, setPaperW] = useState('100');
+  const [paperH, setPaperH] = useState('150');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const desktop = !!window.fotDesktop?.listPrinters;
@@ -1254,6 +1256,8 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
         setPrinters(list as { name: string; displayName?: string; isDefault?: boolean }[]);
         setReceipt(cfg?.printerName ?? '');
         setLabel(cfg?.labelPrinterName ?? '');
+        if (cfg?.labelWidthMm) setPaperW(String(cfg.labelWidthMm));
+        if (cfg?.labelHeightMm) setPaperH(String(cfg.labelHeightMm));
       } catch (e) {
         setError(errorText(e));
         setPrinters([]);
@@ -1262,10 +1266,16 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
   }, []);
 
   async function save() {
+    const w = Number(paperW);
+    const h = Number(paperH);
+    if (!(w >= 30 && w <= 300 && h >= 30 && h <= 300)) {
+      setError('مقاس ورق الملصق بين 30 و300 ملم');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await window.fotDesktop?.setPrintConfig?.({ printerName: receipt || null, labelPrinterName: label || null });
+      await window.fotDesktop?.setPrintConfig?.({ printerName: receipt || null, labelPrinterName: label || null, labelWidthMm: w, labelHeightMm: h });
       onClose();
     } catch (e) {
       setError(errorText(e));
@@ -1310,6 +1320,17 @@ function PrintersDialog({ fallbackLabelPrinter, onClose }: { fallbackLabelPrinte
               <span className="mt-1 block text-[12px] font-bold text-[#DB8B12]">نفس الطابعة الحرارية — تأكد أنها طابعة ملصقات.</span>
             )}
           </label>
+          <div>
+            <span className="mb-1 block text-[13px] font-bold text-slate-700">مقاس ورق الملصق (ملم)</span>
+            <div className="flex items-center gap-2" dir="ltr">
+              <input value={paperW} onChange={e => setPaperW(e.target.value.replace(/[^\d.]/g, ''))} className="pos-field num w-20 text-center text-[13px]" />
+              <span className="text-slate-500">×</span>
+              <input value={paperH} onChange={e => setPaperH(e.target.value.replace(/[^\d.]/g, ''))} className="pos-field num w-20 text-center text-[13px]" />
+            </div>
+            <span className="mt-1 block text-[12px] leading-5 text-slate-500">
+              العرض × الطول. ملصق هاي إكسبريس 105×148.5 ملم يُصغَّر ليدخل كاملاً (الشائع 100×150).
+            </span>
+          </div>
         </div>
       )}
       {error && <div className="mt-3 text-[13px] font-bold text-[#D64545]">{error}</div>}

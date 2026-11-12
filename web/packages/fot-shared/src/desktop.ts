@@ -97,8 +97,21 @@ export type FotDesktopBridge = {
   ) => Promise<{ ok: boolean; message?: string; rows?: number }>;
   listPrinters?: () => Promise<PrinterInfo[]>;
   /** labelPrinterName: طابعة الملصقات لهذا الجهاز (ملصقات الشحن والباركود) — من إصدار 2.6. */
-  getPrintConfig?: () => Promise<{ printerName: string | null; askBeforePrint: boolean; labelPrinterName?: string | null }>;
-  setPrintConfig?: (config: { printerName?: string | null; askBeforePrint?: boolean; labelPrinterName?: string | null }) => Promise<void>;
+  getPrintConfig?: () => Promise<{
+    printerName: string | null;
+    askBeforePrint: boolean;
+    labelPrinterName?: string | null;
+    /** مقاس ورق طابعة الملصقات بالملم (الافتراضي 100×150). */
+    labelWidthMm?: number | null;
+    labelHeightMm?: number | null;
+  }>;
+  setPrintConfig?: (config: {
+    printerName?: string | null;
+    askBeforePrint?: boolean;
+    labelPrinterName?: string | null;
+    labelWidthMm?: number | null;
+    labelHeightMm?: number | null;
+  }) => Promise<void>;
   getFullScreen?: () => Promise<boolean>;
   setFullScreen?: (flag: boolean) => Promise<boolean>;
   toggleFullScreen?: () => Promise<boolean>;

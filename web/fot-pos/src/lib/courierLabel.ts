@@ -21,8 +21,18 @@ function base64ToBytes(b64: string) {
   return out;
 }
 
-/** صفحات PDF الملصق ← صور PNG بدقة الطابعة، مع مقاس الصفحة الأولى بالملم. */
-export async function rasterizeLabelPdf(pdfBase64: string, dpi = LABEL_DPI): Promise<RasterLabel> {
+/** ورق الملصقات الشائع 100×150مم؛ ملصق هاي إكسبريس A6 (105×148.5مم) يُصغَّر ليدخل كاملاً. */
+export const DEFAULT_LABEL_PAPER = { widthMm: 100, heightMm: 150 };
+
+/**
+ * صفحات PDF الملصق ← صور PNG بدقة الطابعة. مع paper: يُصغَّر الملصق (بنسبته) ليدخل في ورق الطابعة
+ * كاملاً ويُوسَّط أفقياً، ومقاس الصفحة المطبوعة = مقاس الورق. بلاه: مقاس صفحة الـPDF كما هو.
+ */
+export async function rasterizeLabelPdf(
+  pdfBase64: string,
+  dpi = LABEL_DPI,
+  paper?: { widthMm: number; heightMm: number } | null,
+): Promise<RasterLabel> {
   const pdf = await getDocument({ data: base64ToBytes(pdfBase64), isEvalSupported: false }).promise;
   try {
     const pages: string[] = [];
@@ -31,11 +41,29 @@ export async function rasterizeLabelPdf(pdfBase64: string, dpi = LABEL_DPI): Pro
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n);
       const base = page.getViewport({ scale: 1 });
+      const pageW = base.width * MM_PER_PT;
+      const pageH = base.height * MM_PER_PT;
+      const fit = paper ? Math.min(1, paper.widthMm / pageW, paper.heightMm / pageH) : 1;
       if (n === 1) {
-        widthMm = base.width * MM_PER_PT;
-        heightMm = base.height * MM_PER_PT;
+        widthMm = paper ? paper.widthMm : pageW;
+        heightMm = paper ? paper.heightMm : pageH;
       }
-      const viewport = page.getViewport({ scale: dpi / 72 });
+      const viewport = page.getViewport({ scale: (dpi / 72) * fit });
+      if (paper) {
+        // لوحة بمقاس الورق والملصق في وسطها أفقياً (من الأعلى).
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round((paper.widthMm / 25.4) * dpi);
+        canvas.height = Math.round((paper.heightMm / 25.4) * dpi);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('تعذر تجهيز صورة الملصق');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const dx = Math.max(0, Math.round((canvas.width - viewport.width) / 2));
+        await page.render({ canvasContext: ctx, viewport, transform: [1, 0, 0, 1, dx, 0] }).promise;
+        pages.push(canvas.toDataURL('image/png'));
+        page.cleanup();
+        continue;
+      }
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
@@ -65,6 +93,19 @@ export async function resolveLabelPrinter(fallback?: string | null): Promise<str
   return fallback?.trim() || null;
 }
 
+/** مقاس ورق طابعة الملصقات لهذا الجهاز (الافتراضي 100×150مم). */
+export async function resolveLabelPaper(): Promise<{ widthMm: number; heightMm: number }> {
+  try {
+    const cfg = await window.fotDesktop?.getPrintConfig?.();
+    const w = Number(cfg?.labelWidthMm);
+    const h = Number(cfg?.labelHeightMm);
+    if (w >= 30 && w <= 300 && h >= 30 && h <= 300) return { widthMm: w, heightMm: h };
+  } catch {
+    /* الافتراضي */
+  }
+  return DEFAULT_LABEL_PAPER;
+}
+
 /**
  * يطبع ملصق هاي إكسبريس على طابعة الملصقات. copies = نسخ لكل طرد × عدد الطرود.
  * في المتصفح (بلا تطبيق سطح المكتب) يُفتح الـPDF للطباعة اليدوية.
@@ -77,7 +118,7 @@ export async function printCourierLabel(pdfBase64: string, opts: { copies: numbe
     return;
   }
   if (!opts.printerName) throw new Error('اختر طابعة الملصقات من «إعدادات الطباعة» أولاً — لا يُطبع الملصق على الطابعة الحرارية');
-  const label = await rasterizeLabelPdf(pdfBase64);
+  const label = await rasterizeLabelPdf(pdfBase64, LABEL_DPI, await resolveLabelPaper());
   const res = await window.fotDesktop.printRaster(label.pages, {
     widthMm: label.widthMm,
     heightMm: label.heightMm,
