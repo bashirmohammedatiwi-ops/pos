@@ -15,7 +15,9 @@
     "dist:server": "electron-builder --win nsis --config builder/server.json",
     "dist:admin": "electron-builder --win nsis --config builder/admin.json",
     "dist:cashier": "electron-builder --win nsis --config builder/cashier.json",
-    "dist:all": "npm run build:admin && npm run build:pos && npm run dist:cashier && npm run dist:admin && npm run dist:server",
+    "dist:orders": "electron-builder --win nsis --config builder/orders.json",
+    "start:orders": "cross-env FOT_APP=orders electron . --orders",
+    "dist:all": "npm run build:admin && npm run build:pos && npm run dist:cashier && npm run dist:orders && npm run dist:admin && npm run dist:server",
     "dist": "npm run dist:all"
   },
   "devDependencies": {

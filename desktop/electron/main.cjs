@@ -19,7 +19,7 @@ const {
   watchdogTick,
   resolveApiExe,
 } = require('./apiHost.cjs');
-const { resolveRole } = require('./role.cjs');
+const { resolveRole, isPosLikeRole } = require('./role.cjs');
 const {
   ensureConnected: ensureCardReader,
   isNotConnectedMessage: isCardReaderDetached,
@@ -57,6 +57,8 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 const role = resolveRole();
+/** الكاشير و«كاشير الطلبات» — نفس سلوك نقطة البيع. */
+const posLike = isPosLikeRole(role);
 process.env.FOT_APP = role;
 const isDev = !app.isPackaged;
 function isSilentArgv(argv = process.argv) {
@@ -91,7 +93,7 @@ let quitting = false;
 const reloadGuard = { count: 0, windowStart: Date.now() };
 // POS only: consumed once per app launch so the renderer forces a fresh login on
 // every app restart while crash-heal reloads within the same launch keep the session.
-let freshLaunchPending = role === 'pos';
+let freshLaunchPending = posLike;
 
 function canReloadWindow(reason) {
   const now = Date.now();
@@ -127,9 +129,9 @@ process.on('unhandledRejection', reason => {
 
 function rendererIndex() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, role === 'pos' ? 'fot-pos' : 'fot-admin', 'index.html');
+    return path.join(process.resourcesPath, posLike ? 'fot-pos' : 'fot-admin', 'index.html');
   }
-  return path.join(__dirname, '..', '..', 'web', role === 'pos' ? 'fot-pos' : 'fot-admin', 'dist', 'index.html');
+  return path.join(__dirname, '..', '..', 'web', posLike ? 'fot-pos' : 'fot-admin', 'dist', 'index.html');
 }
 
 function recoveryIndex() {
@@ -151,7 +153,7 @@ function isSilentServerStart() {
 
 /** Admin or Server started by Windows login / --background: no UI. */
 function shouldStartHidden() {
-  if (role === 'pos') return false;
+  if (posLike) return false;
   return startBackground || isSilentServerStart();
 }
 
@@ -211,7 +213,7 @@ function loadApp(win) {
   win.__fotLoaded = true;
   win.__fotHiddenAt = 0;
   if (isDev) {
-    const devUrl = role === 'pos' ? 'http://127.0.0.1:5174' : 'http://127.0.0.1:5173';
+    const devUrl = role === 'orders' ? 'http://127.0.0.1:5174/?mode=orders' : role === 'pos' ? 'http://127.0.0.1:5174' : 'http://127.0.0.1:5173';
     void win.loadURL(devUrl);
     return;
   }
@@ -227,8 +229,8 @@ function loadRecovery(win) {
 let splashWindow = null;
 
 function splashHtml() {
-  const bg = role === 'pos' ? '#0b1220' : '#0f172a';
-  const title = role === 'pos' ? 'نقطة البيع' : 'لوحة التحكم';
+  const bg = posLike ? '#0b1220' : '#0f172a';
+  const title = role === 'orders' ? 'كاشير الطلبات' : role === 'pos' ? 'نقطة البيع' : 'لوحة التحكم';
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head><meta charset="UTF-8"><style>
@@ -263,7 +265,7 @@ function createSplash() {
       alwaysOnTop: true,
       focusable: false,
       show: true,
-      backgroundColor: role === 'pos' ? '#0b1220' : '#0f172a',
+      backgroundColor: posLike ? '#0b1220' : '#0f172a',
       webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true },
     });
     void splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`);
@@ -288,7 +290,7 @@ function revealMainWindow(win) {
   if (!win || win.isDestroyed()) return;
   if (!win.isVisible()) {
     win.show();
-    if (role === 'pos' && !win.isFullScreen()) win.maximize();
+    if (posLike && !win.isFullScreen()) win.maximize();
   }
   closeSplash();
 }
@@ -409,8 +411,8 @@ function createTray() {
 
 function createWindow() {
   const userData = app.getPath('userData');
-  const windowCfg = readWindowConfig(userData, { fullscreen: role === 'pos' });
-  const startFullscreen = role === 'pos' && windowCfg.fullscreen !== false;
+  const windowCfg = readWindowConfig(userData, { fullscreen: posLike });
+  const startFullscreen = posLike && windowCfg.fullscreen !== false;
 
   const win = new BrowserWindow({
     width: 1480,
@@ -419,8 +421,8 @@ function createWindow() {
     minHeight: 700,
     fullscreen: startFullscreen,
     fullscreenable: true,
-    backgroundColor: role === 'pos' ? '#0b1220' : '#0f172a',
-    title: role === 'pos' ? 'FOT POS — الكاشير' : isServerEdition() ? 'FOT POS — الخادم الرئيسي' : 'FOT POS — لوحة التحكم',
+    backgroundColor: posLike ? '#0b1220' : '#0f172a',
+    title: role === 'orders' ? 'FOT POS — كاشير الطلبات' : role === 'pos' ? 'FOT POS — الكاشير' : isServerEdition() ? 'FOT POS — الخادم الرئيسي' : 'FOT POS — لوحة التحكم',
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -510,11 +512,11 @@ function createWindow() {
   });
 
   win.on('enter-full-screen', () => {
-    writeWindowConfig(userData, { fullscreen: true }, { fullscreen: role === 'pos' });
+    writeWindowConfig(userData, { fullscreen: true }, { fullscreen: posLike });
   });
   win.on('leave-full-screen', () => {
-    writeWindowConfig(userData, { fullscreen: false }, { fullscreen: role === 'pos' });
-    if (role === 'pos') win.maximize();
+    writeWindowConfig(userData, { fullscreen: false }, { fullscreen: posLike });
+    if (posLike) win.maximize();
   });
 
   win.on('close', event => {
@@ -604,7 +606,7 @@ ipcMain.handle('window:fullscreen:set', (event, flag) => {
   const win = windowFromEvent(event);
   if (!win) return false;
   win.setFullScreen(Boolean(flag));
-  writeWindowConfig(app.getPath('userData'), { fullscreen: Boolean(flag) }, { fullscreen: role === 'pos' });
+  writeWindowConfig(app.getPath('userData'), { fullscreen: Boolean(flag) }, { fullscreen: posLike });
   return win.isFullScreen();
 });
 ipcMain.handle('window:fullscreen:toggle', event => {
@@ -612,7 +614,7 @@ ipcMain.handle('window:fullscreen:toggle', event => {
   if (!win) return false;
   const next = !win.isFullScreen();
   win.setFullScreen(next);
-  writeWindowConfig(app.getPath('userData'), { fullscreen: next }, { fullscreen: role === 'pos' });
+  writeWindowConfig(app.getPath('userData'), { fullscreen: next }, { fullscreen: posLike });
   return next;
 });
 
@@ -806,7 +808,7 @@ ipcMain.handle('card:charge', async (_event, payload) => {
 });
 
 function configureAutostart() {
-  if (role === 'pos') return;
+  if (posLike) return;
   try {
     // Electron's own login item opens a window. The server uses --background instead.
     app.setLoginItemSettings({ openAtLogin: false });
@@ -852,7 +854,7 @@ app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   configure(userData);
   configureCrashLog(userData);
-  if (role === 'pos') warmupTts(userData);
+  if (role === 'pos') warmupTts(userData); // TTS للكاشير فقط
   const dirty = wasDirtyShutdown(userData);
   markRunning(userData);
   if (dirty) {
@@ -876,7 +878,7 @@ app.whenReady().then(async () => {
     if (isLoginLaunch()) await waitForDesktopSession();
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
     if (win && !win.__fotLoaded) loadApp(win);
-    const result = await ensureApi({ isDev, startup: true, probeOnly: role === 'pos' });
+    const result = await ensureApi({ isDev, startup: true, probeOnly: posLike });
     if (isServerEdition()) refreshTray(Boolean(result?.ok), result?.url);
   })();
   setInterval(() => {

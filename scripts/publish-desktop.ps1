@@ -1,4 +1,4 @@
-# FOT POS — publish three Electron installers (server / admin / cashier)
+# FOT POS — publish four Electron installers (server / admin / cashier / orders cashier)
 param(
     [switch]$KeepRunning
 )
@@ -42,7 +42,7 @@ function Get-ProductVersion {
     return $ver
 }
 
-Write-Host "Building FOT POS Electron installers (self-contained API + 3 setups)..." -ForegroundColor Cyan
+Write-Host "Building FOT POS Electron installers (self-contained API + 4 setups)..." -ForegroundColor Cyan
 $productVersion = Get-ProductVersion
 Write-Host "Product version: $productVersion" -ForegroundColor DarkCyan
 Write-Host ""
@@ -55,7 +55,7 @@ Write-Host ""
 function Stop-FotPosProcesses {
     $names = @(
         'FOT.Pos.Api', 'FOT.Pos.Server', 'FOT.Pos.Admin', 'FOT.Pos.Client', 'FOT.Pos.Admin.Remote',
-        'FOT POS', 'FOT POS Server', 'FOT POS Admin', 'FOT POS Cashier'
+        'FOT POS', 'FOT POS Server', 'FOT POS Admin', 'FOT POS Cashier', 'FOT POS Orders'
     )
     foreach ($n in $names) {
         Get-Process -Name $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -156,6 +156,10 @@ try {
     npm run dist:cashier
     if ($LASTEXITCODE -ne 0) { throw "Cashier installer build failed" }
 
+    Write-Host "[2b/4] Electron orders-cashier installer (same fot-pos UI, orders role)..." -ForegroundColor Yellow
+    npm run dist:orders
+    if ($LASTEXITCODE -ne 0) { throw "Orders cashier installer build failed" }
+
     Write-Host "[3/4] Electron admin installer..." -ForegroundColor Yellow
     npm run dist:admin
     if ($LASTEXITCODE -ne 0) { throw "Admin installer build failed" }
@@ -164,7 +168,7 @@ try {
     npm run dist:server
     if ($LASTEXITCODE -ne 0) { throw "Server installer build failed" }
 
-    foreach ($sub in @("cashier", "admin", "server")) {
+    foreach ($sub in @("cashier", "orders", "admin", "server")) {
         $dir = Join-Path $desktopDir "dist-out84\$sub"
         if (Test-Path $dir) {
             Get-ChildItem $dir -Filter "FOT-POS-*-Setup.exe" | Copy-Item -Destination $installerOut -Force
@@ -179,7 +183,7 @@ Write-Utf8 (Join-Path $installerOut "README-AR.txt") @"
 FOT POS — ملفات التثبيت (الإصدار $productVersion)
 =====================================
 
-ثلاثة ملفات منفصلة. ثبّت ما يناسب الجهاز فقط.
+أربعة ملفات منفصلة. ثبّت ما يناسب الجهاز فقط.
 
 1) الحاسبة الرئيسية (الخادم + لوحة التحكم)
    FOT-POS-Server-Setup.exe
@@ -197,6 +201,11 @@ FOT POS — ملفات التثبيت (الإصدار $productVersion)
    FOT-POS-Cashier-Setup.exe
    نقطة البيع فقط. نفس عنوان API، أو بحث تلقائي على الشبكة.
    إن بعت من الحاسبة الرئيسية أيضاً: ثبّت هذا الملف عليها بعد ملف الخادم.
+
+4) جهاز كاشير الطلبات (طلبات تطبيق ديما الحياة)
+   FOT-POS-Orders-Setup.exe
+   نفس واجهة الكاشير مفتوحة على شاشة «كاشير الطلبات» — يتطلب اتصالاً بالخادم والإنترنت.
+   الدخول لكاشير يملك صلاحية «كاشير الطلبات» فقط.
 
 إذا كان البرنامج مثبتاً مسبقاً، يعرض المعالج تحديثاً ويحافظ على الإعدادات.
 "@

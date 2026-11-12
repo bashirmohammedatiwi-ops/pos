@@ -1,0 +1,43 @@
+{
+  "appId": "com.fot.pos.orders",
+  "productName": "FOT POS Orders",
+  "copyright": "Copyright © Future of Technology",
+  "directories": {
+    "output": "dist-out84/orders"
+  },
+  "files": [
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "roles/orders.txt",
+      "to": "fot-role.txt"
+    },
+    {
+      "from": "../web/fot-pos/dist",
+      "to": "fot-pos"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "FOT-POS-Orders-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FOT POS كاشير الطلبات",
+    "include": "electron/installer-orders.nsh",
+    "deleteAppDataOnUninstall": false,
+    "artifactName": "FOT-POS-Orders-Setup.exe"
+  },
+  "asar": true
+}

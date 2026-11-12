@@ -4,8 +4,9 @@ function resolvePreloadRole() {
   const fromArg = process.argv.find(a => a.startsWith('--fot-role='));
   if (fromArg) {
     const value = fromArg.slice('--fot-role='.length);
-    if (value === 'pos' || value === 'admin') return value;
+    if (value === 'pos' || value === 'orders' || value === 'admin') return value;
   }
+  if (process.argv.includes('--orders') || process.env.FOT_APP === 'orders') return 'orders';
   if (process.argv.includes('--pos') || process.env.FOT_APP === 'pos') return 'pos';
   if (process.argv.includes('--admin') || process.env.FOT_APP === 'admin') return 'admin';
   return 'admin';
