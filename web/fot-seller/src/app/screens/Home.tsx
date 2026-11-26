@@ -14,6 +14,7 @@ import { AckCenter, HomeAlerts } from './Acks';
 import { AttendCard, HoursCard } from './Attend';
 import { getTeamToken } from '../../team';
 import { InstallCard } from '../Install';
+import { BellButton } from '../NotifPanel';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الرئيسية — تحية، بطاقة عمولة الأسبوع بأعمدة الأيام، الأهداف، البراندات، آخر المبيعات.
@@ -38,16 +39,7 @@ function Greeting({ name, sub, unread }: { name: string; sub: string; unread?: n
           <div className="hello">{greet()}</div>
           <div className="who">{name}</div>
         </div>
-        {unread !== undefined && (
-          <Link to="/alerts" className="t-icon-btn t-bell press" aria-label={unread ? `${unread} تبليغ غير مقروء` : 'التبليغات'} onClick={() => haptic('tap')}>
-            <I.bell size={20} />
-            {unread > 0 && (
-              <span key={unread} className="dot num">
-                {unread > 9 ? '9+' : unread}
-              </span>
-            )}
-          </Link>
-        )}
+        {unread !== undefined && <BellButton unread={unread} role="staff" to="/alerts" />}
       </header>
       <p className="t-date">
         {iraqToday()}

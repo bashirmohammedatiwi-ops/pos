@@ -1452,3 +1452,185 @@ html.web.theme-anim * {
     padding: 0;
   }
 }
+
+/* صفحات الإعدادات (المزيد، حسابي) على الحاسبة: البطاقة الشخصية بعرض كامل والأقسام في عمودين */
+@media (min-width: 1024px) {
+  html.web .t-page:has(> .t-me) {
+    columns: 2;
+    column-gap: 24px;
+  }
+  html.web .t-page:has(> .t-me) > .t-large,
+  html.web .t-page:has(> .t-me) > div:first-child,
+  html.web .t-page:has(> .t-me) > .t-me {
+    column-span: all;
+  }
+  html.web .t-page:has(> .t-me) > .t-me {
+    margin-bottom: 6px;
+  }
+  html.web .t-page:has(> .t-me) > :not(.t-large):not(.t-me):not(:first-child) {
+    display: inline-block;
+    width: 100%;
+    break-inside: avoid;
+  }
+  html.web .t-page:has(> .t-me) .t-menu {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* اختصارات لوحة المفاتيح */
+.kb-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kb-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--bg-sunk);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.kb-list li span:last-child {
+  display: inline-flex;
+  gap: 4px;
+  direction: ltr;
+}
+
+/* ═════════════ لوحة التبليغات من الجرس (الحاسبة) ═════════════ */
+.np-wrap {
+  position: relative;
+}
+.t-bell.on {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.np {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 10px);
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-height: min(620px, calc(100dvh - 120px));
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 22px;
+  background: var(--bg-elev);
+  box-shadow:
+    0 30px 70px -24px rgba(0, 0, 0, 0.55),
+    var(--shadow-2);
+  animation: pk-in 0.2s var(--spring, var(--ease));
+  transform-origin: top left;
+}
+.np-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 8px;
+}
+.np-head b {
+  font-size: 16px;
+  font-weight: 800;
+}
+.np-head .grow {
+  flex: 1;
+}
+.np-count {
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.np-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.np-link:hover {
+  background: var(--brand);
+  color: #fff;
+}
+.np-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.np-tabs button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.np-tabs button:hover {
+  background: var(--bg-sunk);
+  color: var(--ink);
+}
+.np-tabs button.on {
+  background: var(--bg-sunk);
+  color: var(--ink);
+}
+.np-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+  overscroll-behavior: contain;
+}
+.np-body .t-group-label {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  margin: 0;
+  padding: 10px 6px 6px;
+  background: var(--bg-elev);
+}
+.np-body .t-list {
+  border-radius: 16px;
+}
+.np-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 36px 12px;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  text-align: center;
+}
+.np-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-sunk);
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.np-foot:hover {
+  background: var(--brand-soft);
+}

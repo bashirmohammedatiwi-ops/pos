@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { NavLink, useLocation } from 'react-router-dom';
 import { isNative } from '../config';
 import { InstallButton } from './Install';
-import { I, Mark, useWide } from './kit';
+import { I, Mark, Sheet, useWide } from './kit';
 import { haptic, setThemePref } from './native';
 import { Palette, isMac, usePaletteHotkey, type PaletteItem } from './Palette';
 import { useLiveState } from './work';
@@ -81,6 +81,21 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
     return () => document.documentElement.classList.remove('side-mini');
   }, [mini]);
   usePaletteHotkey(openPk, desktop && !isNative());
+  // «?» يعرض اختصارات لوحة المفاتيح
+  const [kb, setKb] = useState(false);
+  useEffect(() => {
+    if (!desktop || isNative()) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      if (e.key === '?' && !typing && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setKb(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [desktop]);
 
   // عنوان التبويب وشارة أيقونة التطبيق المثبّت: مجموع ما ينتظر (التبليغات، المحادثات، الطلبات)
   const total = all.reduce((n, l) => n + (l.badge || 0), 0);
@@ -99,6 +114,7 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
     () => [
       ...main.map(l => ({ id: l.to, label: l.label, group: 'الرئيسية', icon: l.icon, to: l.to, keys: KEYWORDS[l.to], hint: l.badge ? String(l.badge) : undefined })),
       ...groups.flatMap(g => g.items.map(l => ({ id: l.to, label: l.label, group: g.title, icon: l.icon, to: l.to, keys: KEYWORDS[l.to.split('?')[0]], hint: l.badge ? String(l.badge) : undefined }))),
+      { id: 'kb', label: 'اختصارات لوحة المفاتيح', group: 'أوامر', keys: 'كيبورد ازرار shortcuts', icon: <I.info size={18} />, run: () => setKb(true) },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(all.map(l => [l.to, l.label, l.badge]))],
@@ -196,6 +212,32 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
         </div>
       </div>
       <Palette open={pk} onClose={() => setPk(false)} items={items} />
+      <Sheet open={kb} onClose={() => setKb(false)} title="اختصارات لوحة المفاتيح" subtitle="للعمل أسرع على الحاسبة">
+        <ul className="kb-list">
+          {(
+            [
+              ['البحث السريع عن أي صفحة', [isMac() ? '⌘' : 'Ctrl', 'K']],
+              ['البحث السريع (بديل)', ['/']],
+              ['التنقل بين نتائج البحث', ['↑', '↓']],
+              ['فتح النتيجة', ['Enter']],
+              ['إرسال الرسالة في المحادثة', ['Enter']],
+              ['سطر جديد في الرسالة', ['Shift', 'Enter']],
+              ['لصق صورة في المحادثة', [isMac() ? '⌘' : 'Ctrl', 'V']],
+              ['إغلاق النافذة أو اللوحة', ['Esc']],
+              ['هذه القائمة', ['?']],
+            ] as const
+          ).map(([label, keys]) => (
+            <li key={label}>
+              <span>{label}</span>
+              <span>
+                {keys.map(k => (
+                  <kbd key={k}>{k}</kbd>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Sheet>
     </aside>
   );
 }

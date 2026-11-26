@@ -8,6 +8,7 @@ import { SalesHomeCard } from './ManagerSales';
 import { SelfAttendCard } from './ManagerSelf';
 import { CashHomeCard } from './ManagerCash';
 import { InstallCard } from '../Install';
+import { BellButton } from '../NotifPanel';
 import { LEAVE_LABEL, POST_KIND, byName, getManagerMe, leaveWhen, managerApi, managerAttendApi, relTime, supervisorMode, useLoad, usePerms, type Board, type LeaveReq } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -129,16 +130,7 @@ export function AttendStats({ board, active, onPick }: { board: Board; active?: 
 }
 
 function Bell({ unread }: { unread: number }) {
-  return (
-    <Link to="/m/alerts" className="t-icon-btn t-bell press" aria-label={unread ? `${unread} تبليغ غير مقروء` : 'التبليغات'} onClick={() => haptic('tap')}>
-      <I.bell size={20} />
-      {unread > 0 && (
-        <span key={unread} className="dot num">
-          {unread > 9 ? '9+' : unread}
-        </span>
-      )}
-    </Link>
-  );
+  return <BellButton unread={unread} role="manager" to="/m/alerts" />;
 }
 
 export function MHome({ unread, pending, chatUnread }: { unread: number; pending: number; chatUnread: number }) {
