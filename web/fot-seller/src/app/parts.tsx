@@ -295,6 +295,7 @@ const NOTIF_ICON: Record<string, { icon: ReactNode; tone: string }> = {
   'break.over': { icon: <I.coffee size={19} />, tone: 'bad' },
   'attend.late': { icon: <I.clock size={19} />, tone: 'accent' },
   'attend.offday': { icon: <I.calendar size={19} />, tone: 'accent' },
+  'attend.outside': { icon: <I.clock size={19} />, tone: 'accent' },
   'attend.auto': { icon: <I.clock size={19} />, tone: 'bad' },
   'attend.edit': { icon: <I.clock size={19} />, tone: '' },
 };

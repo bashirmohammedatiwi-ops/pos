@@ -167,6 +167,8 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
      );
      CREATE INDEX ix_mattend_mgr ON manager_attendance(manager_id, date);
      CREATE INDEX ix_mattend_date ON manager_attendance(date);`,
+    // الحضور خارج وقت الدوام: مسموح، ويُعلَّم للمدراء
+    `ALTER TABLE attendance ADD COLUMN outside_shift INTEGER NOT NULL DEFAULT 0;`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _attend_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -531,6 +533,8 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       checkOut: a.check_out,
       lateMinutes: a.late_minutes,
       autoClosed: !!a.auto_closed,
+      // سجّل حضوره خارج وقت دوامه (قبل نافذة الحضور أو بعد نهاية الدوام)
+      outsideShift: !!a.outside_shift,
       edited: !!a.edited_by,
       note: a.note,
       workedMinutes: Math.max(0, Math.round((end - Date.parse(a.check_in)) / 60_000) - breakMin),
@@ -659,19 +663,27 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     // التأخير مقابل بداية الوردية التي تخص هذه اللحظة (23:45 لوردية 00:30 = مبكر لا تأخير يوم كامل)
     const w = windowOf(s.id, Date.parse(t));
     const shift = shiftOf(s.id, w.date);
-    if (!hourly && Date.parse(t) < w.start - st.earlyMinutes * 60_000) return { status: 400, body: { error: `الحضور يبدأ قبل الدوام بـ ${st.earlyMinutes} دقيقة فقط (دوامك ${shift.start})` } };
-    const lateRaw = Math.floor((Date.parse(t) - w.start) / 60_000);
-    const late = !hourly && lateRaw > st.graceMinutes ? lateRaw : 0;
-    const r = db.prepare('INSERT INTO attendance (staff_id, date, check_in, in_ip, in_bssid, network_id, device_id, late_minutes, shift_start, shift_end, shift_break) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(s.id, w.date, t, net.ip, net.bssid, net.network?.id ?? null, String(body.deviceId || '').slice(0, 120) || null, late, shift.start, shift.end, shift.breakMinutes);
-    audit(`staff:${s.id}`, 'attend.in', Number(r.lastInsertRowid), { ip: net.ip, bssid: net.bssid, late });
+    const day = hourly ? null : dayFor(s.id, w.date);
+    // خارج وقت الدوام: قبل نافذة الحضور أو بعد نهاية الوردية — يُسمح ويُعلَّم (لا يُحسب تأخيراً)
+    const ms = Date.parse(t);
+    const outside = !hourly && !day?.off && (ms < w.start - st.earlyMinutes * 60_000 || ms > w.end);
+    const lateRaw = Math.floor((ms - w.start) / 60_000);
+    const late = !hourly && !outside && lateRaw > st.graceMinutes ? lateRaw : 0;
+    const r = db.prepare('INSERT INTO attendance (staff_id, date, check_in, in_ip, in_bssid, network_id, device_id, late_minutes, shift_start, shift_end, shift_break, outside_shift) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(s.id, w.date, t, net.ip, net.bssid, net.network?.id ?? null, String(body.deviceId || '').slice(0, 120) || null, late, shift.start, shift.end, shift.breakMinutes, outside ? 1 : 0);
+    audit(`staff:${s.id}`, 'attend.in', Number(r.lastInsertRowid), { ip: net.ip, bssid: net.bssid, late, outside });
+    if (outside) {
+      const hm = new Date(ms + IRAQ_MS).toISOString().slice(11, 16);
+      const outNote = { type: 'attend.outside', title: `${s.name} سجّل حضوره خارج وقت دوامه`, body: `سجّل ${hm} — دوامه ⁦${shift.start}–${shift.end}⁩`, link: '/attend?f=outside', data: { staffId: s.id } };
+      notify('manager', managerIds(), outNote);
+      notifySupervisors(s.id, 'viewAttendance', outNote);
+    }
     if (late > 0) {
       const lateNote = { type: 'attend.late', title: `تأخر ${s.name} ${late} دقيقة`, body: `سجّل حضوره ${new Date(Date.parse(t) + IRAQ_MS).toISOString().slice(11, 16)} — دوامه ${shift.start}`, link: '/attend' };
       notify('manager', managerIds(), lateNote);
       notifySupervisors(s.id, 'viewAttendance', lateNote);
     }
     // حضر في يوم عطلته أو إجازته: يُبلَّغ المدراء (قد يستحق تعويضاً أو تبديلاً)
-    const day = hourly ? null : dayFor(s.id, w.date);
     if (day?.off) {
       const why = { weekly: 'عطلته الأسبوعية', swap: 'عطلته (بعد التبديل)', day: 'إجازته', sick: 'إجازته المرضية', urgent: 'إجازته الطارئة' }[day.reason] || 'عطلته';
       const offNote = { type: 'attend.offday', title: `${s.name} حضر في يوم ${why}`, body: `سجّل حضوره ${new Date(Date.parse(t) + IRAQ_MS).toISOString().slice(11, 16)} مع أن اليوم ${why}`, link: '/attend?f=offday', data: { staffId: s.id } };
@@ -762,7 +774,8 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       const joined = !!a || devices.has(s.id);
       // حضر في يوم عطلته أو إجازته
       const offDay = !!a && !!day?.off;
-      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, shift, day, status, attendance: a, joined, offDay };
+      const outside = !!a?.outsideShift;
+      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, shift, day, status, attendance: a, joined, offDay, outside };
     });
     const count = k => rows.filter(r => r.status === k && r.joined).length;
     return {
@@ -782,6 +795,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
         absent: count('absent'),
         present: count('in') + count('break') + count('over'),
         offDay: rows.filter(r => r.offDay).length,
+        outside: rows.filter(r => r.outside).length,
         notJoined: rows.filter(r => !r.joined && r.status !== 'off').length,
         late: rows.filter(r => (r.attendance?.lateMinutes ?? 0) > 0).length,
       },
@@ -1040,6 +1054,21 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       return true;
     }
     const span = shiftSpan(shift);
+    if (a.outside_shift && Date.parse(a.check_in) > atIraq(a.date, span.end)) {
+      // حضر بعد نهاية ورديته: يُغلق بعد مدة وردية كاملة من حضوره + مهلة الإغلاق
+      const len = Math.max(60, span.end - span.start) * 60_000;
+      const startMs = Date.parse(a.check_in);
+      if (Date.now() < startMs + len + st.autoCloseHours * 3600_000) return false;
+      const t2 = new Date(startMs + len).toISOString();
+      const ob2 = openBreak(a.id);
+      if (ob2) closeBreak(ob2, new Date(Math.max(Date.parse(t2), Date.parse(ob2.start_at))).toISOString());
+      const r2 = db.prepare('UPDATE attendance SET check_out = ?, auto_closed = 1 WHERE id = ? AND check_out IS NULL').run(t2, a.id);
+      if (!r2.changes) return true;
+      audit('system', 'attend.autoclose', a.id, { at: t2, outside: true });
+      notify('staff', [a.staff_id], { type: 'attend.auto', title: 'أُغلق حضورك تلقائياً', body: 'لم تسجّل انصرافك — راجع مديرك لتصحيح وقت الانصراف.', link: '/shift' });
+      emitManagers('attend', { staffId: a.staff_id });
+      return true;
+    }
     const end = atIraq(a.date, span.end);
     const nextDate = addDays(a.date, 1);
     const nextOpen = atIraq(nextDate, shiftSpan(shiftOf(a.staff_id, nextDate)).start) - st.earlyMinutes * 60_000;

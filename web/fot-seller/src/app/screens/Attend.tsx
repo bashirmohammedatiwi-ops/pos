@@ -197,6 +197,8 @@ export function AttendCard({ compact }: { compact?: boolean }) {
         action === 'in'
           ? data?.attendance?.checkOut
             ? 'أهلاً بعودتك — استُؤنفت ساعاتك'
+            : next.attendance?.outsideShift
+            ? 'سُجّل حضورك خارج وقت دوامك — يظهر ذلك لمديرك'
             : next.attendance?.lateMinutes
             ? `سُجّل حضورك — متأخر ${dur(next.attendance.lateMinutes)}`
             : 'سُجّل حضورك — يوم موفق ✨'
@@ -345,6 +347,8 @@ export function AttendCard({ compact }: { compact?: boolean }) {
           <span className="label">في الدوام منذ {clockLabel(a.checkIn)}</span>
           {otNow > 0 ? (
             <span className="t-chip-glass up">أوفر تايم {dur(otNow)}</span>
+          ) : a.outsideShift ? (
+            <span className="t-chip-glass">خارج وقت الدوام</span>
           ) : a.lateMinutes > 0 ? (
             <span className="t-chip-glass down">متأخر {dur(a.lateMinutes)}</span>
           ) : (

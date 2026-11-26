@@ -24,7 +24,7 @@ const STATUS: Record<BoardStatus, { label: string; color: string }> = {
   absent: { label: 'غائب', color: 'var(--bad)' },
   hourly: { label: 'بالساعات', color: 'var(--brand-2)' },
 };
-type Filter = 'all' | 'in' | 'break' | 'missing' | 'absent' | 'late' | 'out' | 'off' | 'offday' | 'nojoin';
+type Filter = 'all' | 'in' | 'break' | 'missing' | 'absent' | 'late' | 'out' | 'off' | 'offday' | 'outside' | 'nojoin';
 const FILTER_LABEL: Record<Filter, string> = {
   all: 'الكل',
   in: 'الحضور',
@@ -35,6 +35,7 @@ const FILTER_LABEL: Record<Filter, string> = {
   out: 'انصرفوا',
   off: 'في عطلة',
   offday: 'حضروا في عطلتهم',
+  outside: 'خارج وقت الدوام',
   nojoin: 'لم يدخلوا التطبيق',
 };
 const notJoined = (r: BoardRow) => r.joined === false && !r.attendance;
@@ -48,6 +49,7 @@ const FILTER_TEST: Record<Filter, (r: BoardRow) => boolean> = {
   out: r => r.status === 'out',
   off: r => r.status === 'off' || r.status === 'hourly',
   offday: r => !!r.offDay,
+  outside: r => !!r.outside,
   nojoin: r => notJoined(r) && r.status !== 'off',
 };
 const isFilter = (v: string | null): v is Filter => !!v && v in FILTER_LABEL;
@@ -57,7 +59,7 @@ function line(r: BoardRow) {
   const ob = a?.breaks.find(b => !b.endAt);
   if (r.status === 'break' && ob) return `في استراحة · باقي ${Math.max(0, Math.ceil((Date.parse(ob.endsAt) - Date.now()) / 60_000))} د`;
   if (r.status === 'over' && ob) return `تجاوز الاستراحة ${Math.max(0, Math.floor((Date.now() - Date.parse(ob.endsAt)) / 60_000))} دقيقة`;
-  if (a && r.status === 'in') return `حضر ${clockLabel(a.checkIn)}${a.lateMinutes ? ` · متأخر ${dur(a.lateMinutes)}` : ''}`;
+  if (a && r.status === 'in') return `حضر ${clockLabel(a.checkIn)}${a.outsideShift ? ` · دوامه ⁦${r.shift.start}–${r.shift.end}⁩` : a.lateMinutes ? ` · متأخر ${dur(a.lateMinutes)}` : ''}`;
   if (a && r.status === 'out') return `${clockLabel(a.checkIn)} – ${clockLabel(a.checkOut)} · ${hhmm(a.workedMinutes)} ساعة`;
   if (r.joined === false && !a && r.status !== 'off') return 'لم يدخل التطبيق بعد';
   if (r.status === 'hourly') return 'دوام بالساعات — غير موجود الآن';
@@ -96,7 +98,7 @@ export function MAttend() {
       .sort((a, b) => Number(notJoined(a)) - Number(notJoined(b)) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name, 'ar'));
   }, [all, filter, q]);
   const c = data?.counts;
-  const more = (['late', 'offday', 'out', 'off', 'nojoin'] as Filter[]).map(f => [f, all.filter(FILTER_TEST[f]).length] as const).filter(([f, n]) => n > 0 || f === filter);
+  const more = (['late', 'outside', 'offday', 'out', 'off', 'nojoin'] as Filter[]).map(f => [f, all.filter(FILTER_TEST[f]).length] as const).filter(([f, n]) => n > 0 || f === filter);
 
   return (
     <Screen title="الحضور اليوم" subtitle={data ? `${dateShort(data.date)} · يتحدث لحظياً` : 'لوحة حيّة'} onRefresh={reload}>
@@ -117,7 +119,7 @@ export function MAttend() {
               الكل <b className="num">{all.length}</b>
             </button>
             {more.map(([f, n]) => (
-              <button key={f} type="button" className={`m-pill press ${filter === f ? 'on' : ''} ${f === 'late' || f === 'offday' ? 'warn' : ''}`} onClick={() => (haptic('select'), setFilter(filter === f ? 'all' : f))}>
+              <button key={f} type="button" className={`m-pill press ${filter === f ? 'on' : ''} ${f === 'late' || f === 'offday' || f === 'outside' ? 'warn' : ''}`} onClick={() => (haptic('select'), setFilter(filter === f ? 'all' : f))}>
                 {FILTER_LABEL[f]} <b className="num">{n}</b>
               </button>
             ))}
@@ -151,6 +153,11 @@ export function MAttend() {
                     {r.offDay && (
                       <span style={{ marginInlineStart: 8 }}>
                         <Badge tone="warn">حضر في عطلته</Badge>
+                      </span>
+                    )}
+                    {r.outside && (
+                      <span style={{ marginInlineStart: 8 }}>
+                        <Badge tone="accent">خارج وقت الدوام</Badge>
                       </span>
                     )}
                   </div>

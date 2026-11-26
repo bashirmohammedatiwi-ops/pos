@@ -150,7 +150,8 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
   const requests = leave.data ?? [];
   const over = (b?.rows ?? []).filter(r => r.status === 'over');
   const offDay = (b?.rows ?? []).filter(r => r.offDay);
-  const todo = requests.length + over.length + offDay.length;
+  const outside = (b?.rows ?? []).filter(r => r.outside && !r.offDay);
+  const todo = requests.length + over.length + offDay.length + outside.length;
 
   const actions: { to: string; label: string; icon: ReactNode; tone: string; badge?: number; show: boolean }[] = [
     { to: '/m/approvals', label: 'الموافقات', icon: <I.check size={20} />, tone: 'ok', badge: pending, show: !!perms.approveLeave },
@@ -210,6 +211,11 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
                       <b className="num">{c.offDay}</b> حضر في عطلته
                     </Link>
                   )}
+                  {(c.outside ?? 0) > 0 && (
+                    <Link to="/m/attend?f=outside" className="m-pill warn press" onClick={() => haptic('tap')}>
+                      <b className="num">{c.outside}</b> خارج وقت الدوام
+                    </Link>
+                  )}
                   <Link to="/m/attend?f=out" className="m-pill press" onClick={() => haptic('tap')}>
                     <b className="num">{c.out}</b> انصرف
                   </Link>
@@ -260,6 +266,22 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
                   <span className="txt">
                     <b>{r.name} حضر في يوم عطلته</b>
                     <small>{REASON_LABEL[r.day?.reason ?? ''] ?? 'عطلة'} — قد يحتاج تبديلاً أو تعويضاً</small>
+                  </span>
+                  <span className="chev">
+                    <I.chevron size={18} />
+                  </span>
+                </Link>
+              ))}
+              {outside.map(r => (
+                <Link key={`x${r.staffId}`} to="/m/attend?f=outside" className="m-alert press" onClick={() => haptic('tap')}>
+                  <span className="t-tile accent">
+                    <I.clock size={19} />
+                  </span>
+                  <span className="txt">
+                    <b>{r.name} حضر خارج وقت دوامه</b>
+                    <small>
+                      سجّل {r.attendance ? new Date(Date.parse(r.attendance.checkIn) + 3 * 3600e3).toISOString().slice(11, 16) : ''} — دوامه <span className="ltr" style={{ unicodeBidi: 'isolate' }}>{r.shift.start}–{r.shift.end}</span>
+                    </small>
                   </span>
                   <span className="chev">
                     <I.chevron size={18} />

@@ -692,6 +692,8 @@ export interface AttendRec {
   checkOut?: string | null;
   lateMinutes: number;
   autoClosed: boolean;
+  /** سجّل حضوره خارج وقت دوامه */
+  outsideShift?: boolean;
   edited: boolean;
   note?: string | null;
   workedMinutes: number;
@@ -773,12 +775,14 @@ export interface BoardRow {
   attendance: AttendRec | null;
   /** حضر في يوم عطلته أو إجازته */
   offDay?: boolean;
+  /** سجّل حضوره خارج وقت دوامه */
+  outside?: boolean;
 }
 export interface Board {
   date: string;
   now: string;
   rows: BoardRow[];
-  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number> & { notJoined?: number; notYet?: number; absent?: number; present?: number; offDay?: number };
+  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number> & { notJoined?: number; notYet?: number; absent?: number; present?: number; offDay?: number; outside?: number };
   network: { enforced: boolean; count: number };
 }
 export interface ShopNetwork {
