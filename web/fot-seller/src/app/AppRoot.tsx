@@ -11,24 +11,29 @@ import { WebPush, webPushLogout } from './WebPush';
 import { KIND_LABEL, clearTeam, getLastCode, getTeamMe, getTeamToken, refreshTeam, registerPush, setLastCode, setTeamMe, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
-import { ManagerApp } from './manager/ManagerApp';
 import { handleBack, haptic, hideSplash, onNativeBack, onResume, shareFile, watchSystemTheme } from './native';
 import { Account } from './screens/Account';
 import { AckGate } from './screens/Acks';
 import { Alerts } from './screens/Alerts';
-import { Brands } from './screens/Brands';
-import { Catalog } from './screens/Catalog';
-import { Commission } from './screens/Commission';
 import { Lock, LockedFeature, Splash } from './screens/Gate';
-import { Goals } from './screens/Goals';
 import { SellerHome, StaffHome } from './screens/Home';
 import { Login } from './screens/Login';
 import { More, type MoreItem } from './screens/More';
 import { Posts } from './screens/Posts';
 import { Shift } from './screens/Shift';
-import { MyMonth } from './screens/MyMonth';
-import { ChatSplit } from './screens/Chat';
 import { getManagerToken, managerApi, onLive, staffApi, supervisorMode, useChatUnread, useLiveChannel, useLoad, useUnread } from './work';
+import { lazyPage, prefetchPages } from './lazyPage';
+
+// تُحمَّل عند فتحها (أول فتح أسرع على الهاتف)؛ تطبيق المدراء لا يُجلب لحساب الموظف
+const ManagerApp = lazyPage(() => import('./manager/ManagerApp').then(m => m.ManagerApp), { prefetch: false });
+// المدير: صفحاته تُجلب فوراً مع التطبيق (بالتوازي) لا بعد أول عرض
+if (typeof window !== 'undefined' && getManagerToken()) void import('./manager/ManagerApp');
+const ChatSplit = lazyPage(() => import('./screens/Chat').then(m => m.ChatSplit));
+const Commission = lazyPage(() => import('./screens/Commission').then(m => m.Commission));
+const Goals = lazyPage(() => import('./screens/Goals').then(m => m.Goals));
+const Catalog = lazyPage(() => import('./screens/Catalog').then(m => m.Catalog));
+const Brands = lazyPage(() => import('./screens/Brands').then(m => m.Brands));
+const MyMonth = lazyPage(() => import('./screens/MyMonth').then(m => m.MyMonth));
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * جذر تطبيق «ديما · الفريق»: الجلسة، بوابة الأوقات، التبويبات حسب الدور، القناة الحية،
@@ -369,6 +374,8 @@ export function TeamApp() {
   useEffect(() => {
     setFileSaver(shareFile);
     void hideSplash();
+    // بقية الصفحات تُجلب بهدوء بعد أول عرض
+    prefetchPages();
     const offTheme = watchSystemTheme();
     if (getTeamToken()) {
       // جلسة الفريق تجدد رمز البائع أيضاً؛ مع خادم أقدم نرجع للتجديد القديم

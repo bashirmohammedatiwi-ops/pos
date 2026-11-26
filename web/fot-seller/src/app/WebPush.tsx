@@ -162,6 +162,14 @@ export function WebPush() {
   const [state, setState] = useState<State>(() => pushState());
   const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState(false);
+  // الشريط يُخفى لهذه الزيارة فقط بزر ×، ويعود عند فتح الموقع من جديد (حتى تُفعَّل الإشعارات)
+  const [barHidden, setBarHidden] = useState(() => {
+    try {
+      return sessionStorage.getItem('fot_wp_bar') === '0';
+    } catch {
+      return false;
+    }
+  });
   const who = loc.pathname === '/login' ? null : roleNow(loc.pathname);
 
   // نقر إشعار والموقع مفتوح: عامل الخدمة يطلب فتح الصفحة
@@ -244,10 +252,31 @@ export function WebPush() {
 
   return (
     <>
-      <button type="button" className="wp-bar press" onClick={() => (haptic('tap'), setSheet(true))}>
-        <I.bell size={16} />
-        <span>{state === 'denied' ? 'الإشعارات مرفوضة — اضغط لمعرفة طريقة التفعيل' : state === 'default' ? 'الإشعارات غير مفعّلة — اضغط للتفعيل' : t.title}</span>
-      </button>
+      {!barHidden && (
+        <div className="wp-bar" role="status">
+          <button type="button" className="wp-bar-main press" onClick={() => (haptic('tap'), setSheet(true))}>
+            <I.bell size={16} />
+            <span>{state === 'denied' ? 'الإشعارات مرفوضة — كيف أفعّلها؟' : state === 'default' ? 'فعّل الإشعارات لتصلك التبليغات' : t.title}</span>
+          </button>
+          <button
+            type="button"
+            className="wp-bar-x press"
+            aria-label="إخفاء حتى الفتح القادم"
+            title="إخفاء حتى الفتح القادم"
+            onClick={() => {
+              haptic('tap');
+              setBarHidden(true);
+              try {
+                sessionStorage.setItem('fot_wp_bar', '0');
+              } catch {
+                /* تخزين غير متاح */
+              }
+            }}
+          >
+            <I.close size={15} />
+          </button>
+        </div>
+      )}
       <Sheet open={sheet} onClose={() => setSheet(false)}>
         <div className="t-confirm">
           <span className={`t-tile lg ${state === 'denied' ? 'bad' : 'accent'}`}>

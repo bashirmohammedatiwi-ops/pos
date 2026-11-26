@@ -1775,3 +1775,71 @@ html.web.theme-anim * {
     text-decoration: none;
   }
 }
+
+/* ═════════════ الهاتف: سهولة الاستخدام ═════════════ */
+/* شريط الإشعارات: زر رئيسي + إخفاء، ولا يغطي آخر المحتوى */
+.wp-bar {
+  padding: 0;
+  overflow: hidden;
+}
+.wp-bar-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.wp-bar-main span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wp-bar-x {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
+  color: inherit;
+}
+@media (max-width: 1023.98px) {
+  body:has(.wp-bar) .t-app {
+    padding-bottom: calc(var(--tabbar-h, 66px) + var(--safe-b, 0px) + 78px);
+  }
+}
+/* بلا تأخير النقر المزدوج، وحقول بخط 16 كي لا يكبّر آيفون الصفحة عند الكتابة */
+a,
+button,
+[role='button'],
+input,
+label,
+select,
+textarea {
+  touch-action: manipulation;
+}
+@media (max-width: 767.98px) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+/* التمرير الناعم داخل القوائم والنوافذ دون سحب الصفحة خلفها */
+.t-sheet,
+.np-body,
+.pk-list {
+  overscroll-behavior: contain;
+}
