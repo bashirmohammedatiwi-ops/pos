@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AccessGate, useAccessLocked, wipeSellerData } from '../access';
-import { getToken, refreshSession, setSeller, setToken } from '../api';
+import { getLastId, getSeller, getToken, refreshSession, setSeller, setToken } from '../api';
 import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
 import { UpdateCheck } from './Update';
 import { WebUpdate } from './WebUpdate';
 import { WebPush, webPushLogout } from './WebPush';
-import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush, setTeamMe, unregisterPush } from '../team';
+import { clearTeam, getLastCode, getTeamMe, getTeamToken, refreshTeam, registerPush, setLastCode, setTeamMe, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
 import { ManagerApp } from './manager/ManagerApp';
@@ -283,8 +283,36 @@ function StaffShell({ onLogout, seller, brands }: { onLogout: () => void; seller
   );
 }
 
+/**
+ * جلسة بائع فقط بلا جلسة فريق (من الموقع القديم): تخفي الحضور والمحادثات والتبليغات.
+ * تُنقل مرة واحدة لشاشة الدخول الجديدة لتصير جلسة فريق كاملة. البائع بلا حساب فريق يدخل كما كان
+ * (شاشة الدخول تعلّم جلسته fot_seller_only فلا تُعاد).
+ */
+function sellerOnlyFromOldSite() {
+  try {
+    return !!getToken() && !getTeamToken() && localStorage.getItem('fot_seller_only') !== '1';
+  } catch {
+    return false;
+  }
+}
+function UpgradeSession() {
+  const nav = useNavigate();
+  useEffect(() => {
+    // رقم البائع هو كود الفريق نفسه: شاشة الدخول تعرض «متابعة باسم…» بضغطة
+    const id = getSeller()?.id ?? getLastId();
+    if (id && !getLastCode()) setLastCode(String(id));
+    clearBrandCache();
+    wipeSellerData();
+    setToken(null);
+    setSeller(null);
+    nav('/login', { replace: true });
+  }, [nav]);
+  return null;
+}
+
 function Guard({ onLogout }: { onLogout: () => void }) {
   const locked = useAccessLocked();
+  if (sellerOnlyFromOldSite()) return <UpgradeSession />;
   // خارج الوقت لا تُحمَّل بيانات العمولة أصلاً (لا مزوّد بيانات البائع)
   if (getToken() && locked) return <LockedSellerShell onLogout={onLogout} />;
   if (getToken())

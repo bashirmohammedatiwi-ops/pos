@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AccessClosedError, api, publishAccess, setLastId, setSeller, setToken } from '../../api';
+import { AccessClosedError, api, getLastId, publishAccess, setLastId, setSeller, setToken } from '../../api';
 import { APP_VERSION, apiUrl, isNative } from '../../config';
 import { KIND_LABEL, getLastCode, registerPush, getTeamToken, setLastCode, setTeamMe, setTeamToken, teamApi } from '../../team';
 import { I, Mark } from '../kit';
@@ -124,7 +124,9 @@ export function Login() {
 function StaffLogin() {
   const nav = useNavigate();
   const [step, setStep] = useState<'code' | 'pin'>('code');
-  const [code, setCode] = useState(getLastCode);
+  // آخر كود فريق، وإلا رقم البائع من الموقع القديم (هو نفس كود الفريق)
+  const savedCode = getLastCode() || getLastId();
+  const [code, setCode] = useState(savedCode);
   const [name, setName] = useState('');
   const [kind, setKind] = useState('');
   const [legacy, setLegacy] = useState(false);
@@ -191,6 +193,11 @@ function StaffLogin() {
     try {
       if (!legacy) {
         const res = await teamApi.login(code.trim(), value);
+        try {
+          localStorage.removeItem('fot_seller_only');
+        } catch {
+          /* تخزين غير متاح */
+        }
         setTeamToken(res.token);
         setTeamMe(res.staff);
         if (res.sellerToken && res.staff.salesmanId) {
@@ -202,6 +209,12 @@ function StaffLogin() {
         void registerPush('staff', getTeamToken(), link => nav(link));
       } else {
         const res = await api.login(Number(code), value);
+        // بائع بلا حساب فريق: جلسة بائع مقصودة (لا تُعاد لشاشة الدخول)
+        try {
+          localStorage.setItem('fot_seller_only', '1');
+        } catch {
+          /* تخزين غير متاح */
+        }
         setToken(res.token);
         setSeller(res.seller);
         setLastId(String(res.seller.id));
@@ -238,7 +251,7 @@ function StaffLogin() {
     if (next.length === PIN_MAX) setTimeout(() => void submit(next), 120);
   }
 
-  const remembered = !!name && code.trim() === getLastCode() && !!getLastCode();
+  const remembered = !!name && !!savedCode && code.trim() === savedCode;
   const firstName = name.split(' ')[0];
   if (step === 'code') {
     return (
