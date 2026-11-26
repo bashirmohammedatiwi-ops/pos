@@ -5,6 +5,7 @@ import { getToken, refreshSession, setSeller, setToken } from '../api';
 import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
 import { UpdateCheck } from './Update';
+import { WebUpdate } from './WebUpdate';
 import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush, setTeamMe, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
@@ -348,6 +349,7 @@ export function TeamApp() {
         </Routes>
       </AccessGate>
       <UpdateCheck />
+      <WebUpdate />
       <ToastHost />
     </>
   );

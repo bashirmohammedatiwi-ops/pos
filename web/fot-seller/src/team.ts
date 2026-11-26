@@ -70,9 +70,31 @@ async function json<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-/** هوية الجهاز داخل التطبيق فقط (الويب بلا ربط). */
+/** نوع الجهاز والمتصفح للموقع: «iPhone · Safari» — يُعرض للإدارة ويُستخدم لنقل الربط بين متصفحات نفس الهاتف. */
+function webDeviceLabel() {
+  const ua = navigator.userAgent;
+  const device = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'متصفح';
+  return `${device} · موقع`;
+}
+
+/**
+ * هوية الجهاز: في التطبيق من النظام، وفي الموقع رقم ثابت يُحفظ في المتصفح (web-…).
+ * الموقع جهاز مثل التطبيق: الحضور من الجهاز المربوط فقط.
+ */
 export async function deviceInfo(): Promise<{ deviceId?: string; deviceLabel?: string }> {
-  if (!isNative()) return {};
+  if (!isNative()) {
+    try {
+      let id = localStorage.getItem('fot_web_device');
+      if (!id || !id.startsWith('web-')) {
+        const rnd = crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+        id = `web-${rnd}`;
+        localStorage.setItem('fot_web_device', id);
+      }
+      return { deviceId: id, deviceLabel: webDeviceLabel() };
+    } catch {
+      return {};
+    }
+  }
   try {
     const { Device } = await import('@capacitor/device');
     const [id, info] = await Promise.all([Device.getId(), Device.getInfo()]);

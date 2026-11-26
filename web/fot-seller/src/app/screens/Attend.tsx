@@ -37,7 +37,7 @@ function useTick(active: boolean) {
 /** حالة الشبكة الحالية: يقرأ الواي فاي ويسأل الخادم إن كانت شبكة المحل. */
 function useNetwork(enabled: boolean) {
   const [wifi, setWifi] = useState<WifiState | null>(null);
-  const [probe, setProbe] = useState<{ ok: boolean; network: string | null; error: string | null } | null>(null);
+  const [probe, setProbe] = useState<{ ok: boolean; network: string | null; viaIp?: boolean; error: string | null } | null>(null);
   const check = async () => {
     const w = await readWifi();
     setWifi(w);
@@ -62,7 +62,7 @@ function useNetwork(enabled: boolean) {
   return { wifi, probe, check };
 }
 
-function NetLine({ wifi, probe, onRetry }: { wifi: WifiState | null; probe: { ok: boolean; network: string | null; error: string | null } | null; onRetry: () => void }) {
+function NetLine({ wifi, probe, onRetry }: { wifi: WifiState | null; probe: { ok: boolean; network: string | null; viaIp?: boolean; error: string | null } | null; onRetry: () => void }) {
   if (wifi?.permission === 'denied')
     return (
       <div className="t-net bad">
@@ -85,12 +85,12 @@ function NetLine({ wifi, probe, onRetry }: { wifi: WifiState | null; probe: { ok
   if (probe.ok)
     return (
       <div className="t-net ok">
-        <I.check size={15} /> متصل بشبكة المحل{probe.network ? ` · ${probe.network}` : ''}
+        <I.check size={15} /> {probe.viaIp ? 'متصل بإنترنت المحل' : 'متصل بشبكة المحل'}{probe.network && !probe.viaIp ? ` · ${probe.network}` : ''}
       </div>
     );
   return (
     <div className="t-net bad">
-      <I.info size={16} /> {wifi?.ssid ? `${wifi.ssid} — ` : ''}ليست شبكة المحل
+      <I.info size={16} /> <span style={{ flex: 1 }}>{probe.error || `${wifi?.ssid ? `${wifi.ssid} — ` : ''}ليست شبكة المحل`}</span>
       <button type="button" onClick={() => (wifi?.wifiEnabled === false ? void openWifiSettings() : onRetry())}>
         {wifi?.wifiEnabled === false ? 'الواي فاي' : 'إعادة'}
       </button>

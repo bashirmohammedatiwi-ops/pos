@@ -463,7 +463,22 @@ function createTeam(ctx) {
       }
       const deviceId = String(body.deviceId || '').slice(0, 120);
       const bound = db.prepare('SELECT * FROM devices WHERE staff_id = ?').get(s.id);
-      if (bound && deviceId && bound.device_id !== deviceId) {
+      // الموقع: نفس الهاتف بمتصفح آخر أو من أيقونة الشاشة الرئيسية (تخزين منفصل في الآيفون) — يُنقل الربط
+      // ما دام الربط السابق لموقع أيضاً وبنفس نوع الجهاز. الربط بتطبيق الهاتف لا يُنقل للموقع إلا بفك الإدارة.
+      const webSwap = bound && deviceId && bound.device_id !== deviceId && String(bound.device_id).startsWith('web-') && deviceId.startsWith('web-')
+        && String(bound.label || '') === String(body.deviceLabel || '').slice(0, 200);
+      if (webSwap) {
+        db.prepare('UPDATE devices SET device_id = ?, platform = ?, app_version = ?, last_seen = ? WHERE staff_id = ?')
+          .run(deviceId, String(body.platform || '').slice(0, 20) || null, String(body.appVersion || '').slice(0, 20) || null, now(), s.id);
+        audit(`staff:${s.id}`, 'device.rebind-web', s.id, { from: bound.device_id, to: deviceId, label: body.deviceLabel });
+      } else if (bound && deviceId && bound.device_id !== deviceId && String(bound.device_id).startsWith('web-') && !deviceId.startsWith('web-')) {
+        // من الموقع إلى تطبيق الهاتف: التطبيق يحل محل الموقع (هوية الهاتف أقوى من المتصفح)
+        db.prepare('UPDATE devices SET device_id = ?, label = ?, platform = ?, app_version = ?, bound_at = ?, last_seen = ? WHERE staff_id = ?')
+          .run(deviceId, String(body.deviceLabel || '').slice(0, 200) || null, String(body.platform || '').slice(0, 20) || null, String(body.appVersion || '').slice(0, 20) || null, now(), now(), s.id);
+        audit(`staff:${s.id}`, 'device.web-to-app', s.id, { from: bound.device_id, to: deviceId, label: body.deviceLabel });
+      } else if (bound && deviceId && bound.device_id !== deviceId && deviceId.startsWith('web-')) {
+        // مربوط بتطبيق الهاتف ويفتح الموقع: يدخل ليقرأ ويتابع، والحضور يبقى من التطبيق (يرفضه فحص الحضور برسالة واضحة)
+      } else if (bound && deviceId && bound.device_id !== deviceId) {
         ctx.send(res, 403, { error: 'هذا الحساب مربوط بهاتف آخر — اطلب من الإدارة فك الربط', code: 'device_bound' });
         return true;
       }
@@ -472,7 +487,7 @@ function createTeam(ctx) {
           .run(s.id, deviceId, String(body.deviceLabel || '').slice(0, 200) || null, String(body.platform || '').slice(0, 20) || null,
             String(body.appVersion || '').slice(0, 20) || null, now(), now());
         audit(`staff:${s.id}`, 'device.bind', s.id, { deviceId, label: body.deviceLabel });
-      } else if (bound) {
+      } else if (bound && !webSwap && !(deviceId.startsWith('web-') && !String(bound.device_id).startsWith('web-'))) {
         touchDevice(s.id, body);
       }
       // البائع: رمز البائع للعمولة والأهداف والبراندات

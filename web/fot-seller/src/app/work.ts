@@ -54,6 +54,9 @@ export function clearManager() {
  * الشاشات الثقيلة (الصناديق، مبيعات الإداري، حركة الأموال) تعرض آخر ما حُمّل فوراً ثم تُحدّث بصمت.
  * يُمسح عند الخروج. القيمة مع وقت حفظها حتى تُعرض «آخر تحديث قبل…». */
 const SNAP_PREFIX = 'deema.snap.';
+/** الموقع يعرّف نفسه للخادم: لا يقرأ الواي فاي، فرسائل الحضور تخصه */
+const CLIENT: 'web' | undefined = isNative() ? undefined : 'web';
+
 export const snapCache = {
   get<T>(key: string, maxAgeMs = 3 * 86_400_000): { at: number; data: T } | null {
     try {
@@ -632,7 +635,7 @@ export interface MgrReport {
 }
 export const managerSelfApi = {
   state: () => call<MgrSelf>('manager', '/api/team/m/self-attend'),
-  act: (action: 'in' | 'out', bssid?: string | null) => call<MgrSelf>('manager', `/api/team/m/self-attend/${action}`, { method: 'POST', body: { bssid } }),
+  act: (action: 'in' | 'out', bssid?: string | null) => call<MgrSelf>('manager', `/api/team/m/self-attend/${action}`, { method: 'POST', body: { bssid, client: CLIENT } }),
   report: (from: string, to: string) => call<MgrReport>('manager', `/api/team/m/mgr-attend?from=${from}&to=${to}`),
   save: (b: { managerId?: number; checkIn?: string; checkOut?: string | null; note?: string }, id?: number) =>
     call<MgrSession>('manager', id ? `/api/team/m/mgr-attend/${id}` : '/api/team/m/mgr-attend/manual', { method: id ? 'PUT' : 'POST', body: b }),
@@ -781,16 +784,18 @@ export const pushTest = (role: Role) => call<{ configured: boolean; count: numbe
 export const attendApi = {
   state: () => (attendInflight ??= call<AttendState>('staff', '/api/team/attend').finally(() => (attendInflight = null))),
   month: (month: string) => call<MyMonthData>('staff', `/api/team/attend/month?month=${month}`),
-  probe: (bssid?: string | null) => call<{ ok: boolean; ip: string; network: string | null; error: string | null }>('staff', `/api/team/attend/probe${bssid ? `?bssid=${encodeURIComponent(bssid)}` : ''}`),
+  probe: (bssid?: string | null) =>
+    call<{ ok: boolean; ip: string; network: string | null; viaIp?: boolean; error: string | null }>('staff', `/api/team/attend/probe?${new URLSearchParams({ ...(bssid ? { bssid } : {}), ...(CLIENT ? { client: CLIENT } : {}) })}`),
   act: (action: 'in' | 'out' | 'break/start' | 'break/end', bssid?: string | null, deviceId?: string) =>
-    call<AttendState>('staff', `/api/team/attend/${action}`, { method: 'POST', body: { bssid, deviceId } }),
+    call<AttendState>('staff', `/api/team/attend/${action}`, { method: 'POST', body: { bssid, deviceId, client: CLIENT } }),
 };
 export const managerAttendApi = {
   board: () => call<Board>('manager', '/api/team/m/attend/board'),
   log: (from: string, to: string, staffId?: number) => call<AttendRec[]>('manager', `/api/team/m/attend/log?from=${from}&to=${to}${staffId ? `&staffId=${staffId}` : ''}`),
   settings: () => call<{ settings: AttendSettings; networks: ShopNetwork[]; shopIp?: { ip: string; at: string } | null }>('manager', '/api/team/m/attend/settings'),
   capture: (b: { bssid?: string | null; ssid?: string | null; name?: string; ipOnly?: boolean; withIp?: boolean }) => call<ShopNetwork>('manager', '/api/team/m/networks/capture', { method: 'POST', body: b }),
-  probe: (bssid?: string | null) => call<{ ok: boolean; ip: string; bssid?: string | null; network: string | null; error: string | null }>('manager', `/api/team/m/networks/probe${bssid ? `?bssid=${encodeURIComponent(bssid)}` : ''}`),
+  probe: (bssid?: string | null) =>
+    call<{ ok: boolean; ip: string; bssid?: string | null; network: string | null; error: string | null }>('manager', `/api/team/m/networks/probe?${new URLSearchParams({ ...(bssid ? { bssid } : {}), ...(CLIENT ? { client: CLIENT } : {}) })}`),
   deleteNetwork: (id: number) => call<{ ok: true }>('manager', `/api/team/m/networks/${id}`, { method: 'DELETE' }),
   saveNetwork: (b: { name: string; ssid?: string | null; bssids?: string[]; bssid?: string | null; ip?: string | null; isActive?: boolean }, id?: number) =>
     call<ShopNetwork>('manager', id ? `/api/team/m/networks/${id}` : '/api/team/m/networks', { method: id ? 'PUT' : 'POST', body: b }),

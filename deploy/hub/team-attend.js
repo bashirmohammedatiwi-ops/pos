@@ -389,6 +389,28 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (cur && cur.ip !== ip) audit('system', 'shop_ip.changed', null, { from: cur.ip, to: ip, source });
   }
 
+  /* عناوين إنترنت أكّدها حضور من نقطة بث المحل نفسها (هاتف قرأ الواي فاي): تقبل من لا يقرأ الواي فاي
+     (الموقع، بعض الهواتف) على نفس العنوان حتى لو لم يتصل سيرفر المحل بعد — صباحاً قبل تشغيله مثلاً.
+     تُقبل فقط إن كانت من شبكة عناوين المحل (/24) كي لا يُعتمد عنوان VPN أو بيانات الهاتف. */
+  const VERIFIED_MS = 12 * 3600_000;
+  function verifiedIps() {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'verified_ips'").get();
+    try {
+      return row ? JSON.parse(row.value) : {};
+    } catch {
+      return {};
+    }
+  }
+  function noteVerifiedIp(ip) {
+    if (!ip || PRIVATE.test(ip) || ipToInt(ip) == null) return;
+    const map = verifiedIps();
+    const last = map[ip] ? Date.parse(map[ip]) : 0;
+    if (Date.now() - last < 10 * 60_000) return;
+    map[ip] = now();
+    for (const [k, v] of Object.entries(map)) if (Date.now() - Date.parse(v) > VERIFIED_MS) delete map[k];
+    db.prepare("INSERT INTO settings (key, value) VALUES ('verified_ips', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(map));
+  }
+
   const netView = n => {
     const list = bssidsOf(n);
     return { id: n.id, name: n.name, bssid: list[0] ?? null, bssids: list, ip: n.ip, ipMode: n.ip ? 'fixed' : 'auto', ssid: n.ssid, isActive: !!n.is_active, createdBy: n.created_by, createdAt: n.created_at };
@@ -419,8 +441,9 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   /** هل الطلب من شبكة المحل؟ كل قاعدة تطابق حين تتطابق كل حقولها المحددة. */
-  function checkNetwork(req, bssidRaw) {
+  function checkNetwork(req, bssidRaw, client = null) {
     const ip = clientIp(req);
+    const web = client === 'web';
     const bssid = normBssid(bssidRaw);
     const s = settings();
     const nets = networks().filter(n => n.is_active);
@@ -435,12 +458,21 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       return !list.length || (!!bssid && list.includes(bssid));
     };
     const match = nets.find(n => apOk(n) && ipOk(n));
+    // نقطة بث المحل نفسها من عنوان ضمن شبكة المحل: العنوان مؤكد لمن لا يقرأ الواي فاي
+    if (match && bssid && bssidsOf(match).includes(bssid) && (ip === shop || ipNear)) noteVerifiedIp(ip);
     if (!s.enforceNetwork) return { ok: true, ip, bssid, network: match || null, enforced: false };
     if (!nets.length) return { ok: false, ip, bssid, error: 'لم تُضبط شبكات المحل بعد — راجع الإدارة' };
     if (match) return { ok: true, ip, bssid, network: match, enforced: true };
     const shopFresh = !!shop && ip === shop && Date.now() - Date.parse(shopInfo.at) < SHOP_IP_FRESH_MS;
-    // بعض الهواتف لا تعطي التطبيق نقطة البث مع أنها على واي فاي المحل: عنوان إنترنت المحل نفسه يكفي حينها
-    if (!bssid && s.allowIpOnly && shopFresh) return { ok: true, ip, bssid, network: nets.find(n => !n.ip) || null, enforced: true, viaIp: true };
+    const verifiedAt = verifiedIps()[ip];
+    const verified = !!verifiedAt && Date.now() - Date.parse(verifiedAt) < VERIFIED_MS && (ip === shop || ipNear);
+    // بعض الهواتف (والموقع) لا تقرأ نقطة البث مع أنها على واي فاي المحل: عنوان إنترنت المحل نفسه يكفي حينها
+    if (!bssid && s.allowIpOnly && (shopFresh || verified)) return { ok: true, ip, bssid, network: nets.find(n => !n.ip) || null, enforced: true, viaIp: true };
+    if (web && !bssid) {
+      if (!s.allowIpOnly) return { ok: false, ip, bssid, error: 'التسجيل من الموقع غير مفعّل — سجّل من تطبيق ديما على هاتفك' };
+      if (!shop) return { ok: false, ip, bssid, error: 'عنوان إنترنت المحل غير معروف بعد — تأكد أن سيرفر المحل يعمل ثم حاول بعد دقيقة' };
+      return { ok: false, ip, bssid, error: 'أنت لست على إنترنت المحل — اتصل بواي فاي المحل وأطفئ بيانات الهاتف ثم أعد المحاولة' };
+    }
     // نقطة بث جديدة من أجهزة المحل نفسها (نفس أول 3 مقاطع) على عنوان المحل المؤكد حديثاً: تُضاف للشبكة تلقائياً
     const fresh = s.requireIp && shopFresh;
     const sibling = fresh && bssid ? nets.find(n => !n.ip && bssidsOf(n).some(b => b.slice(0, 8) === bssid.slice(0, 8))) : null;
@@ -603,7 +635,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   }
 
   function checkIn(req, s, body) {
-    const net = checkNetwork(req, body.bssid);
+    const net = checkNetwork(req, body.bssid, body.client);
     if (!net.ok) {
       audit(`staff:${s.id}`, 'attend.refused', null, { ip: net.ip, bssid: net.bssid, error: net.error });
       return { status: 403, body: { error: net.error, code: 'network' } };
@@ -654,7 +686,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const a = currentRow(s.id);
     if (!a) return { status: 400, body: { error: 'لم تسجّل حضورك اليوم' } };
     if (a.check_out) return { status: 409, body: { error: 'سجّلت انصرافك مسبقاً' } };
-    const net = checkNetwork(req, body.bssid);
+    const net = checkNetwork(req, body.bssid, body.client);
     if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
     const t = now();
     const ob = openBreak(a.id);
@@ -677,7 +709,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const a = currentRow(s.id);
     if (!a || a.check_out) return { status: 400, body: { error: 'سجّل حضورك أولاً' } };
     if (openBreak(a.id)) return { status: 409, body: { error: 'أنت في استراحة الآن' } };
-    const net = checkNetwork(req, body.bssid);
+    const net = checkNetwork(req, body.bssid, body.client);
     if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
     const shift = shiftOf(s.id);
     const list = breaksOf(a.id);
@@ -694,7 +726,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const a = currentRow(s.id);
     const b = a ? openBreak(a.id) : null;
     if (!b) return { status: 400, body: { error: 'لست في استراحة' } };
-    const net = checkNetwork(req, body.bssid);
+    const net = checkNetwork(req, body.bssid, body.client);
     if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
     const over = closeBreak(b, now());
     audit(`staff:${s.id}`, 'break.end', b.id, { over });
@@ -872,7 +904,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   function mIn(req, m, body) {
     const mid = Number(m.id);
     if (mOpen(mid)) return { status: 409, body: { error: 'سجّلت حضورك مسبقاً — سجّل انصرافك أولاً' } };
-    const net = checkNetwork(req, body.bssid);
+    const net = checkNetwork(req, body.bssid, body.client);
     if (!net.ok) {
       audit(`manager:${mid}`, 'mattend.refused', null, { ip: net.ip, bssid: net.bssid, error: net.error });
       return { status: 403, body: { error: net.error, code: 'network' } };
@@ -887,7 +919,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const mid = Number(m.id);
     const a = mOpen(mid);
     if (!a) return { status: 400, body: { error: 'لم تسجّل حضورك' } };
-    const net = checkNetwork(req, body.bssid);
+    const net = checkNetwork(req, body.bssid, body.client);
     if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
     db.prepare('UPDATE manager_attendance SET check_out = ?, out_ip = ?, out_bssid = ? WHERE id = ?').run(now(), net.ip, net.bssid, a.id);
     audit(`manager:${mid}`, 'mattend.out', a.id, { ip: net.ip });
@@ -1077,15 +1109,21 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     if (!p.startsWith('/api/team/attend')) return false;
     if (req.method === 'GET' && p === '/api/team/attend') return ctx.send(res, 200, myState(s)), true;
     if (req.method === 'GET' && p === '/api/team/attend/probe') {
-      const net = checkNetwork(req, url.searchParams.get('bssid'));
-      ctx.send(res, 200, { ok: net.ok, ip: net.ip, network: net.network ? net.network.name : null, error: net.ok ? null : net.error });
+      const net = checkNetwork(req, url.searchParams.get('bssid'), url.searchParams.get('client'));
+      ctx.send(res, 200, { ok: net.ok, ip: net.ip, network: net.network ? net.network.name : null, viaIp: !!net.viaIp, error: net.ok ? null : net.error });
       return true;
     }
     const body = req.method === 'POST' ? (await json(req)) || {} : {};
     if (req.method === 'POST') {
       const bound = db.prepare('SELECT device_id FROM devices WHERE staff_id = ?').get(s.id);
       if (bound && bound.device_id !== String(body.deviceId || '')) {
-        return reply(res, { status: 403, body: { error: 'الحضور من هاتفك المربوط فقط — افتح تطبيق ديما على هاتفك', code: 'device' } }), true;
+        const appBound = !String(bound.device_id).startsWith('web-');
+        const error = appBound
+          ? body.client === 'web'
+            ? 'حسابك مربوط بتطبيق ديما على هاتفك — سجّل الحضور من التطبيق، أو اطلب من الإدارة فك الربط لتستخدم الموقع'
+            : 'الحضور من هاتفك المربوط فقط — افتح تطبيق ديما على هاتفك'
+          : 'حسابك مربوط بمتصفح آخر — سجّل الخروج ثم الدخول من جديد على هذا الهاتف';
+        return reply(res, { status: 403, body: { error, code: 'device' } }), true;
       }
     }
     if (req.method === 'POST' && p === '/api/team/attend/in') return reply(res, checkIn(req, s, body)), true;
@@ -1153,7 +1191,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       return reply(res, saveNetwork(null, { name: body.name || ssid || 'واي فاي المحل', bssids: [bssid], ip: body.withIp === true ? ip : null, ssid }, actor), open), true;
     }
     if (req.method === 'GET' && sub === 'networks/probe') {
-      const net = checkNetwork(req, url.searchParams.get('bssid'));
+      const net = checkNetwork(req, url.searchParams.get('bssid'), url.searchParams.get('client'));
       return send(200, { ok: net.ok, ip: net.ip, bssid: net.bssid, network: net.network ? net.network.name : null, error: net.ok ? null : net.error }), true;
     }
     let om = sub.match(/^staff\/(\d+)\/overtime$/);

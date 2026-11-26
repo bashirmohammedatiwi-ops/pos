@@ -11,6 +11,7 @@ import './sales.css';
 import './invoices.css';
 import './manager.css';
 import './refresh.css';
+import './login.css';
 import './web.css';
 import { isNative } from '../config';
 

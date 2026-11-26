@@ -1,9 +1,9 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AccessClosedError, api, publishAccess, setLastId, setSeller, setToken } from '../../api';
-import { apiUrl } from '../../config';
+import { APP_VERSION, apiUrl, isNative } from '../../config';
 import { KIND_LABEL, getLastCode, registerPush, getTeamToken, setLastCode, setTeamMe, setTeamToken, teamApi } from '../../team';
-import { Avatar, I, Mark, Segmented } from '../kit';
+import { I, Mark } from '../kit';
 import { haptic, statusOnHero } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -13,9 +13,65 @@ import { haptic, statusOnHero } from '../native';
 type Who = 'staff' | 'manager';
 const PIN_MAX = 6;
 
+/** الساعة الآن بتوقيت بغداد، تتحدث كل نصف دقيقة */
+function useBaghdadNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Baghdad', hour: '2-digit', hour12: false }).format(now));
+  const time = now.toLocaleTimeString('ar-IQ-u-nu-latn', { timeZone: 'Asia/Baghdad', hour: 'numeric', minute: '2-digit', hour12: true });
+  const date = now.toLocaleDateString('ar-IQ-u-nu-latn', { timeZone: 'Asia/Baghdad', weekday: 'long', day: 'numeric', month: 'long' });
+  const greet = hour < 5 ? 'مساء الخير' : hour < 12 ? 'صباح الخير' : hour < 17 ? 'نهارك سعيد' : 'مساء الخير';
+  return { time, date, greet };
+}
+
+/** في سفاري الآيفون (لا التطبيق المثبّت): كيف يُضاف الموقع للشاشة الرئيسية */
+function InstallTip() {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem('fot_install_tip') === 'no';
+    } catch {
+      return false;
+    }
+  });
+  const ios = /iPhone|iPad/.test(navigator.userAgent);
+  const standalone = (navigator as unknown as { standalone?: boolean }).standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
+  if (isNative() || !ios || standalone || hidden) return null;
+  return (
+    <div className="lg-tip">
+      <span className="lg-tip-ico" aria-hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v12M8 7l4-4 4 4" />
+          <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+        </svg>
+      </span>
+      <span>
+        ثبّت ديما على شاشتك: اضغط <b>مشاركة</b> في الأسفل ثم <b>«إضافة إلى الشاشة الرئيسية»</b>.
+      </span>
+      <button
+        type="button"
+        aria-label="إخفاء"
+        onClick={() => {
+          setHidden(true);
+          try {
+            localStorage.setItem('fot_install_tip', 'no');
+          } catch {
+            /* تخزين غير متاح */
+          }
+        }}
+      >
+        <I.close size={16} />
+      </button>
+    </div>
+  );
+}
+
 export function Login() {
   const [params] = useSearchParams();
   const [who, setWho] = useState<Who>(params.get('as') === 'manager' ? 'manager' : 'staff');
+  const { time, date, greet } = useBaghdadNow();
 
   useEffect(() => {
     statusOnHero(true);
@@ -23,27 +79,41 @@ export function Login() {
   }, []);
 
   return (
-    <div className="t-login">
-      <section className="t-login-top">
-        <div className="t-mark">
-          <Mark size={34} />
+    <div className="t-login lg">
+      <section className="t-login-top lg-top">
+        <div className="lg-brand">
+          <span className="t-mark lg-mark">
+            <Mark size={28} />
+          </span>
+          <span>
+            <b>ديما الحياة</b>
+            <small>تطبيق الفريق</small>
+          </span>
         </div>
-        <h1>
-          ديما · الفريق
-        </h1>
-        <p>{who === 'staff' ? 'يومك في العمل في مكان واحد: الحضور والاستراحة، دوامك وإجازاتك، عمولتك، ومحادثات الفريق.' : 'الفريق والحضور والموافقات والتقارير من هاتفك.'}</p>
+        <div className="lg-clock">
+          <span className="lg-greet">{who === 'staff' ? greet : 'دخول المدراء'}</span>
+          <b className="num">{time}</b>
+          <small>{date}</small>
+        </div>
       </section>
-      <section className="t-login-sheet">
-        <Segmented
-          items={[
-            { id: 'staff', label: 'موظف' },
-            { id: 'manager', label: 'مدير' },
-          ]}
-          value={who}
-          onChange={setWho}
-        />
+      <section className="t-login-sheet lg-sheet">
         <div key={who} style={{ animation: 'page-in .35s var(--ease) both' }}>
           {who === 'staff' ? <StaffLogin /> : <ManagerLogin />}
+        </div>
+        <InstallTip />
+        <div className="lg-foot">
+          <button type="button" className="lg-switch press" onClick={() => (haptic('select'), setWho(who === 'staff' ? 'manager' : 'staff'))}>
+            {who === 'staff' ? (
+              <>
+                <I.shield size={16} /> أنت مدير؟ <b>دخول المدراء</b>
+              </>
+            ) : (
+              <>
+                <I.user size={16} /> <b>دخول الموظفين</b>
+              </>
+            )}
+          </button>
+          <small className="num">الإصدار {APP_VERSION}</small>
         </div>
       </section>
     </div>
@@ -168,10 +238,12 @@ function StaffLogin() {
     if (next.length === PIN_MAX) setTimeout(() => void submit(next), 120);
   }
 
+  const remembered = !!name && code.trim() === getLastCode() && !!getLastCode();
+  const firstName = name.split(' ')[0];
   if (step === 'code') {
     return (
       <form
-        style={{ marginTop: 22 }}
+        className="lg-form"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
           if (!name) return;
@@ -181,55 +253,79 @@ function StaffLogin() {
           setStep('pin');
         }}
       >
-        <label className="t-field">
-          <span>كود الدخول</span>
-          <input
-            className="t-input num ltr"
-            style={{ textAlign: 'center', letterSpacing: '.12em' }}
-            inputMode="text"
-            autoCapitalize="none"
-            autoCorrect="off"
-            autoComplete="username"
-            spellCheck={false}
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\s/g, '').slice(0, 20))}
-          />
-        </label>
+        <h2 className="lg-title">{remembered ? 'أهلاً بعودتك' : 'دخول الموظفين'}</h2>
+        <p className="lg-sub">{remembered ? 'اضغط متابعة ثم أدخل رمزك السري' : 'اكتب كودك ليظهر اسمك، ثم رمزك السري'}</p>
 
-        <div style={{ minHeight: 86, marginTop: 14 }}>
-          {name ? (
-            <div className="t-who">
-              <Avatar name={name} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="name">{name}</div>
-                <div className="role">{KIND_LABEL[kind] ?? 'موظف'} · كود {code.trim()}</div>
-              </div>
-              <span className="t-badge ok">
-                <I.check size={14} />
-                معروف
+        {remembered ? (
+          <button type="submit" className="lg-me press">
+            <span className="lg-me-ico" aria-hidden>
+              <I.user size={22} />
+            </span>
+            <span className="lg-me-text">
+              <b>{name}</b>
+              <small>
+                {KIND_LABEL[kind] ?? 'موظف'} · كود <span className="num ltr">{code.trim()}</span>
+              </small>
+            </span>
+            <span className="lg-me-go" aria-hidden>
+              <I.chevron size={18} />
+            </span>
+          </button>
+        ) : (
+          <>
+            <label className="lg-code">
+              <span className="lg-code-ico" aria-hidden>
+                <I.lock size={19} />
               </span>
+              <input
+                className="num ltr"
+                placeholder="كود الدخول"
+                aria-label="كود الدخول"
+                inputMode="text"
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoComplete="username"
+                spellCheck={false}
+                autoFocus={!code}
+                value={code}
+                onChange={e => setCode(e.target.value.replace(/\s/g, '').slice(0, 20))}
+              />
+              {looking && <span className="spinner lg-code-spin" aria-hidden />}
+            </label>
+            <div className="lg-found">
+              {name ? (
+                <div className="lg-name">
+                  <I.check size={16} />
+                  <b>{name}</b>
+                  <small>{KIND_LABEL[kind] ?? 'موظف'}</small>
+                </div>
+              ) : (
+                <p className={`t-hint ${lookErr ? 'bad' : ''}`}>{!code.trim() ? 'الكود الذي أعطتك إياه الإدارة' : looking ? 'جارٍ التعرّف…' : lookErr || 'لا موظف بهذا الكود'}</p>
+              )}
             </div>
-          ) : (
-            <p className={`t-hint ${lookErr ? 'bad' : ''}`}>
-              {!code.trim() ? 'اكتب الكود الذي أعطتك إياه الإدارة ليظهر اسمك' : looking ? 'جارٍ التعرّف…' : lookErr || 'لا موظف بهذا الكود'}
-            </p>
-          )}
-        </div>
+          </>
+        )}
 
-        <button className="t-btn block press" disabled={!name}>
-          متابعة
+        <button className="t-btn block press lg-go" disabled={!name}>
+          {remembered ? `متابعة باسم ${firstName}` : 'متابعة'}
           <I.chevron />
         </button>
-        <p className="t-hint" style={{ textAlign: 'center', marginTop: 16 }}>
-          نسيت الكود أو الرمز؟ اطلبه من مديرك.
-        </p>
+        {remembered ? (
+          <button type="button" className="lg-link press" onClick={() => (haptic('select'), setCode(''))}>
+            لست {firstName}؟ ادخل بكود آخر
+          </button>
+        ) : (
+          <p className="t-hint" style={{ textAlign: 'center', marginTop: 14 }}>
+            نسيت الكود أو الرمز؟ اطلبه من مديرك.
+          </p>
+        )}
       </form>
     );
   }
 
   return (
-    <div style={{ marginTop: 18 }}>
-      <div className="t-who">
+    <div className="lg-form">
+      <div className="t-who lg-pin-who">
         <button
           type="button"
           className="t-icon-btn ghost press"
@@ -246,7 +342,9 @@ function StaffLogin() {
           <div className="name">أهلاً {name.split(' ')[0]}</div>
           <div className="role">أدخل رمزك السري</div>
         </div>
-        <Avatar name={name} size="sm" />
+        <span className="lg-me-ico sm" aria-hidden>
+          <I.lock size={18} />
+        </span>
       </div>
 
       <div className={`t-pin ${shake ? 'shake' : ''}`} aria-label={`${pin.length} أرقام`}>
@@ -366,7 +464,11 @@ function ManagerLogin() {
   }
 
   return (
-    <form style={{ marginTop: 22, display: 'grid', gap: 14 }} onSubmit={submit}>
+    <form className="lg-form" style={{ display: 'grid', gap: 14 }} onSubmit={submit}>
+      <div>
+        <h2 className="lg-title">دخول المدراء</h2>
+        <p className="lg-sub">نفس اسم المستخدم وكلمة المرور في لوحة التحكم</p>
+      </div>
       <label className="t-field">
         <span>اسم المستخدم</span>
         <input
