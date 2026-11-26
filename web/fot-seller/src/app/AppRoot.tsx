@@ -355,7 +355,14 @@ export function TeamApp() {
       // جلسة الفريق تجدد رمز البائع أيضاً؛ مع خادم أقدم نرجع للتجديد القديم
       void refreshTeam().then(r => {
         if (!r.ok) {
-          if (!getToken()) nav('/login', { replace: true });
+          // الخادم رفض جلسة الفريق (رمز دخول جديد أو حساب أُعيد ضبطه): خروج كامل ودخول من جديد،
+          // لا نصف جلسة يعمل فيها البائع وتفشل الحضور والإشعارات بصمت
+          clearBrandCache();
+          wipeSellerData();
+          setToken(null);
+          setSeller(null);
+          toast('انتهت جلستك — ادخل من جديد برمزك');
+          nav('/login', { replace: true });
           return;
         }
         if (r.sellerToken) setToken(r.sellerToken);
