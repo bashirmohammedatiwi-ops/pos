@@ -27,7 +27,7 @@ import { More, type MoreItem } from './screens/More';
 import { Posts } from './screens/Posts';
 import { Shift } from './screens/Shift';
 import { MyMonth } from './screens/MyMonth';
-import { ChatList, ChatSplit } from './screens/Chat';
+import { ChatSplit } from './screens/Chat';
 import { getManagerToken, managerApi, onLive, staffApi, supervisorMode, useChatUnread, useLiveChannel, useLoad, useUnread } from './work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -240,7 +240,7 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         {team && <Route path="/shift" element={<Shift />} />}
         {team && <Route path="/my-month" element={<MyMonth back="/more" />} />}
         {team && <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />}
-        {team && <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={canGroup} />} />}
+        {team && <Route path="/chat" element={<ChatSplit role="staff" base="/chat" canGroup={canGroup} />} />}
         {team && <Route path="/chat/:id" element={<ChatSplit role="staff" base="/chat" canGroup={canGroup} />} />}
         {team && <Route path="/posts" element={<Posts back="/more" />} />}
         {team && <Route path="/more" element={<More items={moreItems} />} />}
@@ -291,7 +291,7 @@ function StaffShell({ onLogout, seller, brands }: { onLogout: () => void; seller
         {seller && <Route path="/catalog" element={<LockedFeature title="منتجات عمولتي" back="/more" />} />}
         {brands && <Route path="/brands" element={<Brands back="/more" />} />}
         <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />
-        <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={account.canGroup} />} />
+        <Route path="/chat" element={<ChatSplit role="staff" base="/chat" canGroup={account.canGroup} />} />
         <Route path="/chat/:id" element={<ChatSplit role="staff" base="/chat" canGroup={account.canGroup} />} />
         <Route path="/more" element={<More items={moreItems} />} />
         <Route path="/account" element={<Account onLogout={onLogout} back="/more" />} />

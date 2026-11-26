@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, Fragment } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Avatar, Empty, ErrorLine, Fab, I, Screen, Sheet, Skeleton, Switch, toast } from '../kit';
+import { Avatar, Empty, ErrorLine, Fab, I, Screen, Sheet, Skeleton, Switch, toast, useWide } from '../kit';
 import { haptic, openAppSettings, pushBack } from '../native';
 import { Lightbox } from '../parts';
 import { KIND_LABEL } from '../../team';
@@ -850,22 +850,35 @@ function ForwardSheet({ role, count, open, onClose, onSend }: { role: Role; coun
 /** متصفح بفأرة ولوحة مفاتيح (لا تطبيق الهاتف ولا شاشة لمس) */
 const desktopKeys = () => !isNative() && !!window.matchMedia?.('(pointer: fine)').matches;
 /** شاشة الحاسبة العريضة في المتصفح: قائمة المحادثات بجانب المحادثة المفتوحة */
-const wideWeb = () => !isNative() && !!window.matchMedia?.('(min-width: 1024px)').matches;
-
 export function ChatSplit({ role, base, canGroup }: { role: Role; base: string; canGroup?: boolean }) {
-  const [wide, setWide] = useState(wideWeb);
-  useEffect(() => {
-    const mq = window.matchMedia?.('(min-width: 1024px)');
-    if (!mq) return;
-    const on = () => setWide(wideWeb());
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  if (!wide) return <ChatRoom role={role} base={base} />;
+  const wide = useWide(1024);
+  const { id } = useParams();
+  if (!wide) return id ? <ChatRoom role={role} base={base} /> : <ChatList role={role} base={base} canGroup={canGroup} />;
   return (
     <div className="chat-split">
       <ChatList role={role} base={base} canGroup={canGroup} />
-      <ChatRoom role={role} base={base} />
+      {id ? <ChatRoom role={role} base={base} /> : <ChatEmpty />}
+    </div>
+  );
+}
+
+/** الحاسبة: مكان المحادثة قبل اختيار واحدة */
+function ChatEmpty() {
+  return (
+    <div className="t-room chat-empty">
+      <div className="chat-empty-in">
+        <span className="chat-empty-art" aria-hidden>
+          <I.chat size={34} />
+        </span>
+        <b>اختر محادثة من القائمة</b>
+        <small>أو ابدأ محادثة جديدة مع زميل أو مجموعة</small>
+        <ul>
+          <li>
+            <kbd>Enter</kbd> يرسل الرسالة، <kbd>Shift</kbd> + <kbd>Enter</kbd> سطر جديد
+          </li>
+          <li>الصق صورة (لقطة شاشة) أو اسحبها إلى المحادثة لإرسالها</li>
+        </ul>
+      </div>
     </div>
   );
 }
@@ -1162,10 +1175,17 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
   }
 
   /** الصور تُضغط أولاً وتظهر للمعاينة مع تعليق، ثم تُرفع عند الإرسال */
-  async function pickImages(files: FileList | null) {
-    const list = Array.from(files ?? []).slice(0, 6);
-    if (!list.length) return;
-    if ((files?.length ?? 0) > 6) toast('يمكن إرسال 6 صور كحد أقصى في المرة');
+  const [drag, setDrag] = useState(false);
+  const dragDepth = useRef(0);
+
+  async function pickImages(files: FileList | File[] | null) {
+    const imgs = Array.from(files ?? []).filter(f => !f.type || f.type.startsWith('image/'));
+    if (!imgs.length) {
+      if (files && Array.from(files).length) toast('يمكن إرسال الصور فقط هنا');
+      return;
+    }
+    const list = imgs.slice(0, 6);
+    if (imgs.length > 6) toast('يمكن إرسال 6 صور كحد أقصى في المرة');
     setUploading(true);
     try {
       const out: string[] = [];
@@ -1254,8 +1274,48 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
   const canPin = conv?.kind === 'direct' || !!conv?.isAdmin;
   const selectedMsgs = (msgs ?? []).filter(m => selected.includes(m.id));
 
+  const dropOk = !editing && !uploading;
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   return (
-    <div className="t-room">
+    <div
+      className="t-room"
+      onDragEnter={e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        dragDepth.current++;
+        setDrag(true);
+      }}
+      onDragOver={e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = dropOk ? 'copy' : 'none';
+      }}
+      onDragLeave={e => {
+        if (!hasFiles(e)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setDrag(false);
+      }}
+      onDrop={e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDrag(false);
+        if (dropOk) void pickImages(e.dataTransfer.files);
+      }}
+    >
+      {drag && (
+        <div className="t-drop" aria-hidden>
+          <span>
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
+              <circle cx="9" cy="9.5" r="1.6" />
+              <path d="m20.5 16-4.5-4.5L7 19.5" />
+            </svg>
+            <b>أفلت الصور هنا</b>
+            <small>تظهر للمعاينة قبل الإرسال · حتى 6 صور</small>
+          </span>
+        </div>
+      )}
       {selecting ? (
         <header className="t-room-head t-selbar">
           <button type="button" className="t-icon-btn ghost press" aria-label="إلغاء التحديد" onClick={() => setSelected([])}>
@@ -1537,6 +1597,13 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
               e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`;
             }}
             onFocus={() => scrollDown(true)}
+            onPaste={e => {
+              // لصق صورة (لقطة شاشة أو صورة منسوخة) يفتح معاينة الإرسال
+              const imgs = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'));
+              if (!imgs.length || editing) return;
+              e.preventDefault();
+              void pickImages(imgs);
+            }}
             onKeyDown={e => {
               // الحاسبة: Enter يرسل و Shift+Enter سطر جديد (الهاتف: Enter سطر جديد كما هو)
               if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || !desktopKeys()) return;

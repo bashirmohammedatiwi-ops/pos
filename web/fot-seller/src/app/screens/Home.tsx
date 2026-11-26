@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ago, shownWeekAmount, shownWeekLabel, weekIsPaid } from '../../api';
 import { useBrandList } from '../../brands';
@@ -58,6 +58,11 @@ function Greeting({ name, sub, unread }: { name: string; sub: string; unread?: n
   );
 }
 
+/** عمود الحاسبة العريضة؛ على الهاتف لا غلاف (يبقى ترتيب الأقسام وحركتها كما هي) */
+function Col({ on, cls, children }: { on: boolean; cls: string; children: ReactNode }) {
+  return on ? <div className={cls}>{children}</div> : <>{children}</>;
+}
+
 export function SellerHome() {
   const nav = useNavigate();
   const { dash, weeks, lines, loading, err, reload, updatedAt, weekStart } = useSeller();
@@ -78,11 +83,54 @@ export function SellerHome() {
   const pieces = useMemo(() => lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0), [lines]);
   const done = goals.filter(g => g.percent >= 100).length;
 
+  const wide = useWide();
+  // آخر المبيعات: في العمود الجانبي على الحاسبة العريضة، وآخر الصفحة على الهاتف
+  const sales = (
+    <section className="t-section">
+      <div className="t-section-head">
+        <h2>آخر مبيعاتك</h2>
+        {lines.length > 0 && (
+          <Link to="/commission" className="more">
+            الكل ({fmt(lines.length)})
+          </Link>
+        )}
+      </div>
+      {!dash && loading ? (
+        <Skeleton h={180} r={20} />
+      ) : lines.length === 0 ? (
+        <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5 }}>
+          لا مبيعات بعمولة هذا الأسبوع بعد — أول بيعة تظهر هنا فوراً.
+        </div>
+      ) : (
+        <div className="t-list">
+          {lines.slice(0, 5).map(l => (
+            <div key={l.id} className="t-row">
+              <span className="t-tile mute">
+                <I.box size={18} />
+              </span>
+              <div className="body">
+                <div className="title">{l.productName}</div>
+                <div className="sub">
+                  {clockLabel(l.occurredAt)} · {l.quantity} قطعة{l.mallName ? ` · ${l.mallName}` : ''}
+                </div>
+              </div>
+              <div className="end">
+                <b className="num ltr" style={{ color: 'var(--ok)' }}>+{fmt(l.commissionAmount)}</b>
+                <small>د.ع</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
   return (
     <>
       {pull}
       <Greeting name={name} sub={updatedAt ? `محدّث ${ago(updatedAt)}` : ''} unread={team ? unread : undefined} />
-      <div className="t-page">
+      <div className={wide ? 't-page h-dash' : 't-page'}>
+        <Col on={wide} cls="h-main">
         {err && !dash && <ErrorLine text={err} onRetry={() => void reload()} />}
 
         {team && <AckCenter />}
@@ -159,7 +207,7 @@ export function SellerHome() {
           </Link>
         )}
 
-        {team && (
+        {team && !wide && (
           <div style={{ marginTop: 18 }}>
             <HomeAlerts />
           </div>
@@ -212,44 +260,14 @@ export function SellerHome() {
           </section>
         )}
 
-        {/* آخر المبيعات */}
-        <section className="t-section">
-          <div className="t-section-head">
-            <h2>آخر مبيعاتك</h2>
-            {lines.length > 0 && (
-              <Link to="/commission" className="more">
-                الكل ({fmt(lines.length)})
-              </Link>
-            )}
-          </div>
-          {!dash && loading ? (
-            <Skeleton h={180} r={20} />
-          ) : lines.length === 0 ? (
-            <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5 }}>
-              لا مبيعات بعمولة هذا الأسبوع بعد — أول بيعة تظهر هنا فوراً.
-            </div>
-          ) : (
-            <div className="t-list">
-              {lines.slice(0, 5).map(l => (
-                <div key={l.id} className="t-row">
-                  <span className="t-tile mute">
-                    <I.box size={18} />
-                  </span>
-                  <div className="body">
-                    <div className="title">{l.productName}</div>
-                    <div className="sub">
-                      {clockLabel(l.occurredAt)} · {l.quantity} قطعة{l.mallName ? ` · ${l.mallName}` : ''}
-                    </div>
-                  </div>
-                  <div className="end">
-                    <b className="num ltr" style={{ color: 'var(--ok)' }}>+{fmt(l.commissionAmount)}</b>
-                    <small>د.ع</small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        {!wide && sales}
+        </Col>
+        {wide && (
+          <aside className="h-aside" aria-label="التبليغات وآخر المبيعات">
+            {team && <HomeAlerts />}
+            {sales}
+          </aside>
+        )}
 
       </div>
     </>

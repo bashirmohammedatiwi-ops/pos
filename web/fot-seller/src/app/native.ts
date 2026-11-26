@@ -84,6 +84,10 @@ export function setThemePref(pref: ThemePref) {
   } catch {
     /* ignore */
   }
+  // انتقال ناعم للألوان عند التبديل (الموقع)
+  const root = document.documentElement;
+  root.classList.add('theme-anim');
+  window.setTimeout(() => root.classList.remove('theme-anim'), 380);
   applyTheme(pref);
 }
 

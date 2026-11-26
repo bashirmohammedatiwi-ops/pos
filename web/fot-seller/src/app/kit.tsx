@@ -548,7 +548,12 @@ export function useWide(min = 1280) {
     const f = () => setWide(read());
     f();
     mq.addEventListener('change', f);
-    return () => mq.removeEventListener('change', f);
+    // احتياط: بعض المتصفحات لا تُطلق change عند تغيير حجم النافذة بسرعة
+    window.addEventListener('resize', f);
+    return () => {
+      mq.removeEventListener('change', f);
+      window.removeEventListener('resize', f);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
   return wide;

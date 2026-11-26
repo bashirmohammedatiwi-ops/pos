@@ -5,7 +5,7 @@ import { Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Sw
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, ProfileCard, StatusBadge } from '../parts';
 import { Alerts } from '../screens/Alerts';
-import { ChatList, ChatSplit } from '../screens/Chat';
+import { ChatSplit } from '../screens/Chat';
 import { MAttend, MNetworks } from './ManagerAttend';
 import { LeaveCard, MHome } from './ManagerHome';
 import { MManagers, MSelf } from './ManagerSelf';
@@ -198,7 +198,7 @@ export function ManagerApp() {
         <Route path="cash" element={perms.viewCash && !sup ? <MCash /> : <Navigate to="/m" replace />} />
         <Route path="cash/flow" element={perms.viewCash && !sup ? <MCashFlow /> : <Navigate to="/m" replace />} />
         <Route path="cash/:seq" element={perms.viewCash && !sup ? <MCashBox /> : <Navigate to="/m" replace />} />
-        <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
+        <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatSplit role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatSplit role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="more" element={<MMore unread={unread} pending={approvalsInMore ? pending : 0} onLogout={logout} />} />
         <Route path="alerts" element={<Alerts role={sup ? 'staff' : 'manager'} back="/m/more" />} />

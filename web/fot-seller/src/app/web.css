@@ -871,3 +871,417 @@ html.web textarea:focus-visible,
 html.web select:focus-visible {
   outline: none;
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * البحث السريع (Ctrl+K)، تبديل المظهر، وحالة الاتصال في القائمة الجانبية.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+.w-side-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 40px;
+  margin: 0 0 12px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: start;
+  transition:
+    border-color 0.18s var(--ease),
+    color 0.18s var(--ease),
+    background-color 0.18s var(--ease);
+}
+.w-side-search span {
+  flex: 1;
+}
+.w-side-search:hover {
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+  background: var(--bg-elev);
+  color: var(--ink-2);
+}
+kbd,
+.w-side-search kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: 7px;
+  background: var(--bg-elev);
+  color: var(--ink-3);
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  direction: ltr;
+  white-space: nowrap;
+}
+.w-side-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 4px;
+}
+.w-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.w-live i {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.w-live.on i {
+  background: var(--ok);
+}
+.w-live.on i::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--ok);
+  opacity: 0;
+  animation: live-ping 2.4s var(--ease) infinite;
+}
+.w-live.offline i {
+  background: var(--bad);
+}
+.w-live.offline {
+  color: var(--bad);
+}
+@keyframes live-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  80%,
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-live.on i::after {
+    animation: none;
+  }
+}
+.w-theme {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  color: var(--ink-2);
+  transition:
+    color 0.18s var(--ease),
+    border-color 0.18s var(--ease),
+    transform 0.3s var(--ease);
+}
+.w-theme:hover {
+  border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
+  color: var(--brand);
+  transform: rotate(-18deg);
+}
+/* انتقال ناعم عند تبديل المظهر */
+html.web.theme-anim,
+html.web.theme-anim * {
+  transition:
+    background-color 0.3s var(--ease),
+    border-color 0.3s var(--ease),
+    color 0.3s var(--ease) !important;
+}
+
+/* نافذة البحث */
+.pk-scrim {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 24px 24px;
+  background: rgba(12, 8, 24, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: pk-fade 0.16s var(--ease);
+}
+.pk {
+  display: flex;
+  flex-direction: column;
+  width: min(600px, 100%);
+  max-height: min(560px, 76vh);
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 22px;
+  background: var(--bg-elev);
+  box-shadow:
+    0 30px 80px -20px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+  animation: pk-in 0.22s var(--spring, var(--ease));
+}
+@keyframes pk-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pk-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+}
+.pk-field {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+}
+.pk-field input {
+  flex: 1;
+  min-width: 0;
+  height: 60px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+}
+.pk-field input::placeholder {
+  color: var(--ink-4);
+  font-weight: 500;
+}
+.pk-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  overscroll-behavior: contain;
+}
+.pk-group {
+  margin: 8px 12px 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-4);
+}
+.pk-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: start;
+}
+.pk-item.on {
+  background: var(--brand-soft);
+  color: var(--ink);
+}
+.pk-ico {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+}
+.pk-ico svg {
+  width: 18px;
+  height: 18px;
+}
+.pk-item.on .pk-ico {
+  background: var(--grad-brand);
+  color: #fff;
+}
+.pk-lbl {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-grp {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-4);
+}
+.pk-hint {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+}
+.pk-enter {
+  width: 18px;
+  color: var(--brand);
+  font-size: 15px;
+  opacity: 0;
+}
+.pk-item.on .pk-enter {
+  opacity: 1;
+}
+.pk-empty {
+  margin: 0;
+  padding: 26px 12px;
+  color: var(--ink-3);
+  font-size: 14px;
+  text-align: center;
+}
+.pk-foot {
+  display: flex;
+  gap: 18px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.pk-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pk-foot kbd {
+  min-width: 20px;
+  height: 20px;
+  font-size: 10.5px;
+}
+
+/* إفلات الصور على المحادثة */
+.t-drop {
+  position: absolute;
+  z-index: 30;
+  inset: 10px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed color-mix(in srgb, var(--brand) 65%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  animation: pk-fade 0.15s var(--ease);
+}
+.t-drop span {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  color: var(--brand);
+  text-align: center;
+}
+.t-drop b {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 800;
+}
+.t-drop small {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* المحادثات على الحاسبة قبل اختيار محادثة */
+.chat-empty {
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(600px 320px at 50% 38%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 70%),
+    var(--bg);
+}
+.chat-empty-in {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  max-width: 380px;
+  padding: 24px;
+  text-align: center;
+}
+.chat-empty-art {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 10px;
+  border-radius: 26px;
+  background: var(--grad-brand);
+  color: #fff;
+  box-shadow: var(--glow-brand);
+}
+.chat-empty-in b {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.chat-empty-in small {
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.chat-empty-in ul {
+  display: grid;
+  gap: 8px;
+  margin: 22px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg-elev);
+  list-style: none;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.9;
+}
+.chat-empty-in kbd {
+  height: 20px;
+  min-width: 20px;
+  font-size: 10.5px;
+  vertical-align: 1px;
+}
+/* زر «محادثة جديدة» في عمود القائمة (لا يختفي خلف المحادثة) */
+@media (min-width: 1024px) {
+  html.web:has(.chat-split) .t-fab {
+    inset-inline-end: auto;
+    inset-inline-start: calc(var(--side-w) + 18px);
+    bottom: 84px;
+    z-index: 61;
+  }
+  html.web:has(.chat-split) .wp-bar {
+    max-width: 364px;
+  }
+}
+/* الهاتف: زر «محادثة جديدة» فوق شريط تفعيل الإشعارات حين يظهر */
+@media (max-width: 1023.98px) {
+  body:has(.wp-bar) .t-fab {
+    bottom: calc(var(--tabbar-h, 66px) + var(--safe-b, 0px) + 80px);
+  }
+}

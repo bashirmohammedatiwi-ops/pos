@@ -1208,6 +1208,34 @@ export type LiveMsg = {
   };
 };
 
+/* حالة القناة الحية (للمؤشر «متصل مباشرة» في القائمة الجانبية) */
+let liveUp = false;
+const LIVE_STATE = 'fot-team-live-state';
+function setLiveUp(v: boolean) {
+  if (liveUp === v) return;
+  liveUp = v;
+  window.dispatchEvent(new Event(LIVE_STATE));
+}
+/** 'on' القناة الحية متصلة · 'retry' يعيد الاتصال · 'offline' لا إنترنت */
+export function useLiveState(): 'on' | 'retry' | 'offline' {
+  const read = () => (typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : liveUp ? 'on' : 'retry');
+  const [v, setV] = useState<'on' | 'retry' | 'offline'>(read);
+  useEffect(() => {
+    const f = () => setV(read());
+    window.addEventListener(LIVE_STATE, f);
+    window.addEventListener('online', f);
+    window.addEventListener('offline', f);
+    f();
+    return () => {
+      window.removeEventListener(LIVE_STATE, f);
+      window.removeEventListener('online', f);
+      window.removeEventListener('offline', f);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return v;
+}
+
 export function onLive(fn: (m: LiveMsg) => void) {
   const h = (e: Event) => fn((e as CustomEvent<LiveMsg>).detail);
   window.addEventListener(LIVE_EVENT, h);
@@ -1239,8 +1267,10 @@ export function useLiveChannel(role: Role | null) {
         es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
       es.onopen = () => {
         retry = 0;
+        setLiveUp(true);
       };
       es.onerror = () => {
+        setLiveUp(false);
         // الخادم يرد 401/404 بلا قناة: نتوقف ونعيد بتمهّل
         if (es?.readyState === EventSource.CLOSED) {
           es.close();
@@ -1252,6 +1282,7 @@ export function useLiveChannel(role: Role | null) {
     connect();
     return () => {
       stopped = true;
+      setLiveUp(false);
       window.clearTimeout(timer);
       es?.close();
     };
