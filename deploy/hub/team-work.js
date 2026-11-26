@@ -12,6 +12,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 
 const IRAQ_MS = 3 * 3600_000;
 const DAY_NAMES = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
@@ -28,10 +29,32 @@ const PRIVATE_PREFIX = '/api/team/private/';
 const PRIVATE_NAME_RE = /^[a-f0-9]{32}\.(jpg|png|webp)$/;
 // الرابط المخزّن بلا توقيع؛ ما يصل من التطبيق قد يحمل ?exp=&sig=
 const PRIVATE_RE = /^\/api\/team\/private\/([a-f0-9]{32}\.(?:jpg|png|webp))(?:\?.*)?$/;
-const MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a' };
+const MIME_EXT = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/m4a': 'm4a',
+  'audio/aac': 'aac',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/3gpp': '3gp',
+  // بعض الهواتف تسمّي التسجيل الصوتي «فيديو» بلا صورة
+  'video/webm': 'webm',
+  'video/mp4': 'm4a',
+};
+/** ما يُحفظ كما هو إن تعذر التحويل (يعمل على أغلب الأجهزة) */
+const AUDIO_KEEP = ['webm', 'ogg', 'm4a'];
 /** حدود المحادثات: الهاتف يضغط الصورة قبل الرفع، والخادم يرفض ما يتجاوز الحد */
 const CHAT_IMAGE_MAX = 600 * 1024;
-const VOICE_MAX = 1536 * 1024;
+// قبل التحويل: الآيفون يسجّل بمعدل أعلى من المطلوب، والتحويل يصغّر الملف
+const VOICE_MAX = 8 * 1048576;
+const FFMPEG = process.env.FOT_FFMPEG || 'ffmpeg';
 const EXT_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', webm: 'audio/webm', ogg: 'audio/ogg', m4a: 'audio/mp4' };
 
 /** تاريخ اليوم بتوقيت العراق YYYY-MM-DD */
@@ -423,32 +446,105 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
   setInterval(nagTick, 60_000).unref();
 
+  /* ═════════════ الرسائل الصوتية: صيغة واحدة تعمل على كل الهواتف ═════════════
+     الأندرويد يسجّل WebM/Opus والآيفون MP4/AAC، والآيفون لا يشغّل WebM. لذلك يُحوَّل كل تسجيل
+     عند رفعه إلى AAC داخل M4A (يعمل على الآيفون والأندرويد والمتصفحات) بـ ffmpeg.
+     إن لم يتوفر ffmpeg يُحفظ التسجيل بصيغته الأصلية كما كان. */
+  let ffmpegReady = null;
+  function hasFfmpeg() {
+    ffmpegReady ??= new Promise(resolve => {
+      try {
+        const p = spawn(FFMPEG, ['-version'], { stdio: 'ignore' });
+        p.on('error', () => resolve(false));
+        p.on('exit', code => resolve(code === 0));
+      } catch {
+        resolve(false);
+      }
+    }).then(ok => {
+      if (!ok) console.error('ffmpeg not found — voice messages are stored as recorded (iPhone cannot play WebM)');
+      return ok;
+    });
+    return ffmpegReady;
+  }
+  /** يحوّل ملفاً صوتياً إلى M4A/AAC أحادي بمعدل منخفض كافٍ للكلام؛ false إن فشل */
+  function toM4a(src, dst) {
+    return new Promise(resolve => {
+      let done = false;
+      const finish = ok => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (!ok) fs.rmSync(dst, { force: true });
+        resolve(ok);
+      };
+      let p;
+      try {
+        p = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-vn', '-ac', '1', '-ar', '32000', '-c:a', 'aac', '-b:a', '40k', '-movflags', '+faststart', '-f', 'ipod', dst], { stdio: 'ignore' });
+      } catch {
+        return resolve(false);
+      }
+      const timer = setTimeout(() => {
+        p.kill('SIGKILL');
+        finish(false);
+      }, 60_000);
+      p.on('error', () => finish(false));
+      p.on('exit', code => finish(code === 0 && fs.existsSync(dst) && fs.statSync(dst).size > 200));
+    });
+  }
+  const isAudioBytes = buf =>
+    buf.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) || // WebM
+    buf.subarray(0, 4).toString('latin1') === 'OggS' ||
+    buf.subarray(4, 8).toString('latin1') === 'ftyp' || // MP4 / M4A / 3GP
+    buf.subarray(0, 3).toString('latin1') === 'ID3' || // MP3
+    (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) || // MP3 / AAC ADTS
+    (buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WAVE') ||
+    buf.subarray(0, 4).toString('latin1') === 'caff';
+  async function saveVoice(buf, ext) {
+    const id = crypto.randomBytes(16).toString('hex');
+    const out = `${id}.m4a`;
+    if (await hasFfmpeg()) {
+      const tmp = path.join(mediaDir, `${id}.src`);
+      fs.writeFileSync(tmp, buf);
+      const ok = await toM4a(tmp, path.join(mediaDir, out));
+      fs.rmSync(tmp, { force: true });
+      if (ok) return { status: 200, body: { url: `/api/team/media/${out}`, name: out, size: fs.statSync(path.join(mediaDir, out)).size } };
+    }
+    if (!AUDIO_KEEP.includes(ext)) return { status: 415, body: { error: 'تعذر معالجة التسجيل الصوتي على الخادم — راجع الإدارة' } };
+    const name = `${id}.${ext}`;
+    fs.writeFileSync(path.join(mediaDir, name), buf);
+    return { status: 200, body: { url: `/api/team/media/${name}`, name, size: buf.length } };
+  }
+  /** تحويل تسجيل محفوظ قديم (WebM/Ogg) إلى M4A؛ يعيد الرابط الجديد أو null */
+  async function transcodeMedia(url) {
+    const m = /^\/api\/team\/media\/([a-f0-9]{32})\.(webm|ogg)$/.exec(url || '');
+    if (!m || !(await hasFfmpeg())) return null;
+    const src = path.join(mediaDir, `${m[1]}.${m[2]}`);
+    if (!fs.existsSync(src)) return null;
+    const out = `${crypto.randomBytes(16).toString('hex')}.m4a`;
+    return (await toM4a(src, path.join(mediaDir, out))) ? `/api/team/media/${out}` : null;
+  }
+
   /* ═════════════ الوسائط ═════════════ */
-  function saveMedia(body, maxBytes, priv = false) {
+  async function saveMedia(body, maxBytes, priv = false) {
     let data = String(body.data || '');
     let mime = String(body.mime || '');
-    // data:audio/webm;codecs=opus;base64,… — قد يحمل النوع معاملات
-    const m = data.match(/^data:([\w/+.-]+)(?:;[\w=.-]+)*;base64,(.*)$/s);
+    // data:audio/webm;codecs=opus;base64,… — قد يحمل النوع معاملات (وبعض المتصفحات تضع مسافة بعد الفاصلة)
+    const m = data.match(/^data:\s*([\w/+.-]+)\s*(?:;[^,]*)?,(.*)$/s);
     if (m) {
       mime = m[1];
       data = m[2];
     }
+    mime = mime.split(';')[0].trim().toLowerCase();
     const ext = MIME_EXT[mime];
     if (!ext) return { status: 400, body: { error: 'نوع الملف غير مدعوم (JPG/PNG/WebP أو تسجيل صوتي)' } };
     const buf = Buffer.from(data, 'base64');
     if (!buf.length) return { status: 400, body: { error: 'الملف فارغ' } };
-    if (mime.startsWith('audio/')) {
+    if (mime.startsWith('audio/') || mime.startsWith('video/')) {
       if (priv) return { status: 400, body: { error: 'نوع الملف غير مدعوم هنا' } };
       if (buf.length > VOICE_MAX) return { status: 413, body: { error: 'التسجيل الصوتي طويل جداً' } };
-      // المحتوى نفسه يجب أن يكون صوتاً: WebM (EBML) أو Ogg أو MP4
-      const isAudio =
-        buf.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) ||
-        buf.subarray(0, 4).toString('latin1') === 'OggS' ||
-        buf.subarray(4, 8).toString('latin1') === 'ftyp';
-      if (!isAudio) return { status: 400, body: { error: 'الملف ليس تسجيلاً صوتياً صالحاً' } };
-      const audioName = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
-      fs.writeFileSync(path.join(mediaDir, audioName), buf);
-      return { status: 200, body: { url: `/api/team/media/${audioName}`, name: audioName, size: buf.length } };
+      // المحتوى نفسه يجب أن يكون صوتاً (لا نثق بالنوع المُعلَن)
+      if (!isAudioBytes(buf)) return { status: 400, body: { error: 'الملف ليس تسجيلاً صوتياً صالحاً' } };
+      return saveVoice(buf, ext);
     }
     if (body.purpose === 'chat' && buf.length > CHAT_IMAGE_MAX) return { status: 413, body: { error: 'الصورة كبيرة — أعد المحاولة بعد تحديث التطبيق' } };
     if (buf.length > maxBytes) return { status: 413, body: { error: `الصورة أكبر من ${Math.round(maxBytes / 1048576)} ميغابايت` } };
@@ -552,7 +648,8 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     }
   }
 
-  function serveMedia(res, name) {
+  /** يقدّم الملف بحجمه ويدعم الطلبات الجزئية (Range): مشغّل الصوت في الآيفون لا يعمل بدونها */
+  function serveMedia(res, name, req) {
     if (!MEDIA_RE.test(name)) {
       ctx.sendOpen(res, 404, { error: 'not found' });
       return;
@@ -562,12 +659,32 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       ctx.sendOpen(res, 404, { error: 'not found' });
       return;
     }
-    res.writeHead(200, {
+    const size = fs.statSync(file).size;
+    const headers = {
       'Content-Type': EXT_MIME[name.split('.').pop()],
       'Cache-Control': 'public, max-age=31536000, immutable',
       'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+      'Accept-Ranges': 'bytes',
       'X-Content-Type-Options': 'nosniff',
-    });
+    };
+    const r = /^bytes=(\d*)-(\d*)$/.exec(String(req?.headers?.range || '').trim());
+    if (r && (r[1] || r[2]) && size > 0) {
+      // «bytes=-N» = آخر N بايت
+      const start = r[1] ? Number(r[1]) : Math.max(0, size - Number(r[2]));
+      const end = r[1] && r[2] ? Math.min(Number(r[2]), size - 1) : size - 1;
+      if (start >= size || start > end) {
+        res.writeHead(416, { ...headers, 'Content-Range': `bytes */${size}` });
+        res.end();
+        return;
+      }
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+      if (req.method === 'HEAD') return void res.end();
+      fs.createReadStream(file, { start, end }).pipe(res);
+      return;
+    }
+    res.writeHead(200, { ...headers, 'Content-Length': size });
+    if (req?.method === 'HEAD') return void res.end();
     fs.createReadStream(file).pipe(res);
   }
 
@@ -1159,7 +1276,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       const body = await json(req);
       if (!body) return ctx.send(res, 400, { error: 'طلب غير صالح' }), true;
       // purpose=leave: تقرير طبي ← المجلد الخاص (رابط موقّع)
-      const out = saveMedia(body, 6 * 1048576, body.purpose === 'leave');
+      const out = await saveMedia(body, 6 * 1048576, body.purpose === 'leave');
       if (out.status === 200) audit(`staff:${s.id}`, 'media.upload', out.body.name, { size: out.body.size, private: body.purpose === 'leave' });
       reply(res, out);
       return true;
@@ -1224,7 +1341,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (req.method === 'POST' && sub === 'media') {
       const body = await json(req);
       if (!body) return send(400, { error: 'طلب غير صالح' }), true;
-      const out = saveMedia(body, 8 * 1048576);
+      const out = await saveMedia(body, 8 * 1048576);
       if (out.status === 200) audit(actor, 'media.upload', out.body.name, { size: out.body.size });
       reply(res, out, open);
       return true;
@@ -1254,7 +1371,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   /** حالة يوم واحد للموظف (عطلة/إجازة/دوام) — للحضور ولوحة المدير */
   const dayFor = (staffId, date) => schedule(staffId, date, 1)[0];
 
-  return { isOnline: key => (streams.get(key)?.size ?? 0) > 0, planOf, rateOn, supervisorOf, supervisorScope, notifySupervisors, deleteMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
+  return { isOnline: key => (streams.get(key)?.size ?? 0) > 0, planOf, rateOn, supervisorOf, supervisorScope, notifySupervisors, deleteMedia, transcodeMedia, permsOf, scopeOf, handleStaff, handleManage, openStream, recheckStreams, serveMedia, servePrivate, signedOk, privateOwner, notify, unreadCount, listNotifications, markRead, iraqDate, emit, emitManagers, managerIds, dayFor, withImages };
 }
 
 module.exports = { createWork };

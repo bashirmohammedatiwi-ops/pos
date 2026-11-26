@@ -20,7 +20,7 @@ const MEDIA_RE = /^\/api\/team\/media\/[a-f0-9]{32}\.(jpg|png|webp|gif)$/;
 const AUDIO_RE = /^\/api\/team\/media\/[a-f0-9]{32}\.(webm|ogg|m4a)$/;
 const previewOf = m => (m.deleted_at ? 'رسالة محذوفة' : m.body || (m.audio ? '🎤 رسالة صوتية' : m.image ? '📷 صورة' : ''));
 
-function createChat({ db, ctx, now, audit, emit, notify, deleteMedia, isOnline = () => false }) {
+function createChat({ db, ctx, now, audit, emit, notify, deleteMedia, transcodeMedia, isOnline = () => false }) {
   db.exec('CREATE TABLE IF NOT EXISTS _chat_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const MIGRATIONS = [
     `CREATE TABLE conversations (
@@ -208,6 +208,27 @@ function createChat({ db, ctx, now, audit, emit, notify, deleteMedia, isOnline =
     }
   }
   /** يُحذف الملف فقط إن لم تعد تستخدمه رسالة أخرى (إعادة التوجيه تشارك الملف نفسه) */
+  /* الرسائل الصوتية المحفوظة قبل التحويل (WebM/Ogg لا تعمل على الآيفون): تُحوَّل مرة واحدة في الخلفية،
+     واحدة تلو الأخرى كي لا يُثقل الخادم. الملف الأصلي يُحذف بعد تحديث الرسائل التي تشير إليه. */
+  async function migrateVoice() {
+    if (!transcodeMedia) return;
+    const urls = db.prepare("SELECT DISTINCT audio FROM messages WHERE audio LIKE '%.webm' OR audio LIKE '%.ogg'").all().map(r => r.audio);
+    let moved = 0;
+    for (const old of urls) {
+      try {
+        const next = await transcodeMedia(old);
+        if (!next) continue;
+        db.prepare('UPDATE messages SET audio = ? WHERE audio = ?').run(next, old);
+        deleteMedia?.(old);
+        moved++;
+      } catch (err) {
+        console.error('voice migration failed', old, err.message);
+      }
+    }
+    if (moved) console.log(`voice migration: ${moved} of ${urls.length} recordings converted to m4a`);
+  }
+  setTimeout(() => void migrateVoice(), 20_000).unref();
+
   function dropMedia(url) {
     if (!url) return;
     const used = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE deleted_at IS NULL AND (image = ? OR audio = ?)').get(url, url).n;

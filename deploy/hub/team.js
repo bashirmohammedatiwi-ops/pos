@@ -212,7 +212,7 @@ function createTeam(ctx) {
     rateOn: work.rateOn,
     notifySupervisors: work.notifySupervisors,
   });
-  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia, isOnline: work.isOnline });
+  const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia, transcodeMedia: work.transcodeMedia, isOnline: work.isOnline });
   // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
   const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf });
   ctx.pushTo = (kind, ids, n) => void extra.pushTo(kind, ids, n);
@@ -301,8 +301,8 @@ function createTeam(ctx) {
 
     // صور الإعلانات والمنتجات: عامة بأسماء عشوائية غير قابلة للتخمين
     const media = p.match(/^\/api\/team\/media\/([\w.]+)$/);
-    if (req.method === 'GET' && media) {
-      work.serveMedia(res, media[1]);
+    if ((req.method === 'GET' || req.method === 'HEAD') && media) {
+      work.serveMedia(res, media[1], req);
       return true;
     }
     // مرفقات الإجازات (تقارير طبية): رابط موقّع قصير العمر، أو رمز صاحب الطلب، أو مدير يملك الموافقة على موظفه
@@ -583,7 +583,7 @@ function createTeam(ctx) {
       // لوحة التحكم تعرض الصور عبر الوكيل (المسار نفسه بلا مصادقة المتصفح)
       const am = p.match(/^\/api\/admin\/team\/media\/([\w.]+)$/);
       if (req.method === 'GET' && am) {
-        work.serveMedia(res, am[1]);
+        work.serveMedia(res, am[1], req);
         return true;
       }
       const ap = p.match(/^\/api\/admin\/team\/private\/([\w.]+)$/);

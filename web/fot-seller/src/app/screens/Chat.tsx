@@ -4,6 +4,7 @@ import { Avatar, Empty, ErrorLine, Fab, I, Screen, Sheet, Skeleton, Switch, toas
 import { haptic, openAppSettings, pushBack } from '../native';
 import { Lightbox } from '../parts';
 import { KIND_LABEL } from '../../team';
+import { apiUrl, platform } from '../../config';
 import { chatApi, compressChatImage, dataUrlBytes, mediaUrl, onLive, useLoad, usePerms, type ChatConv, type ChatMsg, type ChatPerson, type ChatPresence, type Role } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +56,36 @@ const mmss = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+const IS_IOS = platform() === 'ios' || /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/** الآيفون يسجّل MP4/AAC بثبات؛ بقية الأجهزة WebM/Opus. الخادم يوحّد الصيغة بعد الرفع. */
+const REC_TYPES = IS_IOS
+  ? ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm']
+  : ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4'];
+function pickRecType() {
+  try {
+    return REC_TYPES.find(t => MediaRecorder.isTypeSupported(t));
+  } catch {
+    return undefined;
+  }
+}
+/** نوع الملف من محتواه: بعض الهواتف تعيد تسجيلاً بلا نوع أو بنوع بمعاملات لا يقبلها الخادم */
+async function voiceDataUrl(blob: Blob): Promise<string> {
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const tag = (a: number, b: number) => String.fromCharCode(...head.slice(a, b));
+  let mime = blob.type.split(';')[0].trim().toLowerCase();
+  if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) mime = 'audio/webm';
+  else if (tag(0, 4) === 'OggS') mime = 'audio/ogg';
+  else if (tag(4, 8) === 'ftyp') mime = 'audio/mp4';
+  else if (!mime.startsWith('audio/')) mime = 'audio/mp4';
+  const data = await new Promise<string>((ok, fail) => {
+    const fr = new FileReader();
+    fr.onload = () => ok(String(fr.result));
+    fr.onerror = () => fail(new Error('تعذر قراءة التسجيل'));
+    fr.readAsDataURL(blob);
+  });
+  return `data:${mime};base64,${data.slice(data.indexOf(',') + 1)}`;
+}
+
 /** تسجيل صوتي بجودة منخفضة كافية للكلام (نحو 180 كيلوبايت للدقيقة) */
 function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
   const [recording, setRecording] = useState(false);
@@ -65,6 +96,7 @@ function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
   const started = useRef(0);
   const cancelled = useRef(false);
   const deniedOnce = useRef(false);
+  const starting = useRef(false);
   const done = useRef(onDone);
   done.current = onDone;
 
@@ -78,32 +110,69 @@ function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
 
   const stop = useCallback((send: boolean) => {
     cancelled.current = !send;
-    if (rec.current && rec.current.state !== 'inactive') rec.current.stop();
-    else release();
+    const r = rec.current;
+    if (r && r.state !== 'inactive') {
+      try {
+        r.stop();
+      } catch {
+        release();
+      }
+    } else release();
   }, [release]);
 
   const start = useCallback(async () => {
-    if (rec.current) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      toast('التسجيل الصوتي غير مدعوم على هذا الجهاز');
+    if (rec.current || starting.current) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      // المتصفح يمنع الميكروفون على الروابط غير الآمنة (http)
+      toast(window.isSecureContext === false ? 'التسجيل الصوتي يحتاج فتح التطبيق من رابط آمن (https) — راجع الإدارة' : 'التسجيل الصوتي غير مدعوم على هذا الجهاز');
       return;
     }
+    if (typeof MediaRecorder === 'undefined') {
+      toast(IS_IOS ? 'حدّث نظام الآيفون (iOS 14.5 أو أحدث) لإرسال رسائل صوتية' : 'التسجيل الصوتي غير مدعوم على هذا الجهاز');
+      return;
+    }
+    starting.current = true;
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-      const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported(t));
-      const r = new MediaRecorder(s, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 24000 });
+      let s: MediaStream;
+      try {
+        s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      } catch (e) {
+        // بعض الهواتف ترفض الخصائص الإضافية: نطلب الميكروفون بأبسط صيغة
+        if (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) throw e;
+        s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      const mimeType = pickRecType();
+      let r: MediaRecorder;
+      try {
+        r = new MediaRecorder(s, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 32000 });
+      } catch {
+        // إعدادات غير مقبولة على هذا الهاتف: الإعداد الافتراضي للنظام
+        r = new MediaRecorder(s);
+      }
       const chunks: Blob[] = [];
-      r.ondataavailable = e => e.data.size && chunks.push(e.data);
+      r.ondataavailable = e => {
+        if (e.data && e.data.size) chunks.push(e.data);
+      };
+      r.onerror = () => {
+        cancelled.current = true;
+        release();
+        toast('توقف التسجيل بسبب خطأ في الميكروفون — حاول مرة أخرى');
+      };
       r.onstop = () => {
         const length = Date.now() - started.current;
-        const type = r.mimeType;
+        const type = r.mimeType || mimeType || '';
         release();
         if (cancelled.current) return;
         if (length < 800) {
           toast('التسجيل قصير جداً');
           return;
         }
-        done.current(new Blob(chunks, { type }), length);
+        const blob = new Blob(chunks, { type });
+        if (blob.size < 200) {
+          toast('لم يُلتقط صوت — تأكد من إذن الميكروفون وحاول مرة أخرى');
+          return;
+        }
+        done.current(blob, length);
       };
       stream.current = s;
       rec.current = r;
@@ -111,7 +180,8 @@ function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
       started.current = Date.now();
       setMs(0);
       setRecording(true);
-      r.start();
+      // مقاطع كل ثانية: لا يضيع التسجيل كله إن تعثر الإيقاف (سفاري يعيد بيانات فارغة أحياناً بلا تقطيع)
+      r.start(1000);
       haptic('heavy');
       timer.current = window.setInterval(() => {
         const t = Date.now() - started.current;
@@ -119,15 +189,21 @@ function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
         if (t >= VOICE_MAX_MS) stop(true);
       }, 250);
     } catch (e) {
-      const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-      if (!denied) toast('تعذر تشغيل الميكروفون');
-      else if (deniedOnce.current) {
-        toast('فعّل إذن الميكروفون من صفحة أذونات التطبيق');
-        void openAppSettings();
-      } else {
-        deniedOnce.current = true;
-        toast('اسمح للتطبيق باستخدام الميكروفون لإرسال رسالة صوتية');
-      }
+      release();
+      const name = e instanceof DOMException ? e.name : '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        if (deniedOnce.current) {
+          toast(IS_IOS ? 'فعّل الميكروفون للتطبيق من إعدادات الآيفون ← التطبيق ← الميكروفون' : 'فعّل إذن الميكروفون من صفحة أذونات التطبيق');
+          void openAppSettings();
+        } else {
+          deniedOnce.current = true;
+          toast('اسمح للتطبيق باستخدام الميكروفون لإرسال رسالة صوتية');
+        }
+      } else if (name === 'NotFoundError') toast('لا يوجد ميكروفون متاح على هذا الجهاز');
+      else if (name === 'NotReadableError') toast('الميكروفون مشغول بتطبيق آخر — أغلقه وحاول مرة أخرى');
+      else toast(`تعذر تشغيل الميكروفون${name ? ` (${name})` : ''}`);
+    } finally {
+      starting.current = false;
     }
   }, [release, stop]);
 
@@ -135,7 +211,14 @@ function useVoiceRecorder(onDone: (blob: Blob, ms: number) => void) {
   useEffect(
     () => () => {
       cancelled.current = true;
-      if (rec.current && rec.current.state !== 'inactive') rec.current.stop();
+      const r = rec.current;
+      if (r && r.state !== 'inactive') {
+        try {
+          r.stop();
+        } catch {
+          /* متوقف */
+        }
+      }
       release();
     },
     [release],
@@ -181,59 +264,143 @@ function ChatImage({ src, onOpen, onLoad }: { src: string; onOpen: () => void; o
 /** صوت واحد يعمل في الوقت نفسه */
 let nowPlaying: HTMLAudioElement | null = null;
 
+/*
+ * الملف يُحمَّل كاملاً بطلب عادي ثم يُشغَّل من الذاكرة (رابط blob):
+ * مشغّل الصوت داخل التطبيق لا يستطيع الوصول لخادم http مباشرة، ومشغّل الآيفون يرفض الخوادم
+ * التي لا تدعم الطلبات الجزئية — من الذاكرة يعمل على كل الأجهزة ويمكن التقديم والتأخير.
+ */
+const VOICE_TYPE: Record<string, string> = { m4a: 'audio/mp4', webm: 'audio/webm', ogg: 'audio/ogg' };
+const voiceCache = new Map<string, Promise<string>>();
+function loadVoice(src: string) {
+  let hit = voiceCache.get(src);
+  if (!hit) {
+    hit = fetch(apiUrl(src))
+      .then(async res => {
+        if (!res.ok) throw new Error(res.status === 404 ? 'gone' : 'network');
+        const buf = await res.arrayBuffer();
+        if (!buf.byteLength) throw new Error('network');
+        const ext = src.split('?')[0].split('.').pop() ?? '';
+        return URL.createObjectURL(new Blob([buf], { type: VOICE_TYPE[ext] ?? res.headers.get('Content-Type') ?? 'audio/mp4' }));
+      })
+      .catch(e => {
+        voiceCache.delete(src);
+        throw e;
+      });
+    voiceCache.set(src, hit);
+    // حد للذاكرة: الأقدم يُحرَّر
+    if (voiceCache.size > 40) {
+      const [oldKey, old] = voiceCache.entries().next().value as [string, Promise<string>];
+      voiceCache.delete(oldKey);
+      void old.then(u => URL.revokeObjectURL(u)).catch(() => undefined);
+    }
+  }
+  return hit;
+}
+
 function VoiceBubble({ src, ms }: { src: string; ms?: number | null }) {
   const audio = useRef<HTMLAudioElement | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const ready = useRef<string | null>(null);
+  const alive = useRef(true);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState('');
   const [pos, setPos] = useState(0);
   const [rate, setRate] = useState(1);
   const [length, setLength] = useState(ms ?? 0);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
       audio.current?.pause();
       if (nowPlaying === audio.current) nowPlaying = null;
-    },
-    [],
-  );
-  function toggle(e: React.MouseEvent) {
-    e.stopPropagation();
-    haptic('tap');
-    let a = audio.current;
-    if (!a) {
-      a = new Audio(mediaUrl(src));
-      a.preload = 'auto';
-      a.onplaying = () => {
-        setLoading(false);
-        setPlaying(true);
-      };
-      a.onwaiting = () => setLoading(true);
-      a.onpause = () => setPlaying(false);
-      a.ontimeupdate = () => setPos((a as HTMLAudioElement).currentTime * 1000);
-      a.onloadedmetadata = () => {
-        const d = (a as HTMLAudioElement).duration;
-        if (!ms && Number.isFinite(d)) setLength(d * 1000);
-      };
-      a.onended = () => {
-        setPlaying(false);
-        setPos(0);
-      };
-      a.onerror = () => {
-        setLoading(false);
-        setPlaying(false);
-        audio.current = null; // الضغطة التالية تعيد المحاولة
-        toast('تعذر تشغيل الرسالة الصوتية');
-      };
-      audio.current = a;
-    }
-    if (!a.paused) {
-      a.pause();
-      return;
-    }
+    };
+  }, []);
+
+  // تحميل مسبق عند ظهور الرسالة: الضغط يشغّل فوراً (الآيفون يشترط بدء التشغيل داخل الضغطة نفسها)
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(entries => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      io.disconnect();
+      loadVoice(src)
+        .then(u => (ready.current = u))
+        .catch(() => undefined);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [src]);
+
+  function build(url: string) {
+    const a = new Audio();
+    a.preload = 'auto';
+    a.onplaying = () => {
+      setLoading(false);
+      setPlaying(true);
+    };
+    a.onwaiting = () => setLoading(true);
+    a.oncanplay = () => setLoading(false);
+    a.onpause = () => setPlaying(false);
+    a.ontimeupdate = () => setPos(a.currentTime * 1000);
+    a.onloadedmetadata = () => {
+      if (!ms && Number.isFinite(a.duration)) setLength(a.duration * 1000);
+    };
+    a.onended = () => {
+      setPlaying(false);
+      setPos(0);
+    };
+    a.onerror = () => {
+      setLoading(false);
+      setPlaying(false);
+      audio.current = null; // الضغطة التالية تعيد المحاولة
+      // 4 = الصيغة غير مدعومة على هذا الهاتف (تسجيل قديم لم يُحوَّل بعد)
+      const unsupported = a.error?.code === 4;
+      setFailed(unsupported ? 'format' : 'play');
+      toast(unsupported ? 'صيغة هذا التسجيل لا يدعمها هذا الهاتف — اطلب من المرسل إعادة إرساله' : 'تعذر تشغيل الرسالة الصوتية — اضغط للمحاولة مرة أخرى');
+    };
+    a.src = url;
+    audio.current = a;
+    return a;
+  }
+  function play(a: HTMLAudioElement) {
     if (nowPlaying && nowPlaying !== a) nowPlaying.pause();
     nowPlaying = a;
     a.playbackRate = rate;
     setLoading(true);
-    void a.play().catch(() => setLoading(false));
+    void a.play().catch(err => {
+      setLoading(false);
+      // الآيفون يرفض التشغيل إن انتهت الضغطة قبل اكتمال التحميل: الملف جاهز الآن والضغطة التالية تشغّله
+      if (err instanceof DOMException && err.name === 'NotAllowedError') toast('اضغط تشغيل مرة أخرى');
+    });
+  }
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    haptic('tap');
+    setFailed('');
+    const a = audio.current;
+    if (a) {
+      if (!a.paused) a.pause();
+      else play(a);
+      return;
+    }
+    if (ready.current) {
+      play(build(ready.current));
+      return;
+    }
+    setLoading(true);
+    loadVoice(src)
+      .then(u => {
+        ready.current = u;
+        if (!alive.current || audio.current) return;
+        play(build(u));
+      })
+      .catch(err => {
+        if (!alive.current) return;
+        setLoading(false);
+        setFailed('load');
+        toast(err instanceof Error && err.message === 'gone' ? 'هذا التسجيل لم يعد موجوداً على الخادم' : 'تعذر تحميل الرسالة الصوتية — تحقق من الإنترنت');
+      });
   }
   function changeRate(e: React.MouseEvent) {
     e.stopPropagation();
@@ -243,10 +410,14 @@ function VoiceBubble({ src, ms }: { src: string; ms?: number | null }) {
   }
   const progress = length ? Math.min(100, (pos / length) * 100) : 0;
   return (
-    <div className="t-voice" onClick={e => e.stopPropagation()}>
-      <button type="button" className="play press" aria-label={playing ? 'إيقاف' : 'تشغيل'} onClick={toggle}>
+    <div ref={box} className="t-voice" onClick={e => e.stopPropagation()}>
+      <button type="button" className="play press" aria-label={playing ? 'إيقاف' : failed ? 'إعادة المحاولة' : 'تشغيل'} onClick={toggle}>
         {loading ? (
           <span className="spinner" />
+        ) : failed ? (
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4.5h-4.5" />
+          </svg>
         ) : playing ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <rect x="6" y="4.5" width="4.2" height="15" rx="1.2" />
@@ -258,7 +429,22 @@ function VoiceBubble({ src, ms }: { src: string; ms?: number | null }) {
           </svg>
         )}
       </button>
-      <div className="track">
+      <div
+        className="track"
+        onClick={e => {
+          // الضغط على الشريط ينقل التشغيل لموضعه
+          const a = audio.current;
+          if (!a || !length) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          const k = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+          const rtl = getComputedStyle(e.currentTarget).direction === 'rtl';
+          try {
+            a.currentTime = ((rtl ? 1 - k : k) * length) / 1000;
+          } catch {
+            /* غير قابل للتقديم */
+          }
+        }}
+      >
         <span>
           <i style={{ width: `${progress}%` }} />
         </span>
@@ -993,12 +1179,7 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
 
   const voice = useVoiceRecorder((blob, ms) => {
     setUploading(true);
-    void new Promise<string>((ok, fail) => {
-      const fr = new FileReader();
-      fr.onload = () => ok(String(fr.result));
-      fr.onerror = () => fail(new Error('تعذر قراءة التسجيل'));
-      fr.readAsDataURL(blob);
-    })
+    void voiceDataUrl(blob)
       .then(data => api.upload(data))
       .then(r => send({ audio: r.url, audioMs: ms }))
       .catch(e => toast(e instanceof Error ? e.message : 'تعذر إرسال الرسالة الصوتية'))
