@@ -614,3 +614,492 @@
 .t-home-alerts .t-group-label {
   display: none;
 }
+
+/* ═════════════ الصناديق ═════════════ */
+.c-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.c-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 118px;
+  padding: 14px;
+  border-radius: 22px;
+  background: linear-gradient(160deg, var(--ok-soft), var(--bg-elev) 62%);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-1);
+  text-align: start;
+  overflow: hidden;
+}
+.c-box.usd {
+  background: linear-gradient(160deg, var(--accent-soft), var(--bg-elev) 62%);
+}
+.c-box .name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink-2);
+  line-height: 1.35;
+}
+.c-box .name small {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-4);
+}
+.c-box b {
+  display: block;
+  margin-top: auto;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-align: right;
+  white-space: nowrap;
+}
+.c-box b small {
+  margin-inline-start: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+.c-box .today {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.c-box .today.up {
+  color: var(--ok);
+}
+.c-box .today.down {
+  color: var(--bad);
+}
+
+/* بطاقة الصندوق في صفحة الكشف */
+.c-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: var(--r-lg);
+  background: var(--hero);
+  color: #fff;
+  box-shadow: var(--shadow-hero);
+  isolation: isolate;
+}
+.c-hero .label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.82);
+}
+.c-hero .amount {
+  margin-top: 4px;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  text-align: right;
+}
+.c-hero .amount small {
+  margin-inline-start: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  letter-spacing: 0;
+}
+.c-hero .meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+}
+/* القبض والصرف لكل يوم — عمودان متجاوران، والمحور من اليسار (الأقدم) إلى اليمين */
+.c-bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: end;
+  gap: 4px;
+  height: 78px;
+  margin-top: 16px;
+  direction: ltr;
+}
+.c-bars .col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.c-bars .col.on {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.c-bars .pair {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  width: 100%;
+  padding-top: 4px;
+}
+.c-bars i {
+  display: block;
+  width: 5px;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 255, 255, 0.22);
+}
+.c-bars i.in {
+  background: #6ee7b7;
+}
+.c-bars i.out {
+  background: #fca5a5;
+}
+.c-bars small {
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+.c-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.c-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.c-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.c-legend i.in {
+  background: #6ee7b7;
+}
+.c-legend i.out {
+  background: #fca5a5;
+}
+
+.c-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.c-nav .day {
+  flex: 1;
+  text-align: center;
+}
+.c-nav .day b {
+  display: block;
+  font-size: 16px;
+  font-weight: 750;
+}
+.c-nav .day small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+/* السهم في التطبيق يشير لليسار (التالي في العربية)؛ «السابق» على اليمين يُقلب */
+.c-nav .t-icon-btn:not(.flip) svg {
+  transform: scaleX(-1);
+}
+.c-nav .t-icon-btn:disabled {
+  opacity: 0.35;
+}
+
+.c-sum {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+}
+.c-sum > div {
+  padding: 12px 13px;
+  border-radius: 18px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-1);
+}
+.c-sum > div > span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.c-sum b {
+  display: block;
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: right;
+}
+.c-sum .in b {
+  color: var(--ok);
+}
+.c-sum .out b {
+  color: var(--bad);
+}
+.c-sum .end {
+  background: var(--brand-soft);
+  border-color: color-mix(in srgb, var(--brand) 25%, transparent);
+}
+
+.c-day {
+  margin-top: 18px;
+}
+.c-day .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 8px;
+}
+.c-day .head b {
+  font-size: 14.5px;
+  font-weight: 750;
+}
+.c-day .head small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.c-line {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 14px;
+}
+.c-line + .c-line::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  inset-inline: 56px 14px;
+  height: 1px;
+  background: var(--line);
+}
+.c-line .dir {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-top: 1px;
+  border-radius: 11px;
+}
+.c-line .dir.in {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.c-line .dir.out {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.c-line .body {
+  flex: 1;
+  min-width: 0;
+}
+.c-line .title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.c-line .sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.c-line .end {
+  flex-shrink: 0;
+  text-align: end;
+}
+.c-line .end b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.c-line .end b.in {
+  color: var(--ok);
+}
+.c-line .end b.out {
+  color: var(--bad);
+}
+.c-line .end small {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ═════════════ مبيعات الإداري ═════════════ */
+.e-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.e-path > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.e-path svg {
+  transform: scaleX(-1);
+  opacity: 0.6;
+}
+[dir='rtl'] .e-path svg {
+  transform: none;
+}
+.e-path button {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font: inherit;
+  font-weight: 700;
+}
+.e-path b {
+  color: var(--ink);
+  font-weight: 800;
+}
+.c-sum .e-wide {
+  grid-column: 1 / -1;
+}
+.c-sum .end.e-wide b {
+  font-size: 28px;
+}
+.c-sum > div > small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.c-sum .gift b {
+  color: var(--warn, #b0661a);
+}
+.e-days {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+}
+.e-days .col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.e-days .col i {
+  display: block;
+  width: 100%;
+  max-width: 18px;
+  border-radius: 5px 5px 2px 2px;
+  background: var(--brand);
+  opacity: 0.85;
+}
+.e-days .col small {
+  height: 13px;
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.e-item .body,
+.t-row.e-on .body {
+  min-width: 0;
+}
+.e-bar {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 99px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.e-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+}
+.t-row.e-on {
+  background: var(--brand-soft);
+}
+.e-rank {
+  font-size: 14px;
+  font-weight: 800;
+}
+.e-excluded {
+  margin-top: 8px;
+  opacity: 0.75;
+}
+.e-kind {
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+.e-kind.ret {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.e-kind.gift {
+  background: color-mix(in srgb, #d98a2b 16%, transparent);
+  color: #a35f12;
+}
+.t-search button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+}
+.t-row.e-link {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-1);
+}
+.t-row.e-link > svg {
+  flex-shrink: 0;
+  color: var(--ink-3);
+}

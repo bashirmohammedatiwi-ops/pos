@@ -9,6 +9,8 @@ import { ChatList, ChatRoom } from '../screens/Chat';
 import { MAttend, MNetworks } from './ManagerAttend';
 import { LeaveCard, MHome } from './ManagerHome';
 import { MManagers, MSelf } from './ManagerSelf';
+import { MCash, MCashBox } from './ManagerCash';
+import { MEdariSales } from './ManagerEdariSales';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
 import { MSales } from './ManagerSales';
@@ -133,7 +135,7 @@ export function ManagerApp() {
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
-  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/invoices', '/m/hours', '/m/managers', '/m/self', ...(approvalsInMore ? ['/m/approvals'] : [])];
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/invoices', '/m/hours', '/m/managers', '/m/self', '/m/cash', ...(approvalsInMore ? ['/m/approvals'] : [])];
 
   return (
     <PermsProvider value={perms}>
@@ -153,6 +155,9 @@ export function ManagerApp() {
         <Route path="hours" element={<MHours />} />
         <Route path="self" element={sup ? <Navigate to="/m" replace /> : <MSelf />} />
         <Route path="managers" element={perms.viewManagers && !sup ? <MManagers /> : <Navigate to="/m" replace />} />
+        <Route path="sales/edari" element={perms.viewSales && !sup ? <MEdariSales /> : <Navigate to="/m" replace />} />
+        <Route path="cash" element={perms.viewCash && !sup ? <MCash /> : <Navigate to="/m" replace />} />
+        <Route path="cash/:seq" element={perms.viewCash && !sup ? <MCashBox /> : <Navigate to="/m" replace />} />
         <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatRoom role="manager" base="/m/chat" />} />
         <Route path="more" element={<MMore unread={unread} pending={approvalsInMore ? pending : 0} onLogout={logout} />} />
@@ -1061,12 +1066,28 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
         </section>
       )}
 
-      {perms.viewSales || perms.viewAttendance || perms.viewInvoices ? (
+      {perms.viewSales || perms.viewAttendance || perms.viewInvoices || perms.viewCash ? (
         <section className="t-section">
           <div className="t-section-head">
             <h2>المتابعة</h2>
           </div>
           <div className="t-menu">
+            {perms.viewCash && !sup && (
+              <Link to="/m/cash" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg ok">
+                  <I.wallet size={22} />
+                </span>
+                الصناديق
+              </Link>
+            )}
+            {perms.viewSales && !sup && (
+              <Link to="/m/sales/edari" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg accent">
+                  <I.chart size={22} />
+                </span>
+                مبيعات الإداري
+              </Link>
+            )}
             {perms.viewInvoices && (
               <Link to="/m/invoices" className="press" onClick={() => haptic('tap')}>
                 <span className="t-tile lg accent">

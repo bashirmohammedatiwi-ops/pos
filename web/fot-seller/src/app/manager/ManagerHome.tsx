@@ -6,6 +6,7 @@ import { LEAVE_ICON, StatusBadge } from '../parts';
 import { KIND_LABEL } from '../../team';
 import { SalesHomeCard } from './ManagerSales';
 import { SelfAttendCard } from './ManagerSelf';
+import { CashHomeCard } from './ManagerCash';
 import { LEAVE_LABEL, POST_KIND, byName, getManagerMe, leaveWhen, managerApi, managerAttendApi, relTime, supervisorMode, useLoad, usePerms, type Board, type LeaveReq } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -165,6 +166,7 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
     { to: '/m/posts?new=1', label: 'إعلان جديد', icon: <I.megaphone size={20} />, tone: '', show: !!perms.sendPosts },
     { to: '/m/team', label: 'الفريق', icon: <I.user size={20} />, tone: 'mute', show: true },
     { to: '/m/reports', label: 'التقارير', icon: <I.chart size={20} />, tone: 'accent', show: !!perms.viewAttendance },
+    { to: '/m/cash', label: 'الصناديق', icon: <I.wallet size={20} />, tone: 'ok', show: !!perms.viewCash && !sup },
     { to: '/m/invoices', label: 'الفواتير', icon: <I.receipt size={20} />, tone: '', show: !!perms.viewInvoices },
     { to: '/m/performance', label: 'التحليلات', icon: <I.target size={20} />, tone: 'accent', show: !!perms.viewSales && !sup },
     { to: '/m/managers', label: 'دوام المدراء', icon: <I.calendar size={20} />, tone: 'ok', show: !!perms.viewManagers && !sup },
@@ -273,6 +275,8 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
             </div>
           </section>
         )}
+
+        {perms.viewCash && !sup && <CashHomeCard />}
 
         {perms.viewSales && (
           <section className="t-section">

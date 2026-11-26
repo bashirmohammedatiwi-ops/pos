@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CountUp, Delta, Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, Switch, fmt, toast } from '../kit';
 import { haptic } from '../native';
-import { onLive, salesApi, usePerms, type SalesAlerts, type SaleHour, type SaleNamed, type SalePack, type SaleReceipt, type SalesDay, type SalesRange, type SaleTerminal } from '../work';
+import { onLive, salesApi, supervisorMode, usePerms, type SalesAlerts, type SaleHour, type SaleNamed, type SalePack, type SaleReceipt, type SalesDay, type SalesRange, type SaleTerminal } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * مبيعات المحل للمدير:
@@ -102,6 +102,7 @@ export function MSales() {
   };
   const refresh = useRef<() => Promise<unknown>>(() => Promise.resolve());
   const [alerts, setAlerts] = useState(false);
+  const sup = supervisorMode();
   return (
     <Screen
       title="المبيعات"
@@ -124,6 +125,18 @@ export function MSales() {
           onChange={v => set({ v })}
         />
       </div>
+      {!sup && (
+        <Link to="/m/sales/edari" className="t-row press-soft e-link" onClick={() => haptic('tap')}>
+          <span className="t-tile accent">
+            <I.chart size={19} />
+          </span>
+          <div className="body">
+            <div className="title">مبيعات الإداري · أشجار المواد</div>
+            <div className="sub">الماركات والفروع والمردود والهدايا — كما في تطبيق الحسابات</div>
+          </div>
+          <I.chevron size={16} />
+        </Link>
+      )}
       {view === 'live' && <LiveView bindRefresh={f => (refresh.current = f)} />}
       {view === 'day' && <DayView day={sp.get('d')} onDay={d => set({ d })} bindRefresh={f => (refresh.current = f)} />}
       {view === 'range' && <RangeView preset={(sp.get('r') as Preset) || '30'} onPreset={r => set({ r })} onDay={d => set({ v: 'day', d })} bindRefresh={f => (refresh.current = f)} />}

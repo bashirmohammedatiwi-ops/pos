@@ -1081,12 +1081,15 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ صلاحيات المدراء ═════════════ */
-  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales', 'viewInvoices', 'viewPay', 'viewManagers'];
-  /** الافتراضي: كل الصلاحيات وكل الأقسام (توافق مع ما قبل الصلاحيات) */
+  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales', 'viewInvoices', 'viewPay', 'viewManagers', 'viewCash'];
+  // صلاحيات مالية حساسة: مطفأة حتى تُفعَّل صراحةً من لوحة التحكم (أرصدة الصناديق وحركاتها)
+  const DEFAULT_OFF = new Set(['viewCash']);
+  const permOn = (p, k) => (DEFAULT_OFF.has(k) ? p?.[k] === true : p?.[k] !== false);
+  /** الافتراضي: كل الصلاحيات (عدا المالية الحساسة) وكل الأقسام (توافق مع ما قبل الصلاحيات) */
   function permsOf(managerId) {
     const row = db.prepare('SELECT perms, sections FROM manager_perms WHERE manager_id = ?').get(managerId);
     const p = row ? JSON.parse(row.perms) : {};
-    const perms = Object.fromEntries(PERMS.map(k => [k, p[k] !== false]));
+    const perms = Object.fromEntries(PERMS.map(k => [k, permOn(p, k)]));
     const sections = row ? JSON.parse(row.sections).map(Number).filter(Boolean) : [];
     return { perms, sections };
   }
@@ -1108,7 +1111,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     })).map(m => ({ ...m, sectionNames: m.sections.map(id => sectionNames.get(id) || `قسم ${id}`) }));
   }
   function setPerms(managerId, body, actor) {
-    const perms = Object.fromEntries(PERMS.map(k => [k, body.perms?.[k] !== false]));
+    const perms = Object.fromEntries(PERMS.map(k => [k, permOn(body.perms, k)]));
     const sections = (Array.isArray(body.sections) ? body.sections : []).map(Number).filter(Boolean);
     db.prepare(`INSERT INTO manager_perms (manager_id, perms, sections, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(manager_id) DO UPDATE SET perms = excluded.perms, sections = excluded.sections, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)

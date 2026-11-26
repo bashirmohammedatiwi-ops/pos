@@ -9,6 +9,7 @@ import {
   IconChart,
   IconChevronLeft,
   IconClock,
+  IconLayers,
   IconCoins,
   IconPackage,
   IconPercent,
@@ -18,6 +19,7 @@ import {
   IconTarget,
   IconTrendUp,
   IconUsers,
+  IconWallet,
   IconX,
 } from '@/components/icons';
 import { Badge, EmptyState, Input, Kbd } from '@/components/ui';
@@ -34,10 +36,12 @@ import { SlowMoversApp } from '@/components/reports/SlowMoversApp';
 import { PeakHoursApp } from '@/components/reports/PeakHoursApp';
 import { ComparePeriodsApp } from '@/components/reports/ComparePeriodsApp';
 import { DailyCloseApp } from '@/components/reports/DailyCloseApp';
+import { CashBoxesApp } from '@/components/reports/CashBoxesApp';
+import { EdariSalesApp } from '@/components/reports/EdariSalesApp';
 import { ReorderApp } from '@/components/reports/ReorderApp';
 import { CashierPerformanceApp } from '@/components/reports/CashierPerformanceApp';
 
-type ReportAppId = 'commissions' | 'targets' | 'settlement' | 'sales' | 'product-inquiry' | 'seller-receipts' | 'cashier-voids' | 'offer-sales' | 'slow-movers' | 'peak-hours' | 'cashier-performance' | 'compare' | 'daily-close' | 'reorder';
+type ReportAppId = 'commissions' | 'targets' | 'settlement' | 'sales' | 'product-inquiry' | 'seller-receipts' | 'cashier-voids' | 'offer-sales' | 'slow-movers' | 'peak-hours' | 'cashier-performance' | 'compare' | 'daily-close' | 'reorder' | 'cash-boxes' | 'edari-sales';
 type GroupId = 'sales' | 'team' | 'offers' | 'audit';
 
 type ReportDef = {
@@ -84,6 +88,24 @@ const REPORTS: ReportDef[] = [
     icon: <IconReceipt size={20} />,
     tags: ['طباعة A4', 'يومي'],
     keywords: 'نهاية اليوم إغلاق يومي ملخص اليوم صندوق جرد',
+  },
+  {
+    id: 'edari-sales',
+    group: 'sales',
+    label: 'تقرير المبيعات (الإداري)',
+    description: 'مبيعات الإداري كما في تطبيق الحسابات: الصافي والمردود والهدايا، حسب أشجار المواد والفروع والأيام، مع الدخول إلى الشجرة حتى المادة وحركاتها.',
+    icon: <IconLayers size={20} />,
+    tags: ['أشجار المواد', 'الفروع', 'طباعة A4', 'Excel'],
+    keywords: 'مبيعات اداري شجرة اشجار مواد ماركة فرع فروع مردود هدايا صافي حسابات',
+  },
+  {
+    id: 'cash-boxes',
+    group: 'sales',
+    label: 'تقرير الصناديق',
+    description: 'أرصدة صناديق الإداري الآن (الدولار، الخشن، الناعم، بطاقة كي وبقية الصناديق) وكشف حركات أي صندوق ليوم أو فترة — طباعة A4 و Excel.',
+    icon: <IconWallet size={20} />,
+    tags: ['لحظي', 'طباعة A4', 'Excel'],
+    keywords: 'صندوق صناديق كشف حساب قبض صرف دولار خشن ناعم كي كارد بطاقة رصيد نقد اداري',
   },
   {
     id: 'compare',
@@ -570,6 +592,8 @@ export function ReportsPage() {
       {app === 'peak-hours' && <PeakHoursApp onClose={closeApp} />}
       {app === 'compare' && <ComparePeriodsApp onClose={closeApp} />}
       {app === 'daily-close' && <DailyCloseApp onClose={closeApp} />}
+      {app === 'cash-boxes' && <CashBoxesApp onClose={closeApp} />}
+      {app === 'edari-sales' && <EdariSalesApp onClose={closeApp} />}
       {app === 'reorder' && <ReorderApp onClose={closeApp} />}
       {app === 'cashier-performance' && <CashierPerformanceApp onClose={closeApp} />}
     </div>

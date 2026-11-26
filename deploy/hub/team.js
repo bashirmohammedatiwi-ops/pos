@@ -222,6 +222,9 @@ function createTeam(ctx) {
   // الفواتير الكاملة بتفاصيلها
   const invoices = require('./team-invoices').createInvoices({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
 
+  // الصناديق وتقارير «إداري» عند الطلب
+  const cash = require('./team-cash').createCash({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
+
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
     if (sub === 'leave' || /^leave\//.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return 'approveLeave';
@@ -233,6 +236,8 @@ function createTeam(ctx) {
     if (/^product-images\//.test(sub) && method !== 'GET') return 'admin';
     if (/^sales(\/|$)/.test(sub)) return 'viewSales';
     if (/^invoices(\/|$)/.test(sub)) return 'viewInvoices';
+    if (/^cash(\/|$)/.test(sub)) return 'viewCash';
+    if (/^edari\/sales(\/|$)/.test(sub)) return 'viewSales';
     return null;
   }
 
@@ -295,6 +300,7 @@ function createTeam(ctx) {
     // مبيعات المحل من سيرفر المحل (مفتاح المزامنة)
     if (p.startsWith('/api/sync/sales/invoices') && (await invoices.handleSync(req, res, url))) return true;
     if (p.startsWith('/api/sync/sales') && (await sales.handleSync(req, res, url))) return true;
+    if ((p === '/api/sync/cash' || p.startsWith('/api/sync/jobs')) && (await cash.handleSync(req, res, url))) return true;
 
     // فحص التحديث وتنزيل التطبيق (عام)
     if (extra.handlePublic(req, res, url)) return true;
@@ -416,6 +422,7 @@ function createTeam(ctx) {
       if (await extra.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
       if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
       if (await invoices.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
+      if (await cash.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }

@@ -39,6 +39,9 @@ public static class DependencyInjection
         // Arabic text arrives intact only over the nxServer admin channel, so it needs HttpClient.
         services.AddHttpClient("edari-text");
         services.AddScoped<EdariTextQueryService>();
+        // Cash box balances and statements read straight from Edari (read-only).
+        services.AddScoped<EdariCashReportService>();
+        services.AddScoped<EdariSalesReportService>();
         services.AddScoped<EdariDataPullService>();
         // Live stock (Edari stock minus what is sold and not merged yet). Singleton: it caches its options.
         services.AddSingleton<PendingStockRepository>();

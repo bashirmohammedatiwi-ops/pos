@@ -318,7 +318,7 @@ export interface TeamManagerPermsDto {
   sections: number[];
   sectionNames: string[];
 }
-export type TeamPermKey = 'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales' | 'viewInvoices' | 'viewPay' | 'viewManagers';
+export type TeamPermKey = 'approveLeave' | 'viewAttendance' | 'editAttendance' | 'sendPosts' | 'manageChat' | 'viewSales' | 'viewInvoices' | 'viewPay' | 'viewManagers' | 'viewCash';
 export interface TeamSupervisorDto {
   staffId: number;
   name: string;

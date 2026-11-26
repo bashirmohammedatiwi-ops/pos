@@ -188,10 +188,12 @@ export interface ManagerPerms {
   viewPay?: boolean;
   /** دوام المدراء: ساعات كل مدير ومخطط حضوره */
   viewManagers?: boolean;
+  /** الصناديق: الأرصدة والحركات من الإداري (مطفأة افتراضياً — مالية حساسة) */
+  viewCash?: boolean;
 }
-export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewInvoices: true, viewPay: true, viewManagers: true };
+export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewInvoices: true, viewPay: true, viewManagers: true, viewCash: false };
 /** المسؤول: كل شيء مطفأ حتى يصل رد الخادم */
-export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewInvoices: false, viewPay: false, viewManagers: false };
+export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewInvoices: false, viewPay: false, viewManagers: false, viewCash: false };
 const PermsCtx = createContext<ManagerPerms>(ALL_PERMS);
 export const PermsProvider = PermsCtx.Provider;
 export const usePerms = () => useContext(PermsCtx);
@@ -318,6 +320,166 @@ export function byName(by?: string | null) {
   if (/^(manager|supervisor):/.test(by)) return by.replace(/^(manager|supervisor):/, '');
   return /^(admin|system)$/i.test(by) ? 'الإدارة' : by;
 }
+
+/* ═════════════ الصناديق (من الإداري عبر سيرفر المحل — صلاحية viewCash) ═════════════ */
+export interface CashDay {
+  date: string;
+  in: number;
+  out: number;
+  count: number;
+  /** الرصيد في نهاية اليوم */
+  closing: number;
+}
+export interface CashBox {
+  seq: number;
+  num: string;
+  name: string;
+  /** عملة الصندوق وحركاته */
+  currency: 'IQD' | 'USD';
+  /** من الصناديق البارزة (الدولار، الخشن، الناعم، بطاقة كي) */
+  featured: boolean;
+  /** النقد الآن: المثبّت + الحركات بعده */
+  balance: number;
+  ledgerBalance: number;
+  fixDate?: string | null;
+  fixBalance?: number | null;
+  todayIn: number;
+  todayOut: number;
+  todayCount: number;
+  /** آخر 14 يوماً، الأحدث أولاً */
+  days: CashDay[];
+}
+export interface CashBoxes {
+  today: string | null;
+  boxes: CashBox[];
+  featured: string[];
+  receivedAt: string | null;
+  /** سيرفر المحل لم يرفع منذ دقائق */
+  stale: boolean;
+  shopOnline: boolean;
+  error: string | null;
+}
+export interface CashLine {
+  seq: number;
+  num: string;
+  date: string;
+  time?: string | null;
+  description: string;
+  in: number;
+  out: number;
+  /** الرصيد بعد الحركة */
+  balance: number;
+  /** الحساب المقابل */
+  other?: string | null;
+  billNum?: string | null;
+  rate?: number | null;
+}
+export interface CashStatement {
+  box: CashBox;
+  from: string;
+  to: string;
+  opening: number;
+  closing: number;
+  totalIn: number;
+  totalOut: number;
+  count: number;
+  truncated: boolean;
+  lines: CashLine[];
+  days: CashDay[];
+}
+export const cashApi = {
+  boxes: () => call<CashBoxes>('manager', '/api/team/m/cash/boxes'),
+  /** كشف صندوق لفترة — يُنفَّذ على سيرفر المحل لحظتها */
+  statement: (seq: number, from: string, to: string) => call<CashStatement>('manager', '/api/team/m/cash/statement', { method: 'POST', body: { seq, from, to } }),
+};
+
+/* ═════════════ تقرير مبيعات الإداري (أشجار المواد والفروع) ═════════════ */
+export interface EdSalesCat {
+  salesQty: number;
+  sales: number;
+  /** القطع المهداة: فواتير الهدايا + البونص على فواتير البيع */
+  giftsQty: number;
+  gifts: number;
+  returnsQty: number;
+  returns: number;
+  /** المبيعات − المردود */
+  net: number;
+}
+export interface EdSalesDay {
+  date: string;
+  sales: number;
+  returns: number;
+  gifts: number;
+  net: number;
+  invoices: number;
+}
+export interface EdSalesBranch {
+  /** فارغ = فواتير بلا فرع (حسابات أخرى) */
+  code: string;
+  label: string;
+  numbered: boolean;
+  sales: number;
+  returns: number;
+  gifts: number;
+  net: number;
+  invoices: number;
+}
+export interface EdSalesNode {
+  seq: number;
+  num: string;
+  name: string;
+}
+export interface EdSalesItem extends EdSalesCat {
+  seq: number;
+  num: string;
+  name: string;
+  leaf: boolean;
+  barcode?: string | null;
+  tree?: string | null;
+  /** شجرة خارج إجمالي النظام (رقمها 1000 فأكثر) */
+  excluded: boolean;
+}
+export interface EdSalesLine {
+  date: string;
+  invNum: string;
+  kind: number;
+  kindLabel: string;
+  branch: string;
+  account?: string | null;
+  seller?: string | null;
+  mat: number;
+  matNum: string;
+  matName: string;
+  qty: number;
+  bonus: number;
+  price: number;
+  total: number;
+}
+export interface EdSalesReport {
+  from: string;
+  to: string;
+  at: string;
+  branchFilter: string[];
+  totals: EdSalesCat;
+  invoices: number;
+  excludedNet: number;
+  days: EdSalesDay[];
+  branches: EdSalesBranch[];
+  node: EdSalesNode | null;
+  path: EdSalesNode[];
+  nodeTotals: EdSalesCat;
+  items: EdSalesItem[];
+  topMaterials: EdSalesItem[];
+  lines: EdSalesLine[] | null;
+  linesTruncated: boolean;
+  search: string | null;
+}
+export const EDARI_SALES_MAX_DAYS = 93;
+export const edariSalesApi = {
+  /** يُنفَّذ على سيرفر المحل لحظتها (من الإداري مباشرة) */
+  report: (b: { from: string; to: string; branches?: string[]; node?: number | null; q?: string; lines?: boolean; fresh?: boolean }) =>
+    call<EdSalesReport>('manager', '/api/team/m/edari/sales', { method: 'POST', body: b }),
+};
 
 /* ═════════════ بصمة المدراء (بالساعات) ═════════════ */
 export interface MgrSession {
@@ -912,7 +1074,7 @@ export const performanceApi = {
 
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
 const LIVE_EVENT = 'fot-team-live';
-export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales' | 'invoices' | 'mattend' | 'ack' | 'nag';
+export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales' | 'invoices' | 'mattend' | 'ack' | 'nag' | 'cash';
 export type LiveMsg = {
   event: LiveEvent;
   data: {
@@ -976,7 +1138,7 @@ export function useLiveChannel(role: Role | null) {
     const connect = () => {
       if (stopped) return;
       es = new EventSource(apiUrl(`${path}?token=${encodeURIComponent(token)}`));
-      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms', 'sales', 'mattend', 'ack', 'nag'] as const)
+      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms', 'sales', 'mattend', 'ack', 'nag', 'cash'] as const)
         es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
       es.onopen = () => {
         retry = 0;

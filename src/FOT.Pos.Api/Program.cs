@@ -93,6 +93,7 @@ if (!exportOpenApi)
     builder.Services.AddHostedService(sp => sp.GetRequiredService<StoreSitePushService>());
     builder.Services.AddHostedService(sp => sp.GetRequiredService<SellerHubSyncService>());
     builder.Services.AddHostedService<LiveSalesSyncService>();
+    builder.Services.AddHostedService<HubReportsService>();
     builder.Services.AddHostedService<InvoiceSyncService>();
     builder.Services.AddHostedService<EdariSyncBackgroundService>();
     builder.Services.AddHostedService<EdariDataFolderWatcher>();
@@ -379,6 +380,8 @@ api.MapSettingsEndpoints();
 api.MapAdminEndpoints();
 api.MapPortalAccountEndpoints();
 api.MapTeamEndpoints();
+api.MapCashReportEndpoints();
+api.MapEdariSalesReportEndpoints();
 api.MapApiPlatformAdminEndpoints();
 api.MapStoreSiteEndpoints();
 api.MapOnlineOrdersEndpoints();
