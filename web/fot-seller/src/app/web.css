@@ -110,3 +110,39 @@
     transform: translateY(-14px);
   }
 }
+
+/* شريط «الإشعارات غير مفعّلة» فوق الشريط السفلي حتى تُفعَّل */
+.wp-bar {
+  position: fixed;
+  z-index: 40;
+  inset-inline: 14px;
+  bottom: calc(var(--tabbar-h, 66px) + var(--safe-b, 0px) + 22px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  margin-inline: auto;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--grad-accent, #e8890f);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: start;
+  box-shadow: var(--glow-accent, 0 12px 26px -12px rgba(232, 137, 15, 0.6));
+  animation: w-update-in 0.35s var(--ease, ease) both;
+}
+.wp-bar span {
+  flex: 1;
+}
+.t-app.no-tabs ~ .wp-bar,
+.t-room ~ .wp-bar {
+  bottom: calc(var(--safe-b, 0px) + 16px);
+}
+@media (min-width: 720px) {
+  html.web .wp-bar {
+    inset-inline: calc(var(--frame-x) + 14px);
+  }
+}

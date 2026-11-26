@@ -22,7 +22,7 @@ const vcode = v => v.split('.').reduce((s, n) => s * 1000 + Number(n), 0);
 
 const PUSH_RETRY_MS = [1500, 5000];
 
-function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftOf = () => ({}) }) {
+function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftOf = () => ({}), webPush = null }) {
   db.exec('CREATE TABLE IF NOT EXISTS _extra_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const MIGRATIONS = [
     `CREATE TABLE app_releases (
@@ -347,8 +347,19 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
       await new Promise(r => setTimeout(r, PUSH_RETRY_MS[attempt]));
     }
   }
-  /** يرسل لمستخدمين (staff/manager) — يُستدعى من التبليغات والمحادثات */
+  /** يرسل لمستخدمين (staff/manager) — تطبيق الهاتف (Firebase) والموقع (Web Push) معاً */
   async function pushTo(kind, ids, n) {
+    const [app, web] = await Promise.all([
+      pushApp(kind, ids, n),
+      webPush ? webPush.sendTo(kind, ids, n).catch(e => ({ count: 0, ok: 0, error: e.message })) : { count: 0, ok: 0 },
+    ]);
+    if (web.count) {
+      pushLog.unshift({ at: now(), kind, count: web.count, ok: web.ok, title: n.title, channel: 'web', error: web.error });
+      pushLog.length = Math.min(pushLog.length, 50);
+    }
+    return { configured: app.configured || !!webPush, count: app.count + web.count, ok: app.ok + web.ok, web: web.count };
+  }
+  async function pushApp(kind, ids, n) {
     const acc = serviceAccount();
     if (!acc || !ids.length) return { configured: !!acc, count: 0, ok: 0 };
     const list = db.prepare(`SELECT token FROM push_tokens WHERE user_kind = ? AND user_id IN (${ids.map(() => '?').join(',')})`).all(kind, ...ids.map(Number));
@@ -387,7 +398,7 @@ function createExtra({ db, ctx, now, audit, dayFor, overtimeOf = () => 0, shiftO
   function pushStatus() {
     const acc = serviceAccount();
     const tokens = db.prepare('SELECT user_kind AS kind, COUNT(*) AS n FROM push_tokens GROUP BY user_kind').all();
-    return { configured: !!acc, projectId: acc?.project_id ?? null, tokens, log: pushLog.slice(0, 20) };
+    return { configured: !!acc, projectId: acc?.project_id ?? null, tokens, web: webPush ? webPush.counts() : [], log: pushLog.slice(0, 20) };
   }
 
   /* ═════════════ المسارات ═════════════ */

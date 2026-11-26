@@ -12,6 +12,7 @@ import { MManagers, MSelf } from './ManagerSelf';
 import { MCash, MCashBox } from './ManagerCash';
 import { MEdariSales } from './ManagerEdariSales';
 import { MCashFlow } from './ManagerCashFlow';
+import { webPushLogout } from '../WebPush';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
 import { MSales } from './ManagerSales';
@@ -118,6 +119,7 @@ export function ManagerApp() {
       return;
     }
     void unregisterPush('manager', getManagerToken());
+    void webPushLogout('manager', getManagerToken());
     clearManager();
     nav('/login?as=manager', { replace: true });
   }

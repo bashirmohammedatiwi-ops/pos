@@ -6,6 +6,7 @@ import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
 import { UpdateCheck } from './Update';
 import { WebUpdate } from './WebUpdate';
+import { WebPush, webPushLogout } from './WebPush';
 import { clearTeam, getTeamMe, getTeamToken, refreshTeam, registerPush, setTeamMe, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
@@ -309,6 +310,7 @@ export function TeamApp() {
   const logout = useCallback(() => {
     haptic('tap');
     void unregisterPush('staff', getTeamToken());
+    void webPushLogout('staff', getTeamToken());
     clearBrandCache();
     wipeSellerData();
     setToken(null);
@@ -350,6 +352,7 @@ export function TeamApp() {
       </AccessGate>
       <UpdateCheck />
       <WebUpdate />
+      <WebPush />
       <ToastHost />
     </>
   );

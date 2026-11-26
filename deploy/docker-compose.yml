@@ -26,7 +26,9 @@ services:
       - "${FOT_HTTP_PORT:-4700}:80"
     environment:
       FOT_SHOP_API_URL: ${FOT_SHOP_API_URL:-http://hub:4705}
-      NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL
+      # مفتاح nginx الخادم أمام النطاق الآمن (team.deemaalhayat.com): به فقط يُعتمد عنوان الهاتف الممرَّر
+      FOT_EDGE_KEY: ${FOT_EDGE_KEY:-}
+      NGINX_ENVSUBST_FILTER: FOT_SHOP_API_URL|FOT_EDGE_KEY
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./nginx/coming-soon.html:/usr/share/nginx/html/coming-soon.html:ro

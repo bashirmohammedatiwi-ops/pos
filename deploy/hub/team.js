@@ -214,7 +214,9 @@ function createTeam(ctx) {
   });
   const chat = require('./team-chat').createChat({ db, ctx, now, audit, emit: work.emit, notify: work.notify, deleteMedia: work.deleteMedia, transcodeMedia: work.transcodeMedia, isOnline: work.isOnline });
   // إصدارات التطبيق، جدول الفريق، الملخص الشهري، إشعارات Firebase
-  const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf });
+  // إشعارات الموقع (Web Push) — مع إشعارات تطبيق الهاتف في نفس المسار
+  const webPush = require('./team-webpush').createWebPush({ db, dataDir: ctx.dataDir, now, subject: process.env.FOT_WEB_PUSH_SUBJECT || 'https://team.deemaalhayat.com' });
+  const extra = require('./team-extra').createExtra({ db, ctx, now, audit, dayFor: work.dayFor, overtimeOf: attend.overtimeOf, shiftOf: attend.shiftOf, webPush });
   ctx.pushTo = (kind, ids, n) => void extra.pushTo(kind, ids, n);
   // مبيعات المحل المباشرة والأيام السابقة للمدراء
   const sales = require('./team-sales').createSales({ db, ctx, now, audit, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit, notify: work.notify });
@@ -370,6 +372,14 @@ function createTeam(ctx) {
       }
       // بصمة المدير نفسه (بالساعات) — لكل مدير على حسابه
       if (await attend.handleManagerSelf(req, res, sub, m)) return true;
+      // إشعارات الموقع للمدير
+      if (sub === 'web-push') {
+        if (req.method === 'GET') return ctx.send(res, 200, { key: webPush.publicKey(), subscribed: webPush.has('manager', mid) }), true;
+        const body = JSON.parse((await ctx.readBody(req)) || '{}');
+        const out = req.method === 'DELETE' ? webPush.unsubscribe('manager', mid, body) : req.method === 'POST' ? webPush.subscribe('manager', mid, body) : { status: 405, body: { error: 'method' } };
+        ctx.send(res, out.status, out.body);
+        return true;
+      }
       // رمز إشعارات هاتف المدير
       if (sub === 'push-token' && (req.method === 'POST' || req.method === 'DELETE')) {
         const body = JSON.parse((await ctx.readBody(req)) || '{}');
@@ -530,6 +540,17 @@ function createTeam(ctx) {
       if (req.method === 'GET' && p === '/api/team/me') {
         const device = db.prepare('SELECT label, platform, bound_at AS boundAt FROM devices WHERE staff_id = ?').get(s.id) || null;
         ctx.send(res, 200, { ...staffView(s), device, supervisorPerms: work.supervisorOf(s.id)?.perms ?? null });
+        return true;
+      }
+      // إشعارات الموقع للموظف
+      if (p === '/api/team/web-push') {
+        if (req.method === 'GET') {
+          ctx.send(res, 200, { key: webPush.publicKey(), subscribed: webPush.has('staff', s.id) });
+          return true;
+        }
+        const body = JSON.parse((await ctx.readBody(req)) || '{}');
+        const out = req.method === 'DELETE' ? webPush.unsubscribe('staff', s.id, body) : req.method === 'POST' ? webPush.subscribe('staff', s.id, body) : { status: 405, body: { error: 'method' } };
+        ctx.send(res, out.status, out.body);
         return true;
       }
       // الخروج: إيقاف إشعارات هذا الهاتف
