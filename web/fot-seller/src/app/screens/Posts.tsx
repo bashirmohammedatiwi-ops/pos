@@ -84,7 +84,11 @@ export function Posts({ back }: { back?: string }) {
         ) : list.length === 0 ? (
           <Empty icon={<I.megaphone size={30} />} title={filter === 'all' ? 'لا إعلانات بعد' : 'لا شيء هنا'} text="تعليمات الإدارة والعروض الجديدة تظهر هنا مع صورها." />
         ) : (
-          list.map(p => <PostCard key={p.id} post={p} onOpen={() => show(p)} onImage={i => setViewer({ images: p.images, i })} />)
+          <div className="t-posts">
+            {list.map(p => (
+              <PostCard key={p.id} post={p} onOpen={() => show(p)} onImage={i => setViewer({ images: p.images, i })} />
+            ))}
+          </div>
         )}
       </div>
 

@@ -62,6 +62,24 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
   const live = useLiveState();
   const mode = useThemeMode();
   const openPk = useCallback(() => setPk(true), []);
+  // تصغير القائمة لأيقونات فقط (يُحفظ على هذا الجهاز)
+  const [mini, setMini] = useState(() => {
+    try {
+      return localStorage.getItem('fot_side_mini') === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    if (isNative()) return;
+    document.documentElement.classList.toggle('side-mini', mini);
+    try {
+      localStorage.setItem('fot_side_mini', mini ? '1' : '0');
+    } catch {
+      /* تخزين غير متاح */
+    }
+    return () => document.documentElement.classList.remove('side-mini');
+  }, [mini]);
   usePaletteHotkey(openPk, desktop && !isNative());
 
   // عنوان التبويب وشارة أيقونة التطبيق المثبّت: مجموع ما ينتظر (التبليغات، المحادثات، الطلبات)
@@ -109,6 +127,19 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
           <b>ديما الحياة</b>
           <small>تطبيق الفريق</small>
         </span>
+        <button
+          type="button"
+          className="w-side-mini"
+          onClick={() => (haptic('select'), setMini(v => !v))}
+          aria-label={mini ? 'توسيع القائمة' : 'تصغير القائمة'}
+          title={mini ? 'توسيع القائمة' : 'تصغير القائمة'}
+          aria-pressed={mini}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="3.5" y="4" width="17" height="16" rx="3" />
+            <path d="M15 4v16M10 10l-2 2 2 2" />
+          </svg>
+        </button>
       </div>
       {user && (
         <div className="w-side-user">
@@ -121,7 +152,7 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
           </span>
         </div>
       )}
-      <button type="button" className="w-side-search" onClick={openPk} aria-keyshortcuts="Control+K">
+      <button type="button" className="w-side-search" onClick={openPk} aria-keyshortcuts="Control+K" title="ابحث عن صفحة (Ctrl+K)">
         <I.search size={17} />
         <span>ابحث عن صفحة</span>
         <kbd>{isMac() ? '⌘' : 'Ctrl'} K</kbd>

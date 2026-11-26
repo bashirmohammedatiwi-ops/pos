@@ -1320,3 +1320,135 @@ html.web.theme-anim * {
     box-shadow: var(--shadow-2);
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * الصفحات الداخلية على الحاسبة: القوائم الطويلة بطاقات في عمودين، والإعلانات عمودان.
+ * (القوائم داخل البطاقات والنماذج وذات الحقول تبقى كما هي)
+ * ═════════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  html.web .t-page .t-list:not(.flat):not(:has(input, textarea, select)):has(> :nth-child(5)) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  html.web .t-page .t-list:not(.flat):not(:has(input, textarea, select)):has(> :nth-child(5)) > * {
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background-color: var(--bg-elev);
+    box-shadow: var(--shadow-1);
+  }
+  html.web .t-page .t-list:not(.flat):not(:has(input, textarea, select)):has(> :nth-child(5)) > .t-row::before {
+    display: none;
+  }
+  html.web .t-posts {
+    columns: 2;
+    column-gap: 16px;
+  }
+  html.web .t-posts > .t-post {
+    display: inline-block;
+    width: 100%;
+    margin: 0 0 16px;
+    break-inside: avoid;
+  }
+}
+
+/* ═════════════ القائمة الجانبية المصغّرة (أيقونات فقط) ═════════════ */
+.w-side-mini {
+  display: none;
+}
+@media (min-width: 1024px) {
+  html.web .w-side-mini {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    margin-inline-start: auto;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg-elev);
+    color: var(--ink-3);
+    transition:
+      color 0.18s var(--ease),
+      border-color 0.18s var(--ease);
+  }
+  html.web .w-side-mini:hover {
+    color: var(--brand);
+    border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
+  }
+  html.web .w-side,
+  html.web #root {
+    transition:
+      width 0.22s var(--ease),
+      margin 0.22s var(--ease);
+  }
+  html.web.side-mini {
+    --side-w: 84px;
+  }
+  html.web.side-mini .w-side {
+    padding-inline: 12px;
+    align-items: stretch;
+  }
+  html.web.side-mini .w-side-brand {
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 0 14px;
+  }
+  html.web.side-mini .w-side-brand > span:not(.w-side-mark),
+  html.web.side-mini .w-side-user,
+  html.web.side-mini .w-side-group h3,
+  html.web.side-mini .w-side-link .lbl,
+  html.web.side-mini .w-side-search span,
+  html.web.side-mini .w-side-search kbd,
+  html.web.side-mini .in-btn.side span,
+  html.web.side-mini .w-live {
+    display: none;
+  }
+  html.web.side-mini .w-side-mini {
+    margin: 0;
+  }
+  html.web.side-mini .w-side-mini svg {
+    transform: scaleX(-1);
+  }
+  html.web.side-mini .w-side-search {
+    justify-content: center;
+    padding: 0;
+  }
+  html.web.side-mini .w-side-group {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+  html.web.side-mini .w-side-link {
+    justify-content: center;
+    padding: 0;
+  }
+  html.web.side-mini .w-side-link .ico {
+    width: auto;
+  }
+  html.web.side-mini .w-side-link.on::before {
+    inset-inline-start: -12px;
+  }
+  html.web.side-mini .w-side-badge {
+    position: absolute;
+    top: 4px;
+    inset-inline-end: 6px;
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+  html.web.side-mini .in-btn.side {
+    padding: 11px 0;
+  }
+  html.web.side-mini .w-side-tools {
+    justify-content: center;
+    padding: 0;
+  }
+}

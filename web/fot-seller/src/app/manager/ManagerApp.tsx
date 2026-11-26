@@ -495,7 +495,8 @@ function MPosts() {
           }
         />
       ) : (
-        data.map(p => (
+        <div className="t-posts">
+        {data.map(p => (
           <PostCard
             key={p.id}
             post={p}
@@ -529,7 +530,8 @@ function MPosts() {
               </div>
             }
           />
-        ))
+        ))}
+        </div>
       )}
       <div style={{ height: 70 }} />
       {perms.sendPosts && (
