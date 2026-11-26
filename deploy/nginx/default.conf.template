@@ -8,6 +8,8 @@ map "${FOT_EDGE_KEY}|$http_x_fot_edge_key" $fot_client_ip {
 server {
     listen 80;
     server_name _;
+    # تحويلات نسبية: المنفذ الخارجي (4700) يختلف عن منفذ الحاوية (80)
+    absolute_redirect off;
     client_max_body_size 4m;
 
     location = /staff { return 302 /staff/; }
