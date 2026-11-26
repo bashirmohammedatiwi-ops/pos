@@ -860,7 +860,7 @@ function SellerSheet({ seller, week, onClose }: { seller: PerfSeller | null; wee
                   <div className="t-list flat">
                     {detail.lines.slice(0, 25).map(l => (
                       <div key={l.id} className="t-row s-prod">
-                        <Avatar name={l.productName} size="sm" />
+                        <Avatar name={l.productName} size="sm" text />
                         <div className="body">
                           <div className="title">{l.productName}</div>
                           <div className="sub num">

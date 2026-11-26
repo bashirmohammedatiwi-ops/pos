@@ -295,8 +295,14 @@ export function greet() {
 }
 
 /* ═════════════ عناصر بسيطة ═════════════ */
-export function Avatar({ name, size }: { name?: string | null; size?: 'sm' | 'xl' }) {
-  return <span className={`t-avatar ${size ?? ''}`}>{initials(name)}</span>;
+/** صورة رمزية: أيقونة شخص (بلا حروف بجانب أسماء الموظفين)؛ text للمنتجات فقط */
+export function Avatar({ name, size, text }: { name?: string | null; size?: 'sm' | 'xl'; text?: boolean }) {
+  if (text) return <span className={`t-avatar ${size ?? ''}`}>{initials(name)}</span>;
+  return (
+    <span className={`t-avatar person ${size ?? ''}`} aria-hidden>
+      <I.user size={size === 'xl' ? 38 : size === 'sm' ? 17 : 21} />
+    </span>
+  );
 }
 
 export function Badge({ tone, children }: { tone?: 'ok' | 'warn' | 'bad' | 'accent' | 'mute'; children: ReactNode }) {
@@ -531,6 +537,43 @@ export function Screen({
 }
 
 /** السحب للتحديث من أعلى الصفحة (بالاهتزاز عند الوصول للحد). */
+/** شاشة الحاسبة العريضة (الموقع فقط، 1280px فأعرض): لوحات بعمودين */
+export function useWide(min = 1280) {
+  const query = `(min-width: ${min}px)`;
+  const read = () => typeof window !== 'undefined' && document.documentElement.classList.contains('web') && !!window.matchMedia?.(query).matches;
+  const [wide, setWide] = useState(read);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const f = () => setWide(read());
+    f();
+    mq.addEventListener('change', f);
+    return () => mq.removeEventListener('change', f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+  return wide;
+}
+
+/** لوحة الرئيسية: عمود واحد على الهاتف، وعمودان (رئيسي + جانبي ثابت) على الحاسبة العريضة */
+export function Dash({ main, side, sideLabel }: { main: ReactNode; side: ReactNode; sideLabel?: string }) {
+  const wide = useWide();
+  if (!wide)
+    return (
+      <div className="t-page">
+        {main}
+        {side}
+      </div>
+    );
+  return (
+    <div className="t-page h-dash">
+      <div className="h-main">{main}</div>
+      <aside className="h-aside" aria-label={sideLabel}>
+        {side}
+      </aside>
+    </div>
+  );
+}
+
 export function usePull(onRefresh?: () => Promise<unknown> | void) {
   const [h, setH] = useState(0);
   const [state, setState] = useState<'idle' | 'dragging' | 'ready' | 'loading'>('idle');

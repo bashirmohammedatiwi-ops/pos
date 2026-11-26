@@ -20,21 +20,41 @@ const set = (next: AckState) => {
   subs.forEach(f => f());
 };
 let loading: Promise<void> | null = null;
-function loadAcks() {
-  loading ??= staffApi
+// كل تحميل يحمل رقماً؛ ردّ تحميل أقدم من آخر تأكيد يُهمَل (كان يُرجع ما أُكّد للتو)
+let gen = 0;
+// ما أكّده الموظف للتو لا يعود للظهور حتى لو تأخر ردّ الخادم (دقيقتان تكفيان، ولا تمسّ حساباً آخر)
+const acked = new Map<string, number>();
+const justAcked = (key: string) => Date.now() - (acked.get(key) ?? 0) < 120_000;
+function loadAcks(fresh = false) {
+  if (loading && !fresh) return loading;
+  const my = ++gen;
+  const p: Promise<void> = staffApi
     .acks()
     .then(r => {
-      set({ items: r.items, nagMinutes: r.nagMinutes ?? 10 });
+      if (my !== gen) return;
+      const items = r.items.filter(i => !justAcked(i.key));
+      set({ items, nagMinutes: r.nagMinutes ?? 10 });
       // بلا إشعارات الخادم (Firebase) يذكّر الهاتف نفسه
-      if (r.items.length) void scheduleAckReminders(r.items.length, r.items[0].title, r.nagMinutes ?? 10);
+      if (items.length) void scheduleAckReminders(items.length, items[0].title, r.nagMinutes ?? 10);
       else void cancelAckReminders();
     })
     // خادم أقدم لا يعرف التأكيد: لا شيء ينتظر
-    .catch(() => set({ ...state, items: state.items ?? [] }))
+    .catch(() => {
+      if (my === gen) set({ ...state, items: state.items ?? [] });
+    })
     .finally(() => {
-      loading = null;
+      if (loading === p) loading = null;
     });
-  return loading;
+  loading = p;
+  return p;
+}
+
+/** تأكيد تمّ من مكان آخر (صفحة الإعلانات): يختفي من «بانتظار تأكيدك» فوراً */
+export function markAcked(key: string) {
+  acked.set(key, Date.now());
+  gen++;
+  if (state.items?.some(x => x.key === key)) set({ ...state, items: state.items.filter(x => x.key !== key) });
+  void loadAcks(true);
 }
 function useAckStore() {
   return useSyncExternalStore(
@@ -49,8 +69,7 @@ function useAckStore() {
 async function confirmAck(item: PendingAck) {
   if (item.kind === 'post') await staffApi.readPost(item.id, true);
   else await staffApi.ackNotif(item.id);
-  set({ ...state, items: (state.items ?? []).filter(x => x.key !== item.key) });
-  void loadAcks();
+  markAcked(item.key);
 }
 
 function AckCard({ item, clamp }: { item: PendingAck; clamp?: boolean }) {

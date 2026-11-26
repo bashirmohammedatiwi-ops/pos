@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { isNative } from '../config';
 import { InstallButton } from './Install';
@@ -15,8 +15,20 @@ export type SideGroup = { title: string; items: SideLink[] };
 
 export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; groups: SideGroup[]; user?: string | null; role?: string; home: string }) {
   const loc = useLocation();
-  if (isNative()) return null;
   const all = [...main, ...groups.flatMap(g => g.items)];
+  // عنوان التبويب وشارة أيقونة التطبيق المثبّت: مجموع ما ينتظر (التبليغات، المحادثات، الطلبات)
+  const total = all.reduce((n, l) => n + (l.badge || 0), 0);
+  useEffect(() => {
+    if (isNative()) return;
+    document.title = total ? `(${total > 99 ? '99+' : total}) ديما · الفريق` : 'ديما · الفريق';
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    try {
+      void (total ? nav.setAppBadge?.(total) : nav.clearAppBadge?.())?.catch(() => undefined);
+    } catch {
+      /* غير مدعوم */
+    }
+  }, [total]);
+  if (isNative()) return null;
   // الأطول تطابقاً يفوز: /m/cash/flow تتبع «الصناديق» لا «الرئيسية»
   const best = all
     .filter(l => (l.to === home ? loc.pathname === home || loc.pathname === `${home}/` : loc.pathname === l.to || loc.pathname.startsWith(`${l.to}/`)))

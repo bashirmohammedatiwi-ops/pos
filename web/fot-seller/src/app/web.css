@@ -635,3 +635,239 @@
     padding-inline: 32px;
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * الرئيسية على الشاشة العريضة (1280px فأعرض): عمود رئيسي + عمود جانبي.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1280px) {
+  html.web:has(.h-dash) {
+    --content-w: 1200px;
+  }
+  html.web .h-dash {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 0 28px;
+    align-items: start;
+  }
+  html.web .h-main,
+  html.web .h-aside {
+    min-width: 0;
+  }
+  html.web .h-main > .t-section:first-child,
+  html.web .h-aside > .t-section:first-child {
+    margin-top: 0;
+  }
+  html.web .h-aside {
+    display: grid;
+    gap: 0;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 26px;
+    background: color-mix(in srgb, var(--bg-elev) 60%, transparent);
+  }
+  html.web .h-aside > .t-section {
+    margin-top: 22px;
+  }
+  html.web .h-aside > :first-child {
+    margin-top: 0 !important;
+  }
+  html.web .h-aside > section:last-child {
+    margin-bottom: 0 !important;
+  }
+  html.web .h-aside .t-quick {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  html.web .h-aside .m-actions {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  html.web .h-aside .t-section-head h2 {
+    font-size: 16px;
+  }
+  /* دخول متتابع داخل العمودين */
+  html.web .h-main > *,
+  html.web .h-aside > * {
+    animation: rise-in 0.5s var(--ease) backwards;
+  }
+  html.web .h-main > :nth-child(2),
+  html.web .h-aside > :nth-child(1) {
+    animation-delay: 0.06s;
+  }
+  html.web .h-main > :nth-child(3),
+  html.web .h-aside > :nth-child(2) {
+    animation-delay: 0.12s;
+  }
+  html.web .h-main > :nth-child(n + 4),
+  html.web .h-aside > :nth-child(n + 3) {
+    animation-delay: 0.18s;
+  }
+}
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  html.web .m-actions {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * لمسات الحاسبة: مؤشر الفأرة، حالات المرور، أشرطة التمرير، التحديد، التركيز.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+html.web button:not(:disabled),
+html.web [role='button'],
+html.web .press,
+html.web .press-soft,
+html.web label[for],
+html.web summary {
+  cursor: pointer;
+}
+html.web button:disabled {
+  cursor: not-allowed;
+}
+html.web ::selection {
+  background: color-mix(in srgb, var(--brand) 32%, transparent);
+  color: inherit;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  /* بطاقات وصفوف قابلة للضغط: ترتفع قليلاً وتظهر حدودها */
+  html.web a.t-card,
+  html.web button.t-card,
+  html.web .t-card.press,
+  html.web .m-alert,
+  html.web .t-post.press,
+  html.web .t-hero.press,
+  html.web .t-me {
+    transition:
+      transform 0.2s var(--ease),
+      box-shadow 0.2s var(--ease),
+      border-color 0.2s var(--ease);
+  }
+  html.web a.t-card:hover,
+  html.web button.t-card:hover,
+  html.web .t-card.press:hover,
+  html.web .m-alert:hover,
+  html.web .t-post.press:hover,
+  html.web .t-me:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+    box-shadow: var(--shadow-2);
+  }
+  html.web .t-hero.press:hover {
+    transform: translateY(-2px);
+  }
+  /* صفوف القوائم */
+  html.web a.t-row:hover,
+  html.web button.t-row:hover,
+  html.web .t-row.press:hover,
+  html.web .t-row.press-soft:hover {
+    background: color-mix(in srgb, var(--brand) 6%, transparent);
+  }
+  html.web .t-row .chev,
+  html.web .t-row > svg:last-child {
+    transition: transform 0.2s var(--ease);
+  }
+  html.web a.t-row:hover > svg:last-child,
+  html.web .t-row.press:hover > svg:last-child {
+    transform: translateX(-3px);
+  }
+  /* مربعات الاختصارات والأقسام */
+  html.web .t-quick a,
+  html.web .t-quick button,
+  html.web .t-menu > *,
+  html.web .m-actions > * {
+    transition:
+      transform 0.2s var(--ease),
+      box-shadow 0.2s var(--ease),
+      border-color 0.2s var(--ease),
+      color 0.2s var(--ease);
+  }
+  html.web .t-quick a:hover,
+  html.web .t-quick button:hover,
+  html.web .t-menu > :hover,
+  html.web .m-actions > :hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
+    box-shadow: var(--shadow-2);
+    color: var(--ink);
+  }
+  html.web .t-quick a:hover .t-tile,
+  html.web .t-menu > :hover .t-tile,
+  html.web .m-actions > :hover .t-tile {
+    transform: scale(1.06);
+  }
+  html.web .t-quick .t-tile,
+  html.web .t-menu .t-tile,
+  html.web .m-actions .t-tile {
+    transition: transform 0.25s var(--spring, var(--ease));
+  }
+  /* الأزرار والشرائح */
+  html.web .t-btn:not(:disabled):hover {
+    filter: brightness(1.06);
+  }
+  html.web .m-pill:hover,
+  html.web .t-pill:hover {
+    border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+    color: var(--ink);
+  }
+  html.web .t-section-head .more {
+    transition:
+      background-color 0.18s var(--ease),
+      color 0.18s var(--ease);
+  }
+  html.web .t-section-head .more:hover {
+    background: var(--brand);
+    color: #fff;
+  }
+  html.web .t-icon-btn:hover {
+    background: var(--bg-sunk);
+    color: var(--ink);
+  }
+  html.web .in-btn.side:hover {
+    filter: brightness(1.08);
+  }
+  /* لا تكبير «الضغط» على الحاسبة: الفأرة لا تحتاج ردّ اللمس */
+  html.web .press:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+}
+
+/* أشرطة تمرير رفيعة بلون المظهر */
+html.web,
+html.web .t-sheet,
+html.web .t-room,
+html.web .w-side {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+html.web ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html.web ::-webkit-scrollbar-track {
+  background: transparent;
+}
+html.web ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background: var(--line-2) padding-box;
+}
+html.web ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--brand) 45%, transparent) padding-box;
+}
+
+/* حلقة التركيز بلوحة المفاتيح: واضحة ومتناسقة مع الزوايا */
+html.web :focus-visible {
+  outline: 2px solid var(--brand-2);
+  outline-offset: 3px;
+}
+html.web .t-card:focus-visible,
+html.web .t-row:focus-visible,
+html.web .w-side-link:focus-visible,
+html.web .t-quick a:focus-visible,
+html.web .m-actions > :focus-visible {
+  border-radius: inherit;
+  outline-offset: 2px;
+}
+html.web input:focus-visible,
+html.web textarea:focus-visible,
+html.web select:focus-visible {
+  outline: none;
+}

@@ -7,7 +7,7 @@ import { useSeller, useWeekCompare } from '../../store';
 import { KIND_LABEL, getTeamMe } from '../../team';
 import { useAccessLocked, useLockInfo, to12 } from '../../access';
 import { cleanName } from '../../names';
-import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
+import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, useWide, weekRange } from '../kit';
 import { haptic } from '../native';
 import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
 import { AckCenter, HomeAlerts } from './Acks';
@@ -354,6 +354,83 @@ export function StaffHome() {
   const unread = useUnread('staff');
   const locked = useAccessLocked();
   const lockInfo = useLockInfo();
+  const wide = useWide();
+
+  const lockedCard = locked && (
+    <section className="t-section">
+      <Link to="/commission" className="t-row t-card press" onClick={() => haptic('tap')}>
+        <span className="t-tile mute">
+          <I.lock size={20} />
+        </span>
+        <div className="body">
+          <div className="title">العمولات والأهداف مقفلة الآن</div>
+          <div className="sub">{lockInfo?.schedule.fromMin != null ? `تُفتح من ${to12(lockInfo.schedule.fromMin)} إلى ${to12(lockInfo.schedule.toMin)}` : 'متاحة في الأيام المحددة فقط'}</div>
+        </div>
+        <I.chevron size={18} />
+      </Link>
+    </section>
+  );
+
+  const quick = (
+    <section className="t-section">
+      {wide && (
+        <div className="t-section-head">
+          <h2>اختصارات</h2>
+        </div>
+      )}
+      <div className="t-quick">
+        <Link to="/shift" className="press">
+          <span className="t-tile accent">
+            <I.calendar size={20} />
+          </span>
+          دوامي
+        </Link>
+        {me?.plan !== 'hourly' && (
+          <Link to="/shift?new=1" className="press">
+            <span className="t-tile">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </span>
+            طلب إجازة
+          </Link>
+        )}
+        <Link to="/posts" className="press">
+          <span className="t-tile ok">
+            <I.megaphone size={20} />
+          </span>
+          الإعلانات
+        </Link>
+        <Link to="/alerts" className="press">
+          <span className="t-tile mute">
+            <I.bell size={20} />
+          </span>
+          التبليغات
+        </Link>
+      </div>
+    </section>
+  );
+
+  // الحاسبة العريضة: عمود رئيسي (البصمة والدوام) وعمود جانبي (الاختصارات والتبليغات)
+  if (wide)
+    return (
+      <>
+        <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} unread={unread} />
+        <div className="t-page h-dash">
+          <div className="h-main">
+            <AckCenter />
+            <AttendCard compact />
+            {lockedCard}
+            <TeamWidgets />
+          </div>
+          <aside className="h-aside" aria-label="اختصارات وتبليغات">
+            {quick}
+            <HomeAlerts />
+          </aside>
+        </div>
+      </>
+    );
+
   return (
     <>
       <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} unread={unread} />
@@ -363,54 +440,8 @@ export function StaffHome() {
         <div style={{ marginTop: 18 }}>
           <HomeAlerts />
         </div>
-        {locked && (
-          <section className="t-section">
-            <Link to="/commission" className="t-row t-card press" onClick={() => haptic('tap')}>
-              <span className="t-tile mute">
-                <I.lock size={20} />
-              </span>
-              <div className="body">
-                <div className="title">العمولات والأهداف مقفلة الآن</div>
-                <div className="sub">{lockInfo?.schedule.fromMin != null ? `تُفتح من ${to12(lockInfo.schedule.fromMin)} إلى ${to12(lockInfo.schedule.toMin)}` : 'متاحة في الأيام المحددة فقط'}</div>
-              </div>
-              <I.chevron size={18} />
-            </Link>
-          </section>
-        )}
-
-        <section className="t-section">
-          <div className="t-quick">
-            <Link to="/shift" className="press">
-              <span className="t-tile accent">
-                <I.calendar size={20} />
-              </span>
-              دوامي
-            </Link>
-            {me?.plan !== 'hourly' && (
-              <Link to="/shift?new=1" className="press">
-                <span className="t-tile">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </span>
-                طلب إجازة
-              </Link>
-            )}
-            <Link to="/posts" className="press">
-              <span className="t-tile ok">
-                <I.megaphone size={20} />
-              </span>
-              الإعلانات
-            </Link>
-            <Link to="/alerts" className="press">
-              <span className="t-tile mute">
-                <I.bell size={20} />
-              </span>
-              التبليغات
-            </Link>
-          </div>
-        </section>
-
+        {lockedCard}
+        {quick}
         <TeamWidgets />
       </div>
     </>

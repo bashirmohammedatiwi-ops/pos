@@ -4,6 +4,7 @@ import { Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, toast } from '
 import { haptic } from '../native';
 import { BackBtn, Lightbox, PostCard } from '../parts';
 import { staffApi, useLoad, type Post } from '../work';
+import { markAcked } from './Acks';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الإعلانات والعروض — المثبّت أولاً، تصفية حسب النوع، فتح الإعلان كاملاً
@@ -55,6 +56,7 @@ export function Posts({ back }: { back?: string }) {
     setAcking(true);
     try {
       patch(await staffApi.readPost(open.id, true));
+      markAcked(`p${open.id}`);
       haptic('success');
       toast('شكراً — تم تأكيد اطلاعك');
     } catch (e) {

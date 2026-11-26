@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ErrorLine, I, Skeleton, Track, greet, iraqToday, toast, usePull } from '../kit';
+import { Dash, ErrorLine, I, Skeleton, Track, greet, iraqToday, toast, usePull } from '../kit';
 import { haptic } from '../native';
 import { LEAVE_ICON, StatusBadge } from '../parts';
 import { KIND_LABEL } from '../../team';
@@ -186,7 +186,10 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
       </header>
       <p className="t-date">{iraqToday()}</p>
       <InstallCard />
-      <div className="t-page">
+      <Dash
+        sideLabel="الأقسام والفريق اليوم"
+        main={
+          <>
         {!sup && <SelfAttendCard />}
 
         {perms.viewAttendance && (
@@ -286,6 +289,10 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
           </section>
         )}
 
+          </>
+        }
+        side={
+          <>
         <section className="t-section">
           <div className="t-section-head">
             <h2>الأقسام</h2>
@@ -367,7 +374,9 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
             )}
           </>
         ) : null}
-      </div>
+          </>
+        }
+      />
     </>
   );
 }
