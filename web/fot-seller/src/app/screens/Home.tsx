@@ -13,6 +13,7 @@ import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
 import { AckCenter, HomeAlerts } from './Acks';
 import { AttendCard, HoursCard } from './Attend';
 import { getTeamToken } from '../../team';
+import { InstallCard } from '../Install';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الرئيسية — تحية، بطاقة عمولة الأسبوع بأعمدة الأيام، الأهداف، البراندات، آخر المبيعات.
@@ -52,6 +53,7 @@ function Greeting({ name, sub, unread }: { name: string; sub: string; unread?: n
         {iraqToday()}
         {sub ? ` · ${sub}` : ''}
       </p>
+      <InstallCard />
     </>
   );
 }

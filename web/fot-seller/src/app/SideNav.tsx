@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { isNative } from '../config';
+import { InstallButton } from './Install';
 import { I, Mark } from './kit';
 import { haptic } from './native';
 
@@ -60,6 +61,9 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
             </div>
           ))}
       </nav>
+      <div className="w-side-foot">
+        <InstallButton variant="side" />
+      </div>
     </aside>
   );
 }

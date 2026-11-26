@@ -1,10 +1,11 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AccessClosedError, api, getLastId, publishAccess, setLastId, setSeller, setToken } from '../../api';
-import { APP_VERSION, apiUrl, isNative } from '../../config';
+import { APP_VERSION, apiUrl } from '../../config';
 import { KIND_LABEL, getLastCode, registerPush, getTeamToken, setLastCode, setTeamMe, setTeamToken, teamApi } from '../../team';
 import { I, Mark } from '../kit';
 import { haptic, statusOnHero } from '../native';
+import { InstallButton } from '../Install';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الدخول — نافذتان: «موظف» (الكود ← الاسم ← الرمز) و«مدير» (المستخدم وكلمة المرور).
@@ -27,43 +28,11 @@ function useBaghdadNow() {
   return { time, date, greet };
 }
 
-/** في سفاري الآيفون (لا التطبيق المثبّت): كيف يُضاف الموقع للشاشة الرئيسية */
+/** تثبيت الموقع على الشاشة الرئيسية: بضغطة في أندرويد والحاسبة، وبخطوات في الآيفون */
 function InstallTip() {
-  const [hidden, setHidden] = useState(() => {
-    try {
-      return localStorage.getItem('fot_install_tip') === 'no';
-    } catch {
-      return false;
-    }
-  });
-  const ios = /iPhone|iPad/.test(navigator.userAgent);
-  const standalone = (navigator as unknown as { standalone?: boolean }).standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
-  if (isNative() || !ios || standalone || hidden) return null;
   return (
-    <div className="lg-tip">
-      <span className="lg-tip-ico" aria-hidden>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3v12M8 7l4-4 4 4" />
-          <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
-        </svg>
-      </span>
-      <span>
-        ثبّت ديما على شاشتك: اضغط <b>مشاركة</b> في الأسفل ثم <b>«إضافة إلى الشاشة الرئيسية»</b>.
-      </span>
-      <button
-        type="button"
-        aria-label="إخفاء"
-        onClick={() => {
-          setHidden(true);
-          try {
-            localStorage.setItem('fot_install_tip', 'no');
-          } catch {
-            /* تخزين غير متاح */
-          }
-        }}
-      >
-        <I.close size={16} />
-      </button>
+    <div className="lg-install">
+      <InstallButton variant="link" />
     </div>
   );
 }

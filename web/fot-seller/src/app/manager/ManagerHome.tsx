@@ -7,6 +7,7 @@ import { KIND_LABEL } from '../../team';
 import { SalesHomeCard } from './ManagerSales';
 import { SelfAttendCard } from './ManagerSelf';
 import { CashHomeCard } from './ManagerCash';
+import { InstallCard } from '../Install';
 import { LEAVE_LABEL, POST_KIND, byName, getManagerMe, leaveWhen, managerApi, managerAttendApi, relTime, supervisorMode, useLoad, usePerms, type Board, type LeaveReq } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -184,6 +185,7 @@ export function MHome({ unread, pending, chatUnread }: { unread: number; pending
         <Bell unread={unread} />
       </header>
       <p className="t-date">{iraqToday()}</p>
+      <InstallCard />
       <div className="t-page">
         {!sup && <SelfAttendCard />}
 

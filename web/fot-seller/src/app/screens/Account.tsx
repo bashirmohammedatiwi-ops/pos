@@ -7,6 +7,7 @@ import { I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
 import { BackBtn, ProfileCard } from '../parts';
 import { PushHealth } from '../PushHealth';
 import { WebPushCard } from '../WebPush';
+import { InstallButton } from '../Install';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +81,9 @@ export function Account({ onLogout, back }: { onLogout: () => void; back?: strin
 
       {getTeamToken() && <PushHealth role="staff" />}
       {getTeamToken() && <WebPushCard role="staff" />}
+      <div style={{ marginTop: 14 }}>
+        <InstallButton variant="row" />
+      </div>
 
       <section className="t-section">
         <div className="t-section-head">

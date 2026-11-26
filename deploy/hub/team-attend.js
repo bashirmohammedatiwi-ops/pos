@@ -392,7 +392,8 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
   /* عناوين إنترنت أكّدها حضور من نقطة بث المحل نفسها (هاتف قرأ الواي فاي): تقبل من لا يقرأ الواي فاي
      (الموقع، بعض الهواتف) على نفس العنوان حتى لو لم يتصل سيرفر المحل بعد — صباحاً قبل تشغيله مثلاً.
      تُقبل فقط إن كانت من شبكة عناوين المحل (/24) كي لا يُعتمد عنوان VPN أو بيانات الهاتف. */
-  const VERIFIED_MS = 12 * 3600_000;
+  // 24 ساعة: عنوان أكّدته الهواتف مساءً يبقى صالحاً حين يفتح المحل صباحاً ولو قبل تشغيل سيرفر المحل
+  const VERIFIED_MS = 24 * 3600_000;
   function verifiedIps() {
     const row = db.prepare("SELECT value FROM settings WHERE key = 'verified_ips'").get();
     try {

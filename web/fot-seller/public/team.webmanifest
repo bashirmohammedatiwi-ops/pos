@@ -1,4 +1,5 @@
 {
+  "id": "/staff/",
   "name": "ديما · الفريق",
   "short_name": "ديما الفريق",
   "description": "تطبيق فريق ديما الحياة: الحضور والمبيعات والمحادثات والصناديق",
@@ -7,10 +8,19 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#f5f2fb",
-  "theme_color": "#f5f2fb",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0b0813",
+  "theme_color": "#2a1656",
+  "categories": ["business", "productivity"],
   "icons": [
-    { "src": "team-icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+    { "src": "team-icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "team-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "team-icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "دوامي والحضور", "short_name": "الحضور", "url": "./#/shift", "icons": [{ "src": "team-icon.png", "sizes": "192x192" }] },
+    { "name": "المحادثات", "short_name": "المحادثات", "url": "./#/chat", "icons": [{ "src": "team-icon.png", "sizes": "192x192" }] },
+    { "name": "التبليغات", "short_name": "التبليغات", "url": "./#/alerts", "icons": [{ "src": "team-icon.png", "sizes": "192x192" }] }
   ]
 }

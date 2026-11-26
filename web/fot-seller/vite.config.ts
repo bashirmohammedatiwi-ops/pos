@@ -31,7 +31,7 @@ const teamAppEntry: Plugin = {
       if (!webSite) return out.replace(/<link rel="manifest"[^>]*>\s*/, '');
       return out
         .replace(/<link rel="manifest"[^>]*>/, '<link rel="manifest" href="/team.webmanifest" />')
-        .replace('<link rel="apple-touch-icon" href="/icon.svg" />', '<link rel="apple-touch-icon" href="/team-icon.png" />')
+        .replace('<link rel="apple-touch-icon" href="/icon.svg" />', '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />')
         .replace('content="black-translucent"', 'content="default"')
         .replace('<title>', '<meta name="apple-mobile-web-app-title" content="ديما الفريق" />\n    <title>');
     },
