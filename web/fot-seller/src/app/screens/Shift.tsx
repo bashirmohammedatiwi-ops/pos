@@ -7,7 +7,7 @@ import { AttendCard, AttendHistory, HoursCard } from './Attend';
 import { LeaveRequest } from './LeaveRequest';
 
 const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-import { LEAVE_LABEL, dateShort, leaveWhen, offNames, relTime, staffApi, useLoad, type DayState, type LeaveReq } from '../work';
+import { LEAVE_LABEL, dateShort, leaveWhen, offNames, relTime, staffApi, useLoad, type DayState, type LeaveReq, byName } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * دوامي — حالة اليوم، تقويم ثلاثة أسابيع (العطل، الإجازات، التبديلات، الاستئذان)،
@@ -251,7 +251,15 @@ export function Shift({ back }: { back?: string }) {
                         <StatusBadge status={r.status} />
                       </div>
                       <div className="when">{leaveWhen(r)}</div>
-                      <div className="who">{relTime(r.createdAt)}</div>
+                      <div className="who">
+                        {relTime(r.createdAt)}
+                        {(r.status === 'approved' || r.status === 'rejected') && (
+                          <>
+                            {' · '}
+                            {r.status === 'approved' ? 'وافق عليه' : 'رفضه'} <b style={{ color: 'var(--ink-2)' }}>{byName(r.decidedBy)}</b>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -316,7 +324,7 @@ export function Shift({ back }: { back?: string }) {
             {detail.status !== 'pending' && detail.status !== 'cancelled' && (
               <div className="t-card pad">
                 <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {detail.status === 'approved' ? 'وافق' : 'رفض'} {detail.decidedBy?.replace(/^(manager|supervisor):/, '') || 'الإدارة'} · {detail.decidedAt ? relTime(detail.decidedAt) : ''}
+                  {detail.status === 'approved' ? 'وافق عليه' : 'رفضه'} <b style={{ color: 'var(--ink)' }}>{byName(detail.decidedBy)}</b> · {detail.decidedAt ? relTime(detail.decidedAt) : ''}
                 </div>
                 {detail.decidedNote && <div style={{ marginTop: 4, lineHeight: 1.7 }}>{detail.decidedNote}</div>}
               </div>

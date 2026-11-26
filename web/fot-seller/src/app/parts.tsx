@@ -264,6 +264,10 @@ const NOTIF_ICON: Record<string, { icon: ReactNode; tone: string }> = {
   'sales.pace': { icon: <I.chart size={19} />, tone: 'accent' },
   'break.warn': { icon: <I.coffee size={19} />, tone: 'accent' },
   'break.over': { icon: <I.coffee size={19} />, tone: 'bad' },
+  'attend.late': { icon: <I.clock size={19} />, tone: 'accent' },
+  'attend.offday': { icon: <I.calendar size={19} />, tone: 'accent' },
+  'attend.auto': { icon: <I.clock size={19} />, tone: 'bad' },
+  'attend.edit': { icon: <I.clock size={19} />, tone: '' },
 };
 
 export function NotifList({ items, onOpen }: { items: Notif[]; onOpen: (n: Notif) => void }) {

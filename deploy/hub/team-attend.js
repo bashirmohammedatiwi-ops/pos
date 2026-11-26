@@ -159,6 +159,14 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
      ALTER TABLE attendance ADD COLUMN shift_start TEXT;
      ALTER TABLE attendance ADD COLUMN shift_end TEXT;
      ALTER TABLE attendance ADD COLUMN shift_break INTEGER;`,
+    // بصمة المدراء: بالساعات، عدة فترات في اليوم (دخول/خروج)، بلا وردية ولا تأخير
+    `CREATE TABLE manager_attendance (
+       id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER NOT NULL, date TEXT NOT NULL,
+       check_in TEXT NOT NULL, check_out TEXT, in_ip TEXT, in_bssid TEXT, out_ip TEXT, out_bssid TEXT,
+       auto_closed INTEGER NOT NULL DEFAULT 0, note TEXT, edited_by TEXT, edited_at TEXT
+     );
+     CREATE INDEX ix_mattend_mgr ON manager_attendance(manager_id, date);
+     CREATE INDEX ix_mattend_date ON manager_attendance(date);`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _attend_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -629,6 +637,15 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       notify('manager', managerIds(), lateNote);
       notifySupervisors(s.id, 'viewAttendance', lateNote);
     }
+    // حضر في يوم عطلته أو إجازته: يُبلَّغ المدراء (قد يستحق تعويضاً أو تبديلاً)
+    const day = hourly ? null : dayFor(s.id, w.date);
+    if (day?.off) {
+      const why = { weekly: 'عطلته الأسبوعية', swap: 'عطلته (بعد التبديل)', day: 'إجازته', sick: 'إجازته المرضية', urgent: 'إجازته الطارئة' }[day.reason] || 'عطلته';
+      const offNote = { type: 'attend.offday', title: `${s.name} حضر في يوم ${why}`, body: `سجّل حضوره ${new Date(Date.parse(t) + IRAQ_MS).toISOString().slice(11, 16)} مع أن اليوم ${why}`, link: '/attend?f=offday', data: { staffId: s.id } };
+      notify('manager', managerIds(), offNote);
+      notifySupervisors(s.id, 'viewAttendance', offNote);
+      audit(`staff:${s.id}`, 'attend.offday', Number(r.lastInsertRowid), { reason: day.reason });
+    }
     emitManagers('attend', { staffId: s.id });
     return { status: 200, body: myState(s) };
   }
@@ -710,14 +727,31 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       else status = 'missing';
       // من لم يدخل التطبيق بعد لا يُعدّ غائباً: لا يستطيع تسجيل حضوره أصلاً
       const joined = !!a || devices.has(s.id);
-      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, shift, day, status, attendance: a, joined };
+      // حضر في يوم عطلته أو إجازته
+      const offDay = !!a && !!day?.off;
+      return { staffId: s.id, name: s.name, kind: s.kind, sectionName: s.section_name, shift, day, status, attendance: a, joined, offDay };
     });
     const count = k => rows.filter(r => r.status === k && r.joined).length;
     return {
       date,
       now: now(),
       rows,
-      counts: { in: count('in'), break: count('break') + count('over'), over: count('over'), out: count('out'), off: count('off'), missing: count('missing') + count('absent'), soon: count('soon'), notJoined: rows.filter(r => !r.joined && r.status !== 'off').length, late: rows.filter(r => (r.attendance?.lateMinutes ?? 0) > 0).length },
+      counts: {
+        in: count('in'),
+        break: count('break') + count('over'),
+        over: count('over'),
+        out: count('out'),
+        off: count('off'),
+        missing: count('missing') + count('absent'),
+        soon: count('soon'),
+        // مفصّلة للواجهة الجديدة: «لم يحضر بعد» (دوامه جارٍ أو لم يبدأ) و«غياب» (انتهى دوامه دون حضور)
+        notYet: count('missing') + count('soon'),
+        absent: count('absent'),
+        present: count('in') + count('break') + count('over'),
+        offDay: rows.filter(r => r.offDay).length,
+        notJoined: rows.filter(r => !r.joined && r.status !== 'off').length,
+        late: rows.filter(r => (r.attendance?.lateMinutes ?? 0) > 0).length,
+      },
       network: { enforced: st.enforceNetwork, count: networks().filter(n => n.is_active).length },
     };
   }
@@ -783,6 +817,168 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     const out = correct(Number(r.lastInsertRowid), { checkIn: body.checkIn, checkOut: body.checkOut, note: body.note || 'إضافة يدوية' }, actor);
     if (out.status !== 200) db.prepare('DELETE FROM attendance WHERE id = ?').run(Number(r.lastInsertRowid));
     return out;
+  }
+
+  /* ── بصمة المدراء: بالساعات، دخول وخروج متعدد في اليوم، من شبكة المحل ── */
+  const managersMap = () => ctx.getManagers?.() || {};
+  const managerOf = id => managersMap()[id] || managersMap()[String(id)] || null;
+  const mSess = r => ({
+    id: r.id,
+    managerId: r.manager_id,
+    date: r.date,
+    checkIn: r.check_in,
+    checkOut: r.check_out,
+    minutes: Math.max(0, Math.round(((r.check_out ? Date.parse(r.check_out) : Date.now()) - Date.parse(r.check_in)) / 60_000)),
+    autoClosed: !!r.auto_closed,
+    edited: !!r.edited_by,
+    editedBy: r.edited_by,
+    note: r.note,
+  });
+  const mOpen = mid => db.prepare('SELECT * FROM manager_attendance WHERE manager_id = ? AND check_out IS NULL ORDER BY id DESC LIMIT 1').get(mid);
+  /** أيام الفترة كلها (حتى الفارغة) بفتراتها — للمخطط الزمني */
+  function mDays(mid, from, to) {
+    const by = new Map();
+    for (const r of db.prepare('SELECT * FROM manager_attendance WHERE manager_id = ? AND date BETWEEN ? AND ? ORDER BY check_in').all(mid, from, to)) {
+      by.set(r.date, [...(by.get(r.date) || []), mSess(r)]);
+    }
+    const out = [];
+    for (let d = to; d >= from && out.length < 93; d = addDays(d, -1)) {
+      const sessions = by.get(d) || [];
+      out.push({ date: d, weekday: DAY_NAMES[dayIdx(d)], minutes: sessions.reduce((x, s) => x + s.minutes, 0), sessions });
+    }
+    return out;
+  }
+  const mSum = (mid, from, to) => {
+    const days = mDays(mid, from, to);
+    return { from, to, minutes: days.reduce((x, d) => x + d.minutes, 0), days: days.filter(d => d.sessions.length).length };
+  };
+  function mState(mid) {
+    const today = iraqDate();
+    const start = weekStart(today);
+    const open = mOpen(mid);
+    const nets = networks().filter(n => n.is_active);
+    return {
+      now: now(),
+      today,
+      open: open ? mSess(open) : null,
+      todayMinutes: mSum(mid, today, today).minutes,
+      week: mSum(mid, start, addDays(start, 6)),
+      lastWeek: mSum(mid, addDays(start, -7), addDays(start, -1)),
+      month: mSum(mid, `${today.slice(0, 8)}01`, today),
+      days: mDays(mid, addDays(today, -13), today),
+      network: { enforced: settings().enforceNetwork, configured: nets.length > 0, needsBssid: nets.some(n => bssidsOf(n).length > 0) },
+    };
+  }
+  function mIn(req, m, body) {
+    const mid = Number(m.id);
+    if (mOpen(mid)) return { status: 409, body: { error: 'سجّلت حضورك مسبقاً — سجّل انصرافك أولاً' } };
+    const net = checkNetwork(req, body.bssid);
+    if (!net.ok) {
+      audit(`manager:${mid}`, 'mattend.refused', null, { ip: net.ip, bssid: net.bssid, error: net.error });
+      return { status: 403, body: { error: net.error, code: 'network' } };
+    }
+    const t = now();
+    const r = db.prepare('INSERT INTO manager_attendance (manager_id, date, check_in, in_ip, in_bssid) VALUES (?, ?, ?, ?, ?)').run(mid, iraqDate(Date.parse(t)), t, net.ip, net.bssid);
+    audit(`manager:${mid}`, 'mattend.in', Number(r.lastInsertRowid), { ip: net.ip });
+    emitManagers('mattend', { managerId: mid });
+    return { status: 200, body: mState(mid) };
+  }
+  function mOut(req, m, body) {
+    const mid = Number(m.id);
+    const a = mOpen(mid);
+    if (!a) return { status: 400, body: { error: 'لم تسجّل حضورك' } };
+    const net = checkNetwork(req, body.bssid);
+    if (!net.ok) return { status: 403, body: { error: net.error, code: 'network' } };
+    db.prepare('UPDATE manager_attendance SET check_out = ?, out_ip = ?, out_bssid = ? WHERE id = ?').run(now(), net.ip, net.bssid, a.id);
+    audit(`manager:${mid}`, 'mattend.out', a.id, { ip: net.ip });
+    emitManagers('mattend', { managerId: mid });
+    return { status: 200, body: mState(mid) };
+  }
+  /** نسيان الانصراف: يُغلق قبل صباح اليوم التالي ويعتمد وقت إغلاق المحل (كحساب الساعات للموظفين) */
+  function mAutoClose(a) {
+    const st = settings();
+    const closeAt = atIraq(a.date, shiftSpan({ start: st.shiftStart, end: st.shiftEnd }).end);
+    if (Date.now() < closeAt + HOURLY_CLOSE_GRACE_MS) return;
+    const t = new Date(Math.max(closeAt, Date.parse(a.check_in))).toISOString();
+    const r = db.prepare('UPDATE manager_attendance SET check_out = ?, auto_closed = 1 WHERE id = ? AND check_out IS NULL').run(t, a.id);
+    if (!r.changes) return;
+    audit('system', 'mattend.autoclose', a.id, { at: t });
+    notify('manager', [a.manager_id], { type: 'attend.auto', title: 'أُغلق حضورك تلقائياً', body: 'لم تسجّل انصرافك — اعتُمد وقت إغلاق المحل. راجع الإدارة إن كانت ساعاتك أكثر.', link: '/self' });
+    emitManagers('mattend', { managerId: a.manager_id });
+  }
+  /** كشف ساعات المدراء في فترة، مع فترات كل يوم للمخطط */
+  function mReport(url) {
+    const today = iraqDate();
+    const to = isDateStr(url.searchParams.get('to')) ? url.searchParams.get('to') : today;
+    let from = isDateStr(url.searchParams.get('from')) ? url.searchParams.get('from') : weekStart(today);
+    if (from > to) from = to;
+    if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 62) from = addDays(to, -62);
+    const rows = Object.values(managersMap()).map(m => {
+      const mid = Number(m.id);
+      const daily = mDays(mid, from, to);
+      const all = daily.flatMap(d => d.sessions);
+      const open = mOpen(mid);
+      return {
+        managerId: mid,
+        name: m.displayName || m.username,
+        username: m.username,
+        isActive: m.isActive !== false,
+        minutes: daily.reduce((x, d) => x + d.minutes, 0),
+        days: daily.filter(d => d.sessions.length).length,
+        open: !!open,
+        openSince: open?.check_in ?? null,
+        autoClosed: all.filter(s => s.autoClosed).length,
+        edited: all.filter(s => s.edited).length,
+        daily,
+      };
+    }).filter(r => r.isActive || r.days > 0).sort((a, b) => Number(b.open) - Number(a.open) || b.minutes - a.minutes || a.name.localeCompare(b.name, 'ar'));
+    return { from, to, today, rows, totalMinutes: rows.reduce((x, r) => x + r.minutes, 0), presentNow: rows.filter(r => r.open).length };
+  }
+  /** تصحيح فترة أو إضافتها يدوياً (لمدير آخر أو من لوحة التحكم) */
+  function mSave(id, body, actor) {
+    const cur = id ? db.prepare('SELECT * FROM manager_attendance WHERE id = ?').get(id) : null;
+    if (id && !cur) return { status: 404, body: { error: 'السجل غير موجود' } };
+    const mid = cur ? cur.manager_id : Number(body.managerId);
+    if (!managerOf(mid)) return { status: 404, body: { error: 'المدير غير موجود' } };
+    const ci = body.checkIn && !Number.isNaN(Date.parse(body.checkIn)) ? new Date(body.checkIn).toISOString() : cur?.check_in;
+    if (!ci) return { status: 400, body: { error: 'وقت الحضور مطلوب' } };
+    const co = body.checkOut === null ? null : body.checkOut && !Number.isNaN(Date.parse(body.checkOut)) ? new Date(body.checkOut).toISOString() : cur?.check_out ?? null;
+    if (co && co <= ci) return { status: 400, body: { error: 'وقت الانصراف قبل الحضور' } };
+    if (co && Date.parse(co) - Date.parse(ci) > 24 * 3600_000) return { status: 400, body: { error: 'الفترة أطول من 24 ساعة' } };
+    if (Date.parse(ci) > Date.now() + 60_000 || (co && Date.parse(co) > Date.now() + 60_000)) return { status: 400, body: { error: 'لا يمكن تسجيل وقت في المستقبل' } };
+    if (!co && db.prepare('SELECT id FROM manager_attendance WHERE manager_id = ? AND check_out IS NULL AND id <> ?').get(mid, id || 0)) return { status: 409, body: { error: 'له حضور مفتوح — أغلقه أولاً' } };
+    const note = String(body.note || cur?.note || (id ? 'تصحيح' : 'إضافة يدوية')).slice(0, 300);
+    if (cur) {
+      db.prepare('UPDATE manager_attendance SET date = ?, check_in = ?, check_out = ?, note = ?, edited_by = ?, edited_at = ?, auto_closed = CASE WHEN ? IS NULL THEN auto_closed ELSE 0 END WHERE id = ?')
+        .run(iraqDate(Date.parse(ci)), ci, co, note, actor, now(), co, id);
+      audit(actor, 'mattend.correct', id, { from: { in: cur.check_in, out: cur.check_out }, to: { in: ci, out: co }, note });
+    } else {
+      const r = db.prepare('INSERT INTO manager_attendance (manager_id, date, check_in, check_out, note, edited_by, edited_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(mid, iraqDate(Date.parse(ci)), ci, co, note, actor, now());
+      id = Number(r.lastInsertRowid);
+      audit(actor, 'mattend.manual', id, { managerId: mid, in: ci, out: co, note });
+    }
+    notify('manager', [mid], { type: 'attend.edit', title: 'عُدّل سجل حضورك', body: `${actor.replace(/^(manager|supervisor):/, '')} — ${note}`, link: '/self' });
+    emitManagers('mattend', { managerId: mid });
+    return { status: 200, body: mSess(db.prepare('SELECT * FROM manager_attendance WHERE id = ?').get(id)) };
+  }
+  function mDelete(id, actor) {
+    const cur = db.prepare('SELECT * FROM manager_attendance WHERE id = ?').get(id);
+    if (!cur) return { status: 404, body: { error: 'السجل غير موجود' } };
+    db.prepare('DELETE FROM manager_attendance WHERE id = ?').run(id);
+    audit(actor, 'mattend.delete', id, { managerId: cur.manager_id, in: cur.check_in, out: cur.check_out });
+    notify('manager', [cur.manager_id], { type: 'attend.edit', title: 'حُذف سجل من حضورك', body: actor.replace(/^(manager|supervisor):/, ''), link: '/self' });
+    emitManagers('mattend', { managerId: cur.manager_id });
+    return { status: 200, body: { ok: true } };
+  }
+  /** بصمة المدير نفسه: /api/team/m/self-attend[/in|/out] */
+  async function handleManagerSelf(req, res, sub, m) {
+    if (sub !== 'self-attend' && !sub.startsWith('self-attend/')) return false;
+    if (req.method === 'GET' && sub === 'self-attend') return ctx.send(res, 200, mState(Number(m.id))), true;
+    if (req.method === 'POST' && (sub === 'self-attend/in' || sub === 'self-attend/out')) {
+      const body = (await json(req)) || {};
+      return reply(res, sub.endsWith('/in') ? mIn(req, m, body) : mOut(req, m, body)), true;
+    }
+    return false;
   }
 
   /* ── المؤقت: الاستراحات والإغلاق التلقائي ── */
@@ -858,6 +1054,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
       }
       // حضور منسي (أو أيام سابقة)
       for (const a of db.prepare('SELECT * FROM attendance WHERE check_out IS NULL').all()) autoClose(a);
+      for (const a of db.prepare('SELECT * FROM manager_attendance WHERE check_out IS NULL').all()) mAutoClose(a);
     } catch (err) {
       console.error('attend tick failed', err.message);
     }
@@ -898,8 +1095,23 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     return false;
   }
 
-  async function handleManage(req, res, url, sub, actor, open, allow = () => true, showPay = true) {
+  async function handleManage(req, res, url, sub, actor, open, allow = () => true, showPay = true, self = null) {
     const send = (st, b) => (open ? ctx.sendOpen : ctx.send)(res, st, b);
+    // دوام المدراء: العرض بصلاحية «دوام المدراء»، والتصحيح لمن يملك تعديل الحضور — ولا أحد يصحّح سجله بنفسه
+    if (sub === 'mgr-attend' || sub.startsWith('mgr-attend/')) {
+      if (req.method === 'GET' && sub === 'mgr-attend') return send(200, mReport(url)), true;
+      const idM = sub.match(/^mgr-attend\/(\d+)$/);
+      const manual = req.method === 'POST' && sub === 'mgr-attend/manual';
+      if (!manual && !(idM && (req.method === 'PUT' || req.method === 'DELETE'))) return false;
+      const body = req.method === 'DELETE' ? {} : (await json(req)) || {};
+      const target = manual ? Number(body.managerId) : db.prepare('SELECT manager_id FROM manager_attendance WHERE id = ?').get(Number(idM[1]))?.manager_id;
+      if (!open) {
+        if (!self?.canEdit) return send(403, { error: 'لا تملك صلاحية تعديل الحضور — راجع الإدارة', code: 'perm', perm: 'editAttendance' }), true;
+        if (target === self.managerId) return send(403, { error: 'لا يمكنك تعديل سجل حضورك بنفسك — يعدّله مدير آخر أو الإدارة' }), true;
+      }
+      if (manual) return reply(res, mSave(null, body, actor), open), true;
+      return reply(res, req.method === 'DELETE' ? mDelete(Number(idM[1]), actor) : mSave(Number(idM[1]), body, actor), open), true;
+    }
     if (req.method === 'GET' && sub === 'attend/board') return send(200, board(allow, showPay)), true;
     if (req.method === 'GET' && sub === 'attend/hours') return send(200, hoursReport(url, allow, showPay)), true;
     if (req.method === 'GET' && sub === 'attend/log') return send(200, log(url, allow)), true;
@@ -953,7 +1165,7 @@ function createAttend({ db, ctx, now, audit, getStaff, notify, managerIds, emit,
     return false;
   }
 
-  return { handleStaff, handleManage, shiftOf, board, clientIp, overtimeOf, noteShopIp, shopIp };
+  return { handleStaff, handleManage, handleManagerSelf, shiftOf, board, clientIp, overtimeOf, noteShopIp, shopIp };
 }
 
 module.exports = { createAttend, clientIp, ipMatch, normBssid };

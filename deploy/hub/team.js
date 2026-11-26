@@ -225,6 +225,7 @@ function createTeam(ctx) {
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
     if (sub === 'leave' || /^leave\//.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return 'approveLeave';
+    if (/^mgr-attend(\/|$)/.test(sub)) return 'viewManagers';
     if (/^attend\/(board|log|summary|hours)$/.test(sub) || sub === 'roster' || (sub === 'attend/settings' && method === 'GET') || (sub === 'networks/probe' && method === 'GET')) return 'viewAttendance';
     if (/^attend\//.test(sub) || /^networks/.test(sub) || /^staff\/\d+\/shift$/.test(sub)) return 'editAttendance';
     if ((sub === 'posts' && method !== 'GET') || /^posts\/\d+$/.test(sub) || sub === 'notify') return 'sendPosts';
@@ -242,6 +243,7 @@ function createTeam(ctx) {
     if (/^attend\/\d+$/.test(sub) || /^staff\/\d+\/weekly-off$/.test(sub)) return method === 'PUT';
     if (/^staff\/\d+\/shift$/.test(sub)) return method === 'PUT' || method === 'GET';
     if (/^staff\/\d+\/schedule$/.test(sub)) return method === 'GET';
+    if (/^notify\/\d+\/readers$/.test(sub)) return method === 'GET';
     if (sub === 'posts' || /^posts\/\d+(\/readers)?$/.test(sub)) return true;
     return /^(sales|invoices)(\/|$)/.test(sub);
   }
@@ -360,6 +362,8 @@ function createTeam(ctx) {
         ctx.send(res, 200, { id: mid, username: m.username, displayName: m.displayName, unread: work.unreadCount('manager', mid), perms, sections });
         return true;
       }
+      // بصمة المدير نفسه (بالساعات) — لكل مدير على حسابه
+      if (await attend.handleManagerSelf(req, res, sub, m)) return true;
       // رمز إشعارات هاتف المدير
       if (sub === 'push-token' && (req.method === 'POST' || req.method === 'DELETE')) {
         const body = JSON.parse((await ctx.readBody(req)) || '{}');
@@ -408,7 +412,7 @@ function createTeam(ctx) {
       }
       const actorName = `manager:${m.displayName || m.username}`;
       if (await work.handleManage(req, res, url, sub, actorName, false, allow)) return true;
-      if (await attend.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
+      if (await attend.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay, { managerId: mid, canEdit: !!perms.editAttendance })) return true;
       if (await extra.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
       if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
       if (await invoices.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;

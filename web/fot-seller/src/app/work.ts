@@ -60,6 +60,21 @@ export interface Notif {
   data?: Record<string, unknown> | null;
   readAt?: string | null;
   createdAt: string;
+  /** يتطلب تأكيد الاستلام من الموظف */
+  requiresAck?: boolean;
+  ackAt?: string | null;
+}
+/** تبليغ أو إعلان ينتظر تأكيد الموظف */
+export interface PendingAck {
+  key: string;
+  kind: 'notif' | 'post';
+  id: number;
+  title: string;
+  body?: string | null;
+  image?: string | null;
+  from: string;
+  createdAt: string;
+  postKind?: string;
 }
 export interface Post {
   id: number;
@@ -171,10 +186,12 @@ export interface ManagerPerms {
   viewSales: boolean;
   viewInvoices?: boolean;
   viewPay?: boolean;
+  /** دوام المدراء: ساعات كل مدير ومخطط حضوره */
+  viewManagers?: boolean;
 }
-export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewInvoices: true, viewPay: true };
+export const ALL_PERMS: ManagerPerms = { approveLeave: true, viewAttendance: true, editAttendance: true, sendPosts: true, manageChat: true, viewSales: true, viewInvoices: true, viewPay: true, viewManagers: true };
 /** المسؤول: كل شيء مطفأ حتى يصل رد الخادم */
-export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewInvoices: false, viewPay: false };
+export const NO_PERMS: ManagerPerms = { approveLeave: false, viewAttendance: false, editAttendance: false, sendPosts: false, manageChat: false, viewSales: false, viewInvoices: false, viewPay: false, viewManagers: false };
 const PermsCtx = createContext<ManagerPerms>(ALL_PERMS);
 export const PermsProvider = PermsCtx.Provider;
 export const usePerms = () => useContext(PermsCtx);
@@ -251,6 +268,9 @@ export const staffApi = {
   read: (b: { ids?: number[]; all?: boolean }) => call<{ unread: number }>('staff', '/api/team/notifications/read', { method: 'POST', body: b }),
   posts: () => call<Post[]>('staff', '/api/team/posts'),
   readPost: (id: number, ack = false) => call<Post>('staff', `/api/team/posts/${id}/${ack ? 'ack' : 'read'}`, { method: 'POST', body: {} }),
+  /** ما ينتظر تأكيد استلامي (تبليغات وإعلانات) */
+  acks: () => call<{ items: PendingAck[]; nagMinutes?: number }>('staff', '/api/team/acks'),
+  ackNotif: (id: number) => call<{ ok: true; pending: PendingAck[] }>('staff', `/api/team/notifications/${id}/ack`, { method: 'POST', body: {} }),
   leave: () => call<MyLeave>('staff', '/api/team/leave'),
   me: () => call<TeamStaff & { supervisorPerms?: ManagerPerms | null }>('staff', '/api/team/me'),
   requestLeave: (b: Record<string, unknown>) => call<LeaveReq>('staff', '/api/team/leave', { method: 'POST', body: b }),
@@ -272,11 +292,97 @@ export const managerApi = {
   savePost: (b: Record<string, unknown>, id?: number) => call<Post>('manager', id ? `/api/team/m/posts/${id}` : '/api/team/m/posts', { method: id ? 'PUT' : 'POST', body: b }),
   deletePost: (id: number) => call<{ ok: true }>('manager', `/api/team/m/posts/${id}`, { method: 'DELETE' }),
   readers: (id: number) => call<{ staffId: number; name: string; kind: string; readAt?: string | null; ackAt?: string | null }[]>('manager', `/api/team/m/posts/${id}/readers`),
-  notify: (b: { title: string; body?: string; image?: string | null; audience: Audience }) => call<{ count: number }>('manager', '/api/team/m/notify', { method: 'POST', body: b }),
-  notifyLog: () => call<{ id: number; title: string; body?: string; audienceLabel: string; targetCount: number; readCount: number; createdBy?: string; createdAt: string }[]>('manager', '/api/team/m/notify/log'),
+  notify: (b: { title: string; body?: string; image?: string | null; audience: Audience; requiresAck?: boolean }) => call<{ count: number }>('manager', '/api/team/m/notify', { method: 'POST', body: b }),
+  notifyLog: () => call<BroadcastRow[]>('manager', '/api/team/m/notify/log'),
+  notifyReaders: (id: number) => call<{ staffId: number; name: string; kind: string; readAt?: string | null; ackAt?: string | null }[]>('manager', `/api/team/m/notify/${id}/readers`),
   notifications: (before?: number) => call<{ items: Notif[]; unread: number }>('manager', `/api/team/m/notifications${before ? `?before=${before}` : ''}`),
   read: (b: { ids?: number[]; all?: boolean }) => call<{ unread: number }>('manager', '/api/team/m/notifications/read', { method: 'POST', body: b }),
   upload: (dataUrl: string, purpose?: 'chat') => call<{ url: string }>('manager', '/api/team/m/media', { method: 'POST', body: { data: dataUrl, purpose } }),
+};
+
+export interface BroadcastRow {
+  id: number;
+  title: string;
+  body?: string;
+  audienceLabel: string;
+  targetCount: number;
+  readCount: number;
+  requiresAck?: boolean;
+  ackCount?: number;
+  createdBy?: string;
+  createdAt: string;
+}
+/** اسم من قرّر أو أرسل: «manager:سارة» ← «سارة»، وحساب لوحة التحكم ← «الإدارة» */
+export function byName(by?: string | null) {
+  if (!by) return 'الإدارة';
+  if (/^(manager|supervisor):/.test(by)) return by.replace(/^(manager|supervisor):/, '');
+  return /^(admin|system)$/i.test(by) ? 'الإدارة' : by;
+}
+
+/* ═════════════ بصمة المدراء (بالساعات) ═════════════ */
+export interface MgrSession {
+  id: number;
+  managerId: number;
+  date: string;
+  checkIn: string;
+  checkOut?: string | null;
+  minutes: number;
+  autoClosed: boolean;
+  edited: boolean;
+  editedBy?: string | null;
+  note?: string | null;
+}
+export interface MgrDay {
+  date: string;
+  weekday: string;
+  minutes: number;
+  sessions: MgrSession[];
+}
+export interface MgrSpan {
+  from: string;
+  to: string;
+  minutes: number;
+  days: number;
+}
+export interface MgrSelf {
+  now: string;
+  today: string;
+  open: MgrSession | null;
+  todayMinutes: number;
+  week: MgrSpan;
+  lastWeek: MgrSpan;
+  month: MgrSpan;
+  days: MgrDay[];
+  network: { enforced: boolean; configured: boolean; needsBssid: boolean };
+}
+export interface MgrReportRow {
+  managerId: number;
+  name: string;
+  username: string;
+  isActive: boolean;
+  minutes: number;
+  days: number;
+  open: boolean;
+  openSince?: string | null;
+  autoClosed: number;
+  edited: number;
+  daily: MgrDay[];
+}
+export interface MgrReport {
+  from: string;
+  to: string;
+  today: string;
+  totalMinutes: number;
+  presentNow: number;
+  rows: MgrReportRow[];
+}
+export const managerSelfApi = {
+  state: () => call<MgrSelf>('manager', '/api/team/m/self-attend'),
+  act: (action: 'in' | 'out', bssid?: string | null) => call<MgrSelf>('manager', `/api/team/m/self-attend/${action}`, { method: 'POST', body: { bssid } }),
+  report: (from: string, to: string) => call<MgrReport>('manager', `/api/team/m/mgr-attend?from=${from}&to=${to}`),
+  save: (b: { managerId?: number; checkIn?: string; checkOut?: string | null; note?: string }, id?: number) =>
+    call<MgrSession>('manager', id ? `/api/team/m/mgr-attend/${id}` : '/api/team/m/mgr-attend/manual', { method: id ? 'PUT' : 'POST', body: b }),
+  remove: (id: number) => call<{ ok: true }>('manager', `/api/team/m/mgr-attend/${id}`, { method: 'DELETE' }),
 };
 
 /* ═════════════ الحضور والاستراحة ═════════════ */
@@ -374,12 +480,14 @@ export interface BoardRow {
   day?: DayState | null;
   status: BoardStatus;
   attendance: AttendRec | null;
+  /** حضر في يوم عطلته أو إجازته */
+  offDay?: boolean;
 }
 export interface Board {
   date: string;
   now: string;
   rows: BoardRow[];
-  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number> & { notJoined?: number };
+  counts: Record<'in' | 'break' | 'over' | 'out' | 'off' | 'missing' | 'soon' | 'late', number> & { notJoined?: number; notYet?: number; absent?: number; present?: number; offDay?: number };
   network: { enforced: boolean; count: number };
 }
 export interface ShopNetwork {
@@ -804,12 +912,15 @@ export const performanceApi = {
 
 /* ═════════════ القناة الحية + عدّاد غير المقروء ═════════════ */
 const LIVE_EVENT = 'fot-team-live';
-export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales' | 'invoices';
+export type LiveEvent = 'hello' | 'notify' | 'unread' | 'post' | 'leave' | 'attend' | 'chat' | 'typing' | 'chat-read' | 'chat-unread' | 'perms' | 'sales' | 'invoices' | 'mattend' | 'ack' | 'nag';
 export type LiveMsg = {
   event: LiveEvent;
   data: {
     unread?: number;
     item?: Notif;
+    /** تذكير بما ينتظر التأكيد */
+    count?: number;
+    title?: string;
     id?: number;
     deleted?: boolean;
     weekly?: boolean;
@@ -865,7 +976,7 @@ export function useLiveChannel(role: Role | null) {
     const connect = () => {
       if (stopped) return;
       es = new EventSource(apiUrl(`${path}?token=${encodeURIComponent(token)}`));
-      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms', 'sales'] as const)
+      for (const ev of ['hello', 'notify', 'unread', 'post', 'leave', 'attend', 'chat', 'typing', 'chat-read', 'chat-unread', 'perms', 'sales', 'mattend', 'ack', 'nag'] as const)
         es.addEventListener(ev, e => publish(ev, (e as MessageEvent).data));
       es.onopen = () => {
         retry = 0;

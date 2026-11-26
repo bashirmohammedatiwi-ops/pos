@@ -11,6 +11,7 @@ import { I, ToastHost, toast } from './kit';
 import { ManagerApp } from './manager/ManagerApp';
 import { handleBack, haptic, hideSplash, onNativeBack, onResume, shareFile, watchSystemTheme } from './native';
 import { Account } from './screens/Account';
+import { AckGate } from './screens/Acks';
 import { Alerts } from './screens/Alerts';
 import { Brands } from './screens/Brands';
 import { Catalog } from './screens/Catalog';
@@ -150,7 +151,8 @@ function StaffLive() {
       }),
     [],
   );
-  return null;
+  // ما ينتظر تأكيد الاستلام يُفتح أمام الموظف في أي صفحة
+  return <AckGate />;
 }
 
 function SellerShell({ onLogout }: { onLogout: () => void }) {

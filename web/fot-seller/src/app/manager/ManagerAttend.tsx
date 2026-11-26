@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Avatar, Badge, Empty, ErrorLine, I, Screen, Sheet, Skeleton, clockLabel, toast } from '../kit';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Badge, Empty, ErrorLine, I, Screen, Sheet, Skeleton, clockLabel, toast } from '../kit';
 import { allowLocation, haptic, openLocationSettings, readWifi, scanWifi, type WifiScanResult, type WifiState } from '../native';
 import { BackBtn } from '../parts';
 import { dur, hhmm } from '../screens/Attend';
 import { dateShort, dateTiny, managerAttendApi, relTime, useLoad, usePerms, type AttendRec, type BoardRow, type BoardStatus, type ShopNetwork } from '../work';
 import { KIND_LABEL } from '../../team';
+import { AttendStats } from './ManagerHome';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * المدير: لوحة الحضور الحيّة (من في الدوام، في استراحة، متأخر، غائب)،
@@ -23,15 +24,33 @@ const STATUS: Record<BoardStatus, { label: string; color: string }> = {
   absent: { label: 'غائب', color: 'var(--bad)' },
   hourly: { label: 'بالساعات', color: 'var(--brand-2)' },
 };
-type Filter = 'all' | 'in' | 'break' | 'missing' | 'out' | 'off';
-const FILTER_OF: Record<Filter, BoardStatus[]> = {
-  all: [],
-  in: ['in'],
-  break: ['break', 'over'],
-  missing: ['missing', 'absent', 'soon'],
-  out: ['out'],
-  off: ['off', 'hourly'],
+type Filter = 'all' | 'in' | 'break' | 'missing' | 'absent' | 'late' | 'out' | 'off' | 'offday' | 'nojoin';
+const FILTER_LABEL: Record<Filter, string> = {
+  all: 'الكل',
+  in: 'الحضور',
+  break: 'في استراحة',
+  missing: 'لم يحضر بعد',
+  absent: 'الغياب',
+  late: 'متأخرون',
+  out: 'انصرفوا',
+  off: 'في عطلة',
+  offday: 'حضروا في عطلتهم',
+  nojoin: 'لم يدخلوا التطبيق',
 };
+const notJoined = (r: BoardRow) => r.joined === false && !r.attendance;
+const FILTER_TEST: Record<Filter, (r: BoardRow) => boolean> = {
+  all: () => true,
+  in: r => ['in', 'break', 'over'].includes(r.status),
+  break: r => r.status === 'break' || r.status === 'over',
+  missing: r => (r.status === 'missing' || r.status === 'soon') && !notJoined(r),
+  absent: r => r.status === 'absent' && !notJoined(r),
+  late: r => (r.attendance?.lateMinutes ?? 0) > 0,
+  out: r => r.status === 'out',
+  off: r => r.status === 'off' || r.status === 'hourly',
+  offday: r => !!r.offDay,
+  nojoin: r => notJoined(r) && r.status !== 'off',
+};
+const isFilter = (v: string | null): v is Filter => !!v && v in FILTER_LABEL;
 
 function line(r: BoardRow) {
   const a = r.attendance;
@@ -44,12 +63,22 @@ function line(r: BoardRow) {
   if (r.status === 'hourly') return 'دوام بالساعات — غير موجود الآن';
   if (r.status === 'off') return r.day?.reason === 'weekly' ? 'عطلة أسبوعية' : 'في إجازة';
   if (r.status === 'soon') return `دوامه ${r.shift.start}`;
+  if (r.status === 'absent') return `غائب — انتهى دوامه ${r.shift.end} دون حضور`;
   return `لم يسجّل حضوره — دوامه ${r.shift.start}`;
 }
 
 export function MAttend() {
   const { data, err, loading, reload } = useLoad(() => managerAttendApi.board(), ['attend', 'leave']);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [params, setParams] = useSearchParams();
+  const raw = params.get('f');
+  const filter: Filter = isFilter(raw) ? raw : 'all';
+  const setFilter = (f: Filter) => {
+    const next = new URLSearchParams(params);
+    if (f === 'all') next.delete('f');
+    else next.set('f', f);
+    setParams(next, { replace: true });
+  };
+  const [q, setQ] = useState('');
   const [open, setOpen] = useState<BoardRow | null>(null);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -57,13 +86,17 @@ export function MAttend() {
     return () => window.clearInterval(id);
   }, []);
 
+  const all = data?.rows ?? [];
   const rows = useMemo(() => {
-    const all = data?.rows ?? [];
-    const wanted = FILTER_OF[filter];
-    const order: BoardStatus[] = ['over', 'missing', 'break', 'in', 'soon', 'out', 'hourly', 'off', 'absent'];
-    return (wanted.length ? all.filter(r => wanted.includes(r.status)) : all).sort((a, b) => Number(a.joined === false) - Number(b.joined === false) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name, 'ar'));
-  }, [data, filter]);
+    const n = q.trim();
+    const order: BoardStatus[] = ['over', 'missing', 'absent', 'break', 'in', 'soon', 'out', 'hourly', 'off'];
+    return all
+      .filter(FILTER_TEST[filter])
+      .filter(r => !n || r.name.includes(n) || (r.sectionName ?? '').includes(n))
+      .sort((a, b) => Number(notJoined(a)) - Number(notJoined(b)) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name, 'ar'));
+  }, [all, filter, q]);
   const c = data?.counts;
+  const more = (['late', 'offday', 'out', 'off', 'nojoin'] as Filter[]).map(f => [f, all.filter(FILTER_TEST[f]).length] as const).filter(([f, n]) => n > 0 || f === filter);
 
   return (
     <Screen title="الحضور اليوم" subtitle={data ? `${dateShort(data.date)} · يتحدث لحظياً` : 'لوحة حيّة'} onRefresh={reload}>
@@ -78,42 +111,29 @@ export function MAttend() {
         <Skeleton h={300} r={20} />
       ) : data && c ? (
         <>
-          <div className="t-board-counts">
-            {(
-              [
-                ['in', 'في الدوام', c.in],
-                ['break', 'استراحة', c.break],
-                ['missing', 'لم يحضر', c.missing + c.soon],
-                ['out', 'انصرف', c.out],
-              ] as [Filter, string, number][]
-            ).map(([k, l, n]) => (
-              <button
-                key={k}
-                type="button"
-                className={`press ${filter === k ? 'on' : ''}`}
-                onClick={() => {
-                  haptic('select');
-                  setFilter(f => (f === k ? 'all' : k));
-                }}
-              >
-                <b className="num" style={k === 'break' && c.over ? { color: 'var(--bad)' } : undefined}>
-                  {n}
-                </b>
-                {l}
+          <AttendStats board={data} active={filter} onPick={f => setFilter(filter === f ? 'all' : (f as Filter))} />
+          <div className="t-scroller" style={{ marginTop: 10, gap: 8 }}>
+            <button type="button" className={`m-pill press ${filter === 'all' ? 'on' : ''}`} onClick={() => (haptic('select'), setFilter('all'))}>
+              الكل <b className="num">{all.length}</b>
+            </button>
+            {more.map(([f, n]) => (
+              <button key={f} type="button" className={`m-pill press ${filter === f ? 'on' : ''} ${f === 'late' || f === 'offday' ? 'warn' : ''}`} onClick={() => (haptic('select'), setFilter(filter === f ? 'all' : f))}>
+                {FILTER_LABEL[f]} <b className="num">{n}</b>
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, fontSize: 12.5, color: 'var(--ink-3)' }}>
-            {c.late > 0 && <Badge tone="warn">{c.late} متأخر اليوم</Badge>}
-            {c.over > 0 && <Badge tone="bad">{c.over} تجاوز الاستراحة</Badge>}
-            {c.off > 0 && (
-              <button type="button" onClick={() => setFilter('off')}>
-                <Badge tone="mute">{c.off} في عطلة</Badge>
-              </button>
-            )}
+          <label className="t-search" style={{ marginTop: 12 }}>
+            <I.search />
+            <input placeholder="ابحث باسم الموظف أو القسم" value={q} onChange={e => setQ(e.target.value)} />
+          </label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '14px 2px 8px' }}>
+            <b style={{ fontSize: 15 }}>{FILTER_LABEL[filter]}</b>
+            <small className="num" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+              {rows.length} موظف
+            </small>
           </div>
-          <div className="t-list" style={{ marginTop: 12 }}>
-            {rows.length === 0 && <Empty title="لا أحد في هذه الحالة" />}
+          <div className="t-list">
+            {rows.length === 0 && <Empty title={q ? 'لا نتائج للبحث' : 'لا أحد في هذه الحالة'} />}
             {rows.map(r => (
               <button
                 key={r.staffId}
@@ -124,17 +144,21 @@ export function MAttend() {
                   setOpen(r);
                 }}
               >
-                <Avatar name={r.name} size="sm" />
+                <i className="m-dot" style={{ background: notJoined(r) ? 'var(--ink-4)' : STATUS[r.status].color }} />
                 <div className="body">
-                  <div className="title">{r.name}</div>
-                  <div className="sub" style={r.status === 'over' || (r.status === 'missing' && r.joined !== false) ? { color: 'var(--bad)' } : undefined}>
+                  <div className="title">
+                    {r.name}
+                    {r.offDay && (
+                      <span style={{ marginInlineStart: 8 }}>
+                        <Badge tone="warn">حضر في عطلته</Badge>
+                      </span>
+                    )}
+                  </div>
+                  <div className="sub" style={r.status === 'over' || ((r.status === 'missing' || r.status === 'absent') && !notJoined(r)) ? { color: 'var(--bad)' } : undefined}>
                     {line(r)}
                   </div>
                 </div>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink-3)' }}>
-                  <span className="t-status-dot" style={{ background: r.joined === false && !r.attendance ? 'var(--ink-4)' : STATUS[r.status].color }} />
-                  {r.joined === false && !r.attendance && r.status !== 'off' ? 'غير مسجّل' : STATUS[r.status].label}
-                </span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>{notJoined(r) && r.status !== 'off' ? 'غير مسجّل' : STATUS[r.status].label}</span>
               </button>
             ))}
           </div>
@@ -311,41 +335,6 @@ function StaffAttendSheet({ row, onClose, onChanged }: { row: BoardRow | null; o
         </div>
       )}
     </Sheet>
-  );
-}
-
-/** ملخص الحضور في رئيسية المدير */
-export function AttendSummary() {
-  const { data } = useLoad(() => managerAttendApi.board(), ['attend']);
-  if (!data) return null;
-  const c = data.counts;
-  const alert = c.over + c.missing;
-  const notJoined = c.notJoined ?? 0;
-  return (
-    <Link to="/m/attend" className="t-card pad press" style={{ display: 'block', marginTop: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <b style={{ fontSize: 15 }}>الحضور الآن</b>
-        {alert > 0 ? <Badge tone="bad">{alert} يحتاج انتباهك</Badge> : <Badge tone="ok">كل شيء منتظم</Badge>}
-      </div>
-      <div className="t-board-counts" style={{ marginTop: 12 }}>
-        {(
-          [
-            ['في الدوام', c.in, 'var(--ok)'],
-            ['استراحة', c.break, c.over ? 'var(--bad)' : 'var(--accent)'],
-            ['لم يحضر', c.missing, c.missing ? 'var(--bad)' : undefined],
-            ['انصرف', c.out, undefined],
-          ] as [string, number, string | undefined][]
-        ).map(([l, n, color]) => (
-          <span key={l} className="t-stat" style={{ textAlign: 'center', padding: '10px 4px' }}>
-            <b className="num" style={color ? { color } : undefined}>
-              {n}
-            </b>
-            <span>{l}</span>
-          </span>
-        ))}
-      </div>
-      {notJoined > 0 && <small style={{ display: 'block', marginTop: 10, fontSize: 12, color: 'var(--ink-3)' }}>{notJoined} موظف لم يدخلوا التطبيق بعد</small>}
-    </Link>
   );
 }
 

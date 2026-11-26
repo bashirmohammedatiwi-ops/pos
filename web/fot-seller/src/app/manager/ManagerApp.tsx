@@ -1,20 +1,23 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { APP_VERSION } from '../../config';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Avatar, Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, greet, iraqToday, toast, usePull } from '../kit';
+import { Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, toast } from '../kit';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, StatusBadge } from '../parts';
 import { Alerts } from '../screens/Alerts';
 import { ChatList, ChatRoom } from '../screens/Chat';
-import { AttendSummary, MAttend, MNetworks } from './ManagerAttend';
+import { MAttend, MNetworks } from './ManagerAttend';
+import { LeaveCard, MHome } from './ManagerHome';
+import { MManagers, MSelf } from './ManagerSelf';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
-import { MSales, SalesHomeCard } from './ManagerSales';
+import { MSales } from './ManagerSales';
 import { MInvoice, MInvoices } from './ManagerInvoices';
 import {
   LEAVE_LABEL,
   POST_KIND,
   WEEK_DAYS,
+  byName,
   clearManager,
   getManagerMe,
   getManagerToken,
@@ -35,6 +38,7 @@ import {
   useLoad,
   useUnread,
   type Audience,
+  type BroadcastRow,
   type DirStaff,
   type LeaveReq,
   type ManagerPerms,
@@ -50,8 +54,6 @@ import { PushHealth } from '../PushHealth';
  * التحليلات التفصيلية تبقى في «التحليلات الكاملة».
  * ───────────────────────────────────────────────────────────────────────────── */
 
-const REASON_LABEL: Record<string, string> = { weekly: 'عطلة أسبوعية', swap: 'تبديل', day: 'إجازة', sick: 'مرضية', urgent: 'طارئة' };
-
 function useScrollMemory() {
   const loc = useLocation();
   const saved = useRef(new Map<string, number>());
@@ -62,19 +64,6 @@ function useScrollMemory() {
     prev.current = loc.pathname;
     window.scrollTo(0, saved.current.get(loc.pathname) ?? 0);
   }, [loc.pathname]);
-}
-
-function Bell({ unread }: { unread: number }) {
-  return (
-    <Link to="/m/alerts" className="t-icon-btn t-bell press" aria-label="التبليغات" onClick={() => haptic('tap')}>
-      <I.bell size={20} />
-      {unread > 0 && (
-        <span key={unread} className="dot num">
-          {unread > 9 ? '9+' : unread}
-        </span>
-      )}
-    </Link>
-  );
 }
 
 /* ═════════════ الهيكل ═════════════ */
@@ -144,13 +133,13 @@ export function ManagerApp() {
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
-  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/invoices', '/m/hours', ...(approvalsInMore ? ['/m/approvals'] : [])];
+  const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/invoices', '/m/hours', '/m/managers', '/m/self', ...(approvalsInMore ? ['/m/approvals'] : [])];
 
   return (
     <PermsProvider value={perms}>
     <div className="t-app">
       <Routes>
-        <Route index element={<MHome unread={unread} pending={pending} />} />
+        <Route index element={<MHome unread={unread} pending={pending} chatUnread={chatUnread} />} />
         <Route path="sales" element={perms.viewSales ? <MSales /> : <Navigate to="/m" replace />} />
         <Route path="invoices" element={perms.viewInvoices ? <MInvoices /> : <Navigate to="/m" replace />} />
         <Route path="invoices/:id" element={perms.viewInvoices ? <MInvoice /> : <Navigate to="/m" replace />} />
@@ -162,6 +151,8 @@ export function ManagerApp() {
         <Route path="networks" element={sup ? <Navigate to="/m" replace /> : <MNetworks />} />
         <Route path="reports" element={<MReports />} />
         <Route path="hours" element={<MHours />} />
+        <Route path="self" element={sup ? <Navigate to="/m" replace /> : <MSelf />} />
+        <Route path="managers" element={perms.viewManagers && !sup ? <MManagers /> : <Navigate to="/m" replace />} />
         <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatRoom role="manager" base="/m/chat" />} />
         <Route path="more" element={<MMore unread={unread} pending={approvalsInMore ? pending : 0} onLogout={logout} />} />
@@ -208,152 +199,6 @@ function MoreIcon() {
   );
 }
 
-/* ═════════════ الرئيسية ═════════════ */
-function MHome({ unread, pending }: { unread: number; pending: number }) {
-  const me = getManagerMe();
-  const { data, err, loading, reload } = useLoad(() => managerApi.overview(), ['leave', 'post']);
-  const pull = usePull(reload);
-  const perms = usePerms();
-  const sup = supervisorMode();
-
-  return (
-    <>
-      {pull}
-      <header className="t-greet">
-        <Avatar name={me?.displayName} />
-        <div className="grow">
-          <div className="hello">{greet()}</div>
-          <div className="who">{me?.displayName || 'المدير'}</div>
-        </div>
-        <Bell unread={unread} />
-      </header>
-      <p className="t-date">{iraqToday()} · لوحة الفريق</p>
-      <div className="t-page">
-        {perms.viewSales && <SalesHomeCard />}
-        {err && !data && <ErrorLine text={err} onRetry={() => void reload()} />}
-        {loading && !data ? (
-          <Skeleton h={160} r={26} />
-        ) : data ? (
-          <>
-            {perms.approveLeave && pending > 0 && (
-              <Link to="/m/approvals" className="t-kpi alert press" style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>طلبات بانتظار موافقتك</span>
-                <b className="num">{pending}</b>
-              </Link>
-            )}
-
-            {perms.viewAttendance && <AttendSummary />}
-
-            <section className="t-section">
-              <div className="t-quick">
-                {perms.approveLeave && (
-                  <Link to="/m/approvals" className="press">
-                    <span className="t-tile ok">
-                      <I.check size={20} />
-                    </span>
-                    الموافقات
-                  </Link>
-                )}
-                {perms.sendPosts && (
-                  <Link to="/m/notify" className="press">
-                    <span className="t-tile accent">
-                      <I.bell size={20} />
-                    </span>
-                    تبليغ سريع
-                  </Link>
-                )}
-                {perms.sendPosts && (
-                  <Link to="/m/posts?new=1" className="press">
-                    <span className="t-tile">
-                      <I.megaphone size={20} />
-                    </span>
-                    إعلان جديد
-                  </Link>
-                )}
-                {perms.viewSales && !sup ? (
-                  <Link to="/m/performance" className="press">
-                    <span className="t-tile accent">
-                      <I.target size={20} />
-                    </span>
-                    التحليلات
-                  </Link>
-                ) : (
-                  <Link to="/m/team" className="press">
-                    <span className="t-tile mute">
-                      <I.user size={20} />
-                    </span>
-                    الفريق
-                  </Link>
-                )}
-              </div>
-            </section>
-
-            <section className="t-section">
-              <div className="t-section-head">
-                <h2>في إجازة اليوم</h2>
-                <small className="num">{data.staffCount - data.offToday.length} من {data.staffCount} مجدولون اليوم</small>
-              </div>
-              {data.offToday.length === 0 && data.partial.length === 0 ? (
-                <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5 }}>
-                  الفريق كامل اليوم
-                </div>
-              ) : (
-                <div className="t-people">
-                  {data.offToday.map(p => (
-                    <span key={p.staffId} className="t-person">
-                      <Avatar name={p.name} size="sm" />
-                      {p.name.split(' ')[0]}
-                      <small>{REASON_LABEL[p.reason] ?? ''}</small>
-                    </span>
-                  ))}
-                  {data.partial.map(p => (
-                    <span key={`p${p.staffId}`} className="t-person">
-                      <Avatar name={p.name} size="sm" />
-                      {p.name.split(' ')[0]}
-                      <small>
-                        استئذان {p.timeFrom}–{p.timeTo}
-                      </small>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {data.posts.length > 0 && (
-              <section className="t-section">
-                <div className="t-section-head">
-                  <h2>آخر الإعلانات</h2>
-                  <Link to="/m/posts" className="more">
-                    الكل
-                  </Link>
-                </div>
-                <div className="t-list">
-                  {data.posts.slice(0, 4).map(p => (
-                    <Link key={p.id} to="/m/posts" className="t-row press-soft">
-                      <span className={`t-tile ${POST_KIND[p.kind]?.tone ?? ''}`}>
-                        <I.megaphone size={18} />
-                      </span>
-                      <div className="body">
-                        <div className="title">{p.title}</div>
-                        <div className="t-stat-line" style={{ marginTop: 6 }}>
-                          <Track value={p.targetCount ? ((p.readCount ?? 0) / p.targetCount) * 100 : 0} tone="ok" />
-                          <span className="num">
-                            {p.readCount}/{p.targetCount}
-                          </span>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
-        ) : null}
-      </div>
-    </>
-  );
-}
-
 /* ═════════════ الموافقات ═════════════ */
 type LeaveFilter = 'pending' | 'approved' | 'rejected' | 'all';
 
@@ -365,6 +210,7 @@ function MApprovals() {
   const [busy, setBusy] = useState<'' | 'approve' | 'reject'>('');
   const [viewer, setViewer] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
+  const perms = usePerms();
 
   const deep = Number(params.get('id') || 0);
   useEffect(() => {
@@ -417,34 +263,18 @@ function MApprovals() {
         ) : !data?.length ? (
           <Empty icon={<I.check size={30} />} title={filter === 'pending' ? 'لا طلبات بانتظارك' : 'لا طلبات هنا'} text={filter === 'pending' ? 'عندما يرفع موظف طلباً يصلك تبليغ فوراً.' : undefined} />
         ) : (
-          <div className="t-list">
+          <div className="m-todo">
             {data.map(r => (
-              <button
+              <LeaveCard
                 key={r.id}
-                type="button"
-                className="t-req press-soft"
-                onClick={() => {
-                  haptic('tap');
+                req={r}
+                canDecide={perms.approveLeave}
+                onOpen={() => {
                   setNote('');
                   setOpen(r);
                 }}
-              >
-                <Avatar name={r.staffName} />
-                <div className="body">
-                  <div className="title">
-                    {r.staffName}
-                    <StatusBadge status={r.status} />
-                  </div>
-                  <div className="when">
-                    {LEAVE_LABEL[r.type]} · {leaveWhen(r)}
-                  </div>
-                  {r.reason && <div className="note">{r.reason}</div>}
-                  <div className="who">
-                    {KIND_LABEL[r.staffKind ?? ''] ?? ''}
-                    {r.sectionName ? ` · ${r.sectionName}` : ''} · {relTime(r.createdAt)}
-                  </div>
-                </div>
-              </button>
+                onDecided={() => void reload()}
+              />
             ))}
           </div>
         )}
@@ -471,7 +301,7 @@ function MApprovals() {
                 <img src={mediaUrl(open.attachment)} alt="التقرير المرفق" style={{ width: '100%', maxHeight: 220, objectFit: 'cover' }} />
               </button>
             )}
-            {open.status === 'pending' ? (
+            {open.status === 'pending' && perms.approveLeave ? (
               <>
                 <label className="t-field">
                   <span>ملاحظة للموظف (اختياري)</span>
@@ -490,7 +320,7 @@ function MApprovals() {
               open.decidedAt && (
                 <div className="t-card pad">
                   <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                    {open.status === 'approved' ? 'وافق' : open.status === 'rejected' ? 'رفض' : 'أُلغي'} {open.decidedBy?.replace(/^(manager|supervisor):/, '') ?? ''} · {relTime(open.decidedAt)}
+                    {open.status === 'approved' ? 'وافق عليه' : open.status === 'rejected' ? 'رفضه' : 'أُلغي'} {open.status === 'cancelled' ? '' : <b style={{ color: 'var(--ink)' }}>{byName(open.decidedBy)}</b>} · {relTime(open.decidedAt)}
                   </div>
                   {open.decidedNote && <div style={{ marginTop: 4 }}>{open.decidedNote}</div>}
                 </div>
@@ -561,7 +391,6 @@ function AudiencePicker({ value, onChange }: { value: Audience; onChange: (a: Au
               }}
             >
               <span className="box">{on && <I.check size={14} />}</span>
-              <Avatar name={s.name} size="sm" />
               <span style={{ flex: 1 }}>
                 <b style={{ display: 'block', fontWeight: 600 }}>{s.name}</b>
                 <small style={{ color: 'var(--ink-3)' }}>
@@ -846,7 +675,6 @@ function PostStats({ post, onClose, onEdit, onDeleted }: { post: Post | null; on
             <div className="t-list flat">
               {rows.map(r => (
                 <div key={r.staffId} className="t-row">
-                  <Avatar name={r.name} size="sm" />
                   <div className="body">
                     <div className="title">{r.name}</div>
                     <div className="sub">{KIND_LABEL[r.kind] ?? r.kind}</div>
@@ -867,11 +695,22 @@ function MTeam() {
   const { data, err, loading, reload } = useLoad(() => managerApi.directory(), ['leave']);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<DirStaff | null>(null);
+  const [only, setOnly] = useState<'all' | 'nooff' | 'hourly' | 'nojoin'>('all');
+  const active = useMemo(() => (data ?? []).filter(s => s.isActive), [data]);
+  const groups = useMemo(
+    () => ({
+      all: active,
+      nooff: active.filter(s => !s.weeklyOff && (s.plan ?? 'weekly') === 'weekly'),
+      hourly: active.filter(s => s.plan === 'hourly'),
+      nojoin: active.filter(s => !s.lastSeen),
+    }),
+    [active],
+  );
   const list = useMemo(() => {
     const n = q.trim();
-    const rows = (data ?? []).filter(s => s.isActive);
+    const rows = groups[only];
     return n ? rows.filter(s => s.name.includes(n) || s.code.includes(n) || (s.sectionName ?? '').includes(n)) : rows;
-  }, [data, q]);
+  }, [groups, only, q]);
   const noOff = (data ?? []).filter(s => s.isActive && !s.weeklyOff && (s.plan ?? 'weekly') === 'weekly').length;
 
   return (
@@ -880,11 +719,28 @@ function MTeam() {
         <I.search />
         <input placeholder="ابحث بالاسم أو الكود أو القسم" value={q} onChange={e => setQ(e.target.value)} />
       </label>
+      <div className="t-scroller" style={{ marginBottom: 12, gap: 8 }}>
+        {(
+          [
+            ['all', 'الكل'],
+            ['nooff', 'بلا عطلة'],
+            ['hourly', 'بالساعات'],
+            ['nojoin', 'لم يدخلوا التطبيق'],
+          ] as const
+        )
+          .filter(([k]) => k === 'all' || groups[k].length > 0)
+          .map(([k, label]) => (
+            <button key={k} type="button" className={`m-pill press ${only === k ? 'on' : ''}`} onClick={() => (haptic('select'), setOnly(k))}>
+              {label} <b className="num">{groups[k].length}</b>
+            </button>
+          ))}
+      </div>
       {err && <ErrorLine text={err} onRetry={() => void reload()} />}
       {loading && !data ? (
         <Skeleton h={300} r={20} />
       ) : (
         <div className="t-list">
+          {list.length === 0 && <Empty title="لا موظفين هنا" />}
           {list.map(s => (
             <button
               key={s.id}
@@ -895,7 +751,6 @@ function MTeam() {
                 setOpen(s);
               }}
             >
-              <Avatar name={s.name} size="sm" />
               <div className="body">
                 <div className="title">{s.name}</div>
                 <div className="sub">
@@ -1038,14 +893,23 @@ function MNotify() {
   const [image, setImage] = useState<string[]>([]);
   const [audience, setAudience] = useState<Audience>({ all: true });
   const [busy, setBusy] = useState(false);
+  const [ack, setAck] = useState(true);
+  const [stats, setStats] = useState<BroadcastRow | null>(null);
+  const [readers, setReaders] = useState<{ staffId: number; name: string; kind: string; readAt?: string | null; ackAt?: string | null }[] | null>(null);
+  useEffect(() => {
+    setReaders(null);
+    if (stats) void managerApi.notifyReaders(stats.id).then(setReaders).catch(() => setReaders([]));
+  }, [stats]);
+  // التأكيدات تتحدث لحظياً
+  useEffect(() => onLive(m => void (m.event === 'ack' && log.reload())), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function send() {
     if (!title.trim()) return toast('اكتب عنوان التبليغ');
     setBusy(true);
     try {
-      const r = await managerApi.notify({ title: title.trim(), body: body.trim() || undefined, image: image[0] ?? null, audience });
+      const r = await managerApi.notify({ title: title.trim(), body: body.trim() || undefined, image: image[0] ?? null, audience, requiresAck: ack });
       haptic('success');
-      toast(`وصل التبليغ إلى ${r.count} موظف`);
+      toast(ack ? `وصل التبليغ إلى ${r.count} موظف — يُذكَّرون حتى يؤكدوا` : `وصل التبليغ إلى ${r.count} موظف`);
       setTitle('');
       setBody('');
       setImage([]);
@@ -1075,6 +939,15 @@ function MNotify() {
             <ImagePicker value={image} onChange={setImage} upload={managerApi.upload} max={1} />
           </div>
           <AudiencePicker value={audience} onChange={setAudience} />
+          <div className="t-card" style={{ padding: '4px 14px' }}>
+            <div className="t-check" style={{ cursor: 'default' }}>
+              <span style={{ flex: 1 }}>
+                يتطلب تأكيد الاستلام
+                <small style={{ display: 'block', marginTop: 2, fontSize: 11.5, color: 'var(--ink-3)', fontWeight: 400 }}>يبقى في رئيسية الموظف ويصله إشعار متكرر حتى يضغط «تأكيد الاستلام»</small>
+              </span>
+              <Switch label="تأكيد الاستلام" on={ack} onChange={setAck} />
+            </div>
+          </div>
           <button type="button" className="t-btn block press" disabled={busy} onClick={() => void send()}>
             {busy ? <span className="spinner" /> : 'إرسال الآن'}
           </button>
@@ -1092,27 +965,62 @@ function MNotify() {
         ) : (
           <div className="t-list">
             {log.data.map(b => (
-              <div key={b.id} className="t-row">
-                <span className="t-tile accent">
+              <button key={b.id} type="button" className="t-row press-soft" onClick={() => (haptic('tap'), setStats(b))}>
+                <span className={`t-tile ${b.requiresAck && (b.ackCount ?? 0) < b.targetCount ? 'warn' : 'accent'}`}>
                   <I.bell size={18} />
                 </span>
                 <div className="body">
                   <div className="title">{b.title}</div>
                   <div className="sub">
-                    {b.audienceLabel} · {relTime(b.createdAt)} · {b.createdBy?.replace(/^manager:/, '')}
+                    {b.audienceLabel} · {relTime(b.createdAt)} · {byName(b.createdBy)}
                   </div>
                   <div className="t-stat-line">
-                    <Track value={b.targetCount ? (b.readCount / b.targetCount) * 100 : 0} tone="ok" />
+                    <span>{b.requiresAck ? 'أكّد' : 'قرأ'}</span>
+                    <Track value={b.targetCount ? ((b.requiresAck ? b.ackCount ?? 0 : b.readCount) / b.targetCount) * 100 : 0} tone={b.requiresAck ? 'accent' : 'ok'} />
                     <span className="num">
-                      {b.readCount}/{b.targetCount}
+                      {b.requiresAck ? b.ackCount ?? 0 : b.readCount}/{b.targetCount}
                     </span>
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
       </section>
+
+      <Sheet
+        open={!!stats}
+        onClose={() => setStats(null)}
+        title={stats?.title}
+        subtitle={stats ? `${stats.audienceLabel} · ${stats.requiresAck ? `أكّد ${readers?.filter(r => r.ackAt).length ?? '…'}` : `قرأ ${readers?.filter(r => r.readAt).length ?? '…'}`}/${readers?.length ?? stats.targetCount}` : ''}
+      >
+        {stats?.body && (
+          <div className="t-card pad" style={{ marginBottom: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            {stats.body}
+          </div>
+        )}
+        {!readers ? (
+          <Skeleton h={200} r={18} />
+        ) : (
+          <div className="t-list flat">
+            {readers.map(r => (
+              <div key={r.staffId} className="t-row">
+                <div className="body">
+                  <div className="title">{r.name}</div>
+                  <div className="sub">{KIND_LABEL[r.kind] ?? r.kind}</div>
+                </div>
+                {r.ackAt ? (
+                  <Badge tone="ok">أكّد {relTime(r.ackAt)}</Badge>
+                ) : r.readAt ? (
+                  <Badge tone={stats?.requiresAck ? 'warn' : undefined}>{stats?.requiresAck ? 'قرأ ولم يؤكد' : `قرأ ${relTime(r.readAt)}`}</Badge>
+                ) : (
+                  <Badge tone={stats?.requiresAck ? 'bad' : 'mute'}>{stats?.requiresAck ? 'لم يؤكد' : 'لم يقرأ'}</Badge>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Sheet>
     </Screen>
   );
 }
@@ -1128,7 +1036,9 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
   return (
     <Screen title="المزيد">
       <section className="t-card pad" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Avatar name={me?.displayName} />
+        <span className="t-tile lg">
+          <I.user size={22} />
+        </span>
         <div>
           <div style={{ fontSize: 16.5, fontWeight: 700 }}>{me?.displayName || 'المدير'}</div>
           {sup ? (
@@ -1140,6 +1050,30 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
           )}
         </div>
       </section>
+
+      {!sup && (
+        <section className="t-section">
+          <div className="t-section-head">
+            <h2>دوامي</h2>
+          </div>
+          <div className="t-menu">
+            <Link to="/m/self" className="press" onClick={() => haptic('tap')}>
+              <span className="t-tile lg ok">
+                <I.clock size={22} />
+              </span>
+              بصمتي وساعاتي
+            </Link>
+            {perms.viewManagers && (
+              <Link to="/m/managers" className="press" onClick={() => haptic('tap')}>
+                <span className="t-tile lg">
+                  <I.calendar size={22} />
+                </span>
+                دوام المدراء
+              </Link>
+            )}
+          </div>
+        </section>
+      )}
 
       {perms.viewSales || perms.viewAttendance || perms.viewInvoices ? (
         <section className="t-section">

@@ -109,6 +109,12 @@ function createWork({ db, ctx, now, audit, getStaff }) {
        staff_id INTEGER PRIMARY KEY, perms TEXT NOT NULL, members TEXT NOT NULL DEFAULT '[]',
        updated_by TEXT, updated_at TEXT NOT NULL
      );`,
+    // تبليغ يتطلب تأكيد الاستلام: يبقى ظاهراً للموظف ويُذكَّر به حتى يؤكد
+    `ALTER TABLE notifications ADD COLUMN requires_ack INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE notifications ADD COLUMN ack_at TEXT;
+     ALTER TABLE broadcasts ADD COLUMN requires_ack INTEGER NOT NULL DEFAULT 0;
+     CREATE INDEX ix_notif_ack ON notifications(requires_ack, ack_at);
+     CREATE TABLE ack_nags (staff_id INTEGER PRIMARY KEY, last_at TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0);`,
   ];
   const done = new Set(db.prepare('SELECT id FROM _work_migrations').all().map(r => r.id));
   MIGRATIONS.forEach((sql, i) => {
@@ -243,8 +249,8 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ التبليغات ═════════════ */
-  const insNotif = db.prepare(`INSERT INTO notifications (user_kind, user_id, type, title, body, image, link, data, broadcast_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insNotif = db.prepare(`INSERT INTO notifications (user_kind, user_id, type, title, body, image, link, data, broadcast_id, created_at, requires_ack)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   function unreadCount(kind, id) {
     return db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_kind = ? AND user_id = ? AND read_at IS NULL').get(kind, id).n;
   }
@@ -259,6 +265,8 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       data: r.data ? JSON.parse(r.data) : null,
       readAt: r.read_at,
       createdAt: r.created_at,
+      requiresAck: !!r.requires_ack,
+      ackAt: r.ack_at ?? null,
     };
   }
   /** يرسل تبليغاً لمجموعة مستخدمين: يُخزّن + يصل فوراً على القناة الحية + Firebase لاحقاً. */
@@ -266,11 +274,12 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     const at = now();
     const list = [...new Set(ids.map(Number).filter(Boolean))];
     const rows = new Map();
+    const ack = n.requiresAck ? 1 : 0;
     db.exec('BEGIN');
     try {
       for (const id of list) {
-        const r = insNotif.run(kind, id, n.type, n.title, n.body ?? null, n.image ?? null, n.link ?? null, n.data ? JSON.stringify(n.data) : null, broadcastId, at);
-        rows.set(id, { id: Number(r.lastInsertRowid), type: n.type, title: n.title, body: n.body ?? null, image: n.image ?? null, link: n.link ?? null, data: n.data ?? null, readAt: null, createdAt: at });
+        const r = insNotif.run(kind, id, n.type, n.title, n.body ?? null, n.image ?? null, n.link ?? null, n.data ? JSON.stringify(n.data) : null, broadcastId, at, ack);
+        rows.set(id, { id: Number(r.lastInsertRowid), type: n.type, title: n.title, body: n.body ?? null, image: n.image ?? null, link: n.link ?? null, data: n.data ?? null, readAt: null, createdAt: at, requiresAck: !!ack, ackAt: null });
       }
       db.exec('COMMIT');
     } catch (err) {
@@ -315,16 +324,21 @@ function createWork({ db, ctx, now, audit, getStaff }) {
     if (!audience) return { status: 400, body: { error: 'لا موظفين من أقسامك في هذا الجمهور' } };
     const ids = audienceIds(audience);
     if (!ids.length) return { status: 400, body: { error: 'لا موظفين في هذا الجمهور' } };
-    const r = db.prepare('INSERT INTO broadcasts (title, body, image, link, audience, target_count, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(title, clip(body.body, 2000), clip(body.image, 200), clip(body.link, 200), JSON.stringify(audience), ids.length, actor, now());
+    const requiresAck = !!body.requiresAck;
+    const r = db.prepare('INSERT INTO broadcasts (title, body, image, link, audience, target_count, created_by, created_at, requires_ack) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(title, clip(body.body, 2000), clip(body.image, 200), clip(body.link, 200), JSON.stringify(audience), ids.length, actor, now(), requiresAck ? 1 : 0);
     const bid = Number(r.lastInsertRowid);
-    notify('staff', ids, { type: 'broadcast', title, body: clip(body.body, 2000), image: clip(body.image, 200), link: clip(body.link, 200) }, bid);
-    audit(actor, 'notify.broadcast', bid, { title, count: ids.length });
+    // ما يتطلب تأكيداً يفتح الرئيسية حيث بطاقة التأكيد
+    notify('staff', ids, { type: 'broadcast', title, body: clip(body.body, 2000), image: clip(body.image, 200), link: clip(body.link, 200) || (requiresAck ? '/?ack=1' : null), requiresAck }, bid);
+    audit(actor, 'notify.broadcast', bid, { title, count: ids.length, requiresAck });
     return { status: 200, body: { ok: true, id: bid, count: ids.length } };
   }
   function broadcastLog() {
-    return db.prepare(`SELECT b.*, (SELECT COUNT(*) FROM notifications n WHERE n.broadcast_id = b.id AND n.read_at IS NOT NULL) AS read_count
+    return db.prepare(`SELECT b.*, (SELECT COUNT(*) FROM notifications n WHERE n.broadcast_id = b.id AND n.read_at IS NOT NULL) AS read_count,
+      (SELECT COUNT(*) FROM notifications n WHERE n.broadcast_id = b.id AND n.ack_at IS NOT NULL) AS ack_count
       FROM broadcasts b ORDER BY b.id DESC LIMIT 100`).all().map(b => ({
+      requiresAck: !!b.requires_ack,
+      ackCount: b.ack_count,
       id: b.id,
       title: b.title,
       body: b.body,
@@ -337,6 +351,77 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       createdAt: b.created_at,
     }));
   }
+  /** من قرأ التبليغ ومن أكّد استلامه */
+  function broadcastReaders(id, allow = () => true) {
+    if (!db.prepare('SELECT id FROM broadcasts WHERE id = ?').get(id)) return null;
+    return db.prepare("SELECT n.user_id, n.read_at, n.ack_at, s.name, s.kind, s.section_name FROM notifications n JOIN staff s ON s.id = n.user_id WHERE n.broadcast_id = ? AND n.user_kind = 'staff'").all(id)
+      .filter(r => allow(r.user_id))
+      .map(r => ({ staffId: r.user_id, name: r.name, kind: r.kind, sectionName: r.section_name, readAt: r.read_at, ackAt: r.ack_at }))
+      .sort((x, y) => (x.ackAt ? 1 : 0) - (y.ackAt ? 1 : 0) || (x.readAt ? 1 : 0) - (y.readAt ? 1 : 0) || x.name.localeCompare(y.name, 'ar'));
+  }
+
+  /* ═════════════ ما ينتظر تأكيد الموظف ═════════════
+     تبليغات «تتطلب تأكيد الاستلام» وإعلانات «تتطلب الاطلاع» التي لم يؤكدها بعد.
+     تبقى في رئيسيته، ويُذكَّر بها بإشعار كل بضع دقائق حتى يؤكد. */
+  const ACK_NAG_MS = Math.max(2, Number(process.env.FOT_ACK_NAG_MINUTES || 10)) * 60_000;
+  const ACK_NAG_DAYS = 7;
+  const ACK_QUIET_UNTIL_HOUR = 8; // لا تذكير بين منتصف الليل والثامنة صباحاً
+  const fromName = by => (/^(manager|supervisor):/.test(by || '') ? by.replace(/^(manager|supervisor):/, '') : 'الإدارة');
+  function pendingAcks(s) {
+    const notifs = db.prepare(`SELECT n.*, b.created_by AS sender FROM notifications n LEFT JOIN broadcasts b ON b.id = n.broadcast_id
+      WHERE n.user_kind = 'staff' AND n.user_id = ? AND n.requires_ack = 1 AND n.ack_at IS NULL ORDER BY n.id DESC LIMIT 30`).all(s.id)
+      .map(n => ({ key: `n${n.id}`, kind: 'notif', id: n.id, title: n.title, body: n.body, image: n.image, from: fromName(n.sender), createdAt: n.created_at }));
+    const t = now();
+    const posts = db.prepare(`SELECT p.* FROM posts p WHERE p.deleted = 0 AND p.requires_ack = 1 AND (p.expires_at IS NULL OR p.expires_at > ?)
+      AND NOT EXISTS (SELECT 1 FROM post_reads r WHERE r.post_id = p.id AND r.staff_id = ? AND r.ack_at IS NOT NULL) ORDER BY p.id DESC LIMIT 60`).all(t, s.id)
+      .filter(p => matches(JSON.parse(p.audience), s))
+      .map(p => ({ key: `p${p.id}`, kind: 'post', id: p.id, title: p.title, body: p.body, image: JSON.parse(p.images || '[]')[0] ?? null, from: fromName(p.created_by), createdAt: p.created_at, postKind: p.kind }));
+    return [...notifs, ...posts].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+  function ackNotification(s, id) {
+    const n = db.prepare("SELECT * FROM notifications WHERE id = ? AND user_kind = 'staff' AND user_id = ?").get(id, s.id);
+    if (!n) return { status: 404, body: { error: 'التبليغ غير موجود' } };
+    const t = now();
+    db.prepare('UPDATE notifications SET ack_at = COALESCE(ack_at, ?), read_at = COALESCE(read_at, ?) WHERE id = ?').run(t, t, id);
+    if (!n.ack_at) audit(`staff:${s.id}`, 'notify.ack', id, { broadcast: n.broadcast_id });
+    emit(`staff:${s.id}`, 'unread', { unread: unreadCount('staff', s.id) });
+    emit(`staff:${s.id}`, 'ack', { id });
+    if (n.broadcast_id) emitManagers('ack', { broadcastId: n.broadcast_id });
+    return { status: 200, body: { ok: true, pending: pendingAcks(s) } };
+  }
+  function nagTick() {
+    try {
+      if (new Date(Date.now() + IRAQ_MS).getUTCHours() < ACK_QUIET_UNTIL_HOUR) return;
+      const since = new Date(Date.now() - ACK_NAG_DAYS * 86_400_000).toISOString();
+      const hasNotif = db.prepare("SELECT 1 FROM notifications WHERE user_kind = 'staff' AND requires_ack = 1 AND ack_at IS NULL AND created_at > ? LIMIT 1").get(since);
+      const hasPost = db.prepare('SELECT 1 FROM posts WHERE deleted = 0 AND requires_ack = 1 AND created_at > ? AND (expires_at IS NULL OR expires_at > ?) LIMIT 1').get(since, now());
+      if (!hasNotif && !hasPost) return;
+      // يُذكَّر فقط من فتح نسخة تطبيق تعرف زر التأكيد (سجّلت نفسها عند أول طلب) — النسخ الأقدم لا تستطيع التأكيد
+      const last = new Map(db.prepare('SELECT staff_id, last_at FROM ack_nags').all().map(r => [r.staff_id, Date.parse(r.last_at)]));
+      for (const s of activeStaff()) {
+        if (!last.has(s.id)) continue;
+        // بعد أسبوع يبقى في رئيسيته بلا إشعارات متكررة
+        const items = pendingAcks(s).filter(i => i.createdAt > since);
+        if (!items.length) continue;
+        const newest = Math.max(...items.map(i => Date.parse(i.createdAt)));
+        if (Date.now() - Math.max(newest, last.get(s.id) || 0) < ACK_NAG_MS) continue;
+        db.prepare('INSERT INTO ack_nags (staff_id, last_at, count) VALUES (?, ?, 1) ON CONFLICT(staff_id) DO UPDATE SET last_at = excluded.last_at, count = count + 1').run(s.id, now());
+        const first = items[0];
+        const n = items.length > 1
+          ? { title: `${items.length} تبليغات بانتظار تأكيدك`, body: items.slice(0, 3).map(i => i.title).join(' · '), link: '/?ack=1' }
+          : { title: `بانتظار تأكيدك: ${first.title}`, body: first.body ? String(first.body).slice(0, 140) : 'افتح التطبيق وأكّد استلام التبليغ', link: '/?ack=1' };
+        emit(`staff:${s.id}`, 'nag', { count: items.length, title: n.title });
+        try {
+          ctx.pushTo?.('staff', [s.id], n);
+        } catch {
+          /* Firebase اختياري */
+        }
+      }
+    } catch (err) {
+      console.error('ack nag failed', err.message);
+    }
+  }
+  setInterval(nagTick, 60_000).unref();
 
   /* ═════════════ الوسائط ═════════════ */
   function saveMedia(body, maxBytes, priv = false) {
@@ -879,7 +964,7 @@ function createWork({ db, ctx, now, audit, getStaff }) {
   }
 
   /* ═════════════ صلاحيات المدراء ═════════════ */
-  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales', 'viewInvoices', 'viewPay'];
+  const PERMS = ['approveLeave', 'viewAttendance', 'editAttendance', 'sendPosts', 'manageChat', 'viewSales', 'viewInvoices', 'viewPay', 'viewManagers'];
   /** الافتراضي: كل الصلاحيات وكل الأقسام (توافق مع ما قبل الصلاحيات) */
   function permsOf(managerId) {
     const row = db.prepare('SELECT perms, sections FROM manager_perms WHERE manager_id = ?').get(managerId);
@@ -1031,6 +1116,12 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       ctx.send(res, 200, markRead('staff', s.id, body));
       return true;
     }
+    if (req.method === 'GET' && p === '/api/team/acks') {
+      db.prepare("INSERT INTO ack_nags (staff_id, last_at, count) VALUES (?, ?, 0) ON CONFLICT(staff_id) DO NOTHING").run(s.id, now());
+      return ctx.send(res, 200, { items: pendingAcks(s), nagMinutes: Math.round(ACK_NAG_MS / 60_000) }), true;
+    }
+    const ackM = p.match(/^\/api\/team\/notifications\/(\d+)\/ack$/);
+    if (req.method === 'POST' && ackM) return reply(res, ackNotification(s, Number(ackM[1]))), true;
     if (req.method === 'GET' && p === '/api/team/posts') return ctx.send(res, 200, postsFor(s)), true;
     let m = p.match(/^\/api\/team\/posts\/(\d+)\/(read|ack)$/);
     if (req.method === 'POST' && m) {
@@ -1043,6 +1134,10 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       // قراءة الإعلان تقرأ تبليغه أيضاً
       db.prepare("UPDATE notifications SET read_at = ? WHERE user_kind = 'staff' AND user_id = ? AND type = 'post' AND read_at IS NULL AND json_extract(data, '$.postId') = ?").run(t, s.id, id);
       emit(key, 'unread', { unread: unreadCount('staff', s.id) });
+      if (m[2] === 'ack') {
+        emit(key, 'ack', { postId: id });
+        emitManagers('post', { id });
+      }
       ctx.send(res, 200, postView(post, s));
       return true;
     }
@@ -1141,6 +1236,11 @@ function createWork({ db, ctx, now, audit, getStaff }) {
       return true;
     }
     if (req.method === 'GET' && sub === 'notify/log') return send(200, broadcastLog()), true;
+    m = sub.match(/^notify\/(\d+)\/readers$/);
+    if (req.method === 'GET' && m) {
+      const rows = broadcastReaders(Number(m[1]), allow);
+      return send(rows ? 200 : 404, rows ?? { error: 'التبليغ غير موجود' }), true;
+    }
     if (req.method === 'GET' && sub === 'commission-products') return send(200, catalog()), true;
     m = sub.match(/^product-images\/(.+)$/);
     if (m && (req.method === 'PUT' || req.method === 'DELETE')) {

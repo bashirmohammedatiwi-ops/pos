@@ -10,6 +10,7 @@ import { cleanName } from '../../names';
 import { Avatar, CountUp, Delta, ErrorLine, I, Ring, Skeleton, clockLabel, fmt, greet, iraqToday, usePull, weekRange } from '../kit';
 import { haptic } from '../native';
 import { mediaUrl, shortDay, staffApi, useLoad, useUnread } from '../work';
+import { AckCenter, HomeAlerts } from './Acks';
 import { AttendCard, HoursCard } from './Attend';
 import { getTeamToken } from '../../team';
 
@@ -82,6 +83,7 @@ export function SellerHome() {
       <div className="t-page">
         {err && !dash && <ErrorLine text={err} onRetry={() => void reload()} />}
 
+        {team && <AckCenter />}
         {team && (
           <div style={{ marginBottom: 14 }}>
             <AttendCard compact />
@@ -155,6 +157,11 @@ export function SellerHome() {
           </Link>
         )}
 
+        {team && (
+          <div style={{ marginTop: 18 }}>
+            <HomeAlerts />
+          </div>
+        )}
         {team && <TeamWidgets />}
 
         {/* الأهداف */}
@@ -255,7 +262,8 @@ function TeamWidgets() {
   const posts = useLoad(() => staffApi.posts(), ['post']);
   const today = leave.data?.today ?? '';
   const week = (leave.data?.days ?? []).filter(d => d.date >= today).slice(0, 7);
-  const featured = (posts.data ?? []).filter(p => p.pinned || !p.read || (p.requiresAck && !p.acked)).slice(0, 5);
+  // ما يتطلب تأكيداً ولم يؤكَّد بعد له بطاقته أعلى الرئيسية
+  const featured = (posts.data ?? []).filter(p => !(p.requiresAck && !p.acked) && (p.pinned || !p.read)).slice(0, 5);
   const pending = leave.data?.requests.filter(r => r.status === 'pending').length ?? 0;
   const hourly = leave.data?.plan === 'hourly';
 
@@ -348,7 +356,11 @@ export function StaffHome() {
     <>
       <Greeting name={name} sub={KIND_LABEL[me?.kind ?? ''] ?? ''} unread={unread} />
       <div className="t-page">
+        <AckCenter />
         <AttendCard compact />
+        <div style={{ marginTop: 18 }}>
+          <HomeAlerts />
+        </div>
         {locked && (
           <section className="t-section">
             <Link to="/commission" className="t-row t-card press" onClick={() => haptic('tap')}>

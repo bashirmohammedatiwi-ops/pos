@@ -1,4 +1,4 @@
-import { isNative } from '../config';
+import { isNative, PUSH_ENABLED } from '../config';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * طبقة الهاتف: الاهتزاز، شريط الحالة، زر الرجوع، المظهر، مشاركة الملفات.
@@ -381,6 +381,46 @@ export async function scheduleShiftReminders(opt: { startAt?: number | null; end
     if (opt.endAt && opt.endAt > Date.now() + 60_000)
       list.push({ id: ALARM.shiftOut, channelId: 'breaks', title: 'انتهى دوامك', body: 'لا تنسَ تسجيل انصرافك قبل الخروج', schedule: { at: new Date(opt.endAt), allowWhileIdle: true } });
     if (list.length) await LN.schedule({ notifications: list });
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ── تذكير «بانتظار تأكيدك» ── */
+const ACK_IDS = Array.from({ length: 12 }, (_, i) => 9020 + i);
+/**
+ * تذكير محلي متكرر بما ينتظر تأكيد الموظف — يعمل والتطبيق مغلق ودون إنترنت.
+ * مع إشعارات الخادم (Firebase) يتولى الخادم التذكير فلا يُكرَّر هنا.
+ */
+export async function scheduleAckReminders(count: number, title: string, minutes: number) {
+  if (!isNative() || PUSH_ENABLED) return;
+  try {
+    const { LN } = await notifications();
+    await LN.cancel({ notifications: ACK_IDS.map(id => ({ id })) });
+    const step = Math.max(2, minutes) * 60_000;
+    const list = [];
+    for (let i = 0; i < ACK_IDS.length; i++) {
+      const at = new Date(Date.now() + step * (i + 1));
+      // لا إزعاج بين منتصف الليل والثامنة صباحاً
+      if (at.getHours() < 8) continue;
+      list.push({
+        id: ACK_IDS[i],
+        channelId: 'breaks',
+        title: count > 1 ? `${count} تبليغات بانتظار تأكيدك` : `بانتظار تأكيدك: ${title}`,
+        body: 'افتح التطبيق وأكّد استلام التبليغ',
+        schedule: { at, allowWhileIdle: true },
+      });
+    }
+    if (list.length) await LN.schedule({ notifications: list });
+  } catch {
+    /* اختياري */
+  }
+}
+export async function cancelAckReminders() {
+  if (!isNative() || PUSH_ENABLED) return;
+  try {
+    const { LN } = await notifications();
+    await LN.cancel({ notifications: ACK_IDS.map(id => ({ id })) });
   } catch {
     /* ignore */
   }

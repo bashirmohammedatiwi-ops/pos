@@ -20,6 +20,7 @@ const PERMS: { key: keyof TeamManagerPermsDto['perms']; label: string; hint: str
   { key: 'viewSales', label: 'مبيعات المحل', hint: 'المبيعات المباشرة والأيام السابقة والكاشيرية والبائعين والمنتجات' },
   { key: 'viewInvoices', label: 'الفواتير', hint: 'كل فواتير المحل بتفاصيلها وتصديرها PDF' },
   { key: 'viewPay', label: 'المبالغ والرواتب', hint: 'مستحقات الساعات والأوفر تايم في التقارير' },
+  { key: 'viewManagers', label: 'دوام المدراء', hint: 'ساعات حضور كل المدراء ومخطط أوقاتهم (وتصحيحها مع «تعديل الحضور»)' },
 ];
 
 function ManagerCard({ m, sections, onSaved }: { m: TeamManagerPermsDto; sections: { id: number; name: string; staffCount: number }[]; onSaved: () => void }) {
