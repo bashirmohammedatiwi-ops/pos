@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Empty, ErrorLine, I, Screen, Sheet, Skeleton, fmt, toast } from '../kit';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Empty, ErrorLine, I, Screen, Segmented, Sheet, Skeleton, fmt, toast } from '../kit';
 import { exportHtmlPdf, haptic } from '../native';
 import { BackBtn } from '../parts';
 import { EDARI_SALES_MAX_DAYS, edariSalesApi, snapCache, type EdSalesItem, type EdSalesReport } from '../work';
@@ -153,7 +153,8 @@ export function MEdariSales() {
     }
     return out;
   }, [r]);
-  const title = r?.node ? r.node.name : 'مبيعات الإداري';
+  const title = node ? (r?.node?.seq === node ? r.node.name : 'الماركات') : 'المبيعات';
+  const go = useNavigate();
   const periodLabel = from === to ? (from === today ? 'اليوم' : from === addDays(today, -1) ? 'أمس' : dayName(from)) : `${dayShort(from)} – ${dayShort(to)}`;
   const preset = from === to ? (from === today ? 'day' : from === addDays(today, -1) ? 'yesterday' : 'custom') : from === addDays(today, -6) && to === today ? 'week' : from === `${today.slice(0, 8)}01` && to === today ? 'month' : 'custom';
 
@@ -173,9 +174,9 @@ export function MEdariSales() {
   return (
     <Screen
       title={title}
-      subtitle={`${periodLabel}${branches.length ? ` · ${branches.length === 1 ? (r?.branches.find(b => b.code === branches[0])?.label ?? 'فرع واحد') : `${branches.length} فروع`}` : ''}`}
+      subtitle={`${node ? '' : 'حسب الماركات · '}${periodLabel}${branches.length ? ` · ${branches.length === 1 ? (r?.branches.find(b => b.code === branches[0])?.label ?? 'فرع واحد') : `${branches.length} فروع`}` : ''}`}
       hideLarge={!!node}
-      start={<BackBtn to={node ? undefined : '/m/sales'} />}
+      start={node ? <BackBtn /> : undefined}
       end={
         <button type="button" className="t-btn soft sm press" disabled={!r || busy} onClick={() => void exportPdf()}>
           {busy ? <span className="spinner" style={{ borderTopColor: 'var(--brand)' }} /> : 'PDF'}
@@ -183,6 +184,20 @@ export function MEdariSales() {
       }
       onRefresh={() => load(true)}
     >
+      {!node && (
+        <div className="s-switch">
+          <Segmented
+            items={[
+              { id: 'live', label: 'اليوم' },
+              { id: 'day', label: 'يوم سابق' },
+              { id: 'range', label: 'فترات' },
+              { id: 'brands', label: 'الماركات' },
+            ]}
+            value="brands"
+            onChange={v => v !== 'brands' && go(v === 'live' ? '/m/sales' : `/m/sales?v=${v}`, { replace: true })}
+          />
+        </div>
+      )}
       {/* الفترة */}
       <div className="c-nav">
         <button type="button" className="t-icon-btn press" aria-label="اليوم السابق" onClick={() => (haptic('select'), setCustom(false), setRange(addDays(from, -1), addDays(from, -1)))}>
@@ -511,7 +526,7 @@ export function MEdariSales() {
           )}
 
           <p className="t-hint" style={{ marginTop: 16, lineHeight: 1.8 }}>
-            من الإداري مباشرة بنفس حساب تطبيق الحسابات · {new Date(r.at).toLocaleTimeString(LOC, { hour: 'numeric', minute: '2-digit' })}
+            بنفس حساب تطبيق الحسابات · {new Date(r.at).toLocaleTimeString(LOC, { hour: 'numeric', minute: '2-digit' })}
           </p>
         </div>
       )}

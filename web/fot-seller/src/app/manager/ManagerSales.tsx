@@ -87,7 +87,7 @@ function nowOf(v: SalesDay) {
 }
 
 /* ═════════════ الشاشة ═════════════ */
-type View = 'live' | 'day' | 'range';
+type View = 'live' | 'day' | 'range' | 'brands';
 
 export function MSales() {
   const [sp, setSp] = useSearchParams();
@@ -103,6 +103,7 @@ export function MSales() {
   const refresh = useRef<() => Promise<unknown>>(() => Promise.resolve());
   const [alerts, setAlerts] = useState(false);
   const sup = supervisorMode();
+  const go = useNavigate();
   return (
     <Screen
       title="المبيعات"
@@ -120,23 +121,12 @@ export function MSales() {
             { id: 'live', label: 'اليوم' },
             { id: 'day', label: 'يوم سابق' },
             { id: 'range', label: 'فترات' },
+            ...(sup ? [] : [{ id: 'brands' as View, label: 'الماركات' }]),
           ]}
           value={view}
-          onChange={v => set({ v })}
+          onChange={v => (v === 'brands' ? go('/m/sales/brands') : set({ v }))}
         />
       </div>
-      {!sup && (
-        <Link to="/m/sales/edari" className="t-row press-soft e-link" onClick={() => haptic('tap')}>
-          <span className="t-tile accent">
-            <I.chart size={19} />
-          </span>
-          <div className="body">
-            <div className="title">مبيعات الإداري · أشجار المواد</div>
-            <div className="sub">الماركات والفروع والمردود والهدايا — كما في تطبيق الحسابات</div>
-          </div>
-          <I.chevron size={16} />
-        </Link>
-      )}
       {view === 'live' && <LiveView bindRefresh={f => (refresh.current = f)} />}
       {view === 'day' && <DayView day={sp.get('d')} onDay={d => set({ d })} bindRefresh={f => (refresh.current = f)} />}
       {view === 'range' && <RangeView preset={(sp.get('r') as Preset) || '30'} onPreset={r => set({ r })} onDay={d => set({ v: 'day', d })} bindRefresh={f => (refresh.current = f)} />}

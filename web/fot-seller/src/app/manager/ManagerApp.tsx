@@ -156,7 +156,8 @@ export function ManagerApp() {
         <Route path="hours" element={<MHours />} />
         <Route path="self" element={sup ? <Navigate to="/m" replace /> : <MSelf />} />
         <Route path="managers" element={perms.viewManagers && !sup ? <MManagers /> : <Navigate to="/m" replace />} />
-        <Route path="sales/edari" element={perms.viewSales && !sup ? <MEdariSales /> : <Navigate to="/m" replace />} />
+        <Route path="sales/edari" element={<Navigate to="/m/sales/brands" replace />} />
+        <Route path="sales/brands" element={perms.viewSales && !sup ? <MEdariSales /> : <Navigate to="/m" replace />} />
         <Route path="cash" element={perms.viewCash && !sup ? <MCash /> : <Navigate to="/m" replace />} />
         <Route path="cash/flow" element={perms.viewCash && !sup ? <MCashFlow /> : <Navigate to="/m" replace />} />
         <Route path="cash/:seq" element={perms.viewCash && !sup ? <MCashBox /> : <Navigate to="/m" replace />} />
@@ -1082,14 +1083,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
                 الصناديق
               </Link>
             )}
-            {perms.viewSales && !sup && (
-              <Link to="/m/sales/edari" className="press" onClick={() => haptic('tap')}>
-                <span className="t-tile lg accent">
-                  <I.chart size={22} />
-                </span>
-                مبيعات الإداري
-              </Link>
-            )}
+
             {perms.viewInvoices && (
               <Link to="/m/invoices" className="press" onClick={() => haptic('tap')}>
                 <span className="t-tile lg accent">
