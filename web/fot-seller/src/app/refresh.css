@@ -1,0 +1,888 @@
+/* ═════════════════════════════════════════════════════════════════════════════
+ * «ديما · الفريق» — الطبقة البصرية الجديدة (تُحمَّل بعد كل ملفات التصميم).
+ * الألوان والتدرّجات في app.css (:root)؛ هنا شكل المكوّنات:
+ *   خلفية بوهج، أسطح بعمق، مربعات أيقونات ملوّنة، أزرار بتدرّج، شريط تنقل عائم،
+ *   ترويسة ترحيب أكبر، ودخول متتابع للأقسام.
+ * لا يغيّر أبعاد التخطيط إلا حيث ذُكر — كي تبقى كل الشاشات سليمة.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+/* ── الخلفية: وهج بنفسجي وزعفراني ثابت خلف المحتوى ── */
+body {
+  background: transparent;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(110% 46% at 100% -6%, var(--aurora-1), transparent 62%), radial-gradient(80% 36% at -10% 4%, var(--aurora-2), transparent 60%),
+    radial-gradient(90% 40% at 50% 108%, var(--aurora-1), transparent 65%), var(--bg);
+}
+
+/* ── الطباعة ── */
+.t-large h1 {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.t-large p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.t-section {
+  margin-top: 28px;
+}
+.t-section-head {
+  align-items: center;
+  margin-bottom: 12px;
+}
+.t-section-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.015em;
+}
+.t-section-head h2::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--grad-brand);
+}
+.t-section-head .more {
+  padding: 5px 11px;
+  border-radius: 99px;
+  background: var(--brand-soft);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.t-section-head small {
+  font-size: 12px;
+}
+
+/* دخول متتابع لأقسام الصفحة */
+.t-page > * {
+  animation: rise-in 0.5s var(--ease) backwards;
+}
+.t-page > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+.t-page > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+.t-page > *:nth-child(4) {
+  animation-delay: 0.15s;
+}
+.t-page > *:nth-child(5) {
+  animation-delay: 0.2s;
+}
+.t-page > *:nth-child(n + 6) {
+  animation-delay: 0.25s;
+}
+.t-page {
+  animation: none;
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-page > * {
+    animation: none;
+  }
+}
+
+/* ── الترحيب ── */
+.t-greet {
+  gap: 14px;
+  padding: calc(18px + var(--safe-t)) 20px 4px;
+}
+.t-greet .hello {
+  font-size: 13px;
+  font-weight: 500;
+}
+.t-greet .who {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.t-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 20px 16px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-1);
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--ink-2);
+}
+.t-date::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.t-avatar {
+  background: var(--grad-brand);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px color-mix(in srgb, var(--brand) 35%, transparent), var(--glow-brand);
+}
+.t-avatar.sm {
+  box-shadow: none;
+}
+.t-icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+}
+.t-bar .t-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+}
+
+/* ── الأسطح: بطاقات وقوائم بعمق ناعم ── */
+.t-list,
+.t-stat,
+.t-quick a,
+.t-quick button,
+.t-menu > *,
+.t-goal-card,
+.t-brand-card,
+.t-kpi,
+.t-who,
+.m-alert,
+.m-pill,
+.t-pill {
+  box-shadow: var(--shadow-1);
+}
+.t-list {
+  border-radius: var(--r-md);
+}
+.t-row {
+  min-height: 64px;
+  padding: 12px 15px;
+}
+.t-row .title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.t-row .sub {
+  margin-top: 3px;
+  font-size: 12.5px;
+}
+.t-row + .t-row::before {
+  inset-inline-start: 66px;
+  inset-inline-end: 14px;
+}
+.t-list.flat .t-row + .t-row::before {
+  inset-inline-end: 0;
+}
+.t-stat {
+  padding: 14px 13px;
+  border-radius: 18px;
+}
+.t-stat b {
+  font-size: 20px;
+  font-weight: 750;
+}
+
+/* ── مربعات الأيقونات: خلفية ملوّنة هادئة، وفي الشبكات تدرّج كامل بأيقونة بيضاء ── */
+.t-tile {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 14%, transparent);
+}
+.t-tile.lg {
+  width: 50px;
+  height: 50px;
+  border-radius: 17px;
+}
+.t-tile.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.t-menu .t-tile,
+.t-quick .t-tile,
+.m-actions .t-tile,
+.t-confirm .t-tile,
+.t-empty .art {
+  background: var(--grad-brand);
+  color: #fff;
+  box-shadow: var(--glow-brand), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.t-menu .t-tile.ok,
+.t-quick .t-tile.ok,
+.m-actions .t-tile.ok,
+.t-confirm .t-tile.ok {
+  background: var(--grad-ok);
+  box-shadow: var(--glow-ok), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.t-menu .t-tile.accent,
+.t-quick .t-tile.accent,
+.m-actions .t-tile.accent,
+.t-confirm .t-tile.accent {
+  background: var(--grad-accent);
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.t-menu .t-tile.bad,
+.t-quick .t-tile.bad,
+.m-actions .t-tile.bad,
+.t-confirm .t-tile.bad {
+  background: var(--grad-bad);
+  box-shadow: var(--glow-bad), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.t-menu .t-tile.mute,
+.t-quick .t-tile.mute,
+.m-actions .t-tile.mute {
+  background: var(--grad-mute);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.t-menu > *,
+.t-quick a,
+.t-quick button,
+.m-actions > * {
+  gap: 10px;
+  padding-top: 16px;
+  padding-bottom: 13px;
+  border-radius: 22px;
+  color: var(--ink);
+  font-weight: 620;
+}
+.t-menu > * {
+  font-size: 13px;
+}
+.t-empty .art {
+  border-radius: 26px;
+}
+
+/* ── الأزرار ── */
+.t-btn {
+  border-radius: 18px;
+  background: var(--grad-brand);
+  box-shadow: var(--glow-brand), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  letter-spacing: -0.005em;
+}
+.t-btn:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+.t-btn:disabled {
+  box-shadow: none;
+}
+.t-btn.soft {
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+.t-btn.plain {
+  background: var(--bg-sunk);
+  box-shadow: none;
+}
+.t-btn.danger {
+  background: var(--grad-bad);
+  box-shadow: var(--glow-bad), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+.t-btn.ok {
+  background: var(--grad-ok);
+  box-shadow: var(--glow-ok), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+.t-btn.white {
+  background: #fff;
+  color: #2a1463;
+  box-shadow: 0 12px 26px -12px rgba(0, 0, 0, 0.55);
+}
+.t-btn.glass {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: none;
+}
+.t-btn.sm {
+  border-radius: 14px;
+}
+.t-fab {
+  border-radius: 20px;
+  background: var(--grad-brand);
+  box-shadow: 0 16px 34px -10px rgba(91, 51, 214, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+.t-send {
+  background: var(--grad-brand);
+  box-shadow: var(--glow-brand);
+}
+.t-send.ghost {
+  background: var(--bg-sunk);
+  box-shadow: none;
+}
+
+/* ── الشارات والشرائح ── */
+.t-badge {
+  padding: 3.5px 10px;
+  font-weight: 680;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent);
+}
+.t-chip {
+  height: 38px;
+  border-radius: 13px;
+}
+.t-chip.on,
+.m-pill.on {
+  background: var(--grad-brand);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--glow-brand);
+}
+.m-pill.on b {
+  color: #fff;
+}
+.t-pill.on {
+  background: var(--grad-brand);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--glow-brand);
+}
+.t-pill.on small,
+:root[data-theme='dark'] .t-pill.on small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* ── الحقول ── */
+.t-search {
+  height: 48px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.t-search:focus-within {
+  border-color: var(--brand-2);
+  box-shadow: 0 0 0 4px var(--brand-soft);
+}
+.t-input,
+.t-textarea {
+  border-color: var(--line-2);
+}
+.t-seg {
+  border-radius: 17px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.t-seg-thumb {
+  border-radius: 13px;
+  background: var(--bg-elev);
+  box-shadow: 0 4px 12px -4px rgba(46, 24, 104, 0.25), 0 0 0 1px var(--line);
+}
+.t-seg button {
+  height: 38px;
+}
+.t-seg button.on {
+  color: var(--brand);
+  font-weight: 700;
+}
+.t-switch.on {
+  background: var(--grad-ok);
+}
+.t-track {
+  height: 7px;
+}
+
+/* ── شريط التنقل: كبسولة عائمة، والتبويب النشط بتدرّج ووهج ── */
+.t-tabs {
+  inset-inline: 14px;
+  bottom: calc(12px + var(--safe-b));
+  padding: 7px;
+  border-radius: 26px;
+  border: 1px solid var(--line-2);
+  box-shadow: 0 18px 40px -14px rgba(30, 14, 80, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+:root[data-theme='dark'] .t-tabs {
+  box-shadow: 0 20px 44px -12px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.t-tab {
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 620;
+}
+.t-tab .ico {
+  width: 48px;
+  height: 30px;
+}
+.t-tab.on {
+  color: var(--brand);
+  font-weight: 750;
+}
+.t-tab.on .ico {
+  background: var(--grad-brand);
+  color: #fff;
+  box-shadow: var(--glow-brand);
+  transform: translateY(-2px);
+}
+.t-tab .dot,
+.t-bell .dot,
+.t-menu .badge,
+.m-actions .badge {
+  background: var(--grad-accent);
+  box-shadow: 0 0 0 2px var(--bg-elev), 0 4px 10px -2px rgba(232, 137, 15, 0.6);
+}
+
+/* ── البطاقات البارزة ── */
+.t-hero,
+.t-attend.live,
+.m-punch.live {
+  background: var(--hero);
+}
+.t-hero .amount {
+  font-size: 40px;
+  font-weight: 800;
+}
+.t-attend,
+.m-punch {
+  border-radius: var(--r-lg);
+}
+.t-punch {
+  background: var(--hero);
+  box-shadow: 0 26px 46px -14px rgba(76, 42, 200, 0.7), inset 0 0 0 10px rgba(255, 255, 255, 0.09), inset 0 2px 0 rgba(255, 255, 255, 0.25);
+}
+.t-post {
+  border-radius: var(--r-lg);
+}
+
+/* إحصاءات الحضور: خلفية بلون الحالة */
+.m-stat {
+  border-radius: 20px;
+}
+.m-stat.ok {
+  background: linear-gradient(160deg, var(--ok-soft), var(--bg-elev) 70%);
+}
+.m-stat.accent {
+  background: linear-gradient(160deg, var(--accent-soft), var(--bg-elev) 70%);
+}
+.m-stat.bad,
+.m-stat.hot {
+  background: linear-gradient(160deg, var(--bad-soft), var(--bg-elev) 75%);
+  border-color: color-mix(in srgb, var(--bad) 22%, transparent);
+}
+.m-stat b {
+  font-size: 28px;
+  font-weight: 800;
+}
+.m-stat.on {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow-1);
+}
+.m-req {
+  border-radius: 24px;
+}
+.t-ack {
+  border-radius: 24px;
+  background: linear-gradient(160deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 35%, var(--bg-elev)));
+  box-shadow: var(--shadow-1);
+}
+.t-day {
+  border-radius: 15px;
+}
+.t-day.today {
+  border-color: transparent;
+  background: var(--grad-brand);
+  color: #fff;
+  box-shadow: var(--glow-brand);
+}
+.t-day.today small {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* ── المحادثات ── */
+.t-msg.mine .t-bubble {
+  background: var(--grad-brand);
+  box-shadow: 0 8px 18px -12px rgba(91, 51, 214, 0.8);
+}
+.t-bubble {
+  box-shadow: var(--shadow-1);
+}
+
+/* ── الورقة السفلية والإشعار المؤقت ── */
+.t-sheet-bg {
+  background: rgba(10, 6, 22, 0.55);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.t-sheet {
+  border-radius: 32px 32px 0 0;
+  box-shadow: 0 -16px 50px rgba(10, 6, 22, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.t-sheet-grab {
+  width: 44px;
+}
+.t-sheet-head h3 {
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+.t-toast div {
+  padding: 12px 18px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ink) 92%, var(--brand));
+  box-shadow: var(--shadow-2);
+}
+.t-error {
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 20%, transparent);
+}
+
+/* ── شاشة الدخول ── */
+.t-login-top h1 {
+  font-size: 32px;
+  font-weight: 800;
+}
+.t-login-sheet {
+  border-radius: 34px 34px 0 0;
+}
+.t-key {
+  font-weight: 600;
+}
+
+/* ── بطاقة بصمة المدير: الزر بعرض البطاقة ── */
+.m-punch {
+  padding: 18px;
+}
+.m-punch .mid {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.m-punch .clock {
+  font-size: 40px;
+  font-weight: 800;
+}
+.m-punch .sub {
+  font-size: 13px;
+}
+.m-punch .t-btn {
+  width: 100%;
+  height: 50px;
+}
+.m-punch:not(.live) {
+  background: linear-gradient(160deg, var(--brand-soft), var(--bg-elev) 65%);
+}
+.m-actions > * {
+  min-height: 104px;
+  justify-content: flex-start;
+}
+
+/* عناصر الاختيار المفعّلة بتدرّج الهوية */
+.t-conv .count,
+.t-days-pick button.on,
+.t-check.on .box,
+.t-lr-days button.on {
+  background: var(--grad-brand);
+}
+.t-kpi.alert {
+  background: linear-gradient(160deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 40%, var(--bg-elev)));
+}
+
+/* ═════════════ الجولة الثانية ═════════════ */
+
+/* ── بطاقة الحساب ── */
+.t-me {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  overflow: hidden;
+  padding: 20px 18px;
+  border-radius: var(--r-lg);
+  background: var(--hero);
+  color: #fff;
+  box-shadow: var(--shadow-hero);
+  isolation: isolate;
+}
+.t-me::before {
+  content: '';
+  position: absolute;
+  inset: -60% auto auto -18%;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(247, 185, 85, 0.4), transparent);
+  z-index: -1;
+}
+.t-me::after {
+  content: '';
+  position: absolute;
+  inset: auto -20% -80% auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 34px rgba(255, 255, 255, 0.035), 0 0 0 68px rgba(255, 255, 255, 0.02);
+  z-index: -1;
+}
+.t-me .ava {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.t-me .who {
+  flex: 1;
+  min-width: 0;
+}
+.t-me .who span {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.t-me .who b {
+  display: block;
+  margin-top: 5px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t-me .who small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.t-me .who small span {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  font-weight: inherit;
+}
+.t-me .go {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ── بطاقة الدوام الجاري: تقدّم الدوام ── */
+.t-attend .clock {
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.t-shiftbar {
+  margin-top: 14px;
+}
+.t-shiftbar .bar {
+  position: relative;
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+.t-shiftbar .bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f7b955, #fff3d6);
+  box-shadow: 0 0 14px rgba(247, 185, 85, 0.7);
+  transition: width 1s linear;
+}
+.t-shiftbar .ends {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.t-shiftbar .ends b {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+}
+.t-live-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.t-live-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* زر الحضور في الرئيسية: هالة نابضة تلفت النظر */
+.t-punch-mini {
+  position: relative;
+  background: var(--hero);
+  box-shadow: var(--glow-brand), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.t-punch-mini::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+  border: 2px solid var(--brand-2);
+  opacity: 0;
+  animation: halo 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes halo {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.14);
+  }
+}
+.t-attend-mini {
+  background: linear-gradient(160deg, var(--brand-soft), var(--bg-elev) 60%);
+}
+.t-attend-mini b {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ── التبليغات: غير المقروء بخلفية وشريط جانبي ── */
+.t-notif {
+  padding: 14px 15px;
+  padding-inline-end: 32px;
+}
+.t-notif.unread {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand-soft) 70%, transparent));
+}
+.t-notif.unread::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--grad-brand);
+}
+.t-notif .title {
+  font-size: 15px;
+}
+.t-unread-dot {
+  background: var(--grad-brand);
+}
+.t-group-label {
+  display: inline-block;
+  margin: 20px 2px 10px;
+  padding: 4px 12px;
+  border-radius: 99px;
+  background: var(--bg-sunk);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+/* ── قائمة المحادثات ── */
+.t-conv {
+  padding: 14px 15px;
+}
+.t-conv.unread {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand-soft) 70%, transparent));
+}
+.t-conv .name {
+  font-size: 15.5px;
+  font-weight: 700;
+}
+.t-conv .count {
+  box-shadow: var(--glow-brand);
+}
+
+/* ── الإعلانات: شريط جانبي بلون نوع الإعلان ── */
+.t-post {
+  position: relative;
+}
+.t-post:has(.t-post-head .t-tile.accent) {
+  box-shadow: inset 4px 0 0 var(--accent), var(--shadow-1);
+}
+.t-post:has(.t-post-head .t-tile.bad) {
+  box-shadow: inset 4px 0 0 var(--bad), var(--shadow-1);
+}
+.t-post:has(.t-post-head .t-tile.ok) {
+  box-shadow: inset 4px 0 0 var(--ok), var(--shadow-1);
+}
+:root[dir='rtl'] .t-post:has(.t-post-head .t-tile.accent),
+[dir='rtl'] .t-post:has(.t-post-head .t-tile.accent) {
+  box-shadow: inset -4px 0 0 var(--accent), var(--shadow-1);
+}
+[dir='rtl'] .t-post:has(.t-post-head .t-tile.bad) {
+  box-shadow: inset -4px 0 0 var(--bad), var(--shadow-1);
+}
+[dir='rtl'] .t-post:has(.t-post-head .t-tile.ok) {
+  box-shadow: inset -4px 0 0 var(--ok), var(--shadow-1);
+}
+.t-post h3 {
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+.t-post.unread {
+  border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+/* ── المخططات ── */
+.m-tl-bar {
+  background: var(--grad-brand);
+}
+.m-tl-bar.open {
+  background: var(--grad-ok);
+}
+.m-tl {
+  box-shadow: var(--shadow-1);
+}
+.t-track i {
+  background: var(--grad-brand);
+}
+.t-track.ok i {
+  background: var(--grad-ok);
+}
+.t-track.accent i {
+  background: var(--grad-accent);
+}
+
+/* ── شاشة الدخول: لوحة الأرقام ── */
+.t-key {
+  transition: transform 0.12s var(--ease), background-color 0.12s, box-shadow 0.12s;
+}
+.t-key:active:not(:disabled) {
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 4px var(--brand-soft);
+}
+.t-pin i.on {
+  background: var(--grad-brand);
+  box-shadow: var(--glow-brand);
+}

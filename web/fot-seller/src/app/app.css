@@ -6,45 +6,60 @@
 @import '@fontsource-variable/readex-pro/index.css';
 
 :root {
-  --bg: #f5f3ef;
+  --bg: #f5f2fb;
   --bg-elev: #ffffff;
-  --bg-sunk: #ece9e3;
-  --bg-glass: rgba(245, 243, 239, 0.82);
-  --ink: #17131f;
-  --ink-2: #4a4458;
-  --ink-3: #8a8497;
-  --ink-4: #b9b4c3;
-  --line: rgba(23, 19, 31, 0.08);
-  --line-2: rgba(23, 19, 31, 0.14);
+  --bg-sunk: #ebe6f5;
+  --bg-glass: rgba(250, 248, 254, 0.8);
+  --ink: #191326;
+  --ink-2: #4a4260;
+  --ink-3: #837b99;
+  --ink-4: #b7b0c9;
+  --line: rgba(46, 24, 104, 0.08);
+  --line-2: rgba(46, 24, 104, 0.15);
 
-  --brand: #4c2a85;
-  --brand-2: #6d45c9;
-  --brand-ink: #3a1f69;
-  --brand-soft: #efe9fb;
-  --accent: #e39a2d;
-  --accent-ink: #9a5f05;
-  --accent-soft: #fcf0dc;
-  --ok: #138a5a;
-  --ok-soft: #e1f3ea;
-  --warn: #c27406;
-  --warn-soft: #fdf1df;
-  --bad: #cf3f3a;
-  --bad-soft: #fbe8e7;
+  --brand: #5b33d6;
+  --brand-2: #7c5cf5;
+  --brand-ink: #3b1f99;
+  --brand-soft: #ece6ff;
+  --accent: #f0a12a;
+  --accent-ink: #9a5a00;
+  --accent-soft: #fff0d6;
+  --ok: #0f9d6b;
+  --ok-soft: #dcf6ea;
+  --warn: #c97706;
+  --warn-soft: #fdefd6;
+  --bad: #dc4640;
+  --bad-soft: #fde8e6;
 
-  --hero: linear-gradient(150deg, #241245 0%, #4c2a85 52%, #7b51d8 100%);
+  /* تدرّجات الهوية: الأزرار الأساسية، التبويب النشط، مربعات الأيقونات */
+  --grad-brand: linear-gradient(135deg, #7d57f6 0%, #5a2fdb 100%);
+  --grad-ok: linear-gradient(135deg, #22c08a 0%, #0c8f61 100%);
+  --grad-accent: linear-gradient(135deg, #f8b648 0%, #e8890f 100%);
+  --grad-bad: linear-gradient(135deg, #f26a63 0%, #d03a34 100%);
+  --grad-mute: linear-gradient(135deg, #938ca9 0%, #665f7f 100%);
+  --glow-brand: 0 12px 26px -12px rgba(91, 51, 214, 0.7);
+  --glow-ok: 0 12px 26px -12px rgba(15, 157, 107, 0.65);
+  --glow-accent: 0 12px 26px -12px rgba(232, 137, 15, 0.6);
+  --glow-bad: 0 12px 26px -12px rgba(208, 58, 52, 0.65);
+
+  --hero: radial-gradient(120% 90% at 100% 0%, rgba(150, 118, 255, 0.9) 0%, transparent 55%),
+    radial-gradient(90% 80% at 0% 100%, rgba(50, 22, 130, 0.9) 0%, transparent 60%), linear-gradient(150deg, #2a1463 0%, #5330c9 55%, #7a55f0 100%);
   --hero-ink: #ffffff;
+  /* وهج الخلفية خلف كل الصفحات */
+  --aurora-1: rgba(124, 92, 245, 0.17);
+  --aurora-2: rgba(240, 161, 42, 0.11);
 
   --r-xs: 10px;
-  --r-sm: 14px;
-  --r-md: 20px;
-  --r-lg: 26px;
-  --r-xl: 32px;
+  --r-sm: 16px;
+  --r-md: 22px;
+  --r-lg: 28px;
+  --r-xl: 34px;
 
-  --shadow-1: 0 1px 2px rgba(23, 19, 31, 0.04), 0 2px 10px rgba(23, 19, 31, 0.04);
-  --shadow-2: 0 10px 30px rgba(36, 18, 69, 0.12), 0 2px 6px rgba(36, 18, 69, 0.06);
-  --shadow-hero: 0 22px 44px -14px rgba(60, 30, 120, 0.55);
+  --shadow-1: 0 1px 2px rgba(46, 24, 104, 0.04), 0 12px 28px -18px rgba(46, 24, 104, 0.22);
+  --shadow-2: 0 18px 44px -14px rgba(46, 24, 104, 0.3), 0 2px 8px rgba(46, 24, 104, 0.06);
+  --shadow-hero: 0 26px 50px -18px rgba(76, 42, 200, 0.6);
 
-  --tabbar-h: 64px;
+  --tabbar-h: 66px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -54,33 +69,39 @@
 }
 
 :root[data-theme='dark'] {
-  --bg: #0e0c13;
-  --bg-elev: #18151f;
-  --bg-sunk: #221e2b;
-  --bg-glass: rgba(14, 12, 19, 0.8);
-  --ink: #f3f0f8;
-  --ink-2: #c3bcd1;
-  --ink-3: #8a8398;
-  --ink-4: #5b5567;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-2: rgba(255, 255, 255, 0.13);
-  --brand: #9a78f0;
-  --brand-2: #b69bff;
-  --brand-ink: #d9cbff;
-  --brand-soft: rgba(154, 120, 240, 0.16);
-  --accent: #f0b04f;
-  --accent-ink: #f5c477;
-  --accent-soft: rgba(240, 176, 79, 0.14);
-  --ok: #3ccf8e;
-  --ok-soft: rgba(60, 207, 142, 0.13);
-  --warn: #f0a33b;
-  --warn-soft: rgba(240, 163, 59, 0.14);
-  --bad: #ff6b63;
-  --bad-soft: rgba(255, 107, 99, 0.13);
-  --hero: linear-gradient(150deg, #1b0e35 0%, #3b2070 55%, #5f3cb8 100%);
-  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
-  --shadow-2: 0 14px 34px rgba(0, 0, 0, 0.45);
-  --shadow-hero: 0 22px 44px -16px rgba(0, 0, 0, 0.7);
+  --bg: #0b0813;
+  --bg-elev: #161126;
+  --bg-sunk: #221b36;
+  --bg-glass: rgba(14, 10, 24, 0.76);
+  --ink: #f5f2fc;
+  --ink-2: #cbc3df;
+  --ink-3: #9088a8;
+  --ink-4: #5e5675;
+  --line: rgba(214, 200, 255, 0.08);
+  --line-2: rgba(214, 200, 255, 0.15);
+  --brand: #a48cff;
+  --brand-2: #c0aeff;
+  --brand-ink: #ddd3ff;
+  --brand-soft: rgba(164, 140, 255, 0.15);
+  --accent: #f7b955;
+  --accent-ink: #fbcd85;
+  --accent-soft: rgba(247, 185, 85, 0.14);
+  --ok: #3fd69a;
+  --ok-soft: rgba(63, 214, 154, 0.13);
+  --warn: #f5ad4a;
+  --warn-soft: rgba(245, 173, 74, 0.14);
+  --bad: #ff7a72;
+  --bad-soft: rgba(255, 122, 114, 0.13);
+  --grad-brand: linear-gradient(135deg, #8a66ff 0%, #5f33e6 100%);
+  --grad-mute: linear-gradient(135deg, #6f6789 0%, #4a4362 100%);
+  --glow-brand: 0 14px 30px -12px rgba(110, 70, 255, 0.75);
+  --hero: radial-gradient(120% 90% at 100% 0%, rgba(132, 100, 255, 0.75) 0%, transparent 55%),
+    radial-gradient(90% 80% at 0% 100%, rgba(30, 12, 90, 0.9) 0%, transparent 60%), linear-gradient(150deg, #1a0d3d 0%, #40219a 55%, #6a45e6 100%);
+  --aurora-1: rgba(124, 92, 245, 0.26);
+  --aurora-2: rgba(247, 185, 85, 0.08);
+  --shadow-1: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 30px -22px rgba(0, 0, 0, 0.95);
+  --shadow-2: 0 20px 44px -12px rgba(0, 0, 0, 0.75);
+  --shadow-hero: 0 26px 54px -18px rgba(70, 35, 190, 0.65);
   color-scheme: dark;
 }
 

@@ -71,7 +71,7 @@ let heroDepth = 0;
 export function applyTheme(pref: ThemePref = getThemePref()) {
   const mode = resolved(pref);
   document.documentElement.dataset.theme = mode;
-  const bg = mode === 'dark' ? '#0e0c13' : '#f5f3ef';
+  const bg = mode === 'dark' ? '#0b0813' : '#f5f2fb';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', heroDepth > 0 ? '#241245' : bg);
   if (heroDepth > 0) void paintStatusBar('dark', '#241245');
   else void paintStatusBar(mode, bg);

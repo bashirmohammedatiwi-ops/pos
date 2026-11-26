@@ -3,7 +3,7 @@ import { APP_VERSION } from '../../config';
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Switch, Track, toast } from '../kit';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
-import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, StatusBadge } from '../parts';
+import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, ProfileCard, StatusBadge } from '../parts';
 import { Alerts } from '../screens/Alerts';
 import { ChatList, ChatRoom } from '../screens/Chat';
 import { MAttend, MNetworks } from './ManagerAttend';
@@ -1035,21 +1035,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
   const [askOut, setAskOut] = useState(false);
   return (
     <Screen title="المزيد">
-      <section className="t-card pad" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <span className="t-tile lg">
-          <I.user size={22} />
-        </span>
-        <div>
-          <div style={{ fontSize: 16.5, fontWeight: 700 }}>{me?.displayName || 'المدير'}</div>
-          {sup ? (
-            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>مسؤول الفريق</div>
-          ) : (
-            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }} className="ltr">
-              @{me?.username}
-            </div>
-          )}
-        </div>
-      </section>
+      <ProfileCard name={me?.displayName || 'المدير'} role={sup ? 'مسؤول الفريق' : 'مدير'} meta={sup ? undefined : <span className="ltr">@{me?.username}</span>} />
 
       {!sup && (
         <section className="t-section">

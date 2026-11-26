@@ -4,8 +4,9 @@ import { getSeller } from '../../api';
 import { cleanName } from '../../names';
 import { APP_VERSION } from '../../config';
 import { KIND_LABEL, getTeamMe } from '../../team';
-import { Avatar, I, Screen } from '../kit';
+import { Screen } from '../kit';
 import { haptic } from '../native';
+import { ProfileCard } from '../parts';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * المزيد — بطاقة الحساب، كل أقسام التطبيق في شبكة، والخدمات القادمة.
@@ -21,19 +22,7 @@ export function More({ items }: { items: MoreItem[] }) {
   const groups = [...new Set(items.map(i => i.group ?? ''))];
   return (
     <Screen title="المزيد">
-      <Link to="/account" className="t-card pad press" style={{ display: 'flex', alignItems: 'center', gap: 14 }} onClick={() => haptic('tap')}>
-        <Avatar name={name} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16.5, fontWeight: 700 }}>{name}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
-            {KIND_LABEL[me?.kind ?? (seller ? 'seller' : '')] ?? 'موظف'}
-            {me?.code ? ` · كود ${me.code}` : ''} · الحساب والمظهر
-          </div>
-        </div>
-        <span style={{ color: 'var(--ink-4)' }}>
-          <I.chevron />
-        </span>
-      </Link>
+      <ProfileCard name={name} role={KIND_LABEL[me?.kind ?? (seller ? 'seller' : '')] ?? 'موظف'} meta={`${me?.code ? `كود ${me.code} · ` : ''}الحساب والمظهر`} to="/account" />
 
       {groups.map(g => (
         <section key={g} className="t-section">

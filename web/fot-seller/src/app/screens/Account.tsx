@@ -3,8 +3,8 @@ import { getSeller } from '../../api';
 import { cleanName } from '../../names';
 import { APP_VERSION, PUSH_ENABLED, apiUrl, platform } from '../../config';
 import { KIND_LABEL, getTeamMe, getTeamToken } from '../../team';
-import { Avatar, Badge, I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
-import { BackBtn } from '../parts';
+import { I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
+import { BackBtn, ProfileCard } from '../parts';
 import { PushHealth } from '../PushHealth';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 
@@ -49,14 +49,7 @@ export function Account({ onLogout, back }: { onLogout: () => void; back?: strin
 
   return (
     <Screen title="حسابي" hideLarge start={back ? <BackBtn to={back} /> : undefined}>
-      <div className="t-profile">
-        <Avatar name={name} size="xl" />
-        <h2>{name}</h2>
-        <p>
-          <Badge>{KIND_LABEL[me?.kind ?? (seller ? 'seller' : '')] ?? 'موظف'}</Badge>
-          {me?.sectionName && <Badge tone="mute">{me.sectionName}</Badge>}
-        </p>
-      </div>
+      <ProfileCard name={name} role={KIND_LABEL[me?.kind ?? (seller ? 'seller' : '')] ?? 'موظف'} meta={[me?.sectionName, me?.jobTitle].filter(Boolean).join(' · ') || undefined} />
 
       <section className="t-section">
         <div className="t-section-head">

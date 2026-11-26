@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Badge, I, toast } from './kit';
 import { haptic, pushBack, statusOnHero } from './native';
 import { POST_KIND, STATUS_LABEL, compressImage, dateShort, dayGroup, mediaUrl, relTime, type LeaveReq, type Notif, type Post } from './work';
@@ -205,6 +205,35 @@ export function ImagePicker({
       )}
       <input ref={input} type="file" accept="image/*" multiple={max > 1} hidden onChange={e => void pick(e.target.files)} />
     </div>
+  );
+}
+
+/* ═════════════ بطاقة الحساب ═════════════ */
+/** بطاقة بارزة باسم صاحب الحساب ودوره — في «المزيد» و«حسابي» للموظف والمدير */
+export function ProfileCard({ name, role, meta, to, hint }: { name: string; role: string; meta?: ReactNode; to?: string; hint?: string }) {
+  const body = (
+    <>
+      <span className="ava">
+        <I.user size={26} />
+      </span>
+      <div className="who">
+        <span>{role}</span>
+        <b>{name}</b>
+        {(meta || hint) && <small>{meta ?? hint}</small>}
+      </div>
+      {to && (
+        <span className="go">
+          <I.chevron size={18} />
+        </span>
+      )}
+    </>
+  );
+  return to ? (
+    <Link to={to} className="t-me press" onClick={() => haptic('tap')}>
+      {body}
+    </Link>
+  ) : (
+    <div className="t-me">{body}</div>
   );
 }
 

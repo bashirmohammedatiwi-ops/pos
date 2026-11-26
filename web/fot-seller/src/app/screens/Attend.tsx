@@ -12,7 +12,7 @@ import {
   scheduleShiftReminders,
   type WifiState,
 } from '../native';
-import { attendApi, dateTiny, useLoad, type AttendRec, type AttendState, type HoursSpan } from '../work';
+import { attendApi, dateTiny, time12, useLoad, type AttendRec, type AttendState, type HoursSpan } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الحضور والانصراف والاستراحة — من شبكة المحل فقط (يتحقق الخادم من BSSID و IP).
@@ -333,6 +333,12 @@ export function AttendCard({ compact }: { compact?: boolean }) {
       return Math.max(0, len - s.breakMinutes);
     })();
     const otNow = s.overtime ? (data.day?.off ? worked : Math.max(0, worked - net)) : 0;
+    // موضع اللحظة الحالية داخل الدوام (الوردية الليلية تنتهي في اليوم التالي)
+    const startMs = iraqAt(data.shiftDate ?? data.today, s.start);
+    let endMs = iraqAt(data.shiftDate ?? data.today, s.end);
+    if (endMs <= startMs) endMs += 86_400_000;
+    const shiftPct = Math.max(0, Math.min(100, ((nowMs() - startMs) / (endMs - startMs)) * 100));
+    const shiftLeft = Math.round((endMs - nowMs()) / 60_000);
     return (
       <section className="t-attend live">
         <div className="row">
@@ -348,8 +354,24 @@ export function AttendCard({ compact }: { compact?: boolean }) {
         <div className="clock num ltr" style={{ marginTop: 8, textAlign: 'right' }}>
           {hhmm(worked)}
         </div>
-        <div className="sub">
-          ساعات العمل اليوم · ينتهي دوامك {s.end} · استراحة متبقية {data.breakLeftMinutes} د ({data.breaksLeft} مرات)
+        <div className="sub">ساعات العمل اليوم</div>
+        {!data.day?.off && (
+          <div className="t-shiftbar" role="img" aria-label={`الدوام من ${time12(s.start)} إلى ${time12(s.end)}`}>
+            <div className="bar">
+              <i style={{ width: `${shiftPct}%` }} />
+            </div>
+            <div className="ends">
+              <span>{time12(s.start)}</span>
+              <b>{shiftLeft > 0 ? `باقٍ ${dur(shiftLeft)}` : 'انتهى وقت الدوام'}</b>
+              <span>{time12(s.end)}</span>
+            </div>
+          </div>
+        )}
+        <div className="t-live-chips">
+          <span>
+            <I.coffee size={14} /> استراحة متبقية {data.breakLeftMinutes} د
+          </span>
+          <span>{data.breaksLeft} مرات</span>
         </div>
         <div className="acts">
           <button type="button" className="t-btn glass press" disabled={!!busy || data.breakLeftMinutes <= 0 || data.breaksLeft <= 0} onClick={() => askFor('break/start')}>

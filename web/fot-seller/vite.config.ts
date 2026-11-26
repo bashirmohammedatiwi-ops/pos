@@ -16,7 +16,7 @@ const teamAppEntry: Plugin = {
       html
         .replace('/src/main.tsx', '/src/app/main.tsx')
         .replace(/\s*<link[^>]*fonts\.(googleapis|gstatic)\.com[^>]*>/g, '')
-        .replace('content="#0b1324"', 'content="#f5f3ef"')
+        .replace('content="#0b1324"', 'content="#f5f2fb"')
         .replace(/<link rel="manifest"[^>]*>\s*/, ''),
   },
 };
