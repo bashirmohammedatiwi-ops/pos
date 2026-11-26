@@ -105,8 +105,187 @@ public sealed class SalesDailyRow
     public decimal Pieces { get; set; }
 }
 
+/// <summary>
+/// صندوق كاشير يعمل اليوم (لتطبيق المدراء): كل فاتورة تُسجَّل على صندوق الإداري الذي اختاره الكاشير
+/// (reciepts.master_account)؛ فواتير البطاقة تذهب لصندوق «كي» فتُنسب لكاشيرها هنا.
+/// </summary>
+public sealed class CashierBoxLive
+{
+    public long Seq { get; set; }
+    public List<string> Cashiers { get; set; } = [];
+    public string? Pos { get; set; }
+    public string? Section { get; set; }
+    public DateTime? LastSeen { get; set; }
+    public bool Online { get; set; }
+    public int Sales { get; set; }
+    public decimal SalesTotal { get; set; }
+    public int Returns { get; set; }
+    public decimal ReturnsTotal { get; set; }
+    public int Gifts { get; set; }
+    /// <summary>النقد المتوقع في الدرج: مبيعات الصندوق − المرتجعات.</summary>
+    public decimal Cash { get; set; }
+    public int CardCount { get; set; }
+    public decimal CardTotal { get; set; }
+    /// <summary>كل ما باعه الكاشير اليوم: النقد + البطاقة.</summary>
+    public decimal Total { get; set; }
+    public decimal Discount { get; set; }
+    public int Voids { get; set; }
+    public decimal VoidsAmount { get; set; }
+    public decimal Pieces { get; set; }
+    public DateTime? FirstAt { get; set; }
+    public DateTime? LastAt { get; set; }
+    /// <summary>صافي كل ساعة (0–23) للنقد والبطاقة معاً.</summary>
+    public decimal[] Hours { get; set; } = new decimal[24];
+}
+
 public sealed class LiveSalesRepository(ISqlConnectionFactory db)
 {
+    private sealed class BoxCashierRow
+    {
+        public long Acc { get; set; }
+        public long CashierId { get; set; }
+        public string? CashierName { get; set; }
+        public long PosId { get; set; }
+        public int Sales { get; set; }
+        public decimal SalesTotal { get; set; }
+        public int Returns { get; set; }
+        public decimal ReturnsTotal { get; set; }
+        public int Gifts { get; set; }
+        public decimal Discount { get; set; }
+        public DateTime? FirstAt { get; set; }
+        public DateTime? LastAt { get; set; }
+    }
+
+    private sealed class CashierSum
+    {
+        public long CashierId { get; set; }
+        public int N { get; set; }
+        public decimal T { get; set; }
+    }
+
+    private sealed class HourRow
+    {
+        public long Key { get; set; }
+        public int H { get; set; }
+        public decimal T { get; set; }
+    }
+
+    private sealed class PosRow
+    {
+        public long Id { get; set; }
+        public string? Name { get; set; }
+        public string? Section { get; set; }
+        public DateTime? LastSeen { get; set; }
+    }
+
+    /// <summary>
+    /// صناديق الكاشير التي عملت اليوم بتفاصيلها: النقد، البطاقة، المرتجعات، الخصم، الحذف، الساعات، ونقطة البيع.
+    /// skipAccounts: صناديق ليست كاشيراً (البطاقة، الهدايا) — فواتيرها تُنسب لكاشيرها لا تُعرض صندوقاً.
+    /// </summary>
+    public async Task<IReadOnlyList<CashierBoxLive>> CashierBoxesAsync(DateTime date, IReadOnlyCollection<long> skipAccounts, CancellationToken ct)
+    {
+        var sql = $"""
+            SELECT CAST(COALESCE(r.master_account, 0) AS BIGINT) AS Acc, CAST(COALESCE(r.cashier_id, 0) AS BIGINT) AS CashierId,
+                   COALESCE(MAX(NULLIF(LTRIM(RTRIM(c.account_name)), N'')), MAX(c.username)) AS CashierName,
+                   CAST(COALESCE(MAX(r.point_of_sale_id), 0) AS BIGINT) AS PosId,
+                   SUM(CASE WHEN r.kind = 0 THEN 1 ELSE 0 END) AS Sales,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 0 THEN r.total_amount ELSE 0 END), 0) AS DECIMAL(18,2)) AS SalesTotal,
+                   SUM(CASE WHEN r.kind = 1 THEN 1 ELSE 0 END) AS Returns,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN r.total_amount ELSE 0 END), 0) AS DECIMAL(18,2)) AS ReturnsTotal,
+                   SUM(CASE WHEN r.kind = 2 THEN 1 ELSE 0 END) AS Gifts,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 0 THEN COALESCE(r.user_discount, 0) ELSE 0 END), 0) AS DECIMAL(18,2)) AS Discount,
+                   MIN(CASE WHEN r.kind IN (0,1) THEN r.creation_date END) AS FirstAt,
+                   MAX(CASE WHEN r.kind IN (0,1) THEN r.creation_date END) AS LastAt
+            FROM reciepts r LEFT JOIN cashiers c ON c.id = r.cashier_id
+            WHERE {Where}
+            GROUP BY COALESCE(r.master_account, 0), COALESCE(r.cashier_id, 0);
+
+            SELECT CAST(COALESCE(r.cashier_id, 0) AS BIGINT) AS CashierId, COUNT(*) AS N,
+                   CAST(COALESCE(SUM(CASE WHEN r.kind = 1 THEN -cc.amount ELSE cc.amount END), 0) AS DECIMAL(18,2)) AS T
+            FROM reciepts r
+            OUTER APPLY (SELECT TOP 1 k.reciept_id, CAST(k.amount AS DECIMAL(18,2)) AS amount FROM reciept_credit_card k WHERE k.reciept_id = r.id ORDER BY k.id DESC) cc
+            WHERE {Where} AND r.kind IN (0,1) AND cc.reciept_id IS NOT NULL
+            GROUP BY COALESCE(r.cashier_id, 0);
+
+            SELECT CAST(v.cashier_id AS BIGINT) AS CashierId, COUNT(*) AS N, CAST(COALESCE(SUM(v.amount), 0) AS DECIMAL(18,2)) AS T
+            FROM ext_cashier_voids v
+            WHERE v.created_at >= @day AND v.created_at < @next
+            GROUP BY v.cashier_id;
+
+            SELECT CAST(COALESCE(r.cashier_id, 0) AS BIGINT) AS [Key], DATEPART(hour, r.creation_date) AS H, CAST(COALESCE(SUM({Net}), 0) AS DECIMAL(18,2)) AS T
+            FROM reciepts r WHERE {Where} AND r.kind IN (0,1)
+            GROUP BY COALESCE(r.cashier_id, 0), DATEPART(hour, r.creation_date);
+
+            SELECT CAST(COALESCE(r.master_account, 0) AS BIGINT) AS [Key], 0 AS H, CAST(COALESCE(SUM({LineQty}), 0) AS DECIMAL(18,3)) AS T
+            FROM reciept_items ri INNER JOIN reciepts r ON r.id = ri.reciept_id
+            WHERE {Where} AND r.kind IN (0,1)
+            GROUP BY COALESCE(r.master_account, 0);
+
+            SELECT CAST(p.id AS BIGINT) AS Id, p.name AS Name, s.name AS Section, p.last_connection AS LastSeen
+            FROM point_of_sales p LEFT JOIN sections s ON s.id = p.section_id
+            WHERE COALESCE(p.is_deleted, 0) = 0;
+            """;
+        var day = date.Date;
+        await using var conn = await db.CreateOpenConnectionAsync(ct);
+        using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+            sql, new { day, next = day.AddDays(1) }, commandTimeout: 60, cancellationToken: ct));
+        var rows = (await multi.ReadAsync<BoxCashierRow>()).ToList();
+        var cards = (await multi.ReadAsync<CashierSum>()).ToDictionary(x => x.CashierId);
+        var voids = (await multi.ReadAsync<CashierSum>()).ToDictionary(x => x.CashierId);
+        var hours = (await multi.ReadAsync<HourRow>()).ToList();
+        var pieces = (await multi.ReadAsync<HourRow>()).ToDictionary(x => x.Key, x => x.T);
+        var terminals = (await multi.ReadAsync<PosRow>()).ToDictionary(x => x.Id);
+
+        // كل كاشير يُنسب لصندوق واحد (الأكثر مبيعاً اليوم) كي لا تُحسب بطاقته مرتين
+        var home = rows
+            .Where(r => r.Acc > 0 && !skipAccounts.Contains(r.Acc) && r.CashierId > 0)
+            .GroupBy(r => r.CashierId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.SalesTotal).First().Acc);
+
+        var list = new List<CashierBoxLive>();
+        foreach (var g in rows.Where(r => r.Acc > 0 && !skipAccounts.Contains(r.Acc)).GroupBy(r => r.Acc))
+        {
+            var box = new CashierBoxLive { Seq = g.Key };
+            foreach (var r in g.OrderByDescending(r => r.SalesTotal))
+            {
+                if (!string.IsNullOrWhiteSpace(r.CashierName) && !box.Cashiers.Contains(r.CashierName.Trim())) box.Cashiers.Add(r.CashierName.Trim());
+                box.Sales += r.Sales;
+                box.SalesTotal += r.SalesTotal;
+                box.Returns += r.Returns;
+                box.ReturnsTotal += r.ReturnsTotal;
+                box.Gifts += r.Gifts;
+                box.Discount += r.Discount;
+                if (r.FirstAt is { } f && (box.FirstAt is null || f < box.FirstAt)) box.FirstAt = f;
+                if (r.LastAt is { } l && (box.LastAt is null || l > box.LastAt)) box.LastAt = l;
+                if (box.Pos is null && r.PosId > 0 && terminals.TryGetValue(r.PosId, out var t))
+                {
+                    // أسماء نقاط البيع التلقائية (win:…) لا تعني شيئاً للمدير
+                    box.Pos = string.IsNullOrWhiteSpace(t.Name) || t.Name.StartsWith("win:", StringComparison.OrdinalIgnoreCase) || t.Name.StartsWith("host:", StringComparison.OrdinalIgnoreCase) ? $"نقطة بيع {t.Id}" : t.Name.Trim();
+                    box.Section = t.Section;
+                    box.LastSeen = t.LastSeen;
+                    box.Online = t.LastSeen is { } seen && DateTime.Now - seen < TimeSpan.FromMinutes(3);
+                }
+                if (home.GetValueOrDefault(r.CashierId) != g.Key) continue;
+                if (cards.TryGetValue(r.CashierId, out var card))
+                {
+                    box.CardCount += card.N;
+                    box.CardTotal += card.T;
+                }
+                if (voids.TryGetValue(r.CashierId, out var v))
+                {
+                    box.Voids += v.N;
+                    box.VoidsAmount += v.T;
+                }
+                foreach (var h in hours.Where(h => h.Key == r.CashierId && h.H is >= 0 and < 24)) box.Hours[h.H] += h.T;
+            }
+            box.Cash = box.SalesTotal - box.ReturnsTotal;
+            box.Total = box.Cash + box.CardTotal;
+            box.Pieces = pieces.GetValueOrDefault(g.Key);
+            if (box.Sales + box.Returns + box.Gifts > 0) list.Add(box);
+        }
+        return list.OrderByDescending(b => b.Online).ThenByDescending(b => b.LastAt).ToList();
+    }
+
     private const string Where = "r.creation_date >= @day AND r.creation_date < @next AND r.is_pending = 0";
     private const string Net = "CASE WHEN r.kind = 1 THEN -r.total_amount WHEN r.kind = 0 THEN r.total_amount ELSE 0 END";
     private const string LineNet = "CASE WHEN r.kind = 1 THEN -ri.quantity * ri.price WHEN r.kind = 0 THEN ri.quantity * ri.price ELSE 0 END";

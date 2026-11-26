@@ -121,6 +121,38 @@ export async function cashStatementPdfHtml(st: CashStatement) {
   return pdfShell(cashStatementFileBase(st), 'كشف صندوق', `${esc(st.box.name)} · <span class="num">${esc(st.box.num)}</span><br>${esc(period)}`, body);
 }
 
+/** صناديق الكاشير اليوم (من فواتير المحل) */
+function cashiersTable(data: CashBoxes) {
+  const list = data.cashiers ?? [];
+  if (!list.length) return '';
+  const bySeq = new Map(data.boxes.map(b => [b.seq, b]));
+  const t = (iso?: string | null) => {
+    if (!iso || iso.length < 16) return '';
+    const h = Number(iso.slice(11, 13));
+    return `${h % 12 === 0 ? 12 : h % 12}:${iso.slice(14, 16)} ${h < 12 ? 'ص' : 'م'}`;
+  };
+  const a = (n: number) => cashAmount(n, 'IQD');
+  const rows = list
+    .map(c => {
+      const box = bySeq.get(c.seq);
+      return `<tr>
+    <td>${esc(c.cashiers.join(' · ') || box?.name || '')}<div class="sub">${esc(box ? `${box.name} · ${box.num}` : '')} · ${t(c.firstAt)} – ${t(c.lastAt)}</div></td>
+    <td class="e num bal">${a(c.cash)}</td>
+    <td class="e num">${a(c.cardTotal)}<div class="sub">${c.cardCount} فاتورة</div></td>
+    <td class="e num">${c.sales + c.cardCount}</td>
+    <td class="e num out">${c.returns ? a(c.returnsTotal) : ''}<div class="sub">${c.returns ? `${c.returns} مرتجع` : ''}</div></td>
+    <td class="e num">${c.discount ? a(c.discount) : ''}</td>
+    <td class="e num out">${c.voids || ''}<div class="sub">${c.voids ? a(c.voidsAmount) : ''}</div></td>
+  </tr>`;
+    })
+    .join('');
+  return `<h3 style="margin:18px 0 6px;font-size:14px">صناديق الكاشير اليوم</h3>
+  <table>
+    <thead><tr><th>الكاشير</th><th class="e">النقد في الدرج</th><th class="e">بطاقة كي</th><th class="e">الفواتير</th><th class="e">المرتجعات</th><th class="e">الخصم</th><th class="e">الحذف</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 /** ملخص أرصدة كل الصناديق الآن */
 export async function cashBoxesPdfHtml(data: CashBoxes) {
   const row = (b: CashBox) => `<tr>
@@ -140,6 +172,7 @@ export async function cashBoxesPdfHtml(data: CashBoxes) {
   <table>
     <thead><tr><th style="width:44px">الرقم</th><th>الصندوق</th><th class="e">قبض اليوم</th><th class="e">صرف اليوم</th><th class="e">الرصيد الآن</th></tr></thead>
     <tbody>${featured.map(row).join('')}${rest.length ? `<tr class="day"><td colspan="5">بقية الصناديق</td></tr>${rest.map(row).join('')}` : ''}</tbody>
-  </table>`;
+  </table>
+  ${cashiersTable(data)}`;
   return pdfShell(`cash-boxes-${data.today ?? ''}`, 'أرصدة الصناديق', esc(data.today ? dayLabel(data.today) : ''), body);
 }

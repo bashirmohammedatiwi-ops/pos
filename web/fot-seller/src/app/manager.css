@@ -1161,3 +1161,303 @@
   background: var(--bg-sunk);
   color: var(--ink-3);
 }
+
+/* ═════════════ صناديق الكاشير اليوم ═════════════ */
+/* ثلاثة صناديق رئيسية: الثالث بعرض كامل على الهاتف */
+.c-grid.three > :last-child:nth-child(3) {
+  grid-column: span 2;
+}
+.cz-more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-1);
+  color: var(--ink);
+  text-decoration: none;
+}
+.cz-more .txt {
+  flex: 1;
+  min-width: 0;
+}
+.cz-more b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 750;
+}
+.cz-more small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.cz-more > svg:last-child {
+  color: var(--ink-4);
+}
+.cz-sum {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cz-sum > div {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--bg-sunk);
+}
+.cz-sum small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.cz-sum b {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+  text-align: right;
+}
+.cz-sum b span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.cz-list {
+  display: grid;
+  gap: 12px;
+}
+.cz-card {
+  display: block;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-1);
+  color: var(--ink);
+  text-decoration: none;
+}
+.cz-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.cz-ico {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+}
+.cz-ico.on {
+  background: var(--grad-ok);
+  color: #fff;
+  box-shadow: var(--glow-ok);
+}
+.cz-who {
+  flex: 1;
+  min-width: 0;
+}
+.cz-who b {
+  display: block;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cz-who small {
+  display: block;
+  overflow: hidden;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cz-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.cz-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+.cz-state.on {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.cz-state.on i {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+  animation: cz-pulse 2s var(--ease) infinite;
+}
+.cz-state.idle {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.cz-state.idle i {
+  background: var(--warn);
+}
+@keyframes cz-pulse {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cz-state.on i {
+    animation: none;
+  }
+}
+.cz-cash {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: linear-gradient(160deg, var(--ok-soft), transparent 75%);
+}
+.cz-cash > span {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink-3);
+}
+.cz-cash b {
+  display: block;
+  margin-top: 2px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: right;
+  white-space: nowrap;
+}
+.cz-cash b small {
+  margin-inline-start: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+.cz-cash em {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-style: normal;
+  color: var(--ink-3);
+}
+.cz-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+.cz-stats > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: var(--bg-sunk);
+}
+.cz-stats small {
+  display: block;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cz-stats b {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 800;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cz-stats em {
+  display: block;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--ink-4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cz-stats .warn b {
+  color: var(--warn);
+}
+.cz-stats .bad b {
+  color: var(--bad);
+}
+.cz-hours {
+  margin-top: 12px;
+}
+.cz-hours .bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 46px;
+}
+.cz-hours .bar {
+  flex: 1;
+  min-width: 4px;
+  border-radius: 4px 4px 0 0;
+  background: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+.cz-hours .bar.peak {
+  background: var(--brand);
+}
+.cz-hours .bar.neg {
+  background: var(--bad);
+}
+.cz-hours .axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--ink-4);
+}
+.cz-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.cz-foot > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.cz-foot .mute {
+  color: var(--ink-4);
+}
+.cz-edari {
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+  font-size: 11.5px;
+}

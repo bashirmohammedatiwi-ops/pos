@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { todayIso } from '@/api/client';
 import { cashAmount, cashReportApi, cashUnit, type CashBoxDto, type CashFlowCurrencyDto, type CashFlowDto, type CashStatementDto } from '@/api/cash';
 import { useToast } from '@/components/Toast';
-import { IconChevronLeft, IconChevronRight, IconDownload, IconPrinter, IconRefresh, IconSearch, IconStar, IconWallet } from '@/components/icons';
+import { IconCheck, IconChevronLeft, IconChevronRight, IconDownload, IconPlus, IconPrinter, IconRefresh, IconSearch, IconStar, IconWallet } from '@/components/icons';
 import { Badge, Btn, Input } from '@/components/ui';
 import { isoDate } from '@/lib/businessPeriod';
 import { printDocument } from '@/lib/print';
@@ -15,7 +15,8 @@ import { ReportBanner, ReportError, ReportFill } from './ReportKit';
  * تقرير الصناديق — من «إداري» مباشرة (قراءة فقط):
  *  · أرصدة كل الصناديق الآن (المثبّت + الحركات بعده) وحركة اليوم.
  *  · كشف أي صندوق ليوم أو فترة: رصيد أول المدة، كل حركة برصيدها، والإجماليات.
- *  · النجمة تجعل الصندوق بارزاً في تطبيق المدراء (الدولار، الخشن، الناعم، بطاقة كي).
+ *  · العرض في تطبيق المدراء: النجمة = صندوق رئيسي (الدولار، الخشن، الناعم)، و«+» = يظهر في «عرض المزيد»
+ *    (صناديق الكاشير المختارة وأي صندوق آخر). بلا اختيار: «عرض المزيد» تلقائي لكل كاشير يعمل اليوم.
  *  · طباعة A4 وتصدير Excel.
  * ───────────────────────────────────────────────────────────────────────────── */
 
@@ -69,18 +70,39 @@ export function CashBoxesApp({ onClose }: { onClose: () => void }) {
     enabled: view !== 'statement' && valid && (view === 'flow-all' || seq != null),
   });
 
-  const featureM = useMutation({
-    mutationFn: async (b: CashBoxDto) => {
-      const cur = boxesQ.data?.featured ?? [];
-      const next = b.featured ? cur.filter(n => n !== b.num) : [...cur, b.num];
-      return cashReportApi.saveSettings({ rootNum: boxesQ.data?.rootNum ?? '100', featured: next });
-    },
-    onSuccess: (_r, b) => {
-      toast.success(b.featured ? `أُزيل «${b.name}» من البارزة في التطبيق` : `«${b.name}» صار بارزاً في تطبيق المدراء`);
+  // إعدادات العرض في تطبيق المدراء: الرئيسية، و«عرض المزيد» (null = تلقائي)
+  const extra = boxesQ.data?.extra ?? null;
+  const settingsM = useMutation({
+    mutationFn: async (next: { featured?: string[]; extra?: string[] | null; msg: string }) =>
+      cashReportApi.saveSettings({
+        rootNum: boxesQ.data?.rootNum ?? '100',
+        featured: next.featured ?? boxesQ.data?.featured ?? [],
+        extra: next.extra !== undefined ? next.extra : extra,
+      }),
+    onSuccess: (_r, v) => {
+      toast.success(v.msg);
       void qc.invalidateQueries({ queryKey: ['cash-boxes'] });
     },
     onError: e => toast.error(e instanceof Error ? e.message : 'تعذر الحفظ'),
   });
+  function toggleMain(b: CashBoxDto) {
+    const cur = boxesQ.data?.featured ?? [];
+    settingsM.mutate({
+      featured: b.featured ? cur.filter(n => n !== b.num) : [...cur, b.num],
+      // الرئيسي لا يتكرر في «المزيد»
+      extra: extra ? extra.filter(n => n !== b.num) : null,
+      msg: b.featured ? `أُزيل «${b.name}» من الرئيسية` : `«${b.name}» صار صندوقاً رئيسياً في تطبيق المدراء`,
+    });
+  }
+  function toggleMore(b: CashBoxDto) {
+    const cur = extra ?? [];
+    const on = cur.includes(b.num);
+    settingsM.mutate({
+      featured: (boxesQ.data?.featured ?? []).filter(n => n !== b.num),
+      extra: on ? cur.filter(n => n !== b.num) : [...cur, b.num],
+      msg: on ? `أُزيل «${b.name}» من «عرض المزيد»` : `«${b.name}» يظهر في «عرض المزيد» بتفاصيله`,
+    });
+  }
 
   const featured = boxes.filter(b => b.featured);
   const rest = boxes.filter(b => !b.featured && (showEmpty || b.balance !== 0 || b.todayCount > 0 || b.seq === seq));
@@ -191,20 +213,63 @@ export function CashBoxesApp({ onClose }: { onClose: () => void }) {
           {/* الصناديق */}
           <aside className="flex w-full shrink-0 flex-col gap-2 overflow-auto lg:w-[320px]">
             {boxesQ.isLoading && Array.from({ length: 5 }, (_, i) => <div key={i} className="skeleton h-[78px] rounded-xl" />)}
-            {featured.length > 0 && <h3 className="px-1 text-[12px] font-extrabold text-slate-500">الصناديق البارزة</h3>}
+            {boxesQ.data && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                <div className="text-[12.5px] font-extrabold text-emerald-900">العرض في تطبيق المدراء</div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11.5px] text-slate-600">
+                  <span className="font-bold">الرئيسية:</span>
+                  {featured.length ? featured.map(b => <Badge key={b.seq} tone="ok">{b.num}</Badge>) : <span>لا شيء</span>}
+                </div>
+                <div className="mt-2 text-[11.5px] font-bold text-slate-600">«عرض المزيد»:</div>
+                <div className="mt-1 grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    className={`rounded-lg px-2 py-1.5 text-[11.5px] font-bold ${extra === null ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                    disabled={settingsM.isPending}
+                    onClick={() => extra !== null && settingsM.mutate({ extra: null, msg: '«عرض المزيد» تلقائي: كل كاشير يعمل اليوم' })}
+                  >
+                    تلقائي
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-lg px-2 py-1.5 text-[11.5px] font-bold ${extra !== null ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                    disabled={settingsM.isPending}
+                    onClick={() => extra === null && settingsM.mutate({ extra: [], msg: 'اختر الصناديق بزر «+» بجانب كل صندوق' })}
+                  >
+                    أختار بنفسي
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                  {extra === null
+                    ? 'يظهر كل كاشير عمل اليوم بتفاصيله الكاملة، وبقية الصناديق غير الفارغة.'
+                    : `مختار ${extra.length} صندوقاً — «+» يضيف الصندوق أو يزيله، والنجمة تجعله رئيسياً.`}
+                </p>
+              </div>
+            )}
+            {featured.length > 0 && <h3 className="mt-1 px-1 text-[12px] font-extrabold text-slate-500">الرئيسية</h3>}
             {featured.map(b => (
-              <BoxRow key={b.seq} box={b} active={b.seq === seq} onPick={() => setSeq(b.seq)} onStar={() => featureM.mutate(b)} />
+              <BoxRow key={b.seq} box={b} active={b.seq === seq} onPick={() => setSeq(b.seq)} onStar={() => toggleMain(b)} more={null} />
             ))}
-            {rest.length > 0 && <h3 className="mt-2 px-1 text-[12px] font-extrabold text-slate-500">بقية الصناديق</h3>}
-            {rest.map(b => (
-              <BoxRow key={b.seq} box={b} active={b.seq === seq} onPick={() => setSeq(b.seq)} onStar={() => featureM.mutate(b)} />
-            ))}
+            {extra !== null && extra.length > 0 && <h3 className="mt-2 px-1 text-[12px] font-extrabold text-slate-500">في «عرض المزيد»</h3>}
+            {extra !== null &&
+              boxes
+                .filter(b => !b.featured && extra.includes(b.num))
+                .sort((a, b) => extra.indexOf(a.num) - extra.indexOf(b.num))
+                .map(b => <BoxRow key={b.seq} box={b} active={b.seq === seq} onPick={() => setSeq(b.seq)} onStar={() => toggleMain(b)} more={{ on: true, toggle: () => toggleMore(b) }} />)}
+            {rest.filter(b => extra === null || !extra.includes(b.num)).length > 0 && (
+              <h3 className="mt-2 px-1 text-[12px] font-extrabold text-slate-500">{extra === null ? 'بقية الصناديق' : 'غير معروضة في التطبيق'}</h3>
+            )}
+            {rest
+              .filter(b => extra === null || !extra.includes(b.num))
+              .map(b => (
+                <BoxRow key={b.seq} box={b} active={b.seq === seq} onPick={() => setSeq(b.seq)} onStar={() => toggleMain(b)} more={extra === null ? null : { on: false, toggle: () => toggleMore(b) }} />
+              ))}
             {hidden > 0 && (
               <button type="button" className="rounded-lg px-2 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-white" onClick={() => setShowEmpty(v => !v)}>
                 {showEmpty ? 'إخفاء الصناديق الفارغة' : `إظهار ${hidden} صندوقاً فارغاً`}
               </button>
             )}
-            {boxesQ.data && <p className="px-1 text-[11px] leading-relaxed text-slate-400">الرصيد = آخر مبلغ مثبّت في الإداري + الحركات بعده. النجمة تُظهر الصندوق أولاً في تطبيق المدراء.</p>}
+            {boxesQ.data && <p className="px-1 text-[11px] leading-relaxed text-slate-400">الرصيد = آخر مبلغ مثبّت في الإداري + الحركات بعده. النجمة = صندوق رئيسي في تطبيق المدراء، و«+» = في «عرض المزيد».</p>}
           </aside>
 
           {/* الكشف */}
@@ -405,7 +470,7 @@ function FlowCurrency({ c, multi }: { c: CashFlowCurrencyDto; multi: boolean }) 
   );
 }
 
-function BoxRow({ box, active, onPick, onStar }: { box: CashBoxDto; active: boolean; onPick: () => void; onStar: () => void }) {
+function BoxRow({ box, active, onPick, onStar, more }: { box: CashBoxDto; active: boolean; onPick: () => void; onStar: () => void; more: { on: boolean; toggle: () => void } | null }) {
   const net = box.todayIn - box.todayOut;
   return (
     <div className={`flex items-stretch gap-1 rounded-xl border bg-white transition ${active ? 'border-emerald-500 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -438,13 +503,25 @@ function BoxRow({ box, active, onPick, onStar }: { box: CashBoxDto; active: bool
       <button
         type="button"
         className={`grid w-9 shrink-0 place-items-center rounded-e-xl ${box.featured ? 'text-amber-500' : 'text-slate-300 hover:text-slate-500'}`}
-        title={box.featured ? 'إزالة من البارزة في تطبيق المدراء' : 'إبراز في تطبيق المدراء'}
-        aria-label={box.featured ? 'إزالة من البارزة' : 'إبراز في التطبيق'}
+        title={box.featured ? 'إزالة من الرئيسية في تطبيق المدراء' : 'صندوق رئيسي في تطبيق المدراء'}
+        aria-label={box.featured ? 'إزالة من الرئيسية' : 'صندوق رئيسي'}
         aria-pressed={box.featured}
         onClick={onStar}
       >
         <IconStar size={16} />
       </button>
+      {more && (
+        <button
+          type="button"
+          className={`grid w-9 shrink-0 place-items-center rounded-e-xl border-s border-slate-100 ${more.on ? 'bg-emerald-50 text-emerald-600' : 'text-slate-300 hover:text-emerald-600'}`}
+          title={more.on ? 'إزالة من «عرض المزيد»' : 'إظهار في «عرض المزيد» بتفاصيله'}
+          aria-label={more.on ? 'إزالة من عرض المزيد' : 'إظهار في عرض المزيد'}
+          aria-pressed={more.on}
+          onClick={more.toggle}
+        >
+          {more.on ? <IconCheck size={16} /> : <IconPlus size={16} />}
+        </button>
+      )}
     </div>
   );
 }

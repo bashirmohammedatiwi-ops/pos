@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using FOT.Pos.Api.Endpoints;
 using FOT.Pos.Infrastructure.Edari;
+using FOT.Pos.Infrastructure.Repositories;
 
 namespace FOT.Pos.Api.HostedServices;
 
@@ -82,10 +83,28 @@ public sealed class HubReportsService(
             await PostAsync("/api/sync/cash", new { error = ex.Message, at = DateTime.Now }, ct);
             return;
         }
+        // صناديق الكاشير العاملة اليوم من فواتير المحل (النقد، البطاقة، المرتجعات…) — لا تُفشل رفع الأرصدة
+        IReadOnlyList<CashierBoxLive>? cashiers = null;
+        try
+        {
+            var settings = await scope.ServiceProvider.GetRequiredService<PosCashBoxSettingsRepository>().GetAsync(ct);
+            var skip = new HashSet<long>();
+            foreach (var v in new long?[] { settings.QiMasterAccount, settings.EdariQiAccount, settings.GiftMasterAccount, settings.EdariGiftAccount })
+                if (v is > 0) skip.Add(v.Value);
+            // الصناديق الرئيسية (دولار، خشن، ناعم…) ليست صناديق كاشير
+            foreach (var b in boxes.Boxes.Where(b => b.Featured)) skip.Add(b.Seq);
+            cashiers = await scope.ServiceProvider.GetRequiredService<LiveSalesRepository>().CashierBoxesAsync(DateTime.Today, skip, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Cashier boxes failed");
+        }
+        var payload = new { boxes.Today, boxes.At, boxes.Boxes, boxes.Featured, boxes.RootNum, boxes.Extra, Cashiers = cashiers };
+
         // الأرقام نفسها لا تُرفع من جديد، مع نبضة كل 3 دقائق تثبت أن الاتصال حي
-        var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(boxes.Boxes, Json))))[..16];
+        var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { boxes.Boxes, cashiers }, Json))))[..16];
         if (!force && hash == _lastHash && DateTime.Now - _lastPush < TimeSpan.FromMinutes(3)) return;
-        if (await PostAsync("/api/sync/cash", new { boxes }, ct))
+        if (await PostAsync("/api/sync/cash", new { boxes = payload }, ct))
         {
             _lastHash = hash;
             _lastPush = DateTime.Now;

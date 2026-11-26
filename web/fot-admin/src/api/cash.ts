@@ -18,6 +18,8 @@ export interface CashBoxDto {
   currency: 'IQD' | 'USD';
   /** من الصناديق البارزة في تطبيق المدراء */
   featured: boolean;
+  /** يظهر في «عرض المزيد» في تطبيق المدراء */
+  extra?: boolean;
   /** النقد الآن: آخر مبلغ مثبّت + الحركات بعده */
   balance: number;
   /** الرصيد الدفتري (مدين − دائن) */
@@ -34,6 +36,8 @@ export interface CashBoxesDto {
   at: string;
   boxes: CashBoxDto[];
   featured: string[];
+  /** صناديق «عرض المزيد» بترتيبها؛ null = تلقائي (كل كاشير يعمل اليوم) */
+  extra?: string[] | null;
   rootNum: string;
 }
 export interface CashLineDto {
@@ -101,6 +105,8 @@ export interface CashFlowDto {
 export interface CashReportSettings {
   rootNum: string;
   featured: string[];
+  /** null = تلقائي */
+  extra?: string[] | null;
 }
 
 export async function reportCall<T>(path: string, init?: RequestInit): Promise<T> {

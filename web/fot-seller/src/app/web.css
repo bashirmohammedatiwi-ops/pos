@@ -1285,3 +1285,38 @@ html.web.theme-anim * {
     bottom: calc(var(--tabbar-h, 66px) + var(--safe-b, 0px) + 80px);
   }
 }
+
+/* الصناديق على الحاسبة: الرئيسية الثلاثة في صف، وبطاقات الكاشير عمودين */
+@media (min-width: 1024px) {
+  html.web .c-grid.three {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  html.web .c-grid.three > :last-child:nth-child(3) {
+    grid-column: auto;
+  }
+  html.web .cz-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  html.web .h-aside .cz-list,
+  html.web .h-main .cz-list {
+    grid-template-columns: 1fr;
+  }
+  html.web .cz-sum {
+    max-width: 640px;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  html.web a.cz-card,
+  html.web .cz-more {
+    transition:
+      transform 0.2s var(--ease),
+      box-shadow 0.2s var(--ease),
+      border-color 0.2s var(--ease);
+  }
+  html.web a.cz-card:hover,
+  html.web .cz-more:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+    box-shadow: var(--shadow-2);
+  }
+}

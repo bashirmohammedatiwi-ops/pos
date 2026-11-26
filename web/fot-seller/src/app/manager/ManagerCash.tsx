@@ -6,6 +6,7 @@ import { BackBtn } from '../parts';
 import { cashApi, onLive, relTime, snapCache, useLoad, type CashBox, type CashBoxes, type CashStatement } from '../work';
 import { CashAlertsSheet } from './ManagerCashFlow';
 import { cashAmount, cashBoxesPdfHtml, cashStatementFileBase, cashStatementPdfHtml, cashUnit } from './cashPdf';
+import { CashierCard, CashiersSummary, moreBoxes } from './CashierBoxes';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * الصناديق — من «إداري» مباشرة عبر سيرفر المحل:
@@ -35,11 +36,24 @@ function Money({ value, currency, sign }: { value: number; currency: string; sig
   );
 }
 
+/**
+ * سيرفر محل أقدم (بلا إعداد «عرض المزيد») يُبرز 301 أيضاً: الرئيسية تبقى الدولار والخشن والناعم فقط،
+ * والبقية تنتقل لـ«عرض المزيد». بعد تحديث السيرفر يحدد ذلك من لوحة التحكم.
+ */
+const MAIN_DEFAULT = ['131', '132', '133'];
+function normalizeMain(d: CashBoxes): CashBoxes {
+  if (d.extra !== undefined || !d.boxes.some(b => MAIN_DEFAULT.includes(b.num))) return d;
+  return { ...d, featured: MAIN_DEFAULT, boxes: d.boxes.map(b => (b.featured && !MAIN_DEFAULT.includes(b.num) ? { ...b, featured: false } : b)) };
+}
+
 /** يحمّل الأرصدة ويعيد تحميلها مع كل تحديث يصل من المحل؛ آخر أرصدة محفوظة تظهر فوراً عند الفتح */
 function useBoxes() {
-  const [cached] = useState(() => snapCache.get<CashBoxes>('cash.boxes')?.data ?? null);
+  const [cached] = useState(() => {
+    const c = snapCache.get<CashBoxes>('cash.boxes')?.data;
+    return c ? normalizeMain(c) : null;
+  });
   const q = useLoad<CashBoxes>(async () => {
-    const d = await cashApi.boxes();
+    const d = normalizeMain(await cashApi.boxes());
     if (d.boxes.length) snapCache.set('cash.boxes', d);
     return d;
   }, ['cash']);
@@ -96,22 +110,38 @@ export function CashHomeCard() {
   // خادم أقدم أو بلا صلاحية: لا بطاقة
   if (err && !data) return null;
   if (!data) return <Skeleton h={190} r={24} mt={0} />;
-  const featured = data.boxes.filter(b => b.featured).slice(0, 4);
+  const featured = data.boxes.filter(b => b.featured).slice(0, 6);
   if (!featured.length) return null;
+  const more = moreBoxes(data);
+  const working = more.cashiers.filter(x => x.live.online).length;
   return (
     <section className="t-section">
       <div className="t-section-head">
         <h2>الصناديق الآن</h2>
         <Link to="/m/cash" className="more" onClick={() => haptic('tap')}>
-          كل الصناديق
+          التفاصيل
         </Link>
       </div>
       <StaleNote data={data} />
-      <div className="c-grid">
+      <div className={`c-grid ${featured.length === 3 ? 'three' : ''}`}>
         {featured.map(b => (
           <BoxCard key={b.seq} box={b} big />
         ))}
       </div>
+      <Link to="/m/cash#more" className="cz-more press" onClick={() => haptic('tap')}>
+        <span className="t-tile accent">
+          <I.wallet size={18} />
+        </span>
+        <span className="txt">
+          <b>عرض المزيد من الصناديق</b>
+          <small>
+            {more.cashiers.length
+              ? `${more.cashiers.length === 1 ? 'صندوق كاشير واحد' : `${more.cashiers.length} صناديق كاشير`} اليوم${working ? ` · ${working} يعمل الآن` : ''}`
+              : 'صناديق الكاشير وبقية الصناديق'}
+          </small>
+        </span>
+        <I.chevron size={16} />
+      </Link>
     </section>
   );
 }
@@ -123,9 +153,13 @@ export function MCash() {
   const [busy, setBusy] = useState(false);
   const [alerts, setAlerts] = useState(false);
   const featured = (data?.boxes ?? []).filter(b => b.featured);
-  const rest = (data?.boxes ?? []).filter(b => !b.featured);
-  const active = rest.filter(b => b.balance !== 0 || b.todayCount > 0);
-  const shown = showEmpty ? rest : active;
+  const more = data ? moreBoxes(data) : null;
+  const shown = more ? (showEmpty ? [...more.others, ...more.hidden] : more.others) : [];
+  // «عرض المزيد» من الرئيسية يفتح على صناديق الكاشير
+  useEffect(() => {
+    if (location.hash.endsWith('#more') || location.hash.includes('#more'))
+      window.setTimeout(() => document.getElementById('cz-more')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
+  }, [!!data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function exportPdf() {
     if (!data || busy) return;
@@ -170,7 +204,7 @@ export function MCash() {
             <Empty icon={<I.wallet size={30} />} title="لم تصل أرصدة الصناديق بعد" text="تظهر هنا بعد تحديث سيرفر المحل واتصاله بالإنترنت." />
           ) : (
             <>
-              <div className="c-grid">
+              <div className={`c-grid ${featured.length === 3 ? 'three' : ''}`}>
                 {featured.map(b => (
                   <BoxCard key={b.seq} box={b} big />
                 ))}
@@ -185,19 +219,45 @@ export function MCash() {
                 </div>
                 <I.chevron size={16} />
               </Link>
-              {rest.length > 0 && (
+              {more && (
+                <section className="t-section" id="cz-more">
+                  <div className="t-section-head">
+                    <h2>صناديق الكاشير اليوم</h2>
+                    <small>{more.manual ? 'المختارة من لوحة التحكم' : 'كل كاشير عمل اليوم'}</small>
+                  </div>
+                  {data.cashiers == null ? (
+                    <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5, lineHeight: 1.8 }}>
+                      تفاصيل الكاشير تظهر بعد تحديث سيرفر المحل.
+                    </div>
+                  ) : more.cashiers.length === 0 ? (
+                    <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5 }}>
+                      لم يعمل أي كاشير بعد اليوم.
+                    </div>
+                  ) : (
+                    <>
+                      <CashiersSummary items={more.cashiers} />
+                      <div className="cz-list">
+                        {more.cashiers.map(x => (
+                          <CashierCard key={x.live.seq} live={x.live} box={x.box} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
+              {more && (more.others.length > 0 || more.hidden.length > 0) && (
                 <section className="t-section">
                   <div className="t-section-head">
-                    <h2>بقية الصناديق</h2>
-                    {rest.length > active.length && (
+                    <h2>{more.manual ? 'صناديق أخرى مختارة' : 'بقية الصناديق'}</h2>
+                    {more.hidden.length > 0 && (
                       <button type="button" className="more" onClick={() => (haptic('select'), setShowEmpty(v => !v))}>
-                        {showEmpty ? 'إخفاء الفارغة' : `إظهار الفارغة (${rest.length - active.length})`}
+                        {showEmpty ? 'إخفاء' : more.manual ? `كل الصناديق (${more.hidden.length})` : `إظهار الفارغة (${more.hidden.length})`}
                       </button>
                     )}
                   </div>
                   {shown.length === 0 ? (
                     <div className="t-card pad" style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 13.5 }}>
-                      كل الصناديق الأخرى فارغة وبلا حركة اليوم.
+                      {more.manual ? 'لا صناديق أخرى مختارة — اختر من لوحة التحكم (تقرير الصناديق).' : 'كل الصناديق الأخرى فارغة وبلا حركة اليوم.'}
                     </div>
                   ) : (
                     <div className="t-list">
@@ -226,7 +286,7 @@ export function MCash() {
                 </section>
               )}
               <p className="t-hint" style={{ marginTop: 14, lineHeight: 1.8 }}>
-                الرصيد = آخر مبلغ مثبّت في الإداري + الحركات بعده. اضغط أي صندوق لكشف حركاته يوماً بيوم.
+                الرصيد = آخر مبلغ مثبّت في الإداري + الحركات بعده. «النقد المتوقع في الدرج» من فواتير المحل لحظة بلحظة (المبيعات − المرتجعات، والبطاقة منفصلة). اختيار الصناديق الظاهرة من لوحة التحكم ← تقرير الصناديق.
               </p>
             </>
           )}
@@ -262,6 +322,7 @@ export function MCashBox() {
 
   const boxes = useBoxes();
   const box = boxes.data?.boxes.find(b => b.seq === seq) ?? null;
+  const liveCashier = boxes.data?.cashiers?.find(c => c.seq === seq) ?? null;
   const stKey = `cash.st:${seq}:${from}:${to}`;
   const [st, setSt] = useState<CashStatement | null>(() => snapCache.get<CashStatement>(stKey)?.data ?? null);
   const [err, setErr] = useState('');
@@ -407,6 +468,17 @@ export function MCashBox() {
         <p className="t-hint" style={{ marginTop: 10, lineHeight: 1.8 }}>
           الرصيد الدفتري في الإداري <span className="num ltr">{cashAmount(box!.ledgerBalance, c)}</span> — يختلف عن المثبّت بـ <span className="num ltr">{cashAmount(Math.abs(ledgerGap), c)}</span> (قيود أُدخلت بتاريخ سابق لآخر تثبيت).
         </p>
+      )}
+
+      {/* صندوق كاشير يعمل اليوم: تفاصيله الحية من فواتير المحل */}
+      {liveCashier && (
+        <section className="t-section" style={{ marginTop: 16 }}>
+          <div className="t-section-head">
+            <h2>الكاشير اليوم</h2>
+            <small>من فواتير المحل مباشرة</small>
+          </div>
+          <CashierCard live={liveCashier} box={box} link={false} />
+        </section>
       )}
 
       {/* اليوم المعروض والفترات السريعة */}

@@ -21,11 +21,13 @@ public sealed record CashBoxDto(
     decimal TodayIn,
     decimal TodayOut,
     int TodayCount,
-    IReadOnlyList<CashDayDto> Days);
+    IReadOnlyList<CashDayDto> Days,
+    // يظهر في «عرض المزيد» في تطبيق المدراء (اختيار لوحة التحكم)
+    bool Extra = false);
 
 public sealed record CashDayDto(string Date, decimal In, decimal Out, int Count, decimal Closing);
 
-public sealed record CashBoxesDto(string Today, DateTime At, IReadOnlyList<CashBoxDto> Boxes, IReadOnlyList<string> Featured, string RootNum);
+public sealed record CashBoxesDto(string Today, DateTime At, IReadOnlyList<CashBoxDto> Boxes, IReadOnlyList<string> Featured, string RootNum, IReadOnlyList<string>? Extra = null);
 
 public sealed record CashLineDto(
     long Seq,
@@ -87,8 +89,14 @@ public sealed class CashReportSettings
     /// <summary>رقم حساب «صناديق المحل» في دليل الحسابات — كل حساباته الفرعية صناديق.</summary>
     public string RootNum { get; set; } = "100";
 
-    /// <summary>أرقام الصناديق البارزة (تظهر أولاً في التطبيق): الدولار، الخشن، الناعم، بطاقة كي.</summary>
-    public List<string> Featured { get; set; } = ["131", "132", "133", "301"];
+    /// <summary>الصناديق الرئيسية (رئيسية تطبيق المدراء): الدولار، الخشن، الناعم.</summary>
+    public List<string> Featured { get; set; } = ["131", "132", "133"];
+
+    /// <summary>
+    /// صناديق «عرض المزيد» في تطبيق المدراء (صناديق الكاشير وأي صندوق آخر) بترتيبها.
+    /// null = تلقائي: كل كاشير يعمل اليوم + الصناديق غير الفارغة.
+    /// </summary>
+    public List<string>? Extra { get; set; }
 }
 
 /// <summary>
@@ -125,6 +133,7 @@ public sealed partial class EdariCashReportService(EdariTextQueryService text)
                 {
                     s.RootNum = CleanNum(s.RootNum) is { Length: > 0 } r ? r : "100";
                     s.Featured = (s.Featured ?? []).Select(CleanNum).Where(n => n.Length > 0).Distinct().Take(12).ToList();
+                    s.Extra = s.Extra?.Select(CleanNum).Where(n => n.Length > 0 && !s.Featured.Contains(n)).Distinct().Take(60).ToList();
                     return s;
                 }
             }
@@ -143,6 +152,7 @@ public sealed partial class EdariCashReportService(EdariTextQueryService text)
             RootNum = CleanNum(input.RootNum) is { Length: > 0 } r ? r : "100",
             Featured = (input.Featured ?? []).Select(CleanNum).Where(n => n.Length > 0).Distinct().Take(12).ToList(),
         };
+        s.Extra = input.Extra?.Select(CleanNum).Where(n => n.Length > 0 && !s.Featured.Contains(n)).Distinct().Take(60).ToList();
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(s, Json));
         _boxes = null;
@@ -210,7 +220,7 @@ public sealed partial class EdariCashReportService(EdariTextQueryService text)
                 Round(balance, a.Currency), Round(a.Ledger, a.Currency),
                 a.FixDate is { } f && a.CashFix != 0 ? Iso(f) : null,
                 a.FixDate is not null && a.CashFix != 0 ? Round(a.CashFix, a.Currency) : null,
-                t?.In ?? 0, t?.Out ?? 0, t?.Count ?? 0, recent));
+                t?.In ?? 0, t?.Out ?? 0, t?.Count ?? 0, recent, settings.Extra?.Contains(a.Num) == true));
         }
 
         // البارزة أولاً بترتيب الإعدادات، ثم البقية برقم الحساب
@@ -218,7 +228,7 @@ public sealed partial class EdariCashReportService(EdariTextQueryService text)
             .OrderBy(b => b.Featured ? settings.Featured.IndexOf(b.Num) : int.MaxValue)
             .ThenBy(b => b.Num.Length).ThenBy(b => b.Num, StringComparer.Ordinal)
             .ToList();
-        return new CashBoxesDto(Iso(today), DateTime.Now, ordered, settings.Featured, settings.RootNum);
+        return new CashBoxesDto(Iso(today), DateTime.Now, ordered, settings.Featured, settings.RootNum, settings.Extra);
     }
 
     /* ── كشف صندوق لفترة ── */
@@ -495,7 +505,9 @@ public sealed partial class EdariCashReportService(EdariTextQueryService text)
         const string cols = "Seq, Num, Name1, Bal, Tot1, Tot2, CBal, CTot1, CTot2, Acur, FixDate, FixBal, CloseAcc, SubCount";
         var root = await text.QueryAsync($"SELECT Seq FROM File11n WHERE Num = '{settings.RootNum}'", ct);
         var rootSeq = root.Count > 0 ? (long)Num(Cell(root[0], 0)) : 0;
-        var featured = settings.Featured.Count > 0 ? string.Join(",", settings.Featured.Select(n => $"'{n}'")) : "''";
+        // الرئيسية + المختارة للمزيد (قد تكون خارج حساب الصناديق، مثل بطاقة كي 301)
+        var wanted = settings.Featured.Concat(settings.Extra ?? ["301"]).Distinct().ToList();
+        var featured = wanted.Count > 0 ? string.Join(",", wanted.Select(n => $"'{n}'")) : "''";
         var where = rootSeq > 0 ? $"Master = {rootSeq} OR Num IN ({featured})" : $"Num IN ({featured})";
         var rows = await text.QueryAsync($"SELECT {cols} FROM File11n WHERE {where}", ct);
 

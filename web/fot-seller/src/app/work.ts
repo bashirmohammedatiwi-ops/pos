@@ -384,11 +384,45 @@ export interface CashBox {
   todayCount: number;
   /** آخر 14 يوماً، الأحدث أولاً */
   days: CashDay[];
+  /** مختار لـ«عرض المزيد» من لوحة التحكم */
+  extra?: boolean;
+}
+/** صندوق كاشير يعمل اليوم — من فواتير المحل مباشرة */
+export interface CashierLive {
+  seq: number;
+  cashiers: string[];
+  pos?: string | null;
+  section?: string | null;
+  lastSeen?: string | null;
+  online: boolean;
+  sales: number;
+  salesTotal: number;
+  returns: number;
+  returnsTotal: number;
+  gifts: number;
+  /** النقد المتوقع في الدرج: المبيعات − المرتجعات */
+  cash: number;
+  cardCount: number;
+  cardTotal: number;
+  /** النقد + البطاقة */
+  total: number;
+  discount: number;
+  voids: number;
+  voidsAmount: number;
+  pieces: number;
+  firstAt?: string | null;
+  lastAt?: string | null;
+  /** صافي كل ساعة 0–23 */
+  hours: number[];
 }
 export interface CashBoxes {
   today: string | null;
   boxes: CashBox[];
   featured: string[];
+  /** صناديق «عرض المزيد» بترتيبها؛ null = تلقائي (كل كاشير يعمل اليوم) */
+  extra?: string[] | null;
+  /** صناديق الكاشير العاملة اليوم (سيرفر محل أحدث) */
+  cashiers?: CashierLive[] | null;
   receivedAt: string | null;
   /** سيرفر المحل لم يرفع منذ دقائق */
   stale: boolean;
