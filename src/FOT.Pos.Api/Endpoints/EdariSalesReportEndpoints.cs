@@ -14,13 +14,13 @@ public static class EdariSalesReportEndpoints
     {
         api.MapGet("/reports/edari-sales", async (
             HttpContext http, EdariSalesReportService sales,
-            string? from, string? to, string? branches, long? node, string? q, bool? lines, int? maxLines, bool? fresh,
+            string? from, string? to, string? branches, long? node, string? q, bool? lines, int? maxLines, bool? fresh, bool? compare,
             CancellationToken ct) =>
         {
             if (!IsAdmin(http)) return Results.Forbid();
             try
             {
-                return Results.Ok(await sales.GetAsync(BuildQuery(from, to, branches, node, q, lines == true, maxLines, fresh == true), ct));
+                return Results.Ok(await sales.GetAsync(BuildQuery(from, to, branches, node, q, lines == true, maxLines, fresh == true, compare == true), ct));
             }
             catch (ArgumentException ex)
             {
@@ -37,7 +37,7 @@ public static class EdariSalesReportEndpoints
         });
     }
 
-    internal static EdariSalesQuery BuildQuery(string? from, string? to, string? branches, long? node, string? search, bool lines, int? maxLines, bool fresh)
+    internal static EdariSalesQuery BuildQuery(string? from, string? to, string? branches, long? node, string? search, bool lines, int? maxLines, bool fresh, bool compare = false)
     {
         var f = CashReportEndpoints.ParseDay(from) ?? DateTime.Today;
         var t = CashReportEndpoints.ParseDay(to) ?? f;
@@ -47,7 +47,7 @@ public static class EdariSalesReportEndpoints
             .ToList();
         var term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         if (term is { Length: > 80 }) term = term[..80];
-        return new EdariSalesQuery(f, t, list, node is > 0 ? node : null, term, lines, maxLines ?? 3000, fresh);
+        return new EdariSalesQuery(f, t, list, node is > 0 ? node : null, term, lines, maxLines ?? 3000, fresh, compare);
     }
 
     private static bool IsAdmin(HttpContext http) =>

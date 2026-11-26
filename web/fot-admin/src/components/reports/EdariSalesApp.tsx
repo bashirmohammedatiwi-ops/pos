@@ -42,6 +42,7 @@ export function EdariSalesApp({ onClose }: { onClose: () => void }) {
   const [searchText, setSearchText] = useState('');
   const [search, setSearch] = useState('');
   const [branchOpen, setBranchOpen] = useState(false);
+  const [compare, setCompare] = useState(false);
   const [printing, setPrinting] = useState(false);
 
   // البحث بعد توقف الكتابة
@@ -56,8 +57,8 @@ export function EdariSalesApp({ onClose }: { onClose: () => void }) {
   const tooLong = span > EDARI_SALES_MAX_DAYS;
 
   const q = useQuery({
-    queryKey: ['edari-sales', f, to, branches.join(','), node, nodeLeaf, search],
-    queryFn: () => edariSalesApi.report({ from: f, to, branches, node, q: search, lines: nodeLeaf }),
+    queryKey: ['edari-sales', f, to, branches.join(','), node, nodeLeaf, search, compare],
+    queryFn: () => edariSalesApi.report({ from: f, to, branches, node, q: search, lines: nodeLeaf, compare }),
     enabled: valid && !tooLong,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
@@ -176,6 +177,9 @@ export function EdariSalesApp({ onClose }: { onClose: () => void }) {
               {label}
             </Btn>
           ))}
+          <Btn size="sm" variant={compare ? 'primary' : 'secondary'} onClick={() => setCompare(v => !v)} aria-pressed={compare}>
+            مقارنة بالفترة السابقة
+          </Btn>
           <div className="relative">
             <Btn size="sm" variant={branches.length ? 'primary' : 'secondary'} icon={<IconFilter size={14} />} onClick={() => setBranchOpen(v => !v)} aria-expanded={branchOpen}>
               {branches.length ? `الفروع (${branches.length})` : 'كل الفروع'}
@@ -240,7 +244,17 @@ export function EdariSalesApp({ onClose }: { onClose: () => void }) {
             <>
               {/* المؤشرات */}
               <div className={`grid grid-cols-2 gap-2 xl:grid-cols-5 ${q.isFetching ? 'opacity-70' : ''}`}>
-                <Kpi label="الصافي" value={n0(scope.net)} hint="المبيعات − المردود" tone="text-header" big />
+                <Kpi
+                  label="الصافي"
+                  value={n0(scope.net)}
+                  hint={
+                    r.prevFrom && (r.node ? r.prevNodeTotals : r.prevTotals)
+                      ? `${deltaText(scope.net, (r.node ? r.prevNodeTotals : r.prevTotals)!.net)} عن ${r.prevFrom === r.prevTo ? dmy(r.prevFrom) : `${dmy(r.prevFrom)} – ${dmy(r.prevTo!)}`} (${n0((r.node ? r.prevNodeTotals : r.prevTotals)!.net)})`
+                      : 'المبيعات − المردود'
+                  }
+                  tone="text-header"
+                  big
+                />
                 <Kpi label="المبيعات" value={n0(scope.sales)} hint={`${qty(scope.salesQty)} قطعة`} tone="text-emerald-700" />
                 <Kpi label="المردود" value={n0(scope.returns)} hint={`${qty(scope.returnsQty)} قطعة`} tone="text-rose-700" />
                 <Kpi label="الهدايا" value={n0(scope.gifts)} hint={`${qty(scope.giftsQty)} قطعة`} tone="text-amber-700" />
@@ -430,6 +444,21 @@ export function EdariSalesApp({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** التغير عن الفترة السابقة: نسبة أو «جديد» / «توقف» */
+function deltaText(net: number, prev: number) {
+  if (!prev && !net) return '—';
+  if (!prev) return 'جديد';
+  if (!net) return 'توقف';
+  const pct = ((net - prev) / Math.abs(prev)) * 100;
+  return `${pct > 0 ? '+' : ''}${Math.abs(pct) >= 100 ? Math.round(pct) : pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`;
+}
+function deltaTone(net: number, prev: number) {
+  if (!prev) return net ? 'text-emerald-700' : 'text-slate-400';
+  if (!net) return 'text-rose-700';
+  const pct = ((net - prev) / Math.abs(prev)) * 100;
+  return Math.abs(pct) < 1 ? 'text-slate-400' : pct > 0 ? 'text-emerald-700' : 'text-rose-700';
+}
+
 function ItemRow({ item, base, total, onOpen }: { item: SalesItem; base: number; total: number; onOpen: () => void }) {
   const share = total > 0 ? (item.net / total) * 100 : 0;
   return (
@@ -450,7 +479,14 @@ function ItemRow({ item, base, total, onOpen }: { item: SalesItem; base: number;
       <td className="num whitespace-nowrap px-2 py-2 text-end font-semibold text-emerald-700">{item.sales ? n0(item.sales) : ''}</td>
       <td className="num whitespace-nowrap px-2 py-2 text-end text-amber-700">{item.gifts ? n0(item.gifts) : ''}</td>
       <td className="num whitespace-nowrap px-2 py-2 text-end text-rose-700">{item.returns ? n0(item.returns) : ''}</td>
-      <td className="num whitespace-nowrap px-3 py-2 text-end font-extrabold text-slate-800">{n0(item.net)}</td>
+      <td className="num whitespace-nowrap px-3 py-2 text-end font-extrabold text-slate-800">
+        {n0(item.net)}
+        {item.prevNet != null && (
+          <div className={`text-[10.5px] font-bold ${deltaTone(item.net, item.prevNet)}`} title={`الفترة السابقة ${n0(item.prevNet)}`}>
+            {deltaText(item.net, item.prevNet)}
+          </div>
+        )}
+      </td>
       <td className="px-3 py-2">
         {total > 0 && (
           <div className="flex items-center gap-1.5" title={`${share.toFixed(1)}% من الصافي`}>

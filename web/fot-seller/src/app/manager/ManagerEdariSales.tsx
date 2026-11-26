@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Empty, ErrorLine, I, Screen, Sheet, Skeleton, fmt, toast } from '../kit';
 import { exportHtmlPdf, haptic } from '../native';
 import { BackBtn } from '../parts';
-import { EDARI_SALES_MAX_DAYS, edariSalesApi, type EdSalesItem, type EdSalesReport } from '../work';
+import { EDARI_SALES_MAX_DAYS, edariSalesApi, snapCache, type EdSalesItem, type EdSalesReport } from '../work';
 import { pdfShell } from './cashPdf';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -25,6 +25,23 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&am
 const n0 = (v: number) => fmt(Math.round(v));
 const qty = (v: number) => (Number.isInteger(v) ? fmt(v) : v.toLocaleString('en-US', { maximumFractionDigits: 2 }));
 const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+type Sort = 'net' | 'up' | 'down';
+
+/** التغير عن الفترة السابقة: نسبة، أو «جديد» / «توقف» */
+function Delta({ net, prev }: { net: number; prev?: number | null }) {
+  if (prev == null) return null;
+  if (!prev && !net) return null;
+  if (!prev) return <span className="e-delta up">جديد</span>;
+  if (!net) return <span className="e-delta down">توقف</span>;
+  const pct = ((net - prev) / Math.abs(prev)) * 100;
+  const cls = Math.abs(pct) < 1 ? 'flat' : pct > 0 ? 'up' : 'down';
+  return (
+    <span className={`e-delta ${cls}`}>
+      {pct > 0 ? '+' : ''}
+      {Math.abs(pct) >= 100 ? Math.round(pct) : pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%
+    </span>
+  );
+}
 
 export function MEdariSales() {
   const [sp, setSp] = useSearchParams();
@@ -34,6 +51,8 @@ export function MEdariSales() {
   const node = Number(sp.get('n')) || null;
   const leaf = sp.get('l') === '1';
   const branches = (sp.get('b') || '').split(',').filter(Boolean);
+  const compare = sp.get('c') === '1';
+  const sort: Sort = compare && (sp.get('s') === 'up' || sp.get('s') === 'down') ? (sp.get('s') as Sort) : 'net';
   const span = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 
   /** تغيير الفترة/الفلتر يستبدل الصفحة؛ الدخول في شجرة يضيف صفحة كي يرجع زر الرجوع خطوة */
@@ -47,7 +66,8 @@ export function MEdariSales() {
   };
   const setRange = (f: string, t: string) => set({ f: f === today && t === today ? null : f, t: f === t ? null : t });
 
-  const [r, setR] = useState<EdSalesReport | null>(null);
+  const cacheKey = `edari:${from}:${to}:${node ?? 0}:${leaf ? 1 : 0}:${branches.join(',')}:${compare ? 1 : 0}`;
+  const [r, setR] = useState<EdSalesReport | null>(() => snapCache.get<EdSalesReport>(cacheKey)?.data ?? null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [qText, setQText] = useState('');
@@ -77,10 +97,11 @@ export function MEdariSales() {
     const id = ++seqRef.current;
     setLoading(true);
     try {
-      const data = await edariSalesApi.report({ from, to, branches, node, q: q || undefined, lines: leaf, fresh: fresh || undefined });
+      const data = await edariSalesApi.report({ from, to, branches, node, q: q || undefined, lines: leaf, fresh: fresh || undefined, compare: compare || undefined });
       if (id !== seqRef.current) return;
       setR(data);
       setErr('');
+      if (!q) snapCache.set(cacheKey, data);
     } catch (e) {
       if (id !== seqRef.current) return;
       const msg = e instanceof Error ? e.message : '';
@@ -91,7 +112,12 @@ export function MEdariSales() {
   }
   useEffect(() => {
     void load();
-  }, [from, to, node, leaf, branches.join(','), q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from, to, node, leaf, branches.join(','), q, compare]); // eslint-disable-line react-hooks/exhaustive-deps
+  // لقطة محفوظة للموضع الجديد تظهر فوراً بدل التقرير السابق
+  useEffect(() => {
+    const hit = snapCache.get<EdSalesReport>(cacheKey)?.data;
+    if (hit) setR(hit);
+  }, [cacheKey]);
 
   const open = (i: EdSalesItem) => {
     haptic('tap');
@@ -109,7 +135,12 @@ export function MEdariSales() {
 
   // التقرير الظاهر يطابق الطلب الحالي (أثناء التحميل يبقى السابق باهتاً)
   const scope = r ? (r.node ? r.nodeTotals : r.totals) : null;
-  const included = useMemo(() => r?.items.filter(i => !i.excluded) ?? [], [r]);
+  const included = useMemo(() => {
+    const list = r?.items.filter(i => !i.excluded) ?? [];
+    if (sort === 'net') return list;
+    const change = (i: EdSalesItem) => i.net - (i.prevNet ?? 0);
+    return [...list].sort((a, b) => (sort === 'up' ? change(b) - change(a) : change(a) - change(b)));
+  }, [r, sort]);
   const excluded = useMemo(() => r?.items.filter(i => i.excluded) ?? [], [r]);
   const peak = Math.max(1, ...included.map(i => Math.abs(i.net)));
   const dayPeak = Math.max(1, ...(r?.days ?? []).map(d => d.net));
@@ -184,6 +215,9 @@ export function MEdariSales() {
         <button type="button" className={`m-pill press ${branches.length ? 'on' : ''}`} onClick={() => (haptic('tap'), setBranchSheet(true))}>
           {branches.length ? `الفروع (${branches.length})` : 'كل الفروع'}
         </button>
+        <button type="button" className={`m-pill press ${compare ? 'on' : ''}`} aria-pressed={compare} onClick={() => (haptic('select'), set({ c: compare ? null : '1', s: null }))}>
+          مقارنة بالسابق
+        </button>
       </div>
       {(custom || preset === 'custom') && (
         <div className="t-row-2" style={{ marginTop: 10 }}>
@@ -234,6 +268,13 @@ export function MEdariSales() {
             <div className="end e-wide">
               <span>{r.node ? `صافي ${r.node.name}` : 'الصافي'} · المبيعات − المردود</span>
               <b className="num">{n0(scope.net)}</b>
+              {r.prevFrom && (r.node ? r.prevNodeTotals : r.prevTotals) && (
+                <small>
+                  <Delta net={scope.net} prev={(r.node ? r.prevNodeTotals : r.prevTotals)!.net} /> عن{' '}
+                  {r.prevFrom === r.prevTo ? (r.prevFrom === addDays(today, -1) ? 'أمس' : dayName(r.prevFrom)) : `${dayShort(r.prevFrom)} – ${dayShort(r.prevTo!)}`} (
+                  <span className="num">{n0((r.node ? r.prevNodeTotals : r.prevTotals)!.net)}</span>)
+                </small>
+              )}
               <small>
                 {r.node ? (
                   <>
@@ -344,6 +385,21 @@ export function MEdariSales() {
                 <h2>{r.search ? 'نتائج البحث' : r.node ? 'المجموعات والمواد' : 'أشجار المواد'}</h2>
                 {!r.search && included.length > 0 && <span className="more num">{included.length}</span>}
               </div>
+              {compare && !r.search && included.length > 1 && (
+                <div className="t-scroller" style={{ gap: 8, marginBottom: 10 }}>
+                  {(
+                    [
+                      ['net', 'الأعلى صافياً'],
+                      ['up', 'الأكثر نمواً'],
+                      ['down', 'الأكثر تراجعاً'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button key={id} type="button" className={`m-pill press ${sort === id ? 'on' : ''}`} onClick={() => (haptic('select'), set({ s: id === 'net' ? null : id }))}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <label className="t-search">
                 <I.search />
                 <input placeholder={r.node ? `ابحث عن مادة في ${r.node.name}` : 'ابحث عن مادة بالاسم أو الباركود'} value={qText} onChange={e => setQText(e.target.value)} />
@@ -525,7 +581,13 @@ function ItemRow({ item, peak, total, onOpen }: { item: EdSalesItem; peak: numbe
       </div>
       <div className="end">
         <b className="num">{n0(item.net)}</b>
-        {total > 0 && <small className="num">{share.toFixed(share >= 10 ? 0 : 1)}%</small>}
+        {item.prevNet != null ? (
+          <small>
+            <Delta net={item.net} prev={item.prevNet} />
+          </small>
+        ) : (
+          total > 0 && <small className="num">{share.toFixed(share >= 10 ? 0 : 1)}%</small>
+        )}
       </div>
     </button>
   );

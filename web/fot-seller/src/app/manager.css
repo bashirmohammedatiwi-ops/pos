@@ -1103,3 +1103,61 @@
   flex-shrink: 0;
   color: var(--ink-3);
 }
+
+/* ═════════════ حركة الأموال ═════════════ */
+.f-cur {
+  margin: 18px 0 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+.f-rows {
+  margin: 0 12px 8px;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: var(--bg-sunk);
+}
+.f-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.f-row:last-child {
+  border-bottom: 0;
+}
+.f-row .name {
+  min-width: 0;
+  color: var(--ink-2);
+}
+.f-row .name small {
+  color: var(--ink-3);
+}
+.f-row b {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+.e-delta {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  direction: ltr;
+}
+.e-delta.up {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.e-delta.down {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.e-delta.flat {
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+}

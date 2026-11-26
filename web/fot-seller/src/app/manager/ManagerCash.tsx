@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Empty, ErrorLine, I, Screen, Skeleton, toast } from '../kit';
 import { exportHtmlPdf, haptic } from '../native';
 import { BackBtn } from '../parts';
-import { cashApi, onLive, relTime, useLoad, type CashBox, type CashBoxes, type CashStatement } from '../work';
+import { cashApi, onLive, relTime, snapCache, useLoad, type CashBox, type CashBoxes, type CashStatement } from '../work';
+import { CashAlertsSheet } from './ManagerCashFlow';
 import { cashAmount, cashBoxesPdfHtml, cashStatementFileBase, cashStatementPdfHtml, cashUnit } from './cashPdf';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -34,10 +35,15 @@ function Money({ value, currency, sign }: { value: number; currency: string; sig
   );
 }
 
-/** يحمّل الأرصدة ويعيد تحميلها مع كل تحديث يصل من المحل */
+/** يحمّل الأرصدة ويعيد تحميلها مع كل تحديث يصل من المحل؛ آخر أرصدة محفوظة تظهر فوراً عند الفتح */
 function useBoxes() {
-  const q = useLoad<CashBoxes>(() => cashApi.boxes(), ['cash']);
-  return q;
+  const [cached] = useState(() => snapCache.get<CashBoxes>('cash.boxes')?.data ?? null);
+  const q = useLoad<CashBoxes>(async () => {
+    const d = await cashApi.boxes();
+    if (d.boxes.length) snapCache.set('cash.boxes', d);
+    return d;
+  }, ['cash']);
+  return { ...q, data: q.data ?? cached, loading: q.loading && !q.data && !cached };
 }
 
 function StaleNote({ data }: { data: CashBoxes }) {
@@ -115,6 +121,7 @@ export function MCash() {
   const { data, err, loading, reload } = useBoxes();
   const [showEmpty, setShowEmpty] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [alerts, setAlerts] = useState(false);
   const featured = (data?.boxes ?? []).filter(b => b.featured);
   const rest = (data?.boxes ?? []).filter(b => !b.featured);
   const active = rest.filter(b => b.balance !== 0 || b.todayCount > 0);
@@ -139,14 +146,20 @@ export function MCash() {
       subtitle={data?.receivedAt ? `من الإداري · محدّث ${relTime(data.receivedAt)}` : 'أرصدة الصناديق من الإداري'}
       start={<BackBtn to="/m" />}
       end={
-        data?.boxes.length ? (
-          <button type="button" className="t-btn soft sm press" disabled={busy} onClick={() => void exportPdf()}>
-            {busy ? <span className="spinner" style={{ borderTopColor: 'var(--brand)' }} /> : 'PDF'}
+        <>
+          <button type="button" className="t-icon-btn press" aria-label="تنبيهات الصناديق" onClick={() => (haptic('tap'), setAlerts(true))}>
+            <I.bell size={20} />
           </button>
-        ) : undefined
+          {data?.boxes.length ? (
+            <button type="button" className="t-btn soft sm press" disabled={busy} onClick={() => void exportPdf()}>
+              {busy ? <span className="spinner" style={{ borderTopColor: 'var(--brand)' }} /> : 'PDF'}
+            </button>
+          ) : null}
+        </>
       }
       onRefresh={reload}
     >
+      <CashAlertsSheet open={alerts} onClose={() => setAlerts(false)} />
       {err && !data && <ErrorLine text={err} onRetry={() => void reload()} />}
       {loading && !data ? (
         <Skeleton h={320} r={24} />
@@ -162,6 +175,16 @@ export function MCash() {
                   <BoxCard key={b.seq} box={b} big />
                 ))}
               </div>
+              <Link to="/m/cash/flow" className="t-row press-soft e-link" style={{ marginTop: 14 }} onClick={() => haptic('tap')}>
+                <span className="t-tile accent">
+                  <I.chart size={19} />
+                </span>
+                <div className="body">
+                  <div className="title">حركة الأموال</div>
+                  <div className="sub">من أين جاء المال وإلى أين ذهب — مجهزون، رواتب، مصاريف</div>
+                </div>
+                <I.chevron size={16} />
+              </Link>
               {rest.length > 0 && (
                 <section className="t-section">
                   <div className="t-section-head">
@@ -239,7 +262,8 @@ export function MCashBox() {
 
   const boxes = useBoxes();
   const box = boxes.data?.boxes.find(b => b.seq === seq) ?? null;
-  const [st, setSt] = useState<CashStatement | null>(null);
+  const stKey = `cash.st:${seq}:${from}:${to}`;
+  const [st, setSt] = useState<CashStatement | null>(() => snapCache.get<CashStatement>(stKey)?.data ?? null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
@@ -250,8 +274,10 @@ export function MCashBox() {
     if (!seq) return;
     if (!silent) setLoading(true);
     try {
-      setSt(await cashApi.statement(seq, from, to));
+      const d = await cashApi.statement(seq, from, to);
+      setSt(d);
       setErr('');
+      snapCache.set(`cash.st:${seq}:${from}:${to}`, d);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'تعذر تحميل الكشف');
     } finally {
@@ -259,7 +285,7 @@ export function MCashBox() {
     }
   }
   useEffect(() => {
-    setSt(null);
+    setSt(snapCache.get<CashStatement>(stKey)?.data ?? null);
     void load();
   }, [seq, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
   // حركة جديدة في المحل: يتحدث الكشف إن كان يشمل اليوم
@@ -464,6 +490,16 @@ export function MCashBox() {
             </div>
           </div>
 
+          <Link to={`/m/cash/flow?box=${seq}&f=${from}${to !== from ? `&t=${to}` : ''}`} className="t-row press-soft e-link" style={{ marginTop: 12 }} onClick={() => haptic('tap')}>
+            <span className="t-tile accent">
+              <I.chart size={19} />
+            </span>
+            <div className="body">
+              <div className="title">أين ذهب المال من هذا الصندوق</div>
+              <div className="sub">الصرف والقبض مجمّعاً حسب الحساب لنفس الفترة</div>
+            </div>
+            <I.chevron size={16} />
+          </Link>
           {st.lines.length > 6 && (
             <label className="t-search" style={{ marginTop: 12 }}>
               <I.search />

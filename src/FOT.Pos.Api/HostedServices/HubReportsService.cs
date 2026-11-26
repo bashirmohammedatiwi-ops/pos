@@ -159,12 +159,18 @@ public sealed class HubReportsService(
                     CashReportEndpoints.ParseDay(job.Text("to")) ?? CashReportEndpoints.ParseDay(job.Text("from")) ?? DateTime.Today,
                     limit.Token),
                 "cash.boxes" => await cash.GetBoxesAsync(true, limit.Token),
+                "cash.flow" => await cash.GetFlowAsync(
+                    CashReportEndpoints.ParseDay(job.Text("from")) ?? DateTime.Today,
+                    CashReportEndpoints.ParseDay(job.Text("to")) ?? CashReportEndpoints.ParseDay(job.Text("from")) ?? DateTime.Today,
+                    job.Long("seq") is > 0 and var flowSeq ? flowSeq : null,
+                    limit.Token),
                 "sales.report" => await scope.ServiceProvider.GetRequiredService<EdariSalesReportService>().GetAsync(
                     EdariSalesReportEndpoints.BuildQuery(
                         job.Text("from"), job.Text("to"), job.Text("branches"),
                         job.Long("node"), job.Text("q"), job.Text("lines") is "true" or "True" or "1",
                         (int)Math.Clamp(job.Long("maxLines"), 0, 6000) is > 0 and var max ? max : 800,
-                        job.Text("fresh") is "true" or "True" or "1"),
+                        job.Text("fresh") is "true" or "True" or "1",
+                        job.Text("compare") is "true" or "True" or "1"),
                     limit.Token),
                 _ => throw new NotSupportedException("سيرفر المحل لا يعرف هذا التقرير بعد — حدّث سيرفر المحل"),
             };

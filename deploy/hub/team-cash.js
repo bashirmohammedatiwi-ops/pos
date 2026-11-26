@@ -18,7 +18,7 @@ const SALES_MAX_DAYS = 93;
 const STALE_MS = 4 * 60_000;
 const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`));
 
-function createCash({ db, ctx, now, permsOf, managerIds, emit }) {
+function createCash({ db, ctx, now, permsOf, managerIds, emit, notify, audit }) {
   db.exec('CREATE TABLE IF NOT EXISTS cash_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
   const load = key => {
     const row = db.prepare('SELECT value, updated_at FROM cash_state WHERE key = ?').get(key);
@@ -36,6 +36,86 @@ function createCash({ db, ctx, now, permsOf, managerIds, emit }) {
   let shopSeenAt = 0; // آخر مرة انتظر فيها سيرفر المحل الطابور
 
   const viewers = () => managerIds().filter(id => permsOf(id).perms.viewCash);
+
+  /* ── تنبيهات الصناديق (لمن يملك viewCash) ── */
+  db.exec('CREATE TABLE IF NOT EXISTS cash_alert_log (day TEXT NOT NULL, key TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (day, key))');
+  const ALERT_DEFAULTS = { bigOut: 2_000_000, bigOutUsd: 1000, negative: true, dailyClose: true, closeAt: '22:30' };
+  function alertSettings() {
+    const saved = load('alerts')?.value ?? {};
+    return { ...ALERT_DEFAULTS, ...saved };
+  }
+  function saveAlertSettings(body, actor) {
+    const cur = alertSettings();
+    const money = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : d);
+    const next = {
+      bigOut: money(body.bigOut, cur.bigOut),
+      bigOutUsd: money(body.bigOutUsd, cur.bigOutUsd),
+      negative: body.negative !== undefined ? !!body.negative : cur.negative,
+      dailyClose: body.dailyClose !== undefined ? !!body.dailyClose : cur.dailyClose,
+      closeAt: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.closeAt || '')) ? body.closeAt : cur.closeAt,
+    };
+    save('alerts', next);
+    audit?.(actor, 'cash.alerts', null, next);
+    return next;
+  }
+  const fmtAmount = (v, c) => (c === 'USD' ? `$${Math.round(v).toLocaleString('en-US')}` : `${Math.round(v).toLocaleString('en-US')} د.ع`);
+  const compact = (v, c) => {
+    if (c === 'USD') return fmtAmount(v, c);
+    const a = Math.abs(v);
+    const trim = (x, d) => x.toFixed(d).replace(/\.0+$/, '');
+    if (a >= 1e6) return `${trim(v / 1e6, a >= 1e8 ? 0 : a >= 1e7 ? 1 : 2)} مليون`;
+    if (a >= 1e3) return `${Math.round(v / 1e3)} ألف`;
+    return String(Math.round(v));
+  };
+  /** تنبيه واحد لكل مفتاح في اليوم */
+  function alertOnce(day, key, n) {
+    const ids = viewers();
+    if (!ids.length || !notify) return;
+    const r = db.prepare('INSERT INTO cash_alert_log (day, key, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').run(day, key, now());
+    if (r.changes) notify('manager', ids, n);
+  }
+  /** يقارن اللقطة الجديدة بالسابقة: صرف كبير جديد من صندوق، أو صندوق صار سالباً */
+  function checkAlerts(prev, next) {
+    if (!prev || !next || prev.today !== next.today) return;
+    const s = alertSettings();
+    const before = new Map((prev.boxes || []).map(b => [b.seq, b]));
+    for (const b of next.boxes || []) {
+      const o = before.get(b.seq);
+      if (!o) continue;
+      const added = Number(b.todayOut) - Number(o.todayOut);
+      const limit = b.currency === 'USD' ? s.bigOutUsd : s.bigOut;
+      if (limit > 0 && added >= limit) {
+        const moves = Math.max(1, Number(b.todayCount) - Number(o.todayCount));
+        alertOnce(next.today, `out:${b.seq}:${b.todayCount}`, {
+          type: 'cash.out',
+          title: `صرف ${fmtAmount(added, b.currency)} من ${b.name}`,
+          body: `الرصيد الآن ${fmtAmount(b.balance, b.currency)}${moves > 1 ? ` · ${moves} حركات` : ''}`,
+          link: `/cash/${b.seq}`,
+        });
+      }
+      if (s.negative && Number(b.balance) < 0 && Number(o.balance) >= 0)
+        alertOnce(next.today, `neg:${b.seq}`, { type: 'cash.negative', title: `${b.name} صار بالسالب`, body: `الرصيد ${fmtAmount(b.balance, b.currency)} — راجع آخر الحركات`, link: `/cash/${b.seq}` });
+    }
+  }
+  /** ملخص الصناديق البارزة عند الإغلاق بتبليغ واحد */
+  function checkClose() {
+    try {
+      const s = alertSettings();
+      if (!s.dailyClose || !snapshot?.value?.boxes?.length) return;
+      const local = new Date(Date.now() + 3 * 3600_000);
+      const day = local.toISOString().slice(0, 10);
+      if (local.toISOString().slice(11, 16) < s.closeAt || snapshot.value.today !== day) return;
+      if (Date.now() - Date.parse(snapshot.at) > STALE_MS) return; // أرقام قديمة: لا ملخص مضلل
+      const featured = snapshot.value.boxes.filter(b => b.featured);
+      if (!featured.length) return;
+      const parts = featured.map(b => `${b.name.replace(/^صندوق\s+/, '')} ${compact(b.balance, b.currency)}`);
+      const moved = featured.filter(b => b.todayCount).length;
+      alertOnce(day, 'close', { type: 'cash.close', title: 'الصناديق عند الإغلاق', body: parts.join(' · ') + (moved ? '' : ' · بلا حركة اليوم'), link: '/cash' });
+    } catch (err) {
+      console.error('cash close alert failed', err.message);
+    }
+  }
+  setInterval(checkClose, 60_000).unref();
   const notifyViewers = data => {
     for (const id of viewers()) emit(`manager:${id}`, 'cash', data);
   };
@@ -117,6 +197,11 @@ function createCash({ db, ctx, now, permsOf, managerIds, emit }) {
         return ctx.sendOpen(res, 400, { error: 'bad json' }), true;
       }
       if (body.boxes && Array.isArray(body.boxes.boxes)) {
+        try {
+          checkAlerts(snapshot?.value, body.boxes);
+        } catch (err) {
+          console.error('cash alerts failed', err.message);
+        }
         save('boxes', body.boxes);
         snapshot = { value: body.boxes, at: now() };
         shopError = null;
@@ -166,7 +251,7 @@ function createCash({ db, ctx, now, permsOf, managerIds, emit }) {
   }
 
   /* ── مسارات المدير: /api/team/m/cash/* و /api/team/m/edari/sales ── */
-  async function handleManage(req, res, url, sub, send) {
+  async function handleManage(req, res, url, sub, send, actor) {
     if (req.method === 'POST' && sub === 'edari/sales') {
       let body = {};
       try {
@@ -187,12 +272,42 @@ function createCash({ db, ctx, now, permsOf, managerIds, emit }) {
       const node = Number.isInteger(Number(body.node)) && Number(body.node) > 0 ? Number(body.node) : 0;
       const q = typeof body.q === 'string' ? body.q.trim().slice(0, 80) : '';
       const params = { from, to, branches: branches.join(','), node, q, lines: body.lines === true && node > 0, maxLines: 800 };
+      if (body.compare === true) params.compare = true;
       if (body.fresh === true) params.fresh = true;
       const out = await runJob('sales.report', params);
       return send(out.ok ? 200 : out.status, out.ok ? out.result : { error: out.error }), true;
     }
     if (!/^cash(\/|$)/.test(sub)) return false;
     if (req.method === 'GET' && sub === 'cash/boxes') return send(200, boxesView()), true;
+    if (sub === 'cash/alerts') {
+      if (req.method === 'GET') return send(200, alertSettings()), true;
+      if (req.method === 'PUT') {
+        let body = {};
+        try {
+          body = JSON.parse((await ctx.readBody(req)) || '{}');
+        } catch {
+          /* فارغ */
+        }
+        return send(200, saveAlertSettings(body, actor || 'manager')), true;
+      }
+    }
+    // حركة الأموال: من أين جاء المال وإلى أين ذهب (كل الصناديق أو صندوق واحد)
+    if (req.method === 'POST' && sub === 'cash/flow') {
+      let body = {};
+      try {
+        body = JSON.parse((await ctx.readBody(req)) || '{}');
+      } catch {
+        /* فارغ */
+      }
+      const from = isDate(body.from) ? body.from : null;
+      let to = isDate(body.to) ? body.to : from;
+      if (!from) return send(400, { error: 'حدد التاريخ' }), true;
+      if (to < from) to = from;
+      const seq = Number.isInteger(Number(body.seq)) && Number(body.seq) > 0 ? Number(body.seq) : 0;
+      if (seq && snapshot && !snapshot.value.boxes.some(b => Number(b.seq) === seq)) return send(404, { error: 'الصندوق غير موجود' }), true;
+      const out = await runJob('cash.flow', seq ? { from, to, seq } : { from, to });
+      return send(out.ok ? 200 : out.status, out.ok ? out.result : { error: out.error }), true;
+    }
     if (req.method === 'POST' && sub === 'cash/statement') {
       let body = {};
       try {

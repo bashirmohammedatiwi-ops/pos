@@ -11,6 +11,7 @@ import { LeaveCard, MHome } from './ManagerHome';
 import { MManagers, MSelf } from './ManagerSelf';
 import { MCash, MCashBox } from './ManagerCash';
 import { MEdariSales } from './ManagerEdariSales';
+import { MCashFlow } from './ManagerCashFlow';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
 import { MSales } from './ManagerSales';
@@ -157,6 +158,7 @@ export function ManagerApp() {
         <Route path="managers" element={perms.viewManagers && !sup ? <MManagers /> : <Navigate to="/m" replace />} />
         <Route path="sales/edari" element={perms.viewSales && !sup ? <MEdariSales /> : <Navigate to="/m" replace />} />
         <Route path="cash" element={perms.viewCash && !sup ? <MCash /> : <Navigate to="/m" replace />} />
+        <Route path="cash/flow" element={perms.viewCash && !sup ? <MCashFlow /> : <Navigate to="/m" replace />} />
         <Route path="cash/:seq" element={perms.viewCash && !sup ? <MCashBox /> : <Navigate to="/m" replace />} />
         <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatRoom role="manager" base="/m/chat" />} />

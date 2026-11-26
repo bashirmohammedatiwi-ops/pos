@@ -223,7 +223,7 @@ function createTeam(ctx) {
   const invoices = require('./team-invoices').createInvoices({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
 
   // الصناديق وتقارير «إداري» عند الطلب
-  const cash = require('./team-cash').createCash({ db, ctx, now, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit });
+  const cash = require('./team-cash').createCash({ db, ctx, now, audit, permsOf: work.permsOf, managerIds: work.managerIds, emit: work.emit, notify: work.notify });
 
   /** صلاحية المدير المطلوبة لكل مسار (لا شيء = متاح لكل المدراء) */
   function permFor(method, sub) {
@@ -422,7 +422,7 @@ function createTeam(ctx) {
       if (await extra.handleManage(req, res, url, sub, actorName, false, allow, perms.viewPay)) return true;
       if (await sales.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
       if (await invoices.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
-      if (await cash.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b))) return true;
+      if (await cash.handleManage(req, res, url, sub, (st, b) => ctx.send(res, st, b), actorName)) return true;
       ctx.send(res, 404, { error: 'not found' });
       return true;
     }

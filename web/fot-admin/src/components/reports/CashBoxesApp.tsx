@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { todayIso } from '@/api/client';
-import { cashAmount, cashReportApi, cashUnit, type CashBoxDto, type CashStatementDto } from '@/api/cash';
+import { cashAmount, cashReportApi, cashUnit, type CashBoxDto, type CashFlowCurrencyDto, type CashFlowDto, type CashStatementDto } from '@/api/cash';
 import { useToast } from '@/components/Toast';
 import { IconChevronLeft, IconChevronRight, IconDownload, IconPrinter, IconRefresh, IconSearch, IconStar, IconWallet } from '@/components/icons';
 import { Badge, Btn, Input } from '@/components/ui';
@@ -42,6 +42,8 @@ export function CashBoxesApp({ onClose }: { onClose: () => void }) {
   const [to, setTo] = useState(today);
   const [search, setSearch] = useState('');
   const [showEmpty, setShowEmpty] = useState(false);
+  // كشف الحركات، أو حركة الأموال للصندوق المختار، أو لكل الصناديق
+  const [view, setView] = useState<'statement' | 'flow' | 'flow-all'>('statement');
   const [printing, setPrinting] = useState(false);
 
   const boxesQ = useQuery({ queryKey: ['cash-boxes'], queryFn: () => cashReportApi.boxes(), refetchInterval: 30_000 });
@@ -61,6 +63,11 @@ export function CashBoxesApp({ onClose }: { onClose: () => void }) {
     refetchInterval: to >= today ? 30_000 : false,
   });
   const st = stQ.data ?? null;
+  const flowQ = useQuery({
+    queryKey: ['cash-flow', view === 'flow-all' ? 0 : seq, f, to],
+    queryFn: () => cashReportApi.flow(f, to, view === 'flow-all' ? null : seq),
+    enabled: view !== 'statement' && valid && (view === 'flow-all' || seq != null),
+  });
 
   const featureM = useMutation({
     mutationFn: async (b: CashBoxDto) => {
@@ -202,8 +209,28 @@ export function CashBoxesApp({ onClose }: { onClose: () => void }) {
 
           {/* الكشف */}
           <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-auto">
-            {!st && stQ.isLoading && <div className="skeleton h-64 rounded-xl" />}
-            {st && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  ['statement', 'كشف الحركات'],
+                  ['flow', 'أين ذهب مال هذا الصندوق'],
+                  ['flow-all', 'حركة الأموال — كل الصناديق'],
+                ] as const
+              ).map(([id, label]) => (
+                <Btn key={id} size="sm" variant={view === id ? 'primary' : 'secondary'} onClick={() => setView(id)}>
+                  {label}
+                </Btn>
+              ))}
+            </div>
+            {view !== 'statement' && (
+              <>
+                {flowQ.error && <ReportError error={flowQ.error} onRetry={() => void flowQ.refetch()} />}
+                {!flowQ.data && flowQ.isLoading && <div className="skeleton h-64 rounded-xl" />}
+                {flowQ.data && <FlowView d={flowQ.data} />}
+              </>
+            )}
+            {view === 'statement' && !st && stQ.isLoading && <div className="skeleton h-64 rounded-xl" />}
+            {view === 'statement' && st && (
               <>
                 <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                   <Kpi label="رصيد أول المدة" value={cashAmount(st.opening, c)} unit={cashUnit(c)} />
@@ -298,6 +325,83 @@ export function CashBoxesApp({ onClose }: { onClose: () => void }) {
         </div>
       </ReportFill>
     </ReportAppWindow>
+  );
+}
+
+/** حركة الأموال: الداخل حسب مصدره والخارج حسب وجهته، مع حسابات كل مجموعة */
+function FlowView({ d }: { d: CashFlowDto }) {
+  if (!d.currencies.length) return <p className="rounded-xl border border-slate-200 bg-white px-3 py-10 text-center text-slate-400">لا حركة في هذه الفترة</p>;
+  return (
+    <div className="flex flex-col gap-4">
+      {d.currencies.map(c => (
+        <FlowCurrency key={c.currency} c={c} multi={d.currencies.length > 1} />
+      ))}
+      <p className="text-[11.5px] leading-relaxed text-slate-400">
+        {d.scope} · القيود المركّبة (مثل إقفال الكاشير) موزّعة على حساباتها في الإداري، والتحويلات بين الصناديق منفصلة لأنها ليست دخلاً ولا مصروفاً.
+      </p>
+    </div>
+  );
+}
+
+function FlowCurrency({ c, multi }: { c: CashFlowCurrencyDto; multi: boolean }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const m = (v: number) => (c.currency === 'USD' ? `$${cashAmount(v, 'USD')}` : cashAmount(v, 'IQD'));
+  const transfer = c.groups.find(g => g.transfer);
+  const side = (kind: 'in' | 'out') => {
+    const total = kind === 'in' ? c.in : c.out;
+    const groups = c.groups.filter(g => !g.transfer && (kind === 'in' ? g.in : g.out) > 0).sort((a, b) => (kind === 'in' ? b.in - a.in : b.out - a.out));
+    return (
+      <div className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white">
+        <h3 className={`border-b border-slate-100 px-3 py-2 text-[13px] font-extrabold ${kind === 'in' ? 'text-emerald-800' : 'text-rose-800'}`}>{kind === 'in' ? 'من أين جاء المال' : 'إلى أين ذهب المال'}</h3>
+        {groups.length === 0 && <p className="px-3 py-6 text-center text-[12px] text-slate-400">لا شيء</p>}
+        {groups.map(g => {
+          const v = kind === 'in' ? g.in : g.out;
+          const id = `${kind}:${g.seq}:${g.name}`;
+          const rows = c.rows.filter(r => r.groupSeq === g.seq && r.group === g.name && (kind === 'in' ? r.in : r.out) > 0).sort((a, b) => (kind === 'in' ? b.in - a.in : b.out - a.out));
+          return (
+            <div key={id} className="border-t border-slate-100 first:border-t-0">
+              <button type="button" className="flex w-full items-center gap-3 px-3 py-2 text-start hover:bg-slate-50" onClick={() => setOpen(open === id ? null : id)} aria-expanded={open === id}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-bold text-slate-800">{g.name}</span>
+                  <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <span className={`block h-full rounded-full ${kind === 'in' ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${Math.max(2, (v / Math.max(1, total)) * 100)}%` }} />
+                  </span>
+                </span>
+                <span className="num w-10 text-end text-[11px] text-slate-400">{Math.round((v / Math.max(1, total)) * 100)}%</span>
+                <span className="num w-32 text-end text-[13px] font-extrabold text-slate-800">{m(v)}</span>
+              </button>
+              {open === id && (
+                <div className="bg-slate-50 px-3 pb-2">
+                  {rows.map(r => (
+                    <div key={`${r.seq}:${r.name}`} className="flex items-baseline justify-between gap-2 border-b border-slate-200/70 py-1.5 text-[12px] last:border-0">
+                      <span className="min-w-0 truncate text-slate-600">
+                        {r.name} {r.num && <span className="num text-slate-400">· {r.num}</span>}
+                      </span>
+                      <span className="num shrink-0 font-bold text-slate-700">{m(kind === 'in' ? r.in : r.out)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      {multi && <h3 className="text-[13px] font-extrabold text-slate-600">{c.currency === 'USD' ? 'صندوق الدولار (بالدولار)' : 'بالدينار العراقي'}</h3>}
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+        <Kpi label="دخل الصناديق" value={m(c.in)} tone="text-emerald-700" />
+        <Kpi label="خرج من الصناديق" value={m(c.out)} tone="text-rose-700" />
+        <Kpi label="تحويلات داخلة / خارجة" value={`${m(transfer?.in ?? 0)} / ${m(transfer?.out ?? 0)}`} />
+        <Kpi label="الصافي" value={m(c.in - c.out)} tone="text-header" big />
+      </div>
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-start">
+        {side('out')}
+        {side('in')}
+      </div>
+    </div>
   );
 }
 

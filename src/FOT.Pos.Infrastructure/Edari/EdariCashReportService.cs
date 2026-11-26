@@ -55,6 +55,33 @@ public sealed record CashStatementDto(
     IReadOnlyList<CashLineDto> Lines,
     IReadOnlyList<CashDayDto> Days);
 
+/// <summary>حساب مقابل في حركة الصناديق: من أين جاء المال أو إلى أين ذهب.</summary>
+public sealed record CashFlowRowDto(
+    long Seq,
+    string Num,
+    string Name,
+    // مجموعة الحساب في دليل الحسابات (المجهزون، الرواتب، الزبائن…).
+    string Group,
+    long GroupSeq,
+    decimal In,
+    decimal Out,
+    int Count,
+    // الحساب المقابل صندوق آخر: تحويل داخلي لا دخل ولا مصروف.
+    bool Transfer);
+
+public sealed record CashFlowGroupDto(long Seq, string Name, decimal In, decimal Out, int Count, bool Transfer);
+
+public sealed record CashFlowCurrencyDto(
+    string Currency,
+    decimal In,
+    decimal Out,
+    decimal TransferIn,
+    decimal TransferOut,
+    IReadOnlyList<CashFlowGroupDto> Groups,
+    IReadOnlyList<CashFlowRowDto> Rows);
+
+public sealed record CashFlowDto(string From, string To, long? Seq, string Scope, int Boxes, IReadOnlyList<CashFlowCurrencyDto> Currencies);
+
 public sealed class CashReportSettings
 {
     /// <summary>رقم حساب «صناديق المحل» في دليل الحسابات — كل حساباته الفرعية صناديق.</summary>
@@ -274,6 +301,177 @@ public sealed partial class EdariCashReportService(EdariTextQueryService text)
 
         return new CashStatementDto(box, Iso(from), Iso(to), Round(opening, acc.Currency), Round(running, acc.Currency),
             totalIn, totalOut, lines.Count, truncated, lines, days);
+    }
+
+    /* ── حركة الأموال: من أين جاء المال وإلى أين ذهب ── */
+    /// <summary>
+    /// قبض وصرف الصناديق (كلها أو صندوق واحد) لفترة، مجمّعاً حسب الحساب المقابل ومجموعته في دليل الحسابات.
+    /// الحساب المقابل إن كان صندوقاً آخر فهو تحويل داخلي يُعرض منفصلاً؛ صندوق الدولار يُحسب بعملته.
+    /// </summary>
+    public async Task<CashFlowDto> GetFlowAsync(DateTime from, DateTime to, long? seq, CancellationToken ct)
+    {
+        from = from.Date;
+        to = to.Date;
+        if (to < from) (from, to) = (to, from);
+        if ((to - from).TotalDays > 366) from = to.AddDays(-366);
+
+        var settings = LoadSettings();
+        var boxes = await LoadAccountsAsync(settings, ct);
+        if (boxes.Count == 0) throw new InvalidOperationException("تعذر قراءة الصناديق من الإداري — تأكد أن خادم الإداري يعمل");
+        var scope = seq is { } one ? boxes.Where(b => b.Seq == one).ToList() : boxes;
+        if (scope.Count == 0) throw new KeyNotFoundException("الصندوق غير موجود");
+        var boxSeqs = boxes.Select(b => b.Seq).ToHashSet();
+        var currency = scope.ToDictionary(b => b.Seq, b => b.Currency);
+        var book = await LoadBookAsync(ct);
+
+        var rows = await text.QueryAsync($"""
+            SELECT Acc, Two, Dept, SUM(Am) AS S, COUNT(*) AS N
+            FROM File12n
+            WHERE Acc IN ({string.Join(",", scope.Select(b => b.Seq))}) AND "Date" >= {Ts(from)} AND "Date" < {Ts(to.AddDays(1))}
+            GROUP BY Acc, Two, Dept
+            """, ct);
+        if (!text.LastCallSucceeded) throw new InvalidOperationException("تعذر الاتصال بالإداري لقراءة حركة الصناديق");
+
+        // (عملة، حساب مقابل) ← قبض، صرف، عدد
+        var acc = new Dictionary<(string Cur, long Two), (decimal In, decimal Out, int N)>();
+        void Add(string cur, long two, bool cashIn, decimal sum, int n)
+        {
+            var key = (cur, two);
+            var v = acc.GetValueOrDefault(key);
+            acc[key] = cashIn ? (v.In + sum, v.Out, v.N + n) : (v.In, v.Out + sum, v.N + n);
+        }
+        foreach (var r in rows)
+        {
+            var two = (long)Num(Cell(r, 1));
+            if (two <= 0) continue; // القيود المركّبة تُوزَّع أدناه على حساباتها الفعلية
+            var box = (long)Num(Cell(r, 0));
+            Add(currency.GetValueOrDefault(box, "IQD"), two, IsTrue(Cell(r, 2)), Math.Abs(Num(Cell(r, 3))), (int)Num(Cell(r, 4)));
+        }
+        await AllocateCompositeAsync(scope, from, to, currency, Add, ct);
+        // تقريب العرض: الدينار عدداً صحيحاً والدولار بسنتين
+        foreach (var k in acc.Keys.ToList())
+        {
+            var v = acc[k];
+            acc[k] = (Round(v.In, k.Cur), Round(v.Out, k.Cur), v.N);
+        }
+
+        var result = new List<CashFlowCurrencyDto>();
+        foreach (var cur in acc.Keys.Select(k => k.Cur).Distinct().OrderBy(c => c == "IQD" ? 0 : 1))
+        {
+            var list = new List<CashFlowRowDto>();
+            foreach (var ((c, two), v) in acc)
+            {
+                if (c != cur) continue;
+                // تحويل بين صندوقين من نفس المجموعة المختارة: ليس دخلاً ولا مصروفاً
+                var transfer = two > 0 && boxSeqs.Contains(two);
+                if (two <= 0)
+                {
+                    list.Add(new CashFlowRowDto(0, "", "قيود بلا حساب مقابل (قيود مركّبة وإقفالات)", "قيود مركّبة", 0, v.In, v.Out, v.N, false));
+                    continue;
+                }
+                var a = book.GetValueOrDefault(two);
+                var master = a?.Master ?? 0;
+                var group = transfer ? "تحويلات بين الصناديق" : master > 0 && book.TryGetValue(master, out var m) ? m.Name : "حسابات أخرى";
+                list.Add(new CashFlowRowDto(two, a?.Num ?? "", a?.Name ?? $"حساب {two}", group, transfer ? -1 : master, v.In, v.Out, v.N, transfer));
+            }
+            var ordered = list.OrderByDescending(x => x.In + x.Out).ToList();
+            var groups = ordered
+                .GroupBy(x => (x.GroupSeq, x.Group, x.Transfer))
+                .Select(g => new CashFlowGroupDto(g.Key.GroupSeq, g.Key.Group, g.Sum(x => x.In), g.Sum(x => x.Out), g.Sum(x => x.Count), g.Key.Transfer))
+                .OrderBy(g => g.Transfer).ThenByDescending(g => g.In + g.Out)
+                .ToList();
+            result.Add(new CashFlowCurrencyDto(
+                cur,
+                ordered.Where(x => !x.Transfer).Sum(x => x.In),
+                ordered.Where(x => !x.Transfer).Sum(x => x.Out),
+                ordered.Where(x => x.Transfer).Sum(x => x.In),
+                ordered.Where(x => x.Transfer).Sum(x => x.Out),
+                groups,
+                ordered));
+        }
+        var label = seq is not null ? scope[0].Name : "كل الصناديق";
+        return new CashFlowDto(Iso(from), Iso(to), seq, label, scope.Count, result);
+    }
+
+    /// <summary>
+    /// قيد مركّب (بلا حساب مقابل واحد، مثل إقفال الكاشير: الصناديق مدينة والكاشير و«زيادة ونقص» دائنة):
+    /// يُوزَّع مبلغ كل سطر صندوق على حسابات الطرف المقابل في السند نفسه بنسبة مبالغها، فيظهر المصدر الحقيقي.
+    /// ما لا طرف مقابل له يبقى تحت «قيود بلا حساب مقابل».
+    /// </summary>
+    private async Task AllocateCompositeAsync(
+        List<Account> scope, DateTime from, DateTime to, Dictionary<long, string> currency,
+        Action<string, long, bool, decimal, int> add, CancellationToken ct)
+    {
+        var range = $"""
+            "Date" >= {Ts(from)} AND "Date" < {Ts(to.AddDays(1))}
+            """;
+        var boxLines = await text.QueryAsync($"""
+            SELECT Num, Acc, Dept, Am, "Date" FROM File12n
+            WHERE Acc IN ({string.Join(",", scope.Select(b => b.Seq))}) AND Two = 0 AND {range}
+            """, ct);
+        if (!text.LastCallSucceeded) throw new InvalidOperationException("تعذر الاتصال بالإداري لقراءة القيود المركّبة");
+        if (boxLines.Count == 0) return;
+
+        // كل أسطر تلك السندات (السند = رقمه + تاريخه)
+        var voucherLines = new Dictionary<(string Num, string Date), List<(long Acc, bool Dept, decimal Am)>>();
+        foreach (var part in boxLines.Select(r => Cell(r, 0)?.Trim() ?? "").Where(n => n.Length > 0 && n.All(char.IsAsciiDigit)).Distinct().Chunk(400))
+        {
+            var lines = await text.QueryAsync($"""
+                SELECT Num, Acc, Dept, Am, "Date" FROM File12n
+                WHERE Num IN ({string.Join(",", part)}) AND {range}
+                """, ct);
+            if (!text.LastCallSucceeded) throw new InvalidOperationException("تعذر الاتصال بالإداري لقراءة القيود المركّبة");
+            foreach (var l in lines)
+            {
+                var key = (Cell(l, 0)?.Trim() ?? "", ParseDate(Cell(l, 4)) is { } d ? Iso(d) : "");
+                if (!voucherLines.TryGetValue(key, out var list)) voucherLines[key] = list = [];
+                list.Add(((long)Num(Cell(l, 1)), IsTrue(Cell(l, 2)), Math.Abs(Num(Cell(l, 3)))));
+            }
+        }
+
+        var scopeSeqs = scope.Select(b => b.Seq).ToHashSet();
+        foreach (var r in boxLines)
+        {
+            var box = (long)Num(Cell(r, 1));
+            var cashIn = IsTrue(Cell(r, 2));
+            var am = Math.Abs(Num(Cell(r, 3)));
+            var cur = currency.GetValueOrDefault(box, "IQD");
+            var key = (Cell(r, 0)?.Trim() ?? "", ParseDate(Cell(r, 4)) is { } d ? Iso(d) : "");
+            // الطرف المقابل: أسطر السند في الجهة الأخرى، عدا صناديق النطاق نفسه في الجهة ذاتها
+            var other = voucherLines.TryGetValue(key, out var all)
+                ? all.Where(x => x.Dept != cashIn && x.Am > 0 && !(scopeSeqs.Contains(x.Acc) && x.Dept == cashIn)).ToList()
+                : [];
+            var total = other.Sum(x => x.Am);
+            if (total <= 0)
+            {
+                add(cur, 0, cashIn, am, 1);
+                continue;
+            }
+            foreach (var g in other.GroupBy(x => x.Acc))
+            {
+                add(cur, g.Key, cashIn, am * g.Sum(x => x.Am) / total, 1);
+            }
+        }
+    }
+
+    private sealed record BookEntry(string Num, string Name, long Master);
+    private static Dictionary<long, BookEntry>? _book;
+    private static DateTime _bookAt;
+
+    /// <summary>دليل الحسابات بأسمائه ومجموعاته — نحو ألف حساب، يُحفظ خمس دقائق.</summary>
+    private async Task<Dictionary<long, BookEntry>> LoadBookAsync(CancellationToken ct)
+    {
+        if (_book is not null && DateTime.Now - _bookAt < TimeSpan.FromMinutes(5)) return _book;
+        var rows = await text.QueryAsync("SELECT Seq, Num, Name1, Master FROM File11n", ct);
+        var map = new Dictionary<long, BookEntry>();
+        foreach (var r in rows)
+            map[(long)Num(Cell(r, 0))] = new BookEntry(Cell(r, 1)?.Trim() ?? "", Cell(r, 2)?.Trim() ?? "", (long)Num(Cell(r, 3)));
+        if (map.Count > 0)
+        {
+            _book = map;
+            _bookAt = DateTime.Now;
+        }
+        return map;
     }
 
     /* ── القراءة من الإداري ── */

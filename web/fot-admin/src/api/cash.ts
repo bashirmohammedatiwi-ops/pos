@@ -62,6 +62,42 @@ export interface CashStatementDto {
   lines: CashLineDto[];
   days: CashDayDto[];
 }
+export interface CashFlowRowDto {
+  seq: number;
+  num: string;
+  name: string;
+  group: string;
+  groupSeq: number;
+  in: number;
+  out: number;
+  count: number;
+  transfer: boolean;
+}
+export interface CashFlowGroupDto {
+  seq: number;
+  name: string;
+  in: number;
+  out: number;
+  count: number;
+  transfer: boolean;
+}
+export interface CashFlowCurrencyDto {
+  currency: 'IQD' | 'USD';
+  in: number;
+  out: number;
+  transferIn: number;
+  transferOut: number;
+  groups: CashFlowGroupDto[];
+  rows: CashFlowRowDto[];
+}
+export interface CashFlowDto {
+  from: string;
+  to: string;
+  seq: number | null;
+  scope: string;
+  boxes: number;
+  currencies: CashFlowCurrencyDto[];
+}
 export interface CashReportSettings {
   rootNum: string;
   featured: string[];
@@ -99,6 +135,8 @@ export async function reportCall<T>(path: string, init?: RequestInit): Promise<T
 export const cashReportApi = {
   boxes: (fresh = false) => reportCall<CashBoxesDto>(`/api/reports/cash/boxes${fresh ? '?fresh=true' : ''}`),
   statement: (seq: number, from: string, to: string) => reportCall<CashStatementDto>(`/api/reports/cash/statement?account=${seq}&from=${from}&to=${to}`),
+  /** من أين جاء المال وإلى أين ذهب — كل الصناديق أو صندوق واحد */
+  flow: (from: string, to: string, seq?: number | null) => reportCall<CashFlowDto>(`/api/reports/cash/flow?from=${from}&to=${to}${seq ? `&account=${seq}` : ''}`),
   settings: () => reportCall<CashReportSettings>('/api/reports/cash/settings'),
   saveSettings: (s: CashReportSettings) => reportCall<CashReportSettings>('/api/reports/cash/settings', { method: 'PUT', body: JSON.stringify(s) }),
 };

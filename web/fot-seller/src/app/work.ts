@@ -47,7 +47,40 @@ export function clearManager() {
   } catch {
     /* ignore */
   }
+  snapCache.clear();
 }
+
+/* ═════════════ آخر بيانات معروضة (فتح فوري) ═════════════
+ * الشاشات الثقيلة (الصناديق، مبيعات الإداري، حركة الأموال) تعرض آخر ما حُمّل فوراً ثم تُحدّث بصمت.
+ * يُمسح عند الخروج. القيمة مع وقت حفظها حتى تُعرض «آخر تحديث قبل…». */
+const SNAP_PREFIX = 'deema.snap.';
+export const snapCache = {
+  get<T>(key: string, maxAgeMs = 3 * 86_400_000): { at: number; data: T } | null {
+    try {
+      const raw = localStorage.getItem(SNAP_PREFIX + key);
+      if (!raw) return null;
+      const v = JSON.parse(raw) as { at: number; data: T };
+      return Date.now() - v.at < maxAgeMs ? v : null;
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, data: unknown) {
+    try {
+      localStorage.setItem(SNAP_PREFIX + key, JSON.stringify({ at: Date.now(), data }));
+    } catch {
+      // التخزين ممتلئ: نمسح اللقطات القديمة ونكتفي
+      snapCache.clear();
+    }
+  },
+  clear() {
+    try {
+      for (const k of Object.keys(localStorage)) if (k.startsWith(SNAP_PREFIX)) localStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  },
+};
 
 /* ═════════════ الأنواع ═════════════ */
 export interface Notif {
@@ -387,8 +420,59 @@ export interface CashStatement {
   lines: CashLine[];
   days: CashDay[];
 }
+/** حساب مقابل في حركة الصناديق: من أين جاء المال وإلى أين ذهب */
+export interface CashFlowRow {
+  seq: number;
+  num: string;
+  name: string;
+  group: string;
+  groupSeq: number;
+  in: number;
+  out: number;
+  count: number;
+  /** صندوق آخر: تحويل داخلي */
+  transfer: boolean;
+}
+export interface CashFlowGroup {
+  seq: number;
+  name: string;
+  in: number;
+  out: number;
+  count: number;
+  transfer: boolean;
+}
+export interface CashFlowCurrency {
+  currency: 'IQD' | 'USD';
+  in: number;
+  out: number;
+  transferIn: number;
+  transferOut: number;
+  groups: CashFlowGroup[];
+  rows: CashFlowRow[];
+}
+export interface CashFlow {
+  from: string;
+  to: string;
+  seq: number | null;
+  scope: string;
+  boxes: number;
+  currencies: CashFlowCurrency[];
+}
+export interface CashAlerts {
+  /** صرف كبير من صندوق بالدينار (0 = إيقاف) */
+  bigOut: number;
+  bigOutUsd: number;
+  negative: boolean;
+  dailyClose: boolean;
+  closeAt: string;
+}
+
 export const cashApi = {
   boxes: () => call<CashBoxes>('manager', '/api/team/m/cash/boxes'),
+  /** من أين جاء المال وإلى أين ذهب — كل الصناديق أو صندوق واحد */
+  flow: (from: string, to: string, seq?: number | null) => call<CashFlow>('manager', '/api/team/m/cash/flow', { method: 'POST', body: seq ? { from, to, seq } : { from, to } }),
+  alerts: () => call<CashAlerts>('manager', '/api/team/m/cash/alerts'),
+  saveAlerts: (b: CashAlerts) => call<CashAlerts>('manager', '/api/team/m/cash/alerts', { method: 'PUT', body: b }),
   /** كشف صندوق لفترة — يُنفَّذ على سيرفر المحل لحظتها */
   statement: (seq: number, from: string, to: string) => call<CashStatement>('manager', '/api/team/m/cash/statement', { method: 'POST', body: { seq, from, to } }),
 };
@@ -404,6 +488,8 @@ export interface EdSalesCat {
   returns: number;
   /** المبيعات − المردود */
   net: number;
+  /** صافي الفترة السابقة المماثلة (مع المقارنة فقط) */
+  prevNet?: number | null;
 }
 export interface EdSalesDay {
   date: string;
@@ -473,11 +559,17 @@ export interface EdSalesReport {
   lines: EdSalesLine[] | null;
   linesTruncated: boolean;
   search: string | null;
+  /** الفترة السابقة المماثلة (مع المقارنة فقط) */
+  prevFrom?: string | null;
+  prevTo?: string | null;
+  prevTotals?: EdSalesCat | null;
+  prevNodeTotals?: EdSalesCat | null;
+  prevDays?: EdSalesDay[] | null;
 }
 export const EDARI_SALES_MAX_DAYS = 93;
 export const edariSalesApi = {
   /** يُنفَّذ على سيرفر المحل لحظتها (من الإداري مباشرة) */
-  report: (b: { from: string; to: string; branches?: string[]; node?: number | null; q?: string; lines?: boolean; fresh?: boolean }) =>
+  report: (b: { from: string; to: string; branches?: string[]; node?: number | null; q?: string; lines?: boolean; fresh?: boolean; compare?: boolean }) =>
     call<EdSalesReport>('manager', '/api/team/m/edari/sales', { method: 'POST', body: b }),
 };
 

@@ -39,7 +39,9 @@ public sealed record SalesItemDto(
     decimal Gifts,
     decimal ReturnsQty,
     decimal Returns,
-    decimal Net);
+    decimal Net,
+    // صافي الفترة السابقة المماثلة (عند طلب المقارنة فقط).
+    decimal? PrevNet = null);
 
 public sealed record SalesLineDto(
     string Date,
@@ -76,7 +78,13 @@ public sealed record EdariSalesReportDto(
     IReadOnlyList<SalesItemDto> TopMaterials,
     IReadOnlyList<SalesLineDto>? Lines,
     bool LinesTruncated,
-    string? Search);
+    string? Search,
+    // الفترة السابقة بنفس الطول مباشرة (عند طلب المقارنة فقط).
+    string? PrevFrom = null,
+    string? PrevTo = null,
+    SalesCatDto? PrevTotals = null,
+    SalesCatDto? PrevNodeTotals = null,
+    IReadOnlyList<SalesDayDto>? PrevDays = null);
 
 public sealed record EdariSalesQuery(
     DateTime From,
@@ -86,7 +94,8 @@ public sealed record EdariSalesQuery(
     string? Search = null,
     bool Lines = false,
     int MaxLines = 3000,
-    bool Fresh = false);
+    bool Fresh = false,
+    bool Compare = false);
 
 /// <summary>
 /// تقرير المبيعات من «إداري» مباشرة (قراءة فقط) — نفس حساب تقرير تطبيق الحسابات:
@@ -136,23 +145,26 @@ public sealed partial class EdariSalesReportService(EdariTextQueryService text)
             throw new ArgumentException($"أقصى فترة للتقرير {MaxRangeDays} يوماً — اختر فترة أقصر");
 
         var branches = (q.Branches ?? []).Select(Digits).Where(c => c.Length > 0).Distinct().OrderBy(c => c, StringComparer.Ordinal).ToList();
-        var key = $"{Iso(from)}|{Iso(to)}|{string.Join(",", branches)}";
-
         Catalog catalog;
         Period period;
+        Period? prev = null;
+        var prevTo = from.AddDays(-1);
+        var prevFrom = prevTo.AddDays(-(to - from).Days);
+        // من أول الشهر: يُقارن بنفس الأيام من الشهر الماضي (1–26 مقابل 1–26)
+        if (from.Day == 1 && to > from && to.Month == from.Month && to.Year == from.Year)
+        {
+            prevFrom = from.AddMonths(-1);
+            var lastOfPrev = from.AddDays(-1);
+            prevTo = to.AddMonths(-1) > lastOfPrev ? lastOfPrev : to.AddMonths(-1);
+            if (to.Day == DateTime.DaysInMonth(to.Year, to.Month)) prevTo = lastOfPrev;
+        }
         await Gate.WaitAsync(ct);
         try
         {
             catalog = await LoadCatalogAsync(ct);
-            if (!q.Fresh && Periods.TryGetValue(key, out var hit) && DateTime.Now - hit.At < PeriodTtl)
-                period = hit.Data;
-            else
-            {
-                period = await BuildPeriodAsync(catalog, from, to, branches, ct);
-                Periods[key] = (DateTime.Now, period);
-                foreach (var old in Periods.Where(p => DateTime.Now - p.Value.At > PeriodTtl).Select(p => p.Key).ToList()) Periods.Remove(old);
-                while (Periods.Count > 24) Periods.Remove(Periods.MinBy(p => p.Value.At).Key);
-            }
+            period = await PeriodAsync(catalog, from, to, branches, q.Fresh, ct);
+            // المقارنة: الفترة السابقة بنفس عدد الأيام (أمس لليوم، الأسبوع السابق للأسبوع…)
+            if (q.Compare) prev = await PeriodAsync(catalog, prevFrom, prevTo, branches, false, ct);
         }
         finally
         {
@@ -183,7 +195,7 @@ public sealed partial class EdariSalesReportService(EdariTextQueryService text)
                 .Where(x => x.Mat is not null && x.Agg.Any && (node is null || IsUnder(catalog, x.Mat, node.Seq)) && words.All(w => x.Mat.SearchKey.Contains(w)))
                 .OrderByDescending(x => x.Agg.SA).ThenByDescending(x => x.Agg.SQ)
                 .Take(150)
-                .Select(x => Item(catalog, x.Mat!, x.Agg, withTree: true, filtered))
+                .Select(x => Item(catalog, x.Mat!, x.Agg, withTree: true, filtered, prev))
                 .ToList();
         }
         else if (node is { Leaf: true })
@@ -193,10 +205,11 @@ public sealed partial class EdariSalesReportService(EdariTextQueryService text)
             var children = catalog.Children.GetValueOrDefault(node?.Seq ?? 0) ?? [];
             items = children
                 .Select(c => (Mat: c, Agg: period.Nodes.GetValueOrDefault(c.Seq)))
-                .Where(x => x.Agg.Any)
+                // مع المقارنة تبقى الشجرة التي توقف بيعها ظاهرة (صفر الآن، مبيعات سابقة)
+                .Where(x => x.Agg.Any || (prev is not null && prev.Nodes.GetValueOrDefault(x.Mat.Seq).Net != 0))
                 .OrderBy(x => !filtered && x.Mat.Excluded)
                 .ThenByDescending(x => x.Agg.Net).ThenByDescending(x => x.Agg.SA).ThenByDescending(x => x.Agg.GA)
-                .Select(x => Item(catalog, x.Mat, x.Agg, withTree: false, filtered))
+                .Select(x => Item(catalog, x.Mat, x.Agg, withTree: false, filtered, prev))
                 .ToList();
         }
 
@@ -209,7 +222,7 @@ public sealed partial class EdariSalesReportService(EdariTextQueryService text)
                     && (node is not null ? IsUnder(catalog, x.Mat, node.Seq) : filtered || !x.Mat.Excluded))
                 .OrderByDescending(x => x.Agg.SA).ThenByDescending(x => x.Agg.SQ)
                 .Take(40)
-                .Select(x => Item(catalog, x.Mat!, x.Agg, withTree: true, filtered))
+                .Select(x => Item(catalog, x.Mat!, x.Agg, withTree: true, filtered, prev))
                 .ToList();
 
         var nodeAgg = node is null ? period.Totals : period.Nodes.GetValueOrDefault(node.Seq);
@@ -230,15 +243,35 @@ public sealed partial class EdariSalesReportService(EdariTextQueryService text)
             period.Days, period.Branches,
             node is null ? null : new SalesNodeRefDto(node.Seq, node.Num, node.Name), path,
             nodeAgg.ToDto(), items, top, lines, truncated,
-            string.IsNullOrWhiteSpace(q.Search) ? null : q.Search.Trim());
+            string.IsNullOrWhiteSpace(q.Search) ? null : q.Search.Trim(),
+            prev is null ? null : Iso(prevFrom),
+            prev is null ? null : Iso(prevTo),
+            prev?.Totals.ToDto(),
+            prev is null ? null : (node is null ? prev.Totals : prev.Nodes.GetValueOrDefault(node.Seq)).ToDto(),
+            prev?.Days);
     }
 
-    private static SalesItemDto Item(Catalog catalog, Mat m, Agg a, bool withTree, bool filtered)
+    /// <summary>بيانات فترة من الذاكرة أو من الإداري (يُستدعى داخل Gate).</summary>
+    private async Task<Period> PeriodAsync(Catalog catalog, DateTime from, DateTime to, List<string> branches, bool fresh, CancellationToken ct)
+    {
+        var key = $"{Iso(from)}|{Iso(to)}|{string.Join(",", branches)}";
+        // فترة انتهت قبل اليوم لا تتغير إلا بتعديل قديم في الإداري: تُحفظ نصف ساعة
+        var ttl = to < DateTime.Today ? TimeSpan.FromMinutes(30) : PeriodTtl;
+        if (!fresh && Periods.TryGetValue(key, out var hit) && DateTime.Now - hit.At < ttl) return hit.Data;
+        var built = await BuildPeriodAsync(catalog, from, to, branches, ct);
+        Periods[key] = (DateTime.Now, built);
+        foreach (var old in Periods.Where(p => DateTime.Now - p.Value.At > TimeSpan.FromMinutes(30)).Select(p => p.Key).ToList()) Periods.Remove(old);
+        while (Periods.Count > 24) Periods.Remove(Periods.MinBy(p => p.Value.At).Key);
+        return built;
+    }
+
+    private static SalesItemDto Item(Catalog catalog, Mat m, Agg a, bool withTree, bool filtered, Period? prev)
     {
         string? tree = null;
         if (withTree && m.Father > 0 && catalog.BySeq.TryGetValue(m.Father, out var parent)) tree = parent.Name;
         return new SalesItemDto(m.Seq, m.Num, m.Name, m.Leaf, m.Leaf && m.Barcode.Length > 0 ? m.Barcode : null, tree,
-            !filtered && m.Excluded, a.SQ, a.SA, a.GQ, a.GA, a.RQ, a.RA, a.Net);
+            !filtered && m.Excluded, a.SQ, a.SA, a.GQ, a.GA, a.RQ, a.RA, a.Net,
+            prev is null ? null : prev.Nodes.GetValueOrDefault(m.Seq).Net);
     }
 
     /* ── بيانات الفترة ── */

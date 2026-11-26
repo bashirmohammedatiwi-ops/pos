@@ -49,6 +49,25 @@ public static class CashReportEndpoints
             }
         });
 
+        g.MapGet("/flow", async (HttpContext http, EdariCashReportService cash, long? account, string? from, string? to, CancellationToken ct) =>
+        {
+            if (!IsAdmin(http)) return Results.Forbid();
+            var f = ParseDay(from) ?? DateTime.Today;
+            var t = ParseDay(to) ?? f;
+            try
+            {
+                return Results.Ok(await cash.GetFlowAsync(f, t, account is > 0 ? account : null, ct));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: 502);
+            }
+        });
+
         g.MapGet("/settings", (HttpContext http) =>
             !IsAdmin(http) ? Results.Forbid() : Results.Ok(EdariCashReportService.LoadSettings()));
 

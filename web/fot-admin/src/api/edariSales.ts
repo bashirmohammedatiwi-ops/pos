@@ -12,6 +12,8 @@ export interface SalesCat {
   returns: number;
   /** المبيعات − المردود */
   net: number;
+  /** صافي الفترة السابقة المماثلة (مع المقارنة فقط) */
+  prevNet?: number | null;
 }
 export interface SalesDay {
   date: string;
@@ -82,6 +84,11 @@ export interface EdariSalesReport {
   lines: SalesLine[] | null;
   linesTruncated: boolean;
   search: string | null;
+  prevFrom?: string | null;
+  prevTo?: string | null;
+  prevTotals?: SalesCat | null;
+  prevNodeTotals?: SalesCat | null;
+  prevDays?: SalesDay[] | null;
 }
 
 export interface EdariSalesParams {
@@ -92,6 +99,7 @@ export interface EdariSalesParams {
   q?: string;
   lines?: boolean;
   fresh?: boolean;
+  compare?: boolean;
 }
 
 export const EDARI_SALES_MAX_DAYS = 93;
@@ -104,6 +112,7 @@ export const edariSalesApi = {
     if (p.q?.trim()) qs.set('q', p.q.trim());
     if (p.lines) qs.set('lines', 'true');
     if (p.fresh) qs.set('fresh', 'true');
+    if (p.compare) qs.set('compare', 'true');
     return reportCall<EdariSalesReport>(`/api/reports/edari-sales?${qs}`);
   },
 };
