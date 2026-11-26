@@ -12,7 +12,7 @@ import { MManagers, MSelf } from './ManagerSelf';
 import { MCash, MCashBox } from './ManagerCash';
 import { MEdariSales } from './ManagerEdariSales';
 import { MCashFlow } from './ManagerCashFlow';
-import { webPushLogout } from '../WebPush';
+import { WebPushCard, webPushLogout } from '../WebPush';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
 import { MSales } from './ManagerSales';
@@ -1178,6 +1178,7 @@ function MMore({ unread, pending, onLogout }: { unread: number; pending: number;
       </section>
 
       {!sup && <PushHealth role="manager" />}
+      {!sup && <WebPushCard role="manager" />}
 
       <section className="t-section">
         <div className="t-section-head">

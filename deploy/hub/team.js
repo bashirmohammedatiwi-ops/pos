@@ -175,6 +175,7 @@ function createTeam(ctx) {
 
   /* حدّ محاولات الدخول: بعد max فشل خلال 15 دقيقة يُقفل المفتاح 15 دقيقة */
   const attempts = new Map();
+  const diagCount = new Map();
   function throttled(key) {
     const a = attempts.get(key);
     if (!a) return 0;
@@ -438,6 +439,19 @@ function createTeam(ctx) {
     }
 
     // تعريف الموظف بالكود قبل الرمز (الاسم فقط)
+    // تشخيص إشعارات الموقع: الهاتف يبلّغ عن الخطوة التي فشلت (يُكتب في سجل الخادم فقط، بحد للمرسل)
+    if (req.method === 'POST' && p === '/api/team/web-push-diag') {
+      const ipKey = `diag:${req.socket?.remoteAddress || ''}:${req.headers['x-real-ip'] || ''}`;
+      const n = (diagCount.get(ipKey) || 0) + 1;
+      diagCount.set(ipKey, n);
+      if (diagCount.size > 500) diagCount.clear();
+      if (n <= 30) {
+        const raw = String((await ctx.readBody(req)) || '').slice(0, 1500);
+        console.log('web-push diag', req.headers['x-real-ip'] || '', raw.replace(/\s+/g, ' '));
+      }
+      ctx.sendOpen ? ctx.sendOpen(res, 200, { ok: true }) : ctx.send(res, 200, { ok: true });
+      return true;
+    }
     if (req.method === 'GET' && p === '/auth/team-lookup') {
       const s = findStaffByCode(url.searchParams.get('code'));
       if (!s || !s.is_active || !s.pin_hash) {

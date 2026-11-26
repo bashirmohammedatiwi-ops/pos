@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { getSeller } from '../../api';
 import { cleanName } from '../../names';
-import { APP_VERSION, PUSH_ENABLED, apiUrl, platform } from '../../config';
+import { APP_VERSION, PUSH_ENABLED, apiUrl, isNative, platform } from '../../config';
 import { KIND_LABEL, getTeamMe, getTeamToken } from '../../team';
 import { I, Screen, Segmented, Sheet, Switch, longDate } from '../kit';
 import { BackBtn, ProfileCard } from '../parts';
 import { PushHealth } from '../PushHealth';
+import { WebPushCard } from '../WebPush';
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -73,11 +74,12 @@ export function Account({ onLogout, back }: { onLogout: () => void; back?: strin
             title={device?.label || (platform() === 'web' ? 'متصفح' : 'هذا الهاتف')}
             value={bound ? `مربوط بحسابك منذ ${bound}` : 'يُربط الحساب بأول هاتف تدخل منه'}
           />
-          {!PUSH_ENABLED && <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'داخل التطبيق · تنبيهات الدوام والاستراحة تعمل والتطبيق مغلق'} />}
+          {!PUSH_ENABLED && isNative() && <Row icon={<I.bell size={19} />} tone={PUSH_ENABLED ? 'ok' : 'mute'} title="الإشعارات" value={PUSH_ENABLED ? 'مفعّلة على هذا الهاتف' : 'داخل التطبيق · تنبيهات الدوام والاستراحة تعمل والتطبيق مغلق'} />}
         </div>
       </section>
 
       {getTeamToken() && <PushHealth role="staff" />}
+      {getTeamToken() && <WebPushCard role="staff" />}
 
       <section className="t-section">
         <div className="t-section-head">

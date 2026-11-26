@@ -4,7 +4,7 @@ import { apiUrl, isNative } from '../config';
 import { getTeamToken } from '../team';
 import { I, Sheet, toast } from './kit';
 import { haptic } from './native';
-import { getManagerToken, supervisorMode } from './work';
+import { getManagerToken, pushTest, supervisorMode } from './work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * إشعارات الموقع (Web Push): الموقع يطلب تفعيلها دائماً ما دامت غير مفعّلة.
@@ -86,6 +86,62 @@ async function ensureSubscribed(role: Role, token: string) {
   await api(role, token, 'POST', { subscription: sub.toJSON(), deviceId, userAgent: navigator.userAgent.slice(0, 200) });
 }
 
+/** عطل في خطوة من خطوات التفعيل: يُسجَّل في سجل الخادم لنعرف ما حدث على هاتف الموظف */
+function report(stage: string, detail: unknown) {
+  try {
+    const body = JSON.stringify({
+      stage,
+      detail: detail instanceof Error ? `${detail.name}: ${detail.message}` : String(detail ?? ''),
+      state: pushState(),
+      permission: 'Notification' in window ? Notification.permission : 'none',
+      standalone: standalone(),
+      ua: navigator.userAgent.slice(0, 180),
+      at: location.href.slice(0, 120),
+    });
+    void fetch(apiUrl('/api/team/web-push-diag'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => undefined);
+  } catch {
+    /* لا شيء */
+  }
+}
+
+export type EnableResult = { ok: boolean; message: string };
+/** تفعيل إشعارات هذا المتصفح (من ضغطة المستخدم نفسها) — نتيجة واضحة في كل حالة */
+export async function enableWebPush(role: Role, token: string): Promise<EnableResult> {
+  const s = pushState();
+  if (s === 'insecure') {
+    location.href = SECURE_URL;
+    return { ok: false, message: 'يُفتح الرابط الآمن…' };
+  }
+  if (s === 'ios-install') return { ok: false, message: 'أضف الموقع للشاشة الرئيسية أولاً، ثم افتحه من الأيقونة وفعّل الإشعارات' };
+  if (s === 'old-ios') return { ok: false, message: 'حدّث الآيفون إلى iOS 16.4 أو أحدث لتصلك إشعارات المواقع' };
+  if (s === 'unsupported') return { ok: false, message: 'هذا المتصفح لا يدعم إشعارات المواقع — استخدم Chrome أو Safari' };
+  if (s === 'denied') return { ok: false, message: 'الإشعارات مرفوضة في إعدادات المتصفح — فعّلها من الإعدادات ثم أعد فتح الموقع' };
+  let perm: NotificationPermission = Notification.permission;
+  if (perm !== 'granted') {
+    try {
+      perm = await Notification.requestPermission();
+    } catch (e) {
+      report('permission', e);
+      return { ok: false, message: 'تعذر طلب الإذن من المتصفح' };
+    }
+  }
+  if (perm === 'denied') {
+    report('permission', 'denied by user');
+    return { ok: false, message: 'رُفض الإذن — يمكن تفعيله لاحقاً من إعدادات المتصفح' };
+  }
+  if (perm !== 'granted') {
+    report('permission', 'dismissed or hidden');
+    return { ok: false, message: 'لم يظهر طلب الإذن أو أُغلق — اضغط رمز القفل أو الجرس بجانب عنوان الموقع واختر «السماح» للإشعارات، ثم اضغط «تفعيل» مجدداً' };
+  }
+  try {
+    await ensureSubscribed(role, token);
+  } catch (e) {
+    report('subscribe', e);
+    return { ok: false, message: `تعذر تسجيل المتصفح للإشعارات: ${e instanceof Error ? e.message : 'خطأ غير معروف'}` };
+  }
+  return { ok: true, message: 'تم تفعيل الإشعارات ✅' };
+}
+
 /** عند الخروج: هذا المتصفح لا يستقبل إشعارات الحساب بعد الآن */
 export async function webPushLogout(role: Role, token: string | null) {
   if (isNative() || !token || !('serviceWorker' in navigator)) return;
@@ -159,26 +215,14 @@ export function WebPush() {
 
   async function enable() {
     if (!who || busy) return;
-    if (state === 'insecure') {
-      location.href = SECURE_URL;
-      return;
-    }
-    if (state !== 'default') return;
     setBusy(true);
     try {
       // يجب أن يكون الطلب من ضغطة المستخدم نفسها
-      const p = await Notification.requestPermission();
+      const r = await enableWebPush(who.role, who.token);
       setState(pushState());
-      if (p === 'granted') {
-        await ensureSubscribed(who.role, who.token);
-        haptic('success');
-        toast('تم تفعيل الإشعارات ✅');
-        setSheet(false);
-      } else if (p === 'denied') {
-        haptic('error');
-      }
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'تعذر تفعيل الإشعارات');
+      haptic(r.ok ? 'success' : 'error');
+      toast(r.message);
+      if (r.ok) setSheet(false);
     } finally {
       setBusy(false);
     }
@@ -224,5 +268,83 @@ export function WebPush() {
         </div>
       </Sheet>
     </>
+  );
+}
+
+/** «حسابي» في الموقع: حالة إشعارات هذا المتصفح، زر التفعيل، وإشعار تجريبي حقيقي */
+export function WebPushCard({ role }: { role: Role }) {
+  const [state, setState] = useState<State>(() => pushState());
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const token = () => (role === 'manager' ? getManagerToken() : getTeamToken());
+
+  useEffect(() => {
+    const t = token();
+    if (!t || isNative()) return;
+    void api<{ subscribed: boolean }>(role, t, 'GET')
+      .then(r => setSubscribed(r.subscribed))
+      .catch(() => setSubscribed(null));
+  }, [role, state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (isNative()) return null;
+  const on = state === 'granted' && subscribed === true;
+
+  async function run() {
+    const t = token();
+    if (!t || busy) return;
+    haptic('tap');
+    setBusy(true);
+    try {
+      if (!on) {
+        const r = await enableWebPush(role, t);
+        setState(pushState());
+        toast(r.message);
+        if (r.ok) setSubscribed(true);
+        return;
+      }
+      const r = await pushTest(role);
+      const web = (r as { web?: number }).web ?? 0;
+      toast(web > 0 ? 'أُرسل إشعار تجريبي — يصلك خلال ثوانٍ' : 'لم يُسجَّل هذا المتصفح بعد — اضغط «تفعيل» مرة أخرى');
+      if (!web) setSubscribed(false);
+    } catch (e) {
+      report('test', e);
+      toast(e instanceof Error ? e.message : 'تعذرت التجربة');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hint: Record<State, string> = {
+    granted: subscribed === false ? 'الإذن ممنوح لكن المتصفح غير مسجّل — اضغط «تفعيل»' : 'تصلك الإشعارات على هذا المتصفح حتى والموقع مغلق',
+    default: 'غير مفعّلة — لن تصلك الطلبات والرسائل والتنبيهات',
+    denied: ios() ? 'مرفوضة — فعّلها من: الإعدادات ← الإشعارات ← ديما الفريق' : 'مرفوضة — فعّلها من رمز القفل بجانب عنوان الموقع ← الإشعارات ← سماح',
+    'ios-install': 'على الآيفون: أضف الموقع للشاشة الرئيسية (مشاركة ← إضافة إلى الشاشة الرئيسية) وافتحه من الأيقونة',
+    'old-ios': 'تحتاج iOS 16.4 أو أحدث',
+    insecure: 'تعمل من الرابط الآمن team.deemaalhayat.com فقط',
+    unsupported: 'هذا المتصفح لا يدعم الإشعارات',
+  };
+  const canAct = on || state === 'default' || state === 'insecure' || (state === 'granted' && subscribed !== true);
+  return (
+    <section className="t-section">
+      <div className="t-section-head">
+        <h2>الإشعارات</h2>
+      </div>
+      <div className="t-card pad" style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className={`t-tile ${on ? 'ok' : state === 'denied' ? 'bad' : 'accent'}`}>
+            <I.bell size={19} />
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 620 }}>{on ? 'مفعّلة على هذا المتصفح' : 'الإشعارات غير مفعّلة'}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.7 }}>{hint[state]}</div>
+          </div>
+        </div>
+        {canAct && (
+          <button type="button" className="t-btn soft sm press" disabled={busy} onClick={() => void run()}>
+            {busy ? <span className="spinner" style={{ borderTopColor: 'var(--brand)' }} /> : on ? 'إرسال إشعار تجريبي' : state === 'insecure' ? 'فتح الرابط الآمن' : 'تفعيل الإشعارات'}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
