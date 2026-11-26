@@ -4,6 +4,9 @@ COPY package.json ./
 RUN npm install
 COPY . .
 RUN npm run build
+# موقع الفريق: نفس تطبيق الهاتف (كل خصائصه) كموقع تحت /staff/ — للآيفون والحاسبة
+ARG TEAM_APP_VERSION=2.3.0
+RUN VITE_TARGET=app VITE_WEB=1 VITE_APP_VERSION=$TEAM_APP_VERSION npx vite build --base /staff/ --outDir dist/staff --emptyOutDir
 
 FROM nginx:1.27-alpine
 ENV NGINX_ENVSUBST_FILTER=FOT_SHOP_API_URL

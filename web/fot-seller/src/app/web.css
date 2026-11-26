@@ -1,0 +1,72 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * الموقع (نفس التطبيق في المتصفح): على شاشة الحاسبة يظهر التطبيق في عمود بعرض الهاتف
+ * في الوسط، وكل ما هو مثبّت على الشاشة (الشريط السفلي، الأوراق، المحادثة…) يتبع العمود.
+ * على الهاتف لا يتغير شيء. لا يُطبَّق داخل تطبيق أندرويد (html.native).
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+@media (min-width: 720px) {
+  html.web {
+    --frame: 560px;
+    /* هامش العمود من حافتي النافذة */
+    --frame-x: max(0px, calc((100vw - var(--frame)) / 2));
+  }
+  html.web body {
+    background:
+      radial-gradient(1200px 600px at 85% -10%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 60%),
+      var(--bg-sunk, var(--bg));
+  }
+  html.web #root {
+    position: relative;
+    max-width: var(--frame);
+    min-height: 100dvh;
+    margin-inline: auto;
+    background: var(--bg);
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 30px 80px -30px rgba(20, 10, 50, 0.35);
+  }
+  html.web .t-tabs {
+    inset-inline: calc(var(--frame-x) + 14px);
+  }
+  html.web .t-sheet,
+  html.web .t-toast,
+  html.web .t-room,
+  html.web .t-lr {
+    inset-inline: var(--frame-x);
+  }
+  html.web .t-sheet {
+    border-radius: 26px 26px 0 0;
+  }
+  html.web .t-fab {
+    inset-inline-start: calc(var(--frame-x) + 18px);
+  }
+  /* شاشات بملء النافذة تبقى كذلك: البدء، التحديث، عارض الصور، خلفية الورقة */
+}
+
+/* شريط «ثبّت الموقع على الشاشة الرئيسية» للآيفون */
+.w-install {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 14px;
+  padding: 11px 12px;
+  border-radius: 16px;
+  background: var(--brand-soft);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.w-install b {
+  font-weight: 800;
+}
+.w-install button {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+}
