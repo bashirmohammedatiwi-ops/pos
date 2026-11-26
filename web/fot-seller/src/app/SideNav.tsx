@@ -81,6 +81,16 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
     return () => document.documentElement.classList.remove('side-mini');
   }, [mini]);
   usePaletteHotkey(openPk, desktop && !isNative());
+  // زر العودة للأعلى في الصفحات الطويلة
+  const [farDown, setFarDown] = useState(false);
+  useEffect(() => {
+    if (!desktop || isNative()) return;
+    const f = () => setFarDown(window.scrollY > 700);
+    f();
+    window.addEventListener('scroll', f, { passive: true });
+    return () => window.removeEventListener('scroll', f);
+  }, [desktop]);
+  useEffect(() => setFarDown(window.scrollY > 700), [loc.pathname]);
   // «?» يعرض اختصارات لوحة المفاتيح
   const [kb, setKb] = useState(false);
   useEffect(() => {
@@ -212,6 +222,11 @@ export function SideNav({ main, groups, user, role, home }: { main: SideLink[]; 
         </div>
       </div>
       <Palette open={pk} onClose={() => setPk(false)} items={items} />
+      {farDown && (
+        <button type="button" className="w-top" aria-label="العودة للأعلى" title="العودة للأعلى" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <I.chevron size={18} />
+        </button>
+      )}
       <Sheet open={kb} onClose={() => setKb(false)} title="اختصارات لوحة المفاتيح" subtitle="للعمل أسرع على الحاسبة">
         <ul className="kb-list">
           {(

@@ -1634,3 +1634,144 @@ html.web.theme-anim * {
 .np-foot:hover {
   background: var(--brand-soft);
 }
+
+/* ═════════════ الصفحات الداخلية (2) ═════════════ */
+@media (min-width: 1024px) {
+  /* التقويم: خلايا بارتفاع ثابت بدل مربعات ضخمة */
+  html.web .t-day {
+    aspect-ratio: auto;
+    height: 66px;
+    font-size: 17px;
+  }
+  html.web .t-day small {
+    font-size: 11px;
+  }
+  html.web .t-cal {
+    gap: 8px;
+  }
+  /* الطلبات والتنبيهات (الموافقات، دوام المدراء، يحتاج انتباهك): بطاقتان في كل صف */
+  html.web .m-todo:has(> :nth-child(3)) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+  html.web .m-todo:has(> :nth-child(3)) > * {
+    margin: 0 !important;
+  }
+  /* بصمتي: الخط الزمني بجانب تفاصيل اليوم */
+  html.web .t-section:has(> .m-tl):has(> .m-day-detail) {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 0 18px;
+    align-items: start;
+  }
+  html.web .t-section:has(> .m-tl):has(> .m-day-detail) > .t-section-head {
+    grid-column: 1 / -1;
+  }
+  html.web .t-section:has(> .m-tl) > .m-day-detail {
+    position: sticky;
+    top: 80px;
+    margin-top: 0 !important;
+  }
+}
+
+/* زر العودة للأعلى (الحاسبة) */
+.w-top {
+  display: none;
+}
+@media (min-width: 1024px) {
+  html.web .w-top {
+    position: fixed;
+    z-index: 34;
+    inset-inline-end: 32px;
+    bottom: 100px;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid var(--line-2);
+    border-radius: 15px;
+    background: var(--bg-elev);
+    color: var(--ink-2);
+    box-shadow: var(--shadow-2);
+    animation: pk-in 0.2s var(--ease);
+  }
+  html.web .w-top:hover {
+    color: var(--brand);
+    border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
+    transform: translateY(-2px);
+  }
+  html.web .w-top svg {
+    transform: rotate(90deg);
+  }
+  html.web:not(:has(.t-fab)) .w-top {
+    bottom: 32px;
+  }
+}
+
+/* ═════════════ الطباعة (Ctrl+P): المحتوى فقط على ورق أبيض ═════════════ */
+@media print {
+  :root,
+  :root[data-theme='dark'] {
+    --bg: #fff;
+    --bg-elev: #fff;
+    --bg-sunk: #f4f4f6;
+    --ink: #111;
+    --ink-2: #222;
+    --ink-3: #555;
+    --ink-4: #777;
+    --line: #ddd;
+    --line-2: #ccc;
+    --shadow-1: none;
+    --shadow-2: none;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .w-side,
+  .t-tabs,
+  .t-bar,
+  .t-fab,
+  .wp-bar,
+  .w-update,
+  .w-top,
+  .t-toast,
+  .in-card-wrap,
+  .np,
+  .pk-scrim,
+  .t-pull {
+    display: none !important;
+  }
+  html.web #root {
+    margin: 0 !important;
+  }
+  .t-page,
+  .t-greet,
+  .t-date {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .t-page > *,
+  .h-main > *,
+  .h-aside > * {
+    animation: none !important;
+  }
+  .t-card,
+  .t-list,
+  .t-row,
+  .cz-card,
+  .c-box,
+  .m-alert,
+  .t-post {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
