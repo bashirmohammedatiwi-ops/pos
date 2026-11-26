@@ -5,9 +5,10 @@ import { getLastId, getSeller, getToken, refreshSession, setSeller, setToken } f
 import { clearBrandCache, useBrandList } from '../brands';
 import { useSeller, SellerProvider } from '../store';
 import { UpdateCheck } from './Update';
+import { SideNav, type SideGroup } from './SideNav';
 import { WebUpdate } from './WebUpdate';
 import { WebPush, webPushLogout } from './WebPush';
-import { clearTeam, getLastCode, getTeamMe, getTeamToken, refreshTeam, registerPush, setLastCode, setTeamMe, unregisterPush } from '../team';
+import { KIND_LABEL, clearTeam, getLastCode, getTeamMe, getTeamToken, refreshTeam, registerPush, setLastCode, setTeamMe, unregisterPush } from '../team';
 import { setFileSaver } from '../xlsx';
 import { I, ToastHost, toast } from './kit';
 import { ManagerApp } from './manager/ManagerApp';
@@ -26,7 +27,7 @@ import { More, type MoreItem } from './screens/More';
 import { Posts } from './screens/Posts';
 import { Shift } from './screens/Shift';
 import { MyMonth } from './screens/MyMonth';
-import { ChatList, ChatRoom } from './screens/Chat';
+import { ChatList, ChatSplit } from './screens/Chat';
 import { getManagerToken, managerApi, onLive, staffApi, supervisorMode, useChatUnread, useLiveChannel, useLoad, useUnread } from './work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -48,10 +49,27 @@ const MoreIcon = () => (
 /** صفحات تُفتح من «المزيد» تُحسب لتبويب «المزيد» في الشريط. */
 const MORE_CHILDREN = ['/goals', '/brands', '/account', '/posts', '/alerts', '/catalog'];
 
-function TabBar({ tabs }: { tabs: Tab[] }) {
+function TabBar({ tabs, more }: { tabs: Tab[]; more?: MoreItem[] }) {
   const loc = useLocation();
   const hasMore = tabs.some(t => t.to === '/more');
+  // الحاسبة: قائمة جانبية فيها التبويبات وكل صفحات «المزيد» مجمّعة
+  const groups: SideGroup[] = [];
+  for (const m of more ?? []) {
+    const title = m.group ?? 'أخرى';
+    let g = groups.find(x => x.title === title);
+    if (!g) groups.push((g = { title, items: [] }));
+    if (!tabs.some(t => t.to === m.to)) g.items.push({ to: m.to, label: m.label, icon: m.icon, badge: m.badge });
+  }
+  const me = getTeamMe();
   return (
+    <>
+    <SideNav
+      home="/"
+      main={tabs.filter(t => t.to !== '/more').map(t => ({ to: t.to, label: t.label, icon: t.icon({}), badge: t.badge }))}
+      groups={groups}
+      user={me?.name ?? getSeller()?.name}
+      role={me ? KIND_LABEL[me.kind] ?? 'موظف' : 'بائع'}
+    />
     <nav className="t-tabs" aria-label="التنقل">
       {tabs.map(t => {
         const owned = tabs.some(x => x.to !== '/' && loc.pathname.startsWith(x.to));
@@ -79,6 +97,7 @@ function TabBar({ tabs }: { tabs: Tab[] }) {
         );
       })}
     </nav>
+    </>
   );
 }
 
@@ -222,12 +241,12 @@ function SellerShell({ onLogout }: { onLogout: () => void }) {
         {team && <Route path="/my-month" element={<MyMonth back="/more" />} />}
         {team && <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />}
         {team && <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={canGroup} />} />}
-        {team && <Route path="/chat/:id" element={<ChatRoom role="staff" base="/chat" />} />}
+        {team && <Route path="/chat/:id" element={<ChatSplit role="staff" base="/chat" canGroup={canGroup} />} />}
         {team && <Route path="/posts" element={<Posts back="/more" />} />}
         {team && <Route path="/more" element={<More items={moreItems} />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <TabBar tabs={tabs} />
+      <TabBar tabs={tabs} more={team ? moreItems : undefined} />
     </div>
   );
 }
@@ -273,12 +292,12 @@ function StaffShell({ onLogout, seller, brands }: { onLogout: () => void; seller
         {brands && <Route path="/brands" element={<Brands back="/more" />} />}
         <Route path="/alerts" element={<Alerts role="staff" back="/more" />} />
         <Route path="/chat" element={<ChatList role="staff" base="/chat" canGroup={account.canGroup} />} />
-        <Route path="/chat/:id" element={<ChatRoom role="staff" base="/chat" />} />
+        <Route path="/chat/:id" element={<ChatSplit role="staff" base="/chat" canGroup={account.canGroup} />} />
         <Route path="/more" element={<More items={moreItems} />} />
         <Route path="/account" element={<Account onLogout={onLogout} back="/more" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <TabBar tabs={tabs} />
+      <TabBar tabs={tabs} more={moreItems} />
     </div>
   );
 }

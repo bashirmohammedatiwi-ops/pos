@@ -4,7 +4,7 @@
  * على الهاتف لا يتغير شيء. لا يُطبَّق داخل تطبيق أندرويد (html.native).
  * ───────────────────────────────────────────────────────────────────────────── */
 
-@media (min-width: 720px) {
+@media (min-width: 720px) and (max-width: 1023.98px) {
   html.web {
     --frame: 560px;
     /* هامش العمود من حافتي النافذة */
@@ -141,8 +141,348 @@
 .t-room ~ .wp-bar {
   bottom: calc(var(--safe-b, 0px) + 16px);
 }
-@media (min-width: 720px) {
+@media (min-width: 720px) and (max-width: 1023.98px) {
   html.web .wp-bar {
     inset-inline: calc(var(--frame-x) + 14px);
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * الحاسبة (1024px فأعرض، في المتصفح فقط): قائمة جانبية، محتوى عريض، نوافذ عائمة.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+.w-side {
+  display: none;
+}
+@media (min-width: 1024px) {
+  html.web {
+    --side-w: 276px;
+    --content-w: 980px;
+    /* المسافة من حافة القائمة إلى عمود المحتوى */
+    --content-x: max(32px, calc((100vw - var(--side-w) - var(--content-w)) / 2));
+  }
+  html.web body {
+    background: var(--bg);
+  }
+
+  /* ── القائمة الجانبية ── */
+  html.web .w-side {
+    position: fixed;
+    z-index: 35;
+    top: 0;
+    bottom: 0;
+    inset-inline-start: 0;
+    display: flex;
+    flex-direction: column;
+    width: var(--side-w);
+    padding: 22px 16px 18px;
+    overflow-y: auto;
+    background: var(--bg-elev);
+    border-inline-end: 1px solid var(--line);
+    scrollbar-width: thin;
+  }
+  .w-side-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 0 6px 18px;
+  }
+  .w-side-brand b {
+    display: block;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .w-side-brand small,
+  .w-side-user small {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .w-side-mark {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background: var(--grad-brand);
+    box-shadow: var(--glow-brand);
+  }
+  .w-side-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    background: var(--bg-sunk);
+  }
+  .w-side-user b {
+    display: block;
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .w-side-user > span:last-child {
+    min-width: 0;
+  }
+  .w-side-avatar {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+    background: var(--brand-soft);
+    color: var(--brand);
+  }
+  .w-side-nav {
+    display: grid;
+    gap: 2px;
+  }
+  .w-side-group {
+    display: grid;
+    gap: 2px;
+    margin-top: 14px;
+  }
+  .w-side-group h3 {
+    margin: 0 0 4px;
+    padding: 0 12px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--ink-4);
+  }
+  .w-side-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-height: 42px;
+    padding: 0 12px;
+    border-radius: 13px;
+    color: var(--ink-2);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color 0.18s var(--ease),
+      color 0.18s var(--ease);
+  }
+  .w-side-link .ico {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    color: var(--ink-3);
+  }
+  .w-side-link .ico svg {
+    width: 20px;
+    height: 20px;
+  }
+  .w-side-link .lbl {
+    flex: 1;
+    min-width: 0;
+  }
+  .w-side-link:hover {
+    background: var(--bg-sunk);
+    color: var(--ink);
+  }
+  .w-side-link.on {
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+    font-weight: 750;
+  }
+  .w-side-link.on .ico {
+    color: var(--brand);
+  }
+  .w-side-link.on::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: -16px;
+    top: 9px;
+    bottom: 9px;
+    width: 4px;
+    border-radius: 0 4px 4px 0;
+    background: var(--brand);
+  }
+  [dir='rtl'] .w-side-link.on::before {
+    border-radius: 4px 0 0 4px;
+  }
+  .w-side-badge {
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: 99px;
+    background: var(--bad);
+    color: #fff;
+    font-size: 11.5px;
+    font-weight: 800;
+    text-align: center;
+  }
+
+  /* ── المحتوى بجانب القائمة ── */
+  html.web #root:has(.w-side) {
+    margin-inline-start: var(--side-w);
+  }
+  html.web .t-tabs {
+    display: none;
+  }
+  html.web .t-app,
+  html.web .t-app.no-tabs {
+    padding-bottom: 48px;
+  }
+  /* رأس الصفحة وتحية الرئيسية بمحاذاة عمود المحتوى */
+  html.web .t-bar {
+    height: 64px;
+    padding: 0 calc(var(--content-x) + 26px);
+  }
+  html.web .t-greet {
+    max-width: var(--content-w);
+    margin-inline: auto;
+    padding: 28px 32px 10px;
+  }
+  html.web .t-page {
+    max-width: var(--content-w);
+    margin-inline: auto;
+    padding: 0 32px;
+  }
+  html.web .t-large {
+    padding: 8px 0 22px;
+  }
+  html.web .t-large h1 {
+    font-size: 34px;
+  }
+  html.web .t-large p {
+    font-size: 14.5px;
+  }
+
+  /* ── شبكات أعرض ── */
+  html.web .c-grid,
+  html.web .m-stats,
+  html.web .t-board-counts {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  html.web .c-sum,
+  html.web .s-kpis,
+  html.web .t-kpis,
+  html.web .t-stats.two {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  html.web .c-sum .e-wide {
+    grid-column: span 2;
+  }
+  html.web .t-stats {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  html.web .t-menu {
+    grid-template-columns: repeat(5, 1fr);
+  }
+  html.web .t-cat {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  html.web .t-quick {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  /* ── النوافذ: بطاقة عائمة في وسط المحتوى بدل الورقة السفلية ── */
+  html.web .t-sheet {
+    inset-inline-start: calc(var(--side-w, 0px) + max(24px, (100vw - var(--side-w, 0px) - 560px) / 2));
+    inset-inline-end: auto;
+    width: min(560px, calc(100vw - var(--side-w, 0px) - 48px));
+    bottom: 28px;
+    max-height: calc(100dvh - 56px);
+    border-radius: 28px;
+  }
+  html.web #root:not(:has(.w-side)) .t-sheet {
+    --side-w: 0px;
+  }
+  html.web .t-sheet-grab {
+    display: none;
+  }
+  html.web .t-toast {
+    inset-inline-start: var(--side-w);
+  }
+  html.web .t-room,
+  html.web .t-lr {
+    inset-inline-start: var(--side-w);
+    inset-inline-end: 0;
+  }
+  html.web .t-fab {
+    inset-inline-start: auto;
+    inset-inline-end: 32px;
+    bottom: 32px;
+  }
+  /* شريط الإشعارات: حبة صغيرة بجانب القائمة (الزر العائم في الطرف الآخر) */
+  html.web .wp-bar {
+    inset-inline-start: calc(var(--side-w) + 24px);
+    inset-inline-end: auto;
+    bottom: 24px;
+    width: auto;
+    max-width: 420px;
+    margin: 0;
+  }
+  html.web .w-update {
+    inset-inline-start: calc(var(--side-w) + 24px);
+  }
+
+  /* ── الدخول: شاشة مقسومة (الترحيب والساعة جانباً، النموذج جانباً) ── */
+  html.web .lg {
+    flex-direction: row;
+  }
+  html.web .lg .lg-top {
+    flex: 1;
+    min-height: 100dvh;
+    justify-content: space-between;
+    padding: 48px 56px;
+  }
+  html.web .lg-clock b {
+    font-size: 84px;
+  }
+  html.web .lg-clock small {
+    font-size: 18px;
+  }
+  html.web .lg-greet {
+    font-size: 15px;
+    padding: 6px 14px;
+  }
+  html.web .lg .lg-sheet {
+    flex: 0 0 480px;
+    margin: 0;
+    padding: 64px 48px 32px;
+    border-radius: 0;
+    box-shadow: none;
+    justify-content: center;
+  }
+  html.web .lg .lg-sheet > div:first-child {
+    margin-top: auto;
+  }
+  html.web .lg-tip {
+    display: none;
+  }
+}
+
+/* المحادثات على الحاسبة: القائمة (400px) بجانب المحادثة المفتوحة */
+@media (min-width: 1024px) {
+  html.web .chat-split .t-page {
+    max-width: 400px;
+    margin-inline: 0;
+    padding: 0 18px;
+  }
+  html.web .chat-split .t-bar {
+    width: 400px;
+    padding: 0 18px;
+  }
+  html.web .chat-split .t-large h1 {
+    font-size: 26px;
+  }
+  html.web .chat-split .t-room {
+    inset-inline-start: calc(var(--side-w) + 400px);
+    border-inline-start: 1px solid var(--line);
+    animation: none;
+  }
+  html.web .chat-split .t-fab {
+    inset-inline-end: auto;
+    inset-inline-start: calc(var(--side-w) + 18px);
+    bottom: 84px;
   }
 }

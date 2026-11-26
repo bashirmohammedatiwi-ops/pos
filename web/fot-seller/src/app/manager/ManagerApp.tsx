@@ -5,7 +5,7 @@ import { Badge, Empty, ErrorLine, Fab, I, Screen, Segmented, Sheet, Skeleton, Sw
 import { getThemePref, haptic, hapticsOn, setHapticsOn, setThemePref, type ThemePref } from '../native';
 import { BackBtn, ImagePicker, LEAVE_ICON, Lightbox, PostCard, ProfileCard, StatusBadge } from '../parts';
 import { Alerts } from '../screens/Alerts';
-import { ChatList, ChatRoom } from '../screens/Chat';
+import { ChatList, ChatSplit } from '../screens/Chat';
 import { MAttend, MNetworks } from './ManagerAttend';
 import { LeaveCard, MHome } from './ManagerHome';
 import { MManagers, MSelf } from './ManagerSelf';
@@ -13,6 +13,7 @@ import { MCash, MCashBox } from './ManagerCash';
 import { MEdariSales } from './ManagerEdariSales';
 import { MCashFlow } from './ManagerCashFlow';
 import { WebPushCard, webPushLogout } from '../WebPush';
+import { SideNav, type SideGroup } from '../SideNav';
 import { MReports } from './ManagerReports';
 import { MPerformance } from './ManagerPerformance';
 import { MSales } from './ManagerSales';
@@ -138,6 +139,40 @@ export function ManagerApp() {
   const loc = useLocation();
   const locRef = useRef(loc.pathname);
   locRef.current = loc.pathname;
+  // الحاسبة: كل صفحات «المزيد» في القائمة الجانبية بنفس الصلاحيات
+  const sideGroups: SideGroup[] = sup
+    ? []
+    : [
+        {
+          title: 'دوامي',
+          items: [
+            { to: '/m/self', label: 'بصمتي وساعاتي', icon: <I.clock size={19} /> },
+            ...(perms.viewManagers ? [{ to: '/m/managers', label: 'دوام المدراء', icon: <I.calendar size={19} /> }] : []),
+          ],
+        },
+        {
+          title: 'المتابعة',
+          items: [
+            ...(perms.viewCash ? [{ to: '/m/cash', label: 'الصناديق', icon: <I.wallet size={19} /> }] : []),
+            ...(perms.viewInvoices ? [{ to: '/m/invoices', label: 'الفواتير', icon: <I.receipt size={19} /> }] : []),
+            ...(perms.viewSales ? [{ to: '/m/performance', label: 'التحليلات', icon: <I.target size={19} /> }] : []),
+            ...(perms.viewAttendance ? [{ to: '/m/reports', label: 'تقارير الحضور', icon: <I.chart size={19} /> }] : []),
+            ...(perms.viewAttendance ? [{ to: '/m/hours', label: 'الدوام بالساعات', icon: <I.clock size={19} /> }] : []),
+          ],
+        },
+        {
+          title: 'الفريق والتواصل',
+          items: [
+            ...(perms.approveLeave && approvalsInMore ? [{ to: '/m/approvals', label: 'الموافقات', icon: <I.check size={19} />, badge: pending }] : []),
+            { to: '/m/team', label: 'الفريق والعطل', icon: <I.user size={19} /> },
+            { to: '/m/alerts', label: 'التبليغات', icon: <I.bell size={19} />, badge: unread },
+            { to: '/m/posts', label: 'الإعلانات', icon: <I.megaphone size={19} /> },
+            ...(perms.sendPosts ? [{ to: '/m/notify', label: 'تبليغ سريع', icon: <I.megaphone size={19} /> }] : []),
+            ...(perms.viewAttendance ? [{ to: '/m/networks', label: 'شبكات المحل', icon: <I.store size={19} /> }] : []),
+            { to: '/m/more', label: 'الإعدادات والحساب', icon: <I.shield size={19} /> },
+          ],
+        },
+      ];
   const MORE_PAGES = ['/m/alerts', '/m/notify', '/m/posts', '/m/team', '/m/networks', '/m/reports', '/m/performance', '/m/invoices', '/m/hours', '/m/managers', '/m/self', '/m/cash', ...(approvalsInMore ? ['/m/approvals'] : [])];
 
   return (
@@ -164,12 +199,19 @@ export function ManagerApp() {
         <Route path="cash/flow" element={perms.viewCash && !sup ? <MCashFlow /> : <Navigate to="/m" replace />} />
         <Route path="cash/:seq" element={perms.viewCash && !sup ? <MCashBox /> : <Navigate to="/m" replace />} />
         <Route path="chat" element={sup ? <Navigate to="/chat" replace /> : <ChatList role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
-        <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatRoom role="manager" base="/m/chat" />} />
+        <Route path="chat/:id" element={sup ? <Navigate to="/chat" replace /> : <ChatSplit role="manager" base="/m/chat" canGroup={perms.manageChat} />} />
         <Route path="more" element={<MMore unread={unread} pending={approvalsInMore ? pending : 0} onLogout={logout} />} />
         <Route path="alerts" element={<Alerts role={sup ? 'staff' : 'manager'} back="/m/more" />} />
         <Route path="notify" element={<MNotify />} />
         <Route path="*" element={<Navigate to="/m" replace />} />
       </Routes>
+      <SideNav
+        home="/m"
+        main={tabs.filter(t => t.to !== '/m/more').map(t => ({ to: t.to, label: t.label, icon: t.icon({}), badge: t.badge }))}
+        groups={sideGroups}
+        user={sup ? getTeamMe()?.name : getManagerMe()?.displayName}
+        role={sup ? 'مسؤول' : 'مدير'}
+      />
       <nav className="t-tabs" aria-label="التنقل">
         {tabs.map(t => {
           const on = t.to === '/m' ? loc.pathname === '/m' || loc.pathname === '/m/' : loc.pathname.startsWith(t.to) || (t.to === '/m/more' && MORE_PAGES.some(x => loc.pathname.startsWith(x)));

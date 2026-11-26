@@ -90,6 +90,21 @@ export function Login() {
             <small>تطبيق الفريق</small>
           </span>
         </div>
+        {/* الحاسبة: ما يقدمه التطبيق (مخفي على الهاتف) */}
+        <ul className="lg-feats">
+          <li>
+            <I.clock size={20} /> الحضور والانصراف والاستراحة من شبكة المحل
+          </li>
+          <li>
+            <I.wallet size={20} /> عمولتك وأهدافك ومبيعاتك لحظة بلحظة
+          </li>
+          <li>
+            <I.chat size={20} /> المحادثات والتبليغات وإعلانات الإدارة
+          </li>
+          <li>
+            <I.calendar size={20} /> دوامك وعطلك وطلبات الإجازة
+          </li>
+        </ul>
         <div className="lg-clock">
           <span className="lg-greet">{who === 'staff' ? greet : 'دخول المدراء'}</span>
           <b className="num">{time}</b>
@@ -250,6 +265,29 @@ function StaffLogin() {
     setPin(next);
     if (next.length === PIN_MAX) setTimeout(() => void submit(next), 120);
   }
+
+  // لوحة المفاتيح (الحاسبة): الأرقام، الحذف، و Enter للدخول
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  keyRef.current = (e: KeyboardEvent) => {
+    if (step !== 'pin' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const digit = /^[0-9]$/.test(e.key) ? e.key : /^[٠-٩]$/.test(e.key) ? String('٠١٢٣٤٥٦٧٨٩'.indexOf(e.key)) : null;
+    if (digit) {
+      e.preventDefault();
+      press(digit);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      setErr('');
+      setPin(p => p.slice(0, -1));
+    } else if (e.key === 'Enter' && pinRef.current.length >= 4) {
+      e.preventDefault();
+      void submit(pinRef.current);
+    }
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
 
   const remembered = !!name && !!savedCode && code.trim() === savedCode;
   const firstName = name.split(' ')[0];

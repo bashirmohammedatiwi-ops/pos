@@ -4,7 +4,7 @@ import { Avatar, Empty, ErrorLine, Fab, I, Screen, Sheet, Skeleton, Switch, toas
 import { haptic, openAppSettings, pushBack } from '../native';
 import { Lightbox } from '../parts';
 import { KIND_LABEL } from '../../team';
-import { apiUrl, platform } from '../../config';
+import { apiUrl, platform, isNative } from '../../config';
 import { chatApi, compressChatImage, dataUrlBytes, mediaUrl, onLive, useLoad, usePerms, type ChatConv, type ChatMsg, type ChatPerson, type ChatPresence, type Role } from '../work';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -847,6 +847,29 @@ function ForwardSheet({ role, count, open, onClose, onSend }: { role: Role; coun
 }
 
 /* ═════════════ غرفة المحادثة ═════════════ */
+/** متصفح بفأرة ولوحة مفاتيح (لا تطبيق الهاتف ولا شاشة لمس) */
+const desktopKeys = () => !isNative() && !!window.matchMedia?.('(pointer: fine)').matches;
+/** شاشة الحاسبة العريضة في المتصفح: قائمة المحادثات بجانب المحادثة المفتوحة */
+const wideWeb = () => !isNative() && !!window.matchMedia?.('(min-width: 1024px)').matches;
+
+export function ChatSplit({ role, base, canGroup }: { role: Role; base: string; canGroup?: boolean }) {
+  const [wide, setWide] = useState(wideWeb);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(min-width: 1024px)');
+    if (!mq) return;
+    const on = () => setWide(wideWeb());
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  if (!wide) return <ChatRoom role={role} base={base} />;
+  return (
+    <div className="chat-split">
+      <ChatList role={role} base={base} canGroup={canGroup} />
+      <ChatRoom role={role} base={base} />
+    </div>
+  );
+}
+
 export function ChatRoom({ role, base }: { role: Role; base: string }) {
   const { id: idParam } = useParams();
   const id = Number(idParam);
@@ -1514,6 +1537,13 @@ export function ChatRoom({ role, base }: { role: Role; base: string }) {
               e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`;
             }}
             onFocus={() => scrollDown(true)}
+            onKeyDown={e => {
+              // الحاسبة: Enter يرسل و Shift+Enter سطر جديد (الهاتف: Enter سطر جديد كما هو)
+              if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || !desktopKeys()) return;
+              e.preventDefault();
+              if (editing) void saveEdit();
+              else if (text.trim()) void send();
+            }}
           />
           {editing ? (
             <button type="button" className="t-send press" aria-label="حفظ التعديل" disabled={!text.trim() && !editing.image} onClick={() => void saveEdit()}>
